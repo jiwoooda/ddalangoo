@@ -1,0 +1,19 @@
+from app.repositories import external_api_log_repository
+from typing import Optional
+
+def get_external_api_logs(provider: Optional[str] = None, success: Optional[bool] = None,
+                           conversation_id: Optional[int] = None, limit: Optional[int] = None) -> dict:
+    logs = external_api_log_repository.get_all_logs()
+    if provider:
+        logs = [l for l in logs if l.get("provider") == provider]
+    if success is not None:
+        logs = [l for l in logs if l.get("success") == success]
+    if conversation_id is not None:
+        logs = [l for l in logs if l.get("conversation_id") == conversation_id]
+    if limit:
+        logs = logs[:limit]
+    return {"logs": [{"logId": l["id"], "userId": l.get("user_id"), "conversationId": l.get("conversation_id"),
+                      "provider": l.get("provider"), "apiName": l.get("api_name"), "statusCode": l.get("status_code"),
+                      "success": l.get("success"), "requestSummary": l.get("request_summary"),
+                      "responseSummary": l.get("response_summary"), "errorMessage": l.get("error_message"),
+                      "createdAt": l.get("created_at")} for l in logs]}
