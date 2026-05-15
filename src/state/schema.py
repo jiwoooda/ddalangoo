@@ -9,6 +9,7 @@ Stage = Literal[
     "idle",
     "searching",
     "product_confirming",
+    "cart_shopping",        # 장바구니 담긴 후 추가 쇼핑 여부 대기
     "payment_processing",
     "completed",
     "failed",
@@ -46,6 +47,8 @@ PendingActionType = Literal[
     "option_select",
     "address_confirm",
     "price_change_confirm",
+    "quantity_confirm",
+    "continue_shopping",
 ]
 
 class PendingAction(TypedDict, total=False):
@@ -104,6 +107,9 @@ class ShoppingState(TypedDict):
     session_id: str
     conversation_id: Optional[int]
     user_id: str
+
+    # ── 브라우저 세션 (장바구니 storageState 유지) ──
+    storage_state_path: Optional[str]
 
     # ── Memory Agent → Platform/Product 전달 context ──
     recommendation_context: Optional[dict[str, Any]]
@@ -327,6 +333,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "conversation_id": None,
         "user_id": user_id,
         "recommendation_context": None,
+        "storage_state_path": None,
         "current_option_value": None,
         "address_text": None,
     }

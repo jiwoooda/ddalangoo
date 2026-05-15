@@ -6,6 +6,7 @@ RouteName = Literal[
     "platform_agent",
     "product_agent",
     "payment_agent",
+    "quantity_check",
     "respond",
     "interrupt_payment",
     "end",
@@ -43,9 +44,25 @@ def route(state: ShoppingState) -> RouteName:
     if stage == "payment_processing":
         return "payment_agent"
 
-    # ── 4. 상품 확인 단계 ──
-    if stage == "product_confirming":
+    # ── 4. 장바구니 담긴 후 추가 쇼핑 여부 ──
+    if stage == "cart_shopping":
         if intent == "confirm":
+            return "payment_agent"      # "결제할게요"
+        if intent in ("deny", "next", "buy", "refine", "compare_platforms"):
+            return "platform_agent"     # "더 쇼핑할게요" (동일 플랫폼 유지)
+        return "respond"
+
+    # ── 5. 상품 확인 단계 ──
+    if stage == "product_confirming":
+        pending_type = (state.get("pending_action") or {}).get("type")
+
+        # quantity_confirm 대기 중이고 수량이 채워지면 결제로
+        if pending_type == "quantity_confirm" and state.get("quantity"):
+            return "payment_agent"
+
+        if intent == "confirm":
+            if not state.get("quantity"):
+                return "quantity_check"
             return "payment_agent"
 
         if intent in ("deny", "next", "ask"):

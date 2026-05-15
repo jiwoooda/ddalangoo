@@ -55,6 +55,12 @@ def _select_platforms(state: ShoppingState, recommendation_context: dict) -> lis
     if override:
         return [override]
 
+    # cart_shopping에서 넘어온 경우: 동일 플랫폼 유지 (재선택 스킵)
+    if state.get("stage") == "cart_shopping":
+        current = state.get("selected_platform")
+        if current and current != "multi":
+            return [current]
+
     target = state.get("target_platforms") or []
     if target:
         return target

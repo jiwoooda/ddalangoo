@@ -93,7 +93,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
         "keywords": parsed.get("keywords") or [],
         "exclude_keywords": parsed.get("exclude_keywords") or [],
         "negative_constraints": parsed.get("negative_constraints") or [],
-        "quantity": parsed.get("quantity"),
+        "quantity": parsed.get("quantity") if parsed.get("quantity") is not None else state.get("quantity"),
         "condition": parsed.get("condition"),
         "target_platforms": parsed.get("target_platforms") or [],
         "override_platform": parsed.get("override_platform"),

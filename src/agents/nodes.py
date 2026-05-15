@@ -56,6 +56,20 @@ def respond_node(state: ShoppingState) -> dict:
     }
 
 
+def quantity_check_node(state: ShoppingState) -> dict:
+    """
+    상품 확인 후 수량이 없을 때 호출.
+    pending_action으로 수량 질문을 설정하고 respond로 넘긴다.
+    """
+    product_name = (state.get("selected_product") or {}).get("product_name", "해당 상품")
+    return {
+        "pending_action": {
+            "type": "quantity_confirm",
+            "message": f"네, {product_name}으로 구매하겠습니다. 몇 개 살까요?",
+        }
+    }
+
+
 def interrupt_payment_node(state: ShoppingState) -> dict:
     """
     결제 중 cancel 처리.
