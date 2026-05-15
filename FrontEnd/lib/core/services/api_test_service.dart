@@ -1,8 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ddalangoo/core/storage/local_storage.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../storage/local_storage.dart';
 
 /// API 연결 확인 및 가상 로그인을 담당하는 테스트 서비스
 class ApiTestService {
@@ -47,8 +48,8 @@ class ApiTestService {
         '/api/agent/shopping-requests',
         data: {
           'userId': userId,
-          'message': "저번에 먹었던 딸기 다시 사줘",
-          'inputType': "text",
+          'message': '저번에 먹었던 딸기 다시 사줘',
+          'inputType': 'text',
         },
       );
 
