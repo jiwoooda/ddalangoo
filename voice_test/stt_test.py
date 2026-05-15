@@ -8,7 +8,7 @@ import time
 import datetime
 
 # --- 설정 ---
-API_KEY = "AIzaSyB0AecFe54BLROk2wJhDiVgxEYDDvpyPMI" 
+API_KEY = "입력한 API 키" 
 genai.configure(api_key=API_KEY)
 STT_MODEL_NAME = 'models/gemini-3-flash-preview'
 

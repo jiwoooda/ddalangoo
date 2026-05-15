@@ -33,7 +33,7 @@ class GeminiVoiceService {
 
   // Gemini 모델 (STT용)
   GenerativeModel get _model => GenerativeModel(
-    model: 'gemini-2.0-flash',
+    model: 'gemini-3-flash-preview',
     apiKey: dotenv.env['GEMINI_API_KEY'] ?? '',
   );
 
