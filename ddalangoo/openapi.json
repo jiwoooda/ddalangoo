@@ -1867,7 +1867,9 @@
           },
           "selectedProduct": {
             "anyOf": [
-              { "$ref": "#/components/schemas/ProductSummary" },
+              {
+
+              },
               {
                 "type": "null"
               }
@@ -1877,7 +1879,7 @@
           "pendingConfirmation": {
             "anyOf": [
               {
-                "type": "boolean"
+
               },
               {
                 "type": "null"
@@ -1888,8 +1890,7 @@
           "availableOptions": {
             "anyOf": [
               {
-                "type": "array",
-                "items": { "$ref": "#/components/schemas/ProductOptionDetail" }
+
               },
               {
                 "type": "null"
@@ -1899,7 +1900,9 @@
           },
           "deliveryAddress": {
             "anyOf": [
-              { "$ref": "#/components/schemas/ShippingAddress" },
+              {
+
+              },
               {
                 "type": "null"
               }
@@ -1908,7 +1911,9 @@
           },
           "order": {
             "anyOf": [
-              { "$ref": "#/components/schemas/OrderInAgent" },
+              {
+
+              },
               {
                 "type": "null"
               }
@@ -1917,7 +1922,9 @@
           },
           "payment": {
             "anyOf": [
-              { "$ref": "#/components/schemas/OrderPaymentInfo" },
+              {
+
+              },
               {
                 "type": "null"
               }
@@ -1937,7 +1944,9 @@
           },
           "asyncStatus": {
             "anyOf": [
-              { "$ref": "#/components/schemas/AsyncStatus" },
+              {
+
+              },
               {
                 "type": "null"
               }
@@ -3902,64 +3911,6 @@
           "type"
         ],
         "title": "ValidationError"
-      },
-      "OrderInAgent": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/OrderItemInAgent" }
-          },
-          "totalPaymentAmount": {
-            "type": "integer"
-          }
-        },
-        "required": ["items", "totalPaymentAmount"],
-        "title": "OrderInAgent"
-      },
-      "OrderItemInAgent": {
-        "type": "object",
-        "properties": {
-          "productName": {
-            "type": "string"
-          },
-          "totalPrice": {
-            "type": "integer"
-          },
-          "quantity": {
-            "type": "integer",
-            "title": "Quantity"
-          },
-          "imageUrl": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Imageurl"
-          }
-        },
-        "required": ["productName", "totalPrice", "quantity"],
-        "title": "OrderItemInAgent"
-      },
-      "AsyncStatus": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "progress": {
-            "type": "integer"
-          }
-        },
-        "required": ["status", "message"],
-        "title": "AsyncStatus"
       },
       "WebviewResultRequest": {
         "properties": {
