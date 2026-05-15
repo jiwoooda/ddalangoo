@@ -5,12 +5,13 @@ from app.repositories import (
 from app.schemas.agent import AgentResponse, ShoppingRequest, MessageRequest, ConfirmRequest, RecommendationItemInAgent
 from fastapi import HTTPException
 
-KEYWORD_MAP = {"딸기": "strawberry", "참기름": "sesame_oil", "두유": "soy_milk"}
+KEYWORD_MAP = {"딸기": "strawberry", "참기름": "sesame_oil", "두유": "soy_milk", "돼지불고기": "pork_bulgogi"}
 CONFIRM_MESSAGES = {"확인", "응", "그래", "맞아", "좋아"}
 
 def _detect_keyword(message: str) -> str:
+    normalized = message.replace(" ", "")
     for kor, eng in KEYWORD_MAP.items():
-        if kor in message:
+        if kor in normalized:
             return eng
     return "clarification"
 
@@ -87,6 +88,23 @@ def send_message(conversation_id: int, req: MessageRequest) -> AgentResponse:
     if not conv:
         raise HTTPException(status_code=404, detail={"category": "CONVERSATION_ERROR", "code": "CONVERSATION_NOT_FOUND", "message": "대화를 찾을 수 없습니다."})
     action, message = req.action, req.message.strip()
+
+    if conv["stage"] == "idle":
+        keyword = _detect_keyword(message)
+        if keyword != "clarification":
+            rec_id, items = _get_rec_items(keyword)
+            history = purchase_history_repository.get_history_by_keyword(conv["user_id"], keyword)
+            product_name = history["product_name"] if history else (items[0].productName if items else "상품")
+            first_item_id = items[0].recommendationItemId if items else None
+            conv["stage"] = "product_confirming"
+            conv["keyword"] = keyword
+            return AgentResponse(
+                conversationId=conversation_id, status="waiting_user_confirmation", stage="product_confirming",
+                assistantMessage=f"{product_name}을(를) 찾았어요. 이걸로 주문할까요?",
+                recommendationId=rec_id, recommendations=items,
+                pendingConfirmation=_pending_product(first_item_id, product_name) if first_item_id else None
+            )
+
     if action == "checkout_cart":
         conv["stage"] = "address_confirming"
         return AgentResponse(conversationId=conversation_id, status=conv["status"], stage="address_confirming",

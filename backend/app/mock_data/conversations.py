@@ -20,6 +20,13 @@ MOCK_CONVERSATIONS = [
         "stage": "product_confirming",
         "keyword": "soy_milk",
     },
+    {
+        "id": 45,
+        "user_id": 1,
+        "status": "idle",
+        "stage": "idle",
+        "keyword": None,
+    },
 ]
 
 MOCK_CONVERSATION_MESSAGES = [
