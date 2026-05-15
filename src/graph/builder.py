@@ -13,14 +13,12 @@ from langgraph.store.memory import InMemoryStore
 from langgraph.store.base import BaseStore
 
 from src.state.schema import ShoppingState
-from src.graph.router import route, after_respond
+from src.graph.router import route, after_respond, after_reorder
 from src.agents.intent_agent import intent_agent_node
-from src.agents.memory_agent import (
-    memory_agent_node,
-    get_recommendation_context_from_store,
-)
+from src.agents.memory_agent import memory_agent_node
 from src.agents.platform_agent import platform_agent_node
 from src.agents.product_agent import product_agent_node
+from src.agents.reorder_node import reorder_node
 from src.agents.nodes import wait_for_input_node, respond_node, interrupt_payment_node
 from src.payment.subgraph import payment_agent_node
 
@@ -46,21 +44,9 @@ def build_graph(
     if store is None:
         store = InMemoryStore()
 
-    # ── Store-aware 노드 클로저 ──
-    # platform/product agent는 store에서 recommendation_context를 읽는다.
-
+    # ── Store-aware memory 클로저 (store는 장기 이력 보존 목적) ──
     def _memory_agent_node(state: ShoppingState) -> dict:
         return memory_agent_node(state, store=store)
-
-    def _platform_agent_node(state: ShoppingState) -> dict:
-        user_id = state.get("user_id", "")
-        rec_ctx = get_recommendation_context_from_store(user_id, store)
-        return platform_agent_node(state, recommendation_context=rec_ctx)
-
-    def _product_agent_node(state: ShoppingState) -> dict:
-        user_id = state.get("user_id", "")
-        rec_ctx = get_recommendation_context_from_store(user_id, store)
-        return product_agent_node(state, recommendation_context=rec_ctx)
 
     # ── Graph 구성 ──
     builder = StateGraph(ShoppingState)
@@ -69,8 +55,9 @@ def build_graph(
     builder.add_node("wait_for_input", wait_for_input_node)
     builder.add_node("intent_agent", intent_agent_node)
     builder.add_node("memory_agent", _memory_agent_node)
-    builder.add_node("platform_agent", _platform_agent_node)
-    builder.add_node("product_agent", _product_agent_node)
+    builder.add_node("reorder_node", reorder_node)
+    builder.add_node("platform_agent", platform_agent_node)
+    builder.add_node("product_agent", product_agent_node)
     builder.add_node("payment_agent", payment_agent_node)
     builder.add_node("respond", respond_node)
     builder.add_node("interrupt_payment", interrupt_payment_node)
@@ -96,8 +83,20 @@ def build_graph(
         },
     )
 
+    # ── memory_agent → reorder_node (항상) ──
+    builder.add_edge("memory_agent", "reorder_node")
+
+    # ── reorder_node → respond (URL 유효) / platform_agent (URL 실패 fallback) ──
+    builder.add_conditional_edges(
+        "reorder_node",
+        after_reorder,
+        {
+            "respond": "respond",
+            "platform_agent": "platform_agent",
+        },
+    )
+
     # ── 각 Agent 이후 응답 생성 ──
-    builder.add_edge("memory_agent", "respond")
     builder.add_edge("platform_agent", "respond")
     builder.add_edge("product_agent", "respond")
     builder.add_edge("payment_agent", "respond")

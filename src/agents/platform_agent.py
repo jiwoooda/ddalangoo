@@ -104,13 +104,13 @@ def _filter_results(
     return filtered
 
 
-def platform_agent_node(state: ShoppingState, recommendation_context: dict | None = None) -> dict:
+def platform_agent_node(state: ShoppingState) -> dict:
     """
     Platform Agent.
     역할: 플랫폼 선택 + search_product() → search_results 갱신.
     추천/결제는 하지 않는다.
     """
-    recommendation_context = recommendation_context or {}
+    recommendation_context = state.get("recommendation_context") or {}
     keywords = state.get("keywords") or []
     exclude_keywords = state.get("exclude_keywords") or []
     condition = state.get("condition")

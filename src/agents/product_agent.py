@@ -42,13 +42,13 @@ def _extract_user_question(state: ShoppingState) -> str | None:
     return None
 
 
-def product_agent_node(state: ShoppingState, recommendation_context: dict | None = None) -> dict:
+def product_agent_node(state: ShoppingState) -> dict:
     """
     Product Agent.
     역할: 상품 비교/랭킹/추천 + QA + explanation 생성 + pending_action 설정.
     검색과 결제 처리는 하지 않는다.
     """
-    recommendation_context = recommendation_context or {}
+    recommendation_context = state.get("recommendation_context") or {}
     intent = state.get("intent")
     user_question = _extract_user_question(state)
 

@@ -151,6 +151,11 @@ def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -
             recommendation_context,
         )
 
+    base = {
+        **bridge_memory_to_shopping({}),
+        "recommendation_context": recommendation_context,
+    }
+
     # reorder: 구매 이력에서 상품 후보를 만들어 search_results에 제공
     if intent == "reorder":
         history = mock_keyword_search_history(user_id, keywords, limit=5)
@@ -171,13 +176,9 @@ def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -
                 }
                 for item in history
             ]
-            return {
-                **bridge_memory_to_shopping({}),
-                "search_results": search_results,
-                "stage": "searching",
-            }
+            return {**base, "search_results": search_results, "stage": "searching"}
 
-    return bridge_memory_to_shopping({})
+    return base
 
 
 def get_recommendation_context_from_store(

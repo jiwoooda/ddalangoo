@@ -324,7 +324,7 @@ def test_platform_agent_node_invalid_keywords():
     state = get_default_shopping_state("user_test", "sess")
     state["keywords"] = ["그거", "저번에"]
 
-    result = platform_agent_node(state, recommendation_context={})
+    result = platform_agent_node(state)
     assert result["error"] == "invalid_keywords"
     assert result["search_results"] == []
 
@@ -335,14 +335,14 @@ def test_platform_agent_node_valid_keywords():
     state = get_default_shopping_state("user_test", "sess")
     state["keywords"] = ["딸기"]
 
-    result = platform_agent_node(state, recommendation_context={})
+    result = platform_agent_node(state)
     assert result["error"] is None
     assert len(result["search_results"]) > 0
     assert result["stage"] == "searching"
 
 
-def test_memory_agent_recommendation_context_stored():
-    from src.agents.memory_agent import memory_agent_node, get_recommendation_context_from_store
+def test_memory_agent_recommendation_context_in_state():
+    from src.agents.memory_agent import memory_agent_node
     from src.state.schema import get_default_shopping_state
     from langgraph.store.memory import InMemoryStore
 
@@ -353,11 +353,136 @@ def test_memory_agent_recommendation_context_stored():
 
     result = memory_agent_node(state, store=store)
 
-    # bridge_memory_to_shopping → last_agent만 ShoppingState에 반영
-    assert result == {"last_agent": "memory_agent"} or result.get("last_agent") == "memory_agent"
-
-    # recommendation_context는 store에 저장됨
-    ctx = get_recommendation_context_from_store("user_001", store)
+    # recommendation_context가 state에 직접 반영
+    assert result.get("last_agent") == "memory_agent"
+    ctx = result.get("recommendation_context")
     assert isinstance(ctx, dict)
     assert "preference_memory" in ctx
     assert "keyword_results" in ctx
+
+
+# ══════════════════════════════════════════════
+# Reorder Node Tests
+# ══════════════════════════════════════════════
+
+def test_reorder_node_valid_url():
+    """구매 이력에 유효한 URL이 있으면 product_confirm pending_action을 설정한다."""
+    from src.agents.reorder_node import reorder_node
+    from src.state.schema import get_default_shopping_state
+
+    state = get_default_shopping_state("user_001", "sess")
+    state["intent"] = "reorder"
+    state["keywords"] = ["딸기"]
+    state["search_results"] = [
+        {
+            "product_name": "설향 딸기 500g",
+            "price": 12900,
+            "platform": "kurly",
+            "product_url": "https://mock.kurly.com/products/strawberry-500g",
+            "is_sold_out": False,
+        }
+    ]
+
+    result = reorder_node(state)
+
+    assert result["stage"] == "product_confirming"
+    assert result["error"] is None
+    assert result["pending_action"]["type"] == "product_confirm"
+    assert result["selected_product"]["product_name"] == "설향 딸기 500g"
+    assert result["product_url"] == "https://mock.kurly.com/products/strawberry-500g"
+
+
+def test_reorder_node_invalid_url_fallback():
+    """URL이 실패하면 platform_agent fallback용 상태를 반환한다."""
+    from src.agents.reorder_node import reorder_node
+    from src.state.schema import get_default_shopping_state
+    from src.tools.mock_tools import block_product_url, unblock_product_url
+
+    url = "https://mock.kurly.com/products/strawberry-500g"
+    block_product_url(url)
+    try:
+        state = get_default_shopping_state("user_001", "sess")
+        state["intent"] = "reorder"
+        state["keywords"] = ["딸기"]
+        state["search_results"] = [
+            {
+                "product_name": "설향 딸기 500g",
+                "price": 12900,
+                "platform": "kurly",
+                "product_url": url,
+            }
+        ]
+
+        result = reorder_node(state)
+
+        assert result["stage"] == "searching"
+        assert result["error"] == "reorder_url_failed"
+        assert result["search_results"] == []
+    finally:
+        unblock_product_url(url)
+
+
+def test_reorder_node_empty_history():
+    """구매 이력이 없으면 fallback 상태를 반환한다."""
+    from src.agents.reorder_node import reorder_node
+    from src.state.schema import get_default_shopping_state
+
+    state = get_default_shopping_state("user_test", "sess")
+    state["intent"] = "reorder"
+    state["keywords"] = ["딸기"]
+    state["search_results"] = []
+
+    result = reorder_node(state)
+
+    assert result["stage"] == "searching"
+    assert result["error"] == "reorder_url_failed"
+
+
+@patch("src.agents.intent_agent._get_llm")
+def test_reorder_flow_end_to_end(mock_intent_llm):
+    """reorder 의도 → memory_agent → reorder_node → product_confirming.
+
+    user_001에 딸기 구매 이력(유효 URL)이 있으므로:
+    reorder_node가 product_confirm을 설정하고 respond로 이동해야 한다.
+    """
+    intent_llm = MagicMock()
+    intent_llm.invoke.return_value = make_intent_response(
+        intent="reorder",
+        keywords=["딸기"],
+        confidence=0.95,
+        immediate_response="이전에 구매하셨던 딸기 찾아볼게요.",
+    )
+    mock_intent_llm.return_value = intent_llm
+
+    graph = create_test_graph()
+    config = make_config("test_reorder_e2e")
+
+    initial_state = get_default_shopping_state("user_001", "session_test")
+    initial_state["messages"] = [{"role": "user", "content": "딸기 또 시켜줘"}]
+
+    # 1차: pause at wait_for_input
+    graph.invoke(initial_state, config)
+    # 2차: 실행 → reorder → memory_agent → reorder_node → respond → pause
+    graph.invoke(None, config)
+
+    current = graph.get_state(config)
+    state_values = current.values
+
+    # reorder_node가 product_confirming으로 설정해야 함
+    assert state_values.get("stage") == "product_confirming"
+    assert state_values.get("pending_action") is not None
+    assert state_values["pending_action"]["type"] == "product_confirm"
+
+
+def test_after_reorder_routing():
+    """after_reorder 라우팅 함수 단위 테스트."""
+    from src.graph.router import after_reorder
+
+    state_url_failed = {"error": "reorder_url_failed", "stage": "searching"}
+    assert after_reorder(state_url_failed) == "platform_agent"
+
+    state_ok = {"error": None, "stage": "product_confirming"}
+    assert after_reorder(state_ok) == "respond"
+
+    state_no_error = {"stage": "product_confirming"}
+    assert after_reorder(state_no_error) == "respond"

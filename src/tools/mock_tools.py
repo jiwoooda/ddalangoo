@@ -544,3 +544,34 @@ def mock_vector_search_collective(
     for products in MOCK_PRODUCTS.values():
         all_products.extend(products)
     return all_products[:limit]
+
+
+# ══════════════════════════════════════════════
+# Mock URL Validator (reorder_node용)
+# ══════════════════════════════════════════════
+
+_BLOCKED_URLS: set[str] = set()
+
+
+def mock_validate_product_url(url: str) -> bool:
+    """
+    상품 URL 접근 가능 여부 확인 (Mock).
+    - mock.kurly.com / mock.coupang.com / mock.naver.com 도메인은 항상 유효
+    - _BLOCKED_URLS에 등록된 URL은 실패 (테스트용)
+    """
+    if not url:
+        return False
+    if url in _BLOCKED_URLS:
+        return False
+    valid_domains = ("mock.kurly.com", "mock.coupang.com", "mock.naver.com")
+    return any(domain in url for domain in valid_domains)
+
+
+def block_product_url(url: str) -> None:
+    """테스트에서 URL을 강제로 막는 헬퍼."""
+    _BLOCKED_URLS.add(url)
+
+
+def unblock_product_url(url: str) -> None:
+    """테스트에서 URL 차단 해제."""
+    _BLOCKED_URLS.discard(url)

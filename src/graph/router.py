@@ -85,13 +85,20 @@ def route(state: ShoppingState) -> RouteName:
         "confirm": "respond",
         "deny": "respond",
 
-        # 결제 전용 intent는 idle에서는 직접 처리하지 않음
+        # 결제 전용 intent는 idle에서는 직접 처리하지 않음 -> 해당 요청 필요 없으므로 안내메세지만
         "option_select": "respond",
         "quantity_change": "respond",
         "address_change": "respond",
     }
 
     return routing_map.get(intent, "respond")
+
+
+def after_reorder(state: ShoppingState) -> Literal["respond", "platform_agent"]:
+    """reorder_node 이후 분기: URL 실패 시 platform_agent fallback."""
+    if state.get("error") == "reorder_url_failed":
+        return "platform_agent"
+    return "respond"
 
 
 def after_respond(state: ShoppingState) -> Literal["wait_for_input", "end"]:

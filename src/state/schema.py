@@ -105,6 +105,9 @@ class ShoppingState(TypedDict):
     conversation_id: Optional[int]
     user_id: str
 
+    # ── Memory Agent → Platform/Product 전달 context ──
+    recommendation_context: Optional[dict[str, Any]]
+
     # ── Intent Agent 슬롯 (bridge 없이 payment agent로 전달) ──
     # spec의 intent_agent_node 반환값에 명시되어 있으나 ShoppingState에 누락된 필드
     current_option_value: Optional[str]
@@ -323,6 +326,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "session_id": session_id,
         "conversation_id": None,
         "user_id": user_id,
+        "recommendation_context": None,
         "current_option_value": None,
         "address_text": None,
     }
