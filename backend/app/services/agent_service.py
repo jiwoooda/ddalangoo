@@ -9,8 +9,9 @@ KEYWORD_MAP = {"딸기": "strawberry", "참기름": "sesame_oil", "두유": "soy
 CONFIRM_MESSAGES = {"확인", "응", "그래", "맞아", "좋아"}
 
 def _detect_keyword(message: str) -> str:
+    normalized = message.replace(" ", "")
     for kor, eng in KEYWORD_MAP.items():
-        if kor in message:
+        if kor in normalized:
             return eng
     return "clarification"
 
