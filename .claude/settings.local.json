@@ -4,7 +4,13 @@
       "Bash(pip install *)",
       "PowerShell(Get-Command python3, python, py -ErrorAction SilentlyContinue)",
       "PowerShell(uv --version)",
-      "PowerShell(uv python list 2>&1)"
+      "PowerShell(uv python list 2>&1)",
+      "Bash(python -c ' *)",
+      "PowerShell(cd \"c:\\\\Users\\\\82108\\\\ddalangoo\"; $env:LOG_AGENT_TRACE=\"true\"; python tests/test_full_usecase.py 2>&1)",
+      "PowerShell(Get-Command npx -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command node -ErrorAction SilentlyContinue)",
+      "PowerShell(& \"C:\\\\Program Files\\\\nodejs\\\\node.exe\" --version)",
+      "PowerShell(& \"C:\\\\Program Files\\\\nodejs\\\\npx.cmd\" --version)"
     ]
   }
 }

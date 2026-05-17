@@ -61,7 +61,8 @@ def payment_agent_node(state: ShoppingState) -> dict:
 
         payment_state = bridge_shopping_to_payment(state, _build_delivery_address(state))
         result = run_kurly_purchase(
-            product_url=payment_state["product_url"],
+            product_name=product_name,
+            keywords=state.get("keywords"),
             storage_state_path=state.get("storage_state_path"),
         )
 
