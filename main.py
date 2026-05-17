@@ -24,9 +24,10 @@ if not os.getenv("ANTHROPIC_API_KEY"):
 
 from src.graph.builder import build_graph
 from src.state.schema import get_default_shopping_state
+from src.utils.agent_logger import agent_logger
 
 
-def run_session(user_id: str = "user_test", thread_id: str = None):
+def run_session(user_id: str = "user_test", thread_id: str = None, trace: bool = False):
     """단일 대화 세션 실행."""
     if thread_id is None:
         thread_id = str(uuid.uuid4())
@@ -34,9 +35,15 @@ def run_session(user_id: str = "user_test", thread_id: str = None):
     session_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
-    print(f"\n=== 쇼핑 어시스턴트 시작 ===")
-    print(f"user_id: {user_id} | thread_id: {thread_id}")
-    print("종료하려면 'exit' 또는 Ctrl+C를 입력하세요.\n")
+    agent_logger.start_session(session_id=thread_id, console=trace)
+
+    print(f"\n{'='*50}")
+    print(f"  쇼핑 어시스턴트 (딸랑구)")
+    print(f"  user: {user_id} | thread: {thread_id}")
+    if trace:
+        print(f"  TRACE ON  →  {agent_logger.log_path}")
+    print(f"  종료: exit 또는 Ctrl+C")
+    print(f"{'='*50}\n")
 
     graph = build_graph()
 
@@ -56,11 +63,12 @@ def run_session(user_id: str = "user_test", thread_id: str = None):
 
             # 다음 노드가 wait_for_input이면 사용자 입력 대기
             if "wait_for_input" in current.next:
-                user_input = input("사용자: ").strip()
+                user_input = input("\n사용자: ").strip()
                 if user_input.lower() in ("exit", "quit"):
                     print("[대화 종료]")
                     break
 
+                agent_logger.new_turn(user_input)
                 # 사용자 메시지를 state에 주입하고 재개
                 graph.update_state(
                     config,
@@ -95,24 +103,23 @@ def _invoke_and_print(graph, state, config):
     messages = current.values.get("messages", [])
 
     # 마지막 assistant 메시지 출력
+    response = ""
     for msg in reversed(messages):
         if isinstance(msg, dict):
             if msg.get("role") == "assistant":
-                print(f"어시스턴트: {msg['content']}\n")
+                response = msg["content"]
                 break
         else:
-            role = getattr(msg, "type", None)
-            if role == "ai":
-                print(f"어시스턴트: {msg.content}\n")
+            if getattr(msg, "type", None) == "ai":
+                response = msg.content
                 break
 
-    # 디버그: 현재 stage
     stage = current.values.get("stage", "unknown")
     pending = current.values.get("pending_action")
-    print(f"  [stage: {stage}", end="")
-    if pending:
-        print(f" | pending: {pending.get('type')}", end="")
-    print("]")
+    pending_str = f" | pending: {pending.get('type')}" if pending else ""
+
+    print(f"\n딸랑구: {response}")
+    print(f"  └─ stage={stage}{pending_str}")
 
 
 def run_demo():
@@ -186,13 +193,14 @@ def main():
     parser = argparse.ArgumentParser(description="LangGraph Shopping Assistant")
     parser.add_argument("--user", default="user_test", help="사용자 ID")
     parser.add_argument("--thread", default=None, help="스레드 ID")
+    parser.add_argument("--trace", action="store_true", help="에이전트 추적 로그 터미널 출력")
     parser.add_argument("--demo", action="store_true", help="LLM 없이 데모 실행")
     args = parser.parse_args()
 
     if args.demo or not os.getenv("ANTHROPIC_API_KEY"):
         run_demo()
     else:
-        run_session(user_id=args.user, thread_id=args.thread)
+        run_session(user_id=args.user, thread_id=args.thread, trace=args.trace)
 
 
 if __name__ == "__main__":

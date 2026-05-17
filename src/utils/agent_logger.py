@@ -15,15 +15,27 @@ from typing import Any
 class AgentLogger:
     def __init__(self):
         self._enabled: bool = False
+        self._console: bool = False
         self._txt_path: Path | None = None
         self._jsonl_path: Path | None = None
         self._turn: int = 0
 
     # ── 세션 초기화 ─────────────────────────────────────────────
-    def start_session(self, session_id: str, log_dir: str = "logs") -> None:
-        if not os.getenv("LOG_AGENT_TRACE", "").lower() in ("1", "true", "yes"):
+    def start_session(
+        self,
+        session_id: str,
+        log_dir: str = "logs",
+        console: bool = False,
+    ) -> None:
+        """
+        console=True: 파일과 동시에 터미널에도 출력.
+        LOG_AGENT_TRACE 환경변수 또는 console=True 중 하나만 있어도 활성화.
+        """
+        env_on = os.getenv("LOG_AGENT_TRACE", "").lower() in ("1", "true", "yes")
+        if not (env_on or console):
             return
         self._enabled = True
+        self._console = console
         self._turn = 0
 
         Path(log_dir).mkdir(exist_ok=True)
@@ -153,6 +165,8 @@ class AgentLogger:
         if self._txt_path:
             with self._txt_path.open("a", encoding="utf-8") as f:
                 f.write(text)
+        if self._console:
+            print(text, end="", flush=True)
 
     def _log_jsonl(self, data: dict) -> None:
         if self._jsonl_path:
