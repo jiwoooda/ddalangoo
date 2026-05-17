@@ -61,15 +61,34 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
         }),
     ]) + "\n"
 
+    # Windows에서 Node.js가 PATH에 없을 때 nodejs 폴더를 PATH에 추가
+    _NODE_DIRS = [
+        r"C:\Program Files\nodejs",
+        r"C:\Program Files (x86)\nodejs",
+    ]
+    proc_env = {**os.environ}
+    for nd in _NODE_DIRS:
+        if os.path.isdir(nd) and nd not in proc_env.get("PATH", ""):
+            proc_env["PATH"] = nd + os.pathsep + proc_env.get("PATH", "")
+            break
+
+    _NPX_CANDIDATES = [
+        r"C:\Program Files\nodejs\npx.cmd",
+        r"C:\Program Files (x86)\nodejs\npx.cmd",
+        "npx",
+    ]
+    npx_cmd = next((c for c in _NPX_CANDIDATES if os.path.isfile(c)), "npx")
+
     try:
         proc = subprocess.run(
-            ["npx", "tsx", "src/server.ts"],
+            [npx_cmd, "tsx", "src/server.ts"],
             input=messages,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=30,
             cwd=META_MCP_DIR,
-            env={**os.environ},
+            env=proc_env,
         )
 
         if proc.returncode != 0 and proc.stderr:

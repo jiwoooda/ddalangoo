@@ -2,9 +2,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Product } from "../schemas.js";
 
+// 네이버 search_shop 허용 값: "sim"(관련도순) | "date"(날짜순)
+// 가격순은 API 미지원 → sim으로 fallback, 가격 정렬은 server.ts에서 처리
 const SORT_MAP: Record<string, string> = {
-  price_low: "asc",
-  price_high: "dsc",
+  price_low: "sim",
+  price_high: "sim",
   recent: "date",
 };
 
