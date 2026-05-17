@@ -51,75 +51,54 @@ def run_session(user_id: str = "user_test", thread_id: str = None, trace: bool =
     initial_state = get_default_shopping_state(user_id, session_id)
     graph.invoke(initial_state, config)
 
-    # 대화 루프
+    # 대화 루프 — interrupt_before=["wait_for_input"] 기반
     while True:
         try:
-            current = graph.get_state(config)
-
-            # 그래프가 완전히 종료된 경우
-            if not current.next:
-                print("\n[세션 종료]")
-                break
-
-            # 다음 노드가 wait_for_input이면 사용자 입력 대기
-            if "wait_for_input" in current.next:
-                user_input = input("\n사용자: ").strip()
-                if user_input.lower() in ("exit", "quit"):
-                    print("[대화 종료]")
-                    break
-
-                agent_logger.new_turn(user_input)
-                # 사용자 메시지를 state에 주입하고 재개
-                graph.update_state(
-                    config,
-                    {"messages": [{"role": "user", "content": user_input}]},
-                )
-                _invoke_and_print(graph, None, config)
-            else:
-                # 다른 노드가 next인 경우 (예: END에 도달하기 전)
-                graph.invoke(None, config)
-                current = graph.get_state(config)
-                if not current.next:
-                    print("\n[세션 종료]")
-                    break
-
-        except KeyboardInterrupt:
+            user_input = input("\n사용자: ").strip()
+        except (KeyboardInterrupt, EOFError):
             print("\n[중단됨]")
             break
+
+        if user_input.lower() in ("exit", "quit", "종료"):
+            print("[대화 종료]")
+            break
+        if not user_input:
+            continue
+
+        agent_logger.new_turn(user_input)
+        graph.update_state(config, {"messages": [{"role": "user", "content": user_input}]})
+
+        try:
+            graph.invoke(None, config)
         except Exception as e:
-            print(f"[오류] {e}")
+            print(f"[그래프 오류] {e}")
             break
 
-
-def _invoke_and_print(graph, state, config):
-    """graph.invoke() 실행 후 마지막 assistant 메시지 출력."""
-    try:
-        result = graph.invoke(state, config)
-    except Exception as e:
-        print(f"[그래프 오류] {e}")
-        return
-
-    current = graph.get_state(config)
-    messages = current.values.get("messages", [])
-
-    # 마지막 assistant 메시지 출력
-    response = ""
-    for msg in reversed(messages):
-        if isinstance(msg, dict):
-            if msg.get("role") == "assistant":
+        # 응답 출력
+        current = graph.get_state(config)
+        messages = current.values.get("messages", [])
+        response = ""
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
                 response = msg["content"]
                 break
-        else:
             if getattr(msg, "type", None) == "ai":
                 response = msg.content
                 break
 
-    stage = current.values.get("stage", "unknown")
-    pending = current.values.get("pending_action")
-    pending_str = f" | pending: {pending.get('type')}" if pending else ""
+        stage = current.values.get("stage", "unknown")
+        pending = current.values.get("pending_action")
+        pending_str = f" | pending: {pending.get('type')}" if pending else ""
+        print(f"\n딸랑구: {response}")
+        print(f"  └─ stage={stage}{pending_str}")
 
-    print(f"\n딸랑구: {response}")
-    print(f"  └─ stage={stage}{pending_str}")
+        # 그래프 종료 확인
+        if not current.next:
+            print("\n[세션 종료]")
+            break
+        if stage in ("completed", "failed"):
+            break
+
 
 
 def run_demo():
