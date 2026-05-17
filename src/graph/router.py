@@ -56,9 +56,12 @@ def route(state: ShoppingState) -> RouteName:
     if stage == "product_confirming":
         pending_type = (state.get("pending_action") or {}).get("type")
 
-        # quantity_confirm 대기 중이고 수량이 채워지면 결제로
-        if pending_type == "quantity_confirm" and state.get("quantity"):
-            return "payment_agent"
+        # quantity_confirm 대기 중: 수량이 채워지면 결제로 (intent 무관)
+        if pending_type == "quantity_confirm":
+            if state.get("quantity"):
+                return "payment_agent"
+            if intent in ("confirm", "quantity_change"):
+                return "quantity_check"  # 수량 재질문
 
         # platform_suggest 대기 중: confirm → 제안 플랫폼 검색, deny/next → 일반 검색
         if pending_type == "platform_suggest":

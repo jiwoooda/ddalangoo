@@ -6,12 +6,40 @@ Intent Agent Node.
 """
 import json
 import os
+import re
 from typing import Any
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.state.schema import ShoppingState
 from src.prompts.intent_prompt import INTENT_AGENT_PROMPT
+
+_KR_NUMBER_MAP = {
+    "하나": 1, "한": 1, "일": 1,
+    "둘": 2, "두": 2, "이": 2,
+    "셋": 3, "세": 3, "삼": 3,
+    "넷": 4, "네": 4, "사": 4,
+    "다섯": 5, "오": 5,
+    "여섯": 6, "육": 6,
+    "일곱": 7, "칠": 7,
+    "여덟": 8, "팔": 8,
+    "아홉": 9, "구": 9,
+    "열": 10, "십": 10,
+}
+
+
+def _extract_korean_quantity(text: str) -> int | None:
+    """'두 개', '3개', '세개' 등에서 숫자를 추출한다."""
+    # 아라비아 숫자 + 개/명/봉 등
+    m = re.search(r"(\d+)\s*(?:개|명|봉|팩|박스|캔|병|그램|kg|L)?", text)
+    if m:
+        return int(m.group(1))
+    # 한국어 숫자 + 개/명 등
+    for kr, num in _KR_NUMBER_MAP.items():
+        pattern = rf"{kr}\s*(?:개|명|봉|팩|박스|캔|병)?"
+        if re.search(pattern, text):
+            return num
+    return None
 
 _llm: ChatOpenAI | None = None
 
@@ -88,12 +116,21 @@ def intent_agent_node(state: ShoppingState) -> dict:
             "immediate_response": "다시 말씀해 주세요.",
         }
 
+    # quantity 추출 실패 시 사용자 입력에서 직접 파싱 (quantity_confirm 대기 중인 경우)
+    quantity = parsed.get("quantity")
+    if quantity is None:
+        pending_type = (pending_action or {}).get("type") if pending_action else None
+        if pending_type == "quantity_confirm":
+            quantity = _extract_korean_quantity(user_input)
+        if quantity is None:
+            quantity = state.get("quantity")
+
     return {
         "intent": parsed.get("intent"),
-        "keywords": parsed.get("keywords") or [],
+        "keywords": parsed.get("keywords") or state.get("keywords") or [],
         "exclude_keywords": parsed.get("exclude_keywords") or [],
         "negative_constraints": parsed.get("negative_constraints") or [],
-        "quantity": parsed.get("quantity") if parsed.get("quantity") is not None else state.get("quantity"),
+        "quantity": quantity,
         "condition": parsed.get("condition"),
         "target_platforms": parsed.get("target_platforms") or [],
         "override_platform": parsed.get("override_platform"),
@@ -101,7 +138,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
         "address_text": parsed.get("address_text"),
         "needs_clarification": parsed.get("needs_clarification", False),
         "clarification_reason": parsed.get("clarification_reason"),
-        "confidence": parsed.get("confidence", 0.0),
+        "confidence": parsed.get("confidence") or 0.9,
         "immediate_response": parsed.get("immediate_response"),
         "last_agent": "intent_agent",
     }

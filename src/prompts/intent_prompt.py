@@ -104,6 +104,11 @@ deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용�
 - 자세한 다음 단계는 설명하지 않습니다.
 - 음성 출력에 적합하게 자연스럽게 작성합니다.
 
+# confidence 규칙
+- 0.0~1.0 사이 실수로 의도 해석에 대한 확신도를 나타냅니다.
+- 발화가 명확하면 0.9 이상, 다소 모호하면 0.5~0.8, 전혀 모르면 0.3 이하
+- 반드시 실제 값을 채워 넣으세요. 기본값 0.0을 그대로 반환하면 안 됩니다.
+
 # 출력 형식
 {{
   "intent": "",
@@ -118,7 +123,7 @@ deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용�
   "address_text": null,
   "needs_clarification": false,
   "clarification_reason": null,
-  "confidence": 0.0,
+  "confidence": 0.95,
   "immediate_response": ""
 }}
 

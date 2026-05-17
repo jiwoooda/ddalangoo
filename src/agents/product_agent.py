@@ -7,7 +7,7 @@ Product Agent Node.
 import json
 from typing import Any
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.state.schema import ShoppingState
 from src.prompts.product_prompt import PRODUCT_AGENT_PROMPT
@@ -21,7 +21,7 @@ def _get_llm() -> ChatAnthropic:
         _llm = ChatAnthropic(
             model="claude-sonnet-4-6",
             temperature=0,
-            max_tokens=768,
+            max_tokens=1500,
         )
     return _llm
 
@@ -67,15 +67,23 @@ def product_agent_node(state: ShoppingState) -> dict:
     )
 
     llm = _get_llm()
-    response = llm.invoke([SystemMessage(content=prompt)])
+    response = llm.invoke([HumanMessage(content=prompt)])
     content = response.content.strip()
 
     try:
-        if content.startswith("```"):
-            lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
+        if "```" in content:
+            import re
+            m = re.search(r"```(?:json)?\s*([\s\S]+?)```", content)
+            if m:
+                content = m.group(1).strip()
+            else:
+                # 닫는 ``` 없이 잘린 경우 → { 부터 추출
+                brace = content.find("{")
+                if brace != -1:
+                    content = content[brace:]
         parsed: dict[str, Any] = json.loads(content)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"[product_agent] parse error: {e}\ncontent: {content[:200]}")
         return {
             "error": "product_agent_parse_error",
             "stage": "idle",
