@@ -13,7 +13,7 @@ from langgraph.store.memory import InMemoryStore
 from langgraph.store.base import BaseStore
 
 from src.state.schema import ShoppingState
-from src.graph.router import route, after_respond, after_reorder
+from src.graph.router import route, after_respond, after_reorder, after_platform_agent
 from src.agents.intent_agent import intent_agent_node
 from src.agents.memory_agent import memory_agent_node
 from src.agents.platform_agent import platform_agent_node
@@ -101,8 +101,15 @@ def build_graph(
     # ── quantity_check → respond (수량 질문) ──
     builder.add_edge("quantity_check", "respond")
 
-    # ── 각 Agent 이후 응답 생성 ──
-    builder.add_edge("platform_agent", "respond")
+    # ── platform_agent → product_agent (랭킹/추천) 또는 respond (platform_suggest) ──
+    builder.add_conditional_edges(
+        "platform_agent",
+        after_platform_agent,
+        {
+            "product_agent": "product_agent",
+            "respond": "respond",
+        },
+    )
     builder.add_edge("product_agent", "respond")
     builder.add_edge("payment_agent", "respond")
     builder.add_edge("interrupt_payment", "respond")

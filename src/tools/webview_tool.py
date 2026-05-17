@@ -58,6 +58,25 @@ JSON 외에 다른 텍스트는 절대 포함하지 마.""",
 # 헬퍼 함수
 # ══════════════════════════════════════════════
 
+def extract_delivery_info(page) -> dict:
+    """
+    상품 페이지 스크린샷에서 VLM으로 배송 정보 추출.
+    Returns: {"delivery_type": str, "delivery_estimate": str, "found": bool}
+    """
+    screenshot = page.screenshot()
+    result = ask_vlm(
+        screenshot,
+        """이 쇼핑 상품 페이지에서 배송 관련 정보를 찾아줘.
+배송 방식 예시: 샛별배송, 택배배송, 로켓배송, 일반배송, 당일배송
+배송 예정 예시: 내일 오전 7시 전 도착, 내일 도착, 오늘 출발 등
+
+찾았을 때: {"delivery_type": "샛별배송", "delivery_estimate": "내일 오전 7시 전 도착", "found": true}
+못 찾으면: {"delivery_type": "", "delivery_estimate": "", "found": false}""",
+    )
+    print(f"배송 정보: {result}")
+    return result
+
+
 def scroll_and_click_cart(page) -> bool:
     """스크롤 후 장바구니 버튼을 VLM으로 찾아 클릭"""
     print("맨 아래로 스크롤 중...")
@@ -138,7 +157,7 @@ def run_kurly_purchase(
 
     Returns
     -------
-    dict : {"cart_added": bool, "storage_state_path": str | None, "error": str | None}
+    dict : {"cart_added": bool, "storage_state_path": str | None, "delivery_info": str, "error": str | None}
     """
     playwright = sync_playwright().start()
     browser = playwright.webkit.launch(headless=False)
@@ -172,16 +191,23 @@ def run_kurly_purchase(
         page.wait_for_timeout(3000)
         print(f"2. 로딩 완료! URL: {page.url}")
 
-        # ── 2. 장바구니 버튼 클릭 (비로그인) ──
+        # ── 2. 배송 정보 추출 (페이지 로드 직후) ──
+        delivery_result = extract_delivery_info(page)
+        delivery_info = ""
+        if delivery_result.get("found"):
+            parts = [delivery_result.get("delivery_type", ""), delivery_result.get("delivery_estimate", "")]
+            delivery_info = " ".join(p for p in parts if p)
+
+        # ── 3. 장바구니 버튼 클릭 (비로그인) ──
         scroll_and_click_cart(page)
         page.wait_for_timeout(1000)
 
-        # ── 3. 구매하기 버튼 클릭 ──
+        # ── 4. 구매하기 버튼 클릭 ──
         # (로그인/배송지는 기저장 상태로 가정)
         scroll_and_click_cart(page)
         page.wait_for_timeout(2000)
 
-        # ── 4. 'XXX원 장바구니 담기' 확인 버튼 클릭 ──
+        # ── 5. 'XXX원 장바구니 담기' 확인 버튼 클릭 ──
         screenshot = page.screenshot()
         print("4. 'XXX원 장바구니 담기' 버튼 찾는 중...")
         result = ask_vlm(
@@ -197,7 +223,7 @@ def run_kurly_purchase(
             page.mouse.click(result["x"], result["y"])
             page.wait_for_timeout(2000)
 
-        # ── 5. 팝업 닫기 ──
+        # ── 6. 팝업 닫기 ──
         page.wait_for_timeout(500)
         screenshot = page.screenshot()
         close_result = ask_vlm(
@@ -210,12 +236,17 @@ def run_kurly_purchase(
             page.mouse.click(close_result["x"], close_result["y"])
             page.wait_for_timeout(500)
 
-        # ── 6. storageState 저장 (로그인 상태 + 장바구니 유지) ──
+        # ── 7. storageState 저장 (로그인 상태 + 장바구니 유지) ──
         saved_path = storage_state_path or f"session_{os.getpid()}.json"
         context.storage_state(path=saved_path)
         print(f"세션 저장 완료: {saved_path}")
 
-        return {"cart_added": True, "storage_state_path": saved_path, "error": None}
+        return {
+            "cart_added": True,
+            "storage_state_path": saved_path,
+            "delivery_info": delivery_info,
+            "error": None,
+        }
 
     except Exception as e:
         print(f"webview 오류: {e}")

@@ -49,6 +49,9 @@ PendingActionType = Literal[
     "price_change_confirm",
     "quantity_confirm",
     "continue_shopping",
+    "platform_suggest",        # product_agent가 다른 플랫폼 검색을 제안할 때
+    "payment_method_confirm",  # 총액 + 결제수단 확인 요청
+    "payment_password",        # 비밀번호 입력 요청 (fake)
 ]
 
 class PendingAction(TypedDict, total=False):
@@ -282,6 +285,7 @@ def bridge_payment_to_shopping(payment: PaymentState) -> dict:
             "stage": "completed",
             "error": None,
             "last_agent": "payment_agent",
+            "pending_action": payment.get("pending_action"),  # 결제 완료 메시지 보존
         }
 
     if payment["payment_status"] == "failed":

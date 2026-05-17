@@ -7,20 +7,20 @@ Intent Agent Node.
 import json
 import os
 from typing import Any
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.state.schema import ShoppingState
 from src.prompts.intent_prompt import INTENT_AGENT_PROMPT
 
-_llm: ChatAnthropic | None = None
+_llm: ChatOpenAI | None = None
 
 
-def _get_llm() -> ChatAnthropic:
+def _get_llm() -> ChatOpenAI:
     global _llm
     if _llm is None:
-        _llm = ChatAnthropic(
-            model="claude-sonnet-4-6",
+        _llm = ChatOpenAI(
+            model="gpt-4o-mini",
             temperature=0,
             max_tokens=512,
         )

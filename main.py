@@ -12,6 +12,9 @@ import argparse
 import uuid
 import sys
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ANTHROPIC_API_KEY 확인
 if not os.getenv("ANTHROPIC_API_KEY"):
@@ -37,15 +40,9 @@ def run_session(user_id: str = "user_test", thread_id: str = None):
 
     graph = build_graph()
 
-    # 첫 번째 invoke: 초기 state + 첫 번째 사용자 메시지 주입
-    first_input = input("사용자: ").strip()
-    if first_input.lower() in ("exit", "quit"):
-        return
-
+    # 초기 state 설정 후 wait_for_input에서 interrupt 대기
     initial_state = get_default_shopping_state(user_id, session_id)
-    initial_state["messages"] = [{"role": "user", "content": first_input}]
-
-    _invoke_and_print(graph, initial_state, config)
+    graph.invoke(initial_state, config)
 
     # 대화 루프
     while True:

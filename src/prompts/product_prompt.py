@@ -21,6 +21,7 @@ selected_product: {selected_product}
 current_product_index: {current_product_index}
 condition: {condition}
 quantity: {quantity}
+keywords: {keywords}
 user_question: {user_question}
 recommendation_context: {recommendation_context}
 pending_action: {pending_action}
@@ -73,7 +74,6 @@ user_question이 있으면 추천보다 질문 답변을 우선합니다.
   "reason": "",
   "explanation": "",
   "answer": null,
-  "needs_confirmation": true,
   "pending_action": null,
   "error": null,
   "stage": "product_confirming"

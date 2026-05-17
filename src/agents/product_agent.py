@@ -59,6 +59,7 @@ def product_agent_node(state: ShoppingState) -> dict:
         current_product_index=state.get("current_product_index", 0),
         condition=state.get("condition") or "null",
         quantity=state.get("quantity") or "null",
+        keywords=json.dumps(state.get("keywords") or [], ensure_ascii=False),
         user_question=json.dumps(user_question, ensure_ascii=False),
         recommendation_context=json.dumps(recommendation_context, ensure_ascii=False),
         pending_action=json.dumps(state.get("pending_action"), ensure_ascii=False),
@@ -101,6 +102,10 @@ def product_agent_node(state: ShoppingState) -> dict:
 
     if parsed.get("explanation"):
         result["explanation"] = parsed["explanation"]
+
+    # answer(QA 답변)는 explanation으로 올려서 respond_node가 출력하게
+    if not parsed.get("explanation") and parsed.get("answer"):
+        result["explanation"] = parsed["answer"]
 
     if parsed.get("pending_action"):
         result["pending_action"] = parsed["pending_action"]

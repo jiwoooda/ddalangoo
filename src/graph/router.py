@@ -60,6 +60,11 @@ def route(state: ShoppingState) -> RouteName:
         if pending_type == "quantity_confirm" and state.get("quantity"):
             return "payment_agent"
 
+        # platform_suggest 대기 중: confirm → 제안 플랫폼 검색, deny/next → 일반 검색
+        if pending_type == "platform_suggest":
+            if intent in ("confirm", "deny", "next"):
+                return "platform_agent"
+
         if intent == "confirm":
             if not state.get("quantity"):
                 return "quantity_check"
@@ -109,6 +114,18 @@ def route(state: ShoppingState) -> RouteName:
     }
 
     return routing_map.get(intent, "respond")
+
+
+def after_platform_agent(state: ShoppingState) -> Literal["product_agent", "respond"]:
+    """
+    platform_agent 이후 분기.
+    - platform_suggest: product_agent 건너뛰고 바로 respond (플랫폼 제안만)
+    - 그 외: product_agent로 (랭킹/추천)
+    """
+    pending_type = (state.get("pending_action") or {}).get("type")
+    if pending_type == "platform_suggest":
+        return "respond"
+    return "product_agent"
 
 
 def after_reorder(state: ShoppingState) -> Literal["respond", "platform_agent"]:
