@@ -343,7 +343,8 @@ def run_kurly_purchase(
     -------
     dict: {"cart_added": bool, "storage_state_path": str|None, "delivery_info": str, "error": str|None}
     """
-    search_query = " ".join(keywords) if keywords else product_name
+    # 키워드가 아닌 정확한 상품명 자체를 검색어로 사용하여 타겟 상품이 최상단에 노출되도록 함
+    search_query = product_name
 
     playwright = sync_playwright().start()
     print("[webview] 브라우저(Webkit) 시작 중...")

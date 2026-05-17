@@ -36,6 +36,7 @@ intent: {intent}
 6. 추천 상품 확인이 필요하면 pending_action={{"type": "product_confirm"}}을 설정합니다.
 
 # Ranking 기준
+- 1순위: 사용자가 입력한 keywords(핵심 검색어)와 상품명이 가장 정확히 일치하는 기본 상품을 최우선으로 추천합니다. (예: '두부' 검색 시 '연두부', '건두부' 등 파생 상품보다 일반 '두부' 우선)
 - condition이 최저가이면 가격이 낮은 상품을 우선합니다.
 - condition이 빠른배송이면 배송 정보가 빠른 상품을 우선합니다.
 - condition이 리뷰좋은이면 rating과 review_count가 높은 상품을 우선합니다.
