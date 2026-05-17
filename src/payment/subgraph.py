@@ -14,8 +14,6 @@ from src.state.schema import ShoppingState, bridge_shopping_to_payment, bridge_p
 from src.payment.flow import payment_flow
 from src.tools.mock_tools import mock_get_default_address
 
-USE_REAL_BROWSER = os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
-
 
 def _build_delivery_address(state: ShoppingState) -> dict:
     user_id = state.get("user_id", "")
@@ -56,13 +54,15 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # USE_REAL_BROWSER: 장바구니 담기 (cart_shopping/payment_processing 진입 전)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    if USE_REAL_BROWSER and stage not in ("cart_shopping", "payment_processing"):
+    use_real_browser = os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
+    if use_real_browser and stage not in ("cart_shopping", "payment_processing"):
         from src.tools.webview_tool import run_kurly_purchase
 
         payment_state = bridge_shopping_to_payment(state, _build_delivery_address(state))
         result = run_kurly_purchase(
             product_name=product_name,
             keywords=state.get("keywords"),
+            quantity=quantity,
             storage_state_path=state.get("storage_state_path"),
         )
 

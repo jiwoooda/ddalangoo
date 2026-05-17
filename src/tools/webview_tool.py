@@ -200,6 +200,17 @@ def _click_purchase_button(page: Page) -> bool:
     """상품 상세 페이지에서 구매하기/담기 버튼 클릭. 성공 여부 반환"""
     print("[webview] 구매하기 버튼 탐색...")
 
+    # 1. 텍스트 기반 직접 클릭 우선 시도 (Playwright - 자동 스크롤 및 클릭 지원)
+    try:
+        print("[webview] 텍스트 기반으로 '구매하기' 버튼 탐색 중...")
+        page.locator("text=구매하기").last.click(timeout=3000)
+        page.wait_for_timeout(2500)
+        print("[webview] 텍스트 매칭 클릭 성공!")
+        return True
+    except Exception:
+        print("[webview] 텍스트 기반 클릭 실패, VLM 이미지 탐색으로 전환합니다.")
+
+    # 2. VLM 기반 탐색 (Fallback)
     result = _screenshot_and_ask(
         page,
         '화면에서 "구매하기", "바로구매", "장바구니 담기" 버튼 중 하나의 중앙 좌표. '
@@ -217,24 +228,62 @@ def _click_purchase_button(page: Page) -> bool:
     return True
 
 
-def _confirm_cart(page: Page) -> bool:
+def _confirm_cart(page: Page, quantity: int = 1) -> bool:
     """
     구매하기 클릭 후 나타나는 확인 팝업(금액+장바구니 담기 버튼)을 처리.
     성공 여부 반환
     """
     print("[webview] 장바구니 담기 최종 확인 팝업 탐색...")
-    screenshot = page.screenshot()
-    result = _ask_vlm(
-        screenshot,
-        '"장바구니 담기", "담기", "확인" 등 최종 확인 버튼이 보이면 좌표 반환. '
-        '{"x": 195, "y": 750, "found": true, "button_text": "..."} 또는 {"x":0,"y":0,"found":false,"button_text":""}',
-    )
-    print(f"[webview] 장바구니 확인 버튼: {result}")
 
-    if result.get("found"):
-        print(f"[webview] 장바구니 최종 담기 버튼 클릭 ({result['x']}, {result['y']})")
-        page.mouse.click(result["x"], result["y"])
+    if quantity > 1:
+        print(f"[webview] 수량 변경: {quantity}개로 설정 시도 중...")
+        page.wait_for_timeout(1000) # 팝업 애니메이션이 완전히 끝날 때까지 여유 대기
+        try:
+            # 컬리 장바구니 팝업 내 수량 증가 버튼 (aria-label 또는 + 텍스트 활용)
+            for _ in range(quantity - 1):
+                page.locator("button[aria-label*='올리기'], button[aria-label*='증가'], button[aria-label*='더하기'], button:has-text('+')").first.click(timeout=2000)
+                page.wait_for_timeout(500)
+            print(f"[webview] 텍스트 기반 수량 {quantity}개로 변경 완료")
+        except Exception:
+            print("[webview] 텍스트 기반 버튼 탐색 실패. VLM으로 '+' 버튼 조준을 시도합니다.")
+            plus_result = _screenshot_and_ask(
+                page,
+                '장바구니 팝업에 나타난 수량 조절 영역을 확인해줘.\n'
+                '현재 수량을 나타내는 숫자(보통 1)를 먼저 찾고, 그 숫자의 **바로 오른쪽**에 있는 **증가(+) 아이콘**의 정중앙 좌표를 계산해.\n'
+                '반드시 reasoning 필드에 화면 분석 과정(숫자 위치 파악 -> 그 오른쪽 버튼 좌표 확인)을 적어!\n'
+                '(주의: JSON 에러가 나지 않도록 reasoning 내용 안에 큰따옴표(")는 절대 쓰지 마세요)\n'
+                '{"reasoning": "숫자 1의 우측 + 버튼을 확인하여 좌표 선택함", "x": 300, "y": 600, "found": true} 또는 {"reasoning": "...", "x":0,"y":0,"found":false}'
+            )
+            if plus_result.get("found"):
+                print(f"[webview] VLM 조준 성공! '+' 버튼 클릭 중... ({plus_result['x']}, {plus_result['y']})")
+                for _ in range(quantity - 1):
+                    # 웹사이트가 클릭을 무시하지 않도록 사람처럼 0.1초 누르고 떼는 delay 추가
+                    page.mouse.click(plus_result["x"], plus_result["y"], delay=100)
+                    page.wait_for_timeout(800)
+                print(f"[webview] VLM 기반 수량 {quantity}개로 변경 완료")
+            else:
+                print("[webview] 수량 증가 버튼을 찾지 못해 기본 수량(1개)으로 진행합니다.")
+
+    # 1. 텍스트 기반 클릭 우선 시도
+    try:
+        print("[webview] 텍스트 기반으로 장바구니 담기 버튼 클릭 시도 중...")
+        page.locator("button:has-text('담기'), text=장바구니 담기").last.click(timeout=3000)
         page.wait_for_timeout(2000)
+        print("[webview] 텍스트 매칭(장바구니 담기) 클릭 성공!")
+    except Exception:
+        print("[webview] 텍스트 기반 클릭 실패, VLM 이미지 탐색으로 전환합니다.")
+        screenshot = page.screenshot()
+        result = _ask_vlm(
+            screenshot,
+            '"장바구니 담기", "담기", "확인" 등 최종 확인 버튼이 보이면 좌표 반환. '
+            '{"x": 195, "y": 750, "found": true, "button_text": "..."} 또는 {"x":0,"y":0,"found":false,"button_text":""}',
+        )
+        print(f"[webview] 장바구니 확인 버튼: {result}")
+
+        if result.get("found"):
+            print(f"[webview] 장바구니 최종 담기 버튼 클릭 ({result['x']}, {result['y']})")
+            page.mouse.click(result["x"], result["y"])
+            page.wait_for_timeout(2000)
 
     # 팝업 닫기
     print("[webview] 확인 팝업 닫기(X) 버튼 탐색...")
@@ -277,6 +326,7 @@ def _extract_delivery_info(page: Page) -> str:
 def run_kurly_purchase(
     product_name: str,
     keywords: list[str] | None = None,
+    quantity: int = 1,
     storage_state_path: str | None = None,
 ) -> dict:
     """
@@ -286,6 +336,7 @@ def run_kurly_purchase(
     ----------
     product_name       : 선택된 상품명 (검색 + VLM 매칭에 사용)
     keywords           : 검색 키워드 (없으면 product_name 사용)
+    quantity           : 장바구니에 담을 수량
     storage_state_path : 이전 세션 파일 경로 (로그인 상태 유지용)
 
     Returns
@@ -350,7 +401,7 @@ def run_kurly_purchase(
 
         # ── 6. 장바구니 담기 확인 팝업 처리 ──
         print("\n[webview] Step 6. 장바구니 팝업 처리")
-        _confirm_cart(page)
+        _confirm_cart(page, quantity=quantity)
 
         # ── 7. 세션 저장 ──
         print("\n[webview] Step 7. 세션 저장")

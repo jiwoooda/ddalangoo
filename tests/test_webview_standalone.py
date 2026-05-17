@@ -18,12 +18,18 @@ from src.tools.webview_tool import run_kurly_purchase
 def main():
     product_name = "[정지선의 티엔미미] 우삼겹 차우면"
     keywords = ["우삼겹 차우면"]
+    quantity = 3  # 테스트를 위해 수량을 3개로 설정
     
     print("=== [Test] 컬리 웹뷰 단독 실행 시작 ===")
     print(f"검색 키워드: {keywords}")
-    print(f"찾을 상품명: {product_name}\n")
+    print(f"찾을 상품명: {product_name}")
+    print(f"목표 수량: {quantity}개\n")
     
-    result = run_kurly_purchase(product_name=product_name, keywords=keywords)
+    result = run_kurly_purchase(
+        product_name=product_name,
+        keywords=keywords,
+        quantity=quantity
+    )
     
     print("\n=== [Test] 최종 결과 ===")
     print(json.dumps(result, ensure_ascii=False, indent=2))

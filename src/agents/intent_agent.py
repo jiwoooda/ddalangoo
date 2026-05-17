@@ -31,9 +31,9 @@ class IntentOutput(BaseModel):
     quantity: Optional[int] = Field(
         default=None,
         description=(
-            "사용자가 말한 수량. pending_action=quantity_confirm일 때 "
-            "수량 표현이 있으면 반드시 숫자로 채울 것. "
-            "예: '두 개'→2, '세개요'→3, '하나만요'→1, '다섯 봉지'→5"
+            "사용자가 명시적으로 말한 수량. 발화에 수량이 없으면 절대 임의로 1을 넣지 말고 null로 둘 것. "
+            "단, pending_action=quantity_confirm일 때 수량 표현이 있으면 반드시 숫자로 채울 것. "
+            "예: '두 개'→2, '세개요'→3, '하나만요'→1, '다섯 봉지'→5, '3개'→3, '3'→3"
         ),
     )
     condition: Optional[ConditionType] = Field(default=None, description="검색 조건")
@@ -87,11 +87,13 @@ def intent_agent_node(state: ShoppingState) -> dict:
     user_input = _extract_user_input(state)
     stage = state.get("stage", "idle")
     pending_action = state.get("pending_action")
+    
+    pending_type = pending_action.get("type") if isinstance(pending_action, dict) else "null"
 
     prompt = INTENT_AGENT_PROMPT.format(
         user_input=user_input,
         stage=stage,
-        pending_action=json.dumps(pending_action, ensure_ascii=False) if pending_action else "null",
+        pending_action=pending_type,
         context="",
     )
 

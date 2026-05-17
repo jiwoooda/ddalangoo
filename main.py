@@ -176,6 +176,11 @@ def main():
     parser.add_argument("--demo", action="store_true", help="LLM 없이 데모 실행")
     args = parser.parse_args()
 
+    os.environ["USE_REAL_BROWSER"] = "true"
+    if not os.getenv("KURLY_EMAIL") or not os.getenv("KURLY_PASSWORD"):
+        print("[경고] .env 파일에 KURLY_EMAIL 또는 KURLY_PASSWORD가 설정되지 않았습니다.")
+        print("       실제 웹뷰 구동 시 로그인에 실패할 수 있습니다.\n")
+
     if args.demo or not os.getenv("ANTHROPIC_API_KEY"):
         run_demo()
     else:

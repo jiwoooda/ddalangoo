@@ -42,8 +42,9 @@ pending_action이 있으면 "응", "좋아", "아니", "싫어", "그걸로" 같
 payment_password 단계에서 사용자가 숫자를 말하면 비밀번호로 간주하고 intent="confirm"으로 처리합니다.
 
 # quantity_confirm 특별 규칙 (중요)
-pending_action이 quantity_confirm일 때:
+pending_action이 "quantity_confirm"일 때:
 - 사용자가 수량을 말하면 반드시 quantity 필드도 채운다. intent만 채우고 quantity를 null로 두면 안 된다.
+- 사용자가 수량을 대답하는 것은 "quantity_change"가 아니라 반드시 "confirm"으로 처리합니다.
 - 한국어 수량 표현: "하나"=1, "둘/두"=2, "셋/세"=3, "넷/네"=4, "다섯"=5, "열"=10
 - 예시:
   "두 개" → intent="confirm", quantity=2
@@ -52,6 +53,7 @@ pending_action이 quantity_confirm일 때:
   "다섯 개 주세요" → intent="confirm", quantity=5
   "두 봉지만" → intent="confirm", quantity=2
   "3개" → intent="confirm", quantity=3
+  "3" → intent="confirm", quantity=3
 
 # Intent 종류
 buy: 새 상품 구매 요청
@@ -61,7 +63,7 @@ deny: 현재 pending_action을 거절
 next: 다른 상품 후보 요청
 refine: 검색 조건 또는 상품 조건 변경
 compare_platforms: 여러 플랫폼 비교 요청
-quantity_change: 수량만 변경
+quantity_change: 기존에 선택한 수량을 변경할 때만 사용 (단, pending_action이 "quantity_confirm"일 때는 절대 사용 금지. 무조건 confirm 사용)
 address_change: 배송지 제공 또는 변경
 option_select: 상품 옵션 선택 또는 언급
 ask: 상품, 배송, 가격, 리뷰, 주문 상태 질문
@@ -72,7 +74,7 @@ unclear: 의도 판단 불가
 keywords: 검색할 상품명, 카테고리, 브랜드
 exclude_keywords: 제외할 브랜드, 플랫폼, 상품명
 negative_constraints: 자연어 제외 조건
-quantity: 명확한 수량이 있을 때만 숫자, 없으면 null
+quantity: 사용자가 발화에서 명확히 수량을 말했을 때만 숫자. 언급이 없으면 절대 1로 추측하지 말고 반드시 null로 둘 것.
 condition: [최저가, 가성비, 빠른배송, 인기순, 무료배송, 리뷰좋은] 중 하나 또는 null
 target_platforms: 여러 플랫폼을 비교 요청한 경우
 override_platform: 하나의 플랫폼을 명시한 경우
@@ -82,7 +84,7 @@ address_text: 사용자가 명시적으로 말한 배송지 텍스트
 # Slot 추출 규칙
 - 사용자가 명시적으로 말한 것만 추출합니다.
 - 상품 옵션은 추측하지 않습니다.
-- 숫자가 명확하지 않으면 quantity를 추출하지 않습니다.
+- 숫자가 명확히 언급되지 않았다면 quantity를 절대 1로 추측하지 말고 null로 둡니다.
 - 플랫폼은 명시적으로 말한 경우에만 추출합니다.
 - "삼성 말고 LG TV" → keywords=["LG","TV"], exclude_keywords=["삼성"]
 - "쿠팡이랑 네이버 비교해줘" → target_platforms=["쿠팡","네이버쇼핑"]
@@ -91,8 +93,8 @@ address_text: 사용자가 명시적으로 말한 배송지 텍스트
 - "서울 강남구로 보내줘" → intent="address_change", address_text="서울 강남구"
 
 # 확인/거절 해석 규칙
-confirm은 사용자가 현재 pending_action에 명확히 동의할 때만 사용합니다.
-예: 응, 좋아, 그걸로 해, 진행해, 맞아, 네
+confirm은 사용자가 현재 pending_action에 명확히 동의하거나, 요구하는 답변(수량, 비밀번호 등)을 정상적으로 제공했을 때 사용합니다.
+예: 응, 좋아, 그걸로 해, 진행해, 맞아, 네, (수량 확인 시) 3개, (비번 확인 시) 1234
 
 deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용합니다.
 예: 아니, 싫어, 별로야, 그건 빼
