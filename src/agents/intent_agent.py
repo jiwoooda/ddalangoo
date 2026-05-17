@@ -1,58 +1,64 @@
 """
 Intent Agent Node.
 
-역할: 사용자 발화 → intent + slot 추출 (JSON).
-라우팅/검색/추천/결제는 하지 않는다.
+역할: 사용자 발화 → intent + slot 추출.
+with_structured_output(Pydantic)으로 스키마를 강제해 누락 방지.
 """
 import json
-import os
-import re
-from typing import Any
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import SystemMessage
 
 from src.state.schema import ShoppingState
 from src.prompts.intent_prompt import INTENT_AGENT_PROMPT
 
-_KR_NUMBER_MAP = {
-    "하나": 1, "한": 1, "일": 1,
-    "둘": 2, "두": 2, "이": 2,
-    "셋": 3, "세": 3, "삼": 3,
-    "넷": 4, "네": 4, "사": 4,
-    "다섯": 5, "오": 5,
-    "여섯": 6, "육": 6,
-    "일곱": 7, "칠": 7,
-    "여덟": 8, "팔": 8,
-    "아홉": 9, "구": 9,
-    "열": 10, "십": 10,
-}
+IntentType = Literal[
+    "buy", "reorder", "confirm", "deny", "next", "refine",
+    "compare_platforms", "quantity_change", "address_change",
+    "option_select", "ask", "cancel", "unclear",
+]
+
+ConditionType = Literal["최저가", "가성비", "빠른배송", "인기순", "무료배송", "리뷰좋은"]
 
 
-def _extract_korean_quantity(text: str) -> int | None:
-    """'두 개', '3개', '세개' 등에서 숫자를 추출한다."""
-    # 아라비아 숫자 + 개/명/봉 등
-    m = re.search(r"(\d+)\s*(?:개|명|봉|팩|박스|캔|병|그램|kg|L)?", text)
-    if m:
-        return int(m.group(1))
-    # 한국어 숫자 + 개/명 등
-    for kr, num in _KR_NUMBER_MAP.items():
-        pattern = rf"{kr}\s*(?:개|명|봉|팩|박스|캔|병)?"
-        if re.search(pattern, text):
-            return num
-    return None
+class IntentOutput(BaseModel):
+    intent: IntentType = Field(description="사용자 의도")
+    keywords: list[str] = Field(default_factory=list, description="검색할 상품명/카테고리/브랜드")
+    exclude_keywords: list[str] = Field(default_factory=list, description="제외할 브랜드/플랫폼/상품명")
+    negative_constraints: list[str] = Field(default_factory=list, description="자연어 제외 조건")
+    quantity: Optional[int] = Field(
+        default=None,
+        description=(
+            "사용자가 말한 수량. pending_action=quantity_confirm일 때 "
+            "수량 표현이 있으면 반드시 숫자로 채울 것. "
+            "예: '두 개'→2, '세개요'→3, '하나만요'→1, '다섯 봉지'→5"
+        ),
+    )
+    condition: Optional[ConditionType] = Field(default=None, description="검색 조건")
+    target_platforms: list[str] = Field(default_factory=list, description="비교 대상 플랫폼 목록")
+    override_platform: Optional[str] = Field(default=None, description="명시적으로 지정한 단일 플랫폼")
+    current_option_value: Optional[str] = Field(default=None, description="명시된 상품 옵션값")
+    address_text: Optional[str] = Field(default=None, description="사용자가 말한 배송지 텍스트")
+    needs_clarification: bool = Field(default=False, description="추가 정보가 필요하면 true")
+    clarification_reason: Optional[str] = Field(default=None, description="needs_clarification=true일 때 이유")
+    confidence: float = Field(
+        default=0.95,
+        description="의도 해석 확신도 0.0~1.0. 명확하면 0.9 이상, 모호하면 0.5~0.8, 불분명하면 0.3 이하",
+    )
+    immediate_response: str = Field(default="", description="음성 출력용 한 문장 응답")
+
 
 _llm: ChatOpenAI | None = None
+_structured_llm = None
 
 
-def _get_llm() -> ChatOpenAI:
-    global _llm
+def _get_llm():
+    global _llm, _structured_llm
     if _llm is None:
-        _llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            max_tokens=512,
-        )
-    return _llm
+        _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        _structured_llm = _llm.with_structured_output(IntentOutput)
+    return _structured_llm
 
 
 def _extract_user_input(state: ShoppingState) -> str:
@@ -89,22 +95,16 @@ def intent_agent_node(state: ShoppingState) -> dict:
     )
 
     llm = _get_llm()
-    response = llm.invoke([SystemMessage(content=prompt)])
-    content = response.content.strip()
-
     try:
-        # ```json ... ``` 블록 제거
-        if content.startswith("```"):
-            lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
-        parsed: dict[str, Any] = json.loads(content)
-    except json.JSONDecodeError:
-        parsed = {
+        parsed: IntentOutput = llm.invoke([SystemMessage(content=prompt)])
+    except Exception as e:
+        print(f"[intent_agent] structured output error: {e}")
+        return {
             "intent": "unclear",
-            "keywords": [],
+            "keywords": state.get("keywords") or [],
             "exclude_keywords": [],
             "negative_constraints": [],
-            "quantity": None,
+            "quantity": state.get("quantity"),
             "condition": None,
             "target_platforms": [],
             "override_platform": None,
@@ -114,31 +114,23 @@ def intent_agent_node(state: ShoppingState) -> dict:
             "clarification_reason": "응답 파싱 오류",
             "confidence": 0.0,
             "immediate_response": "다시 말씀해 주세요.",
+            "last_agent": "intent_agent",
         }
 
-    # quantity 추출 실패 시 사용자 입력에서 직접 파싱 (quantity_confirm 대기 중인 경우)
-    quantity = parsed.get("quantity")
-    if quantity is None:
-        pending_type = (pending_action or {}).get("type") if pending_action else None
-        if pending_type == "quantity_confirm":
-            quantity = _extract_korean_quantity(user_input)
-        if quantity is None:
-            quantity = state.get("quantity")
-
     return {
-        "intent": parsed.get("intent"),
-        "keywords": parsed.get("keywords") or state.get("keywords") or [],
-        "exclude_keywords": parsed.get("exclude_keywords") or [],
-        "negative_constraints": parsed.get("negative_constraints") or [],
-        "quantity": quantity,
-        "condition": parsed.get("condition"),
-        "target_platforms": parsed.get("target_platforms") or [],
-        "override_platform": parsed.get("override_platform"),
-        "current_option_value": parsed.get("current_option_value"),
-        "address_text": parsed.get("address_text"),
-        "needs_clarification": parsed.get("needs_clarification", False),
-        "clarification_reason": parsed.get("clarification_reason"),
-        "confidence": parsed.get("confidence") or 0.9,
-        "immediate_response": parsed.get("immediate_response"),
+        "intent": parsed.intent,
+        "keywords": parsed.keywords or state.get("keywords") or [],
+        "exclude_keywords": parsed.exclude_keywords,
+        "negative_constraints": parsed.negative_constraints,
+        "quantity": parsed.quantity if parsed.quantity is not None else state.get("quantity"),
+        "condition": parsed.condition,
+        "target_platforms": parsed.target_platforms,
+        "override_platform": parsed.override_platform,
+        "current_option_value": parsed.current_option_value,
+        "address_text": parsed.address_text,
+        "needs_clarification": parsed.needs_clarification,
+        "clarification_reason": parsed.clarification_reason,
+        "confidence": parsed.confidence if parsed.confidence > 0 else 0.9,
+        "immediate_response": parsed.immediate_response,
         "last_agent": "intent_agent",
     }

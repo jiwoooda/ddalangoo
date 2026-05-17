@@ -32,7 +32,7 @@ pending_action은 현재 시스템이 사용자에게 기다리는 응답입니�
 - option_select: 상품 옵션 선택 대기
 - address_confirm: 배송지 확인 또는 변경 대기
 - price_change_confirm: 가격 변경 후 계속 진행 여부 확인
-- quantity_confirm: 수량 입력 대기 → 숫자나 수량 표현이면 intent="confirm", quantity=숫자
+- quantity_confirm: 수량 입력 대기 → 수량 표현이면 반드시 intent="confirm"이고 quantity=숫자도 함께 채운다
 - platform_suggest: 다른 플랫폼 검색 제안 → 동의/거절로 해석
 - payment_method_confirm: 총액 및 결제수단 확인 → 동의하면 intent="confirm"
 - payment_password: 비밀번호 입력 대기 → 어떤 숫자/텍스트든 intent="confirm"으로 처리
@@ -40,6 +40,18 @@ pending_action은 현재 시스템이 사용자에게 기다리는 응답입니�
 
 pending_action이 있으면 "응", "좋아", "아니", "싫어", "그걸로" 같은 짧은 답변을 pending_action 기준으로 해석합니다.
 payment_password 단계에서 사용자가 숫자를 말하면 비밀번호로 간주하고 intent="confirm"으로 처리합니다.
+
+# quantity_confirm 특별 규칙 (중요)
+pending_action이 quantity_confirm일 때:
+- 사용자가 수량을 말하면 반드시 quantity 필드도 채운다. intent만 채우고 quantity를 null로 두면 안 된다.
+- 한국어 수량 표현: "하나"=1, "둘/두"=2, "셋/세"=3, "넷/네"=4, "다섯"=5, "열"=10
+- 예시:
+  "두 개" → intent="confirm", quantity=2
+  "세 개요" → intent="confirm", quantity=3
+  "하나만요" → intent="confirm", quantity=1
+  "다섯 개 주세요" → intent="confirm", quantity=5
+  "두 봉지만" → intent="confirm", quantity=2
+  "3개" → intent="confirm", quantity=3
 
 # Intent 종류
 buy: 새 상품 구매 요청
@@ -109,23 +121,4 @@ deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용�
 - 발화가 명확하면 0.9 이상, 다소 모호하면 0.5~0.8, 전혀 모르면 0.3 이하
 - 반드시 실제 값을 채워 넣으세요. 기본값 0.0을 그대로 반환하면 안 됩니다.
 
-# 출력 형식
-{{
-  "intent": "",
-  "keywords": [],
-  "exclude_keywords": [],
-  "negative_constraints": [],
-  "quantity": null,
-  "condition": null,
-  "target_platforms": [],
-  "override_platform": null,
-  "current_option_value": null,
-  "address_text": null,
-  "needs_clarification": false,
-  "clarification_reason": null,
-  "confidence": 0.95,
-  "immediate_response": ""
-}}
-
-반드시 JSON만 출력하세요.
 """
