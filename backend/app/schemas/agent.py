@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Any
 
 class RecommendationItemInAgent(BaseModel):
-    recommendationItemId: int
+    recommendationItemId: Optional[int] = None
     productId: int
     productName: str
     brand: Optional[str] = None
@@ -49,5 +49,5 @@ class MessageRequest(BaseModel):
     action: Optional[str] = None
 
 class ConfirmRequest(BaseModel):
-    recommendationItemId: int
+    recommendationItemId: Optional[int] = None
     action: str  # order_now | add_to_cart | reject
