@@ -29,6 +29,7 @@ class CallProvider extends ChangeNotifier {
   int? _conversationId;
   bool _isLoading = false;
   bool _isListening = false; // STT 녹음 중
+  bool _isTranscribing = false; // STT 전사/전송 중
   bool _isSpeaking = false; // TTS 재생 중
   String? _errorMessage;
   final List<Map<String, dynamic>> _messages = [];
@@ -38,9 +39,25 @@ class CallProvider extends ChangeNotifier {
   int? get conversationId => _conversationId;
   bool get isLoading => _isLoading;
   bool get isListening => _isListening;
+  bool get isTranscribing => _isTranscribing;
   bool get isSpeaking => _isSpeaking;
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get messages => _messages;
+  bool get canUseVoice =>
+      _stage != CallStage.idle &&
+      _stage != CallStage.loading &&
+      _stage != CallStage.completed &&
+      !_isLoading &&
+      !_isSpeaking &&
+      !_isTranscribing;
+
+  String get voiceStatusLabel {
+    if (_isListening) return '녹음 중... 버튼을 다시 누르면 전송됩니다';
+    if (_isTranscribing) return '음성을 텍스트로 변환하고 있어요...';
+    if (_isSpeaking) return '딸랑구가 말하는 중입니다';
+    if (_isLoading) return '서버 응답을 기다리는 중입니다';
+    return '버튼을 눌러 녹음을 시작하세요';
+  }
 
   // 전화 시작
   Future<void> startCall() async {
@@ -74,13 +91,15 @@ class CallProvider extends ChangeNotifier {
 
   // 녹음 시작 (사용자가 말할 때)
   Future<void> startListening() async {
-    if (_isListening || _isSpeaking) return;
+    if (_isListening || _isSpeaking || _isLoading || _isTranscribing) return;
     try {
+      _errorMessage = null;
       await _voiceService.startRecording();
       _isListening = true;
       notifyListeners();
     } catch (e) {
-      _errorMessage = '마이크 권한이 필요합니다';
+      _errorMessage = '녹음을 시작하지 못했습니다: $e';
+      debugPrint('❌ [Start Listening Error] $e');
       notifyListeners();
     }
   }
@@ -90,6 +109,7 @@ class CallProvider extends ChangeNotifier {
     if (!_isListening) return;
 
     _isListening = false;
+    _isTranscribing = true;
     notifyListeners();
 
     try {
@@ -97,10 +117,12 @@ class CallProvider extends ChangeNotifier {
       final transcript = await _voiceService.stopRecordingAndTranscribe();
 
       if (transcript == null || transcript.isEmpty) {
+        _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
         return;
       }
 
       _setLoading(true);
+      _errorMessage = null;
       // 사용자 말풍선 추가
       _addMessage(text: transcript, isUser: true);
 
@@ -124,6 +146,7 @@ class CallProvider extends ChangeNotifier {
       _errorMessage = e.toString();
       notifyListeners();
     } finally {
+      _isTranscribing = false;
       _setLoading(false);
     }
   }
@@ -220,6 +243,7 @@ class CallProvider extends ChangeNotifier {
     _messages.clear();
     _errorMessage = null;
     _isListening = false;
+    _isTranscribing = false;
     _isSpeaking = false;
     notifyListeners();
   }
@@ -290,9 +314,16 @@ class CallProvider extends ChangeNotifier {
     // TTS 재생 중엔 STT 비활성화 (echo 방지)
     _isSpeaking = true;
     notifyListeners();
-    await _voiceService.speak(response.assistantMessage);
-    _isSpeaking = false;
-    notifyListeners();
+    try {
+      await _voiceService
+          .speak(response.assistantMessage)
+          .timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('🔇 [TTS Fallback] $e');
+    } finally {
+      _isSpeaking = false;
+      notifyListeners();
+    }
 
     // TTS 끝나면 자동으로 녹음 시작 (always-on)
     //if (_stage != CallStage.loading &&

@@ -13,7 +13,16 @@ class CallScreen extends StatefulWidget {
 }
 
 class _CallScreenState extends State<CallScreen> {
+  static const double _titleFontSize = 18;
+  static const double _bodyFontSize = 19;
+  static const double _supportFontSize = 15;
+  static const double _buttonFontSize = 18;
+
   final TextEditingController _textController = TextEditingController();
+  bool _isMicPressed = false;
+  bool _isMicHovered = false;
+  bool _isEndCallHovered = false;
+  bool _showTextInput = false;
 
   @override
   void initState() {
@@ -39,6 +48,54 @@ class _CallScreenState extends State<CallScreen> {
     if (_textController.text.isEmpty) return;
     context.read<CallProvider>().sendTextMessage(_textController.text);
     _textController.clear();
+    setState(() {
+      _showTextInput = false;
+    });
+  }
+
+  void _handleMicTap(CallProvider provider) {
+    debugPrint(
+      '🎤 [Mic Tap] canUseVoice=${provider.canUseVoice}, '
+      'isListening=${provider.isListening}, '
+      'isSpeaking=${provider.isSpeaking}, '
+      'isLoading=${provider.isLoading}, '
+      'isTranscribing=${provider.isTranscribing}',
+    );
+    provider.toggleListening();
+  }
+
+  void _handleMicTapDown(CallProvider provider) {
+    if (!(provider.canUseVoice || provider.isListening)) return;
+    setState(() {
+      _isMicPressed = true;
+    });
+  }
+
+  void _handleMicTapEnd() {
+    if (!_isMicPressed) return;
+    setState(() {
+      _isMicPressed = false;
+    });
+  }
+
+  void _handleMicHover(bool isHovered) {
+    if (_isMicHovered == isHovered) return;
+    setState(() {
+      _isMicHovered = isHovered;
+    });
+  }
+
+  void _handleEndCallHover(bool isHovered) {
+    if (_isEndCallHovered == isHovered) return;
+    setState(() {
+      _isEndCallHovered = isHovered;
+    });
+  }
+
+  void _toggleTextInput() {
+    setState(() {
+      _showTextInput = !_showTextInput;
+    });
   }
 
   @override
@@ -74,20 +131,20 @@ class _CallScreenState extends State<CallScreen> {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
-          const Text(
-            '딸랑구',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFFE8325A),
-            ),
+          Image.asset(
+            'assets/images/ddalangoo_text_icon.png',
+            height: 32,
+            fit: BoxFit.contain,
           ),
           const SizedBox(height: 4),
           Consumer<CallProvider>(
             builder: (context, provider, _) {
               return Text(
                 provider.conversationId != null ? '통화 중' : '연결 중...',
-                style: const TextStyle(fontSize: 13, color: Color(0xFF4CAF50)),
+                style: const TextStyle(
+                  fontSize: _supportFontSize,
+                  color: Color(0xFF4CAF50),
+                ),
               );
             },
           ),
@@ -125,10 +182,6 @@ class _CallScreenState extends State<CallScreen> {
           ),
         ),
 
-        // 데모용 텍스트 입력창
-        if (provider.stage != CallStage.completed && !provider.isLoading)
-          _buildDemoTextInput(),
-
         // 상품 추천 카드 (상품 선택 단계)
         if (provider.stage == CallStage.productSelection &&
             provider.lastResponse?.recommendations.isNotEmpty == true)
@@ -141,13 +194,6 @@ class _CallScreenState extends State<CallScreen> {
 
         // 장바구니 (장바구니 단계)
         if (provider.stage == CallStage.cart) _buildCartSummary(provider),
-
-        // 음성 파형 (로딩 중 아닐 때)
-        if (!provider.isLoading)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: _buildVoiceWave(),
-          ),
 
         // 로딩 인디케이터
         if (provider.isLoading)
@@ -180,7 +226,7 @@ class _CallScreenState extends State<CallScreen> {
           Text(
             loadingText,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: _titleFontSize,
               color: Color(0xFFE8325A),
               fontWeight: FontWeight.w500,
             ),
@@ -188,7 +234,10 @@ class _CallScreenState extends State<CallScreen> {
           const SizedBox(height: 8),
           const Text(
             '잠시 기다려주세요',
-            style: TextStyle(fontSize: 13, color: Color(0xFF888888)),
+            style: TextStyle(
+              fontSize: _supportFontSize,
+              color: Color(0xFF888888),
+            ),
           ),
         ],
       ),
@@ -211,13 +260,21 @@ class _CallScreenState extends State<CallScreen> {
               controller: _textController,
               obscureText: isPasswordInput, // 비밀번호 입력 시 마스킹 처리
               decoration: InputDecoration(
-                hintText: '메시지를 입력하세요 (데모용)',
+                hintText: '메시지를 입력하세요 (데모에만 표시됩니다)',
+                hintStyle: const TextStyle(
+                  fontSize: _bodyFontSize,
+                  color: Color(0xFF777777),
+                ),
                 fillColor: Colors.white,
                 filled: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide: BorderSide.none,
                 ),
+              ),
+              style: const TextStyle(
+                fontSize: _bodyFontSize,
+                color: Color(0xFF333333),
               ),
               onSubmitted: (_) => _handleTextSubmit(),
             ),
@@ -231,6 +288,24 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
+  Widget _buildTextInputToggle() {
+    return OutlinedButton.icon(
+      onPressed: _toggleTextInput,
+      icon: Icon(_showTextInput ? Icons.keyboard_hide : Icons.keyboard),
+      label: Text(_showTextInput ? '텍스트 입력 닫기' : '텍스트 입력하기'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFFE8325A),
+        side: const BorderSide(color: Color(0xFFE8325A)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        textStyle: const TextStyle(
+          fontSize: _supportFontSize,
+          fontWeight: FontWeight.w600,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+    );
+  }
+
   // 말풍선
   Widget _buildMessageBubble({required String text, required bool isUser}) {
     return Padding(
@@ -239,44 +314,56 @@ class _CallScreenState extends State<CallScreen> {
         mainAxisAlignment: isUser
             ? MainAxisAlignment.end
             : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!isUser) ...[
-            const CircleAvatar(
-              radius: 16,
-              backgroundColor: Color(0xFFFFD6E0),
-              child: Text('🧒', style: TextStyle(fontSize: 16)),
-            ),
-            const SizedBox(width: 8),
-          ],
           Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: isUser
-                    ? const Color(0xFFE8325A)
-                    : const Color(0xFFFFFFFF),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(isUser ? 16 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 16),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
+            child: Column(
+              crossAxisAlignment: isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              children: [
+                if (!isUser)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6, bottom: 8),
+                    child: Image.asset(
+                      'assets/images/ddalangoo_logo_image.png',
+                      height: 100,
+                      fit: BoxFit.contain,
+                    ),
                   ),
-                ],
-              ),
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: isUser ? Colors.white : const Color(0xFF333333),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isUser
+                        ? const Color(0xFFE8325A)
+                        : const Color(0xFFFFFFFF),
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(16),
+                      topRight: const Radius.circular(16),
+                      bottomLeft: Radius.circular(isUser ? 16 : 4),
+                      bottomRight: Radius.circular(isUser ? 4 : 16),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: _bodyFontSize,
+                      color: isUser ? Colors.white : const Color(0xFF333333),
+                      height: 1.4,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
@@ -566,26 +653,43 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  // 음성 파형 (더미 UI)
-  Widget _buildVoiceWave() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(12, (index) {
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 2),
-          width: 4,
-          height: (index % 3 == 0)
-              ? 20
-              : (index % 2 == 0)
-              ? 12
-              : 8,
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8325A).withOpacity(0.5),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        );
-      }),
-    );
+  Color _micButtonColor(CallProvider provider) {
+    if (_isMicPressed && provider.isListening) {
+      return const Color(0xFFE53935);
+    }
+    if (_isMicPressed) {
+      return const Color(0xFF4CAF50);
+    }
+    if (_isMicHovered && !provider.isListening && provider.canUseVoice) {
+      return const Color(0xFFE7F6EA);
+    }
+    if (provider.isListening) {
+      return const Color(0xFF4CAF50);
+    }
+    if (provider.canUseVoice) {
+      return const Color(0xFFEEEEEE);
+    }
+    return const Color(0xFFF5D9E0);
+  }
+
+  Color _micIconColor(CallProvider provider) {
+    if (_isMicPressed || provider.isListening) {
+      return Colors.white;
+    }
+    if (_isMicHovered && provider.canUseVoice) {
+      return const Color(0xFF4CAF50);
+    }
+    if (provider.canUseVoice) {
+      return const Color(0xFFE8325A);
+    }
+    return const Color(0xFFE8325A);
+  }
+
+  IconData _micIcon(CallProvider provider) {
+    if (provider.isTranscribing) return Icons.hourglass_top;
+    if (_isMicPressed && provider.isListening) return Icons.stop_rounded;
+    if (_isMicPressed || provider.isListening) return Icons.graphic_eq;
+    return Icons.mic_none;
   }
 
   // 하단 버튼 영역 (말하기 + 전화 끊기)
@@ -593,72 +697,183 @@ class _CallScreenState extends State<CallScreen> {
     return Consumer<CallProvider>(
       builder: (context, provider, _) {
         return Padding(
-          padding: const EdgeInsets.only(bottom: 48),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
           child: Column(
             children: [
+              if (provider.stage != CallStage.completed && !provider.isLoading) ...[
+                _buildTextInputToggle(),
+                if (_showTextInput) ...[
+                  const SizedBox(height: 12),
+                  _buildDemoTextInput(),
+                ],
+                const SizedBox(height: 20),
+              ],
+
               // 말하기 버튼 (통화 중일 때만 표시)
               if (provider.stage != CallStage.idle &&
                   provider.stage != CallStage.loading &&
                   provider.stage != CallStage.completed) ...[
-                GestureDetector(
-                  onTapDown: (_) => provider.startListening(),
-                  onTapUp: (_) => provider.stopListeningAndSend(),
-                  onTapCancel: () => provider.stopListeningAndSend(),
-                  child: Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: provider.isListening
-                          ? const Color(0xFF4CAF50)
-                          : const Color(0xFFEEEEEE),
-                      shape: BoxShape.circle,
-                      border: provider.isListening
-                          ? Border.all(color: const Color(0xFF4CAF50), width: 3)
-                          : null,
-                    ),
-                    child: Icon(
-                      provider.isListening ? Icons.mic : Icons.mic_none,
-                      color: provider.isListening
-                          ? Colors.white
-                          : const Color(0xFF888888),
-                      size: 28,
+                MouseRegion(
+                  cursor: (provider.canUseVoice || provider.isListening)
+                      ? SystemMouseCursors.click
+                      : SystemMouseCursors.basic,
+                  onEnter: (_) => _handleMicHover(true),
+                  onExit: (_) => _handleMicHover(false),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: (provider.canUseVoice || provider.isListening)
+                        ? (_) => _handleMicTapDown(provider)
+                        : null,
+                    onTapCancel: _handleMicTapEnd,
+                    onTapUp: (_) => _handleMicTapEnd(),
+                    onTap: (provider.canUseVoice || provider.isListening)
+                        ? () => _handleMicTap(provider)
+                        : null,
+                    child: Container(
+                      width: 88,
+                      height: 88,
+                      decoration: BoxDecoration(
+                        color: _micButtonColor(provider),
+                        shape: BoxShape.circle,
+                        border: provider.isListening
+                            ? Border.all(
+                                color: _isMicPressed
+                                    ? const Color(0xFFE53935)
+                                    : const Color(0xFF4CAF50),
+                                width: 3,
+                              )
+                            : _isMicHovered && provider.canUseVoice
+                            ? Border.all(
+                                color: const Color(0xFF4CAF50),
+                                width: 2,
+                              )
+                            : null,
+                        boxShadow: provider.isListening
+                            ? [
+                                BoxShadow(
+                                  color: const Color(
+                                    0xFF4CAF50,
+                                  ).withOpacity(0.28),
+                                  blurRadius: 16,
+                                  spreadRadius: 2,
+                                ),
+                              ]
+                            : _isMicHovered && provider.canUseVoice
+                            ? [
+                                BoxShadow(
+                                  color: const Color(
+                                    0xFF4CAF50,
+                                  ).withOpacity(0.16),
+                                  blurRadius: 12,
+                                  spreadRadius: 1,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Icon(
+                        _micIcon(provider),
+                        color: _micIconColor(provider),
+                        size: 34,
+                      ),
                     ),
                   ),
                 ),
+                const SizedBox(height: 12),
                 const SizedBox(height: 8),
                 Text(
-                  provider.isListening ? '듣는 중...' : '누르고 말하기',
+                  provider.voiceStatusLabel,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: _supportFontSize,
                     color: provider.isListening
                         ? const Color(0xFF4CAF50)
+                        : provider.canUseVoice
+                        ? const Color(0xFF888888)
+                        : const Color(0xFFE8325A),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (provider.errorMessage != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    provider.errorMessage!,
+                    style: const TextStyle(
+                      fontSize: _supportFontSize,
+                      color: Color(0xFFC62828),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                const SizedBox(height: 4),
+                Text(
+                  provider.isListening
+                      ? (_isMicPressed ? '손을 떼면 녹음 종료' : '다시 누르면 녹음 종료')
+                      : (_isMicPressed ? '손을 떼면 녹음 시작' : '한 번 눌러 시작'),
+                  style: TextStyle(
+                    fontSize: _supportFontSize,
+                    color: _isMicPressed
+                        ? (provider.isListening
+                              ? const Color(0xFFE53935)
+                              : const Color(0xFF4CAF50))
                         : const Color(0xFF888888),
                   ),
+                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
               ],
 
               // 전화 끊기 버튼
-              GestureDetector(
-                onTap: _endCall,
-                child: Container(
-                  width: 72,
-                  height: 72,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE8325A),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.call_end,
-                    color: Colors.white,
-                    size: 32,
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                onEnter: (_) => _handleEndCallHover(true),
+                onExit: (_) => _handleEndCallHover(false),
+                child: GestureDetector(
+                  onTap: _endCall,
+                  child: Container(
+                    width: double.infinity,
+                    height: 64,
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    decoration: BoxDecoration(
+                      color: _isEndCallHovered
+                          ? const Color(0xFFE8325A)
+                          : const Color(0xFFD9D9D9),
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: _isEndCallHovered
+                          ? [
+                              BoxShadow(
+                                color: const Color(
+                                  0xFFE8325A,
+                                ).withOpacity(0.28),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.call_end,
+                          color: _isEndCallHovered
+                              ? Colors.white
+                              : const Color(0xFF666666),
+                          size: 24,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          '전화 끊기',
+                          style: TextStyle(
+                            fontSize: _buttonFontSize,
+                            color: _isEndCallHovered
+                                ? Colors.white
+                                : const Color(0xFF666666),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '전화 끊기',
-                style: TextStyle(fontSize: 14, color: Color(0xFF555555)),
               ),
             ],
           ),

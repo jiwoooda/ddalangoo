@@ -65,11 +65,11 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             TextField(
               controller: _usernameController,
-              decoration: const InputDecoration(labelText: '아이디'),
+              decoration: const InputDecoration(labelText: '이름'),
             ),
             TextField(
               controller: _passwordController,
-              decoration: const InputDecoration(labelText: '비밀번호'),
+              decoration: const InputDecoration(labelText: '전화번호'),
               obscureText: true,
             ),
             const SizedBox(height: 30),

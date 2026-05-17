@@ -4,8 +4,8 @@
     "build_asset_types": [],
     "linking_enabled": false
   },
-  "out_dir_shared": "/Users/synuo/Documents/GitHub/AYearApart/ddalangoo/.dart_tool/hooks_runner/shared/objective_c/build/",
-  "out_file": "/Users/synuo/Documents/GitHub/AYearApart/ddalangoo/.dart_tool/hooks_runner/objective_c/337ce265dc/output.json",
+  "out_dir_shared": "/Users/synuo/Documents/GitHub/AYearApart/FrontEnd/.dart_tool/hooks_runner/shared/objective_c/build/",
+  "out_file": "/Users/synuo/Documents/GitHub/AYearApart/FrontEnd/.dart_tool/hooks_runner/objective_c/337ce265dc/output.json",
   "package_name": "objective_c",
   "package_root": "/Users/synuo/.pub-cache/hosted/pub.dev/objective_c-9.3.0/",
   "user_defines": {}

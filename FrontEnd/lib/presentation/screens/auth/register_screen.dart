@@ -69,7 +69,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('🧒', style: TextStyle(fontSize: 64)),
+              Image.asset(
+                'assets/images/ddalangoo_logo_image.png',
+                height: 84,
+                fit: BoxFit.contain,
+              ),
               const SizedBox(height: 16),
               const Text(
                 '딸랑구',

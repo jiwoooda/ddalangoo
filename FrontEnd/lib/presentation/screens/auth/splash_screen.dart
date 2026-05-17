@@ -41,17 +41,16 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 딸랑구 캐릭터 이모지
-            const Text('🧒', style: TextStyle(fontSize: 80)),
+            Image.asset(
+              'assets/images/ddalangoo_logo_image.png',
+              height: 120,
+              fit: BoxFit.contain,
+            ),
             const SizedBox(height: 24),
-            // 딸랑구 로고 텍스트
-            const Text(
-              '딸랑구',
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFFE8325A),
-              ),
+            Image.asset(
+              'assets/images/ddalangoo_text_icon.png',
+              height: 80,
+              fit: BoxFit.contain,
             ),
             const SizedBox(height: 12),
             const Text(
