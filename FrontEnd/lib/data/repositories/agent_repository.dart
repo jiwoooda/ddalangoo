@@ -93,24 +93,10 @@ class AgentRepository {
     );
   }
 
-  AgentResponse _parseAgentResponse(
-    dynamic data, {
-    required String label,
-  }) {
+  AgentResponse _parseAgentResponse(dynamic data, {required String label}) {
     final agentResponse = AgentResponse.fromJson(data);
     debugPrint(
-      '📥 [$label]\n${_jsonEncoder.convert({
-        'conversationId': agentResponse.conversationId,
-        'status': agentResponse.status,
-        'stage': agentResponse.stage,
-        'assistantMessage': agentResponse.assistantMessage,
-        'recommendationCount': agentResponse.recommendations.length,
-        'pendingConfirmation': agentResponse.pendingConfirmation,
-        'availableOptions': agentResponse.availableOptions,
-        'uiCommand': agentResponse.uiCommand,
-        'asyncStatus': agentResponse.asyncStatus,
-        'error': agentResponse.error,
-      })}',
+      '📥 [$label]\n${_jsonEncoder.convert({'conversationId': agentResponse.conversationId, 'status': agentResponse.status, 'stage': agentResponse.stage, 'assistantMessage': agentResponse.assistantMessage, 'recommendationCount': agentResponse.recommendations.length, 'pendingConfirmation': agentResponse.pendingConfirmation, 'availableOptions': agentResponse.availableOptions, 'uiCommand': agentResponse.uiCommand, 'asyncStatus': agentResponse.asyncStatus, 'error': agentResponse.error})}',
     );
 
     if (agentResponse.stage == 'idle') {
@@ -153,10 +139,7 @@ class AgentRepository {
       '/api/agent/shopping-requests',
       data: payload,
     );
-    return _parseAgentResponse(
-      response.data,
-      label: 'Shopping Start Response',
-    );
+    return _parseAgentResponse(response.data, label: 'Shopping Start Response');
   }
 
   // 대화 상태 가져오기 (폴링용)
@@ -303,10 +286,7 @@ class AgentRepository {
       '/api/agent/conversations/$conversationId/confirm',
       data: payload,
     );
-    return _parseAgentResponse(
-      response.data,
-      label: 'Confirm Response',
-    );
+    return _parseAgentResponse(response.data, label: 'Confirm Response');
   }
 
   // 결제 웹뷰 결과 전송

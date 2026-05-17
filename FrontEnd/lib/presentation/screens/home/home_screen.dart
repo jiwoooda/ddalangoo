@@ -14,6 +14,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final UserRepository _userRepository = UserRepository();
   String _userName = '';
+  bool _isCallHovered = false;
+  bool _isLogoutHovered = false;
 
   @override
   void initState() {
@@ -38,6 +40,16 @@ class _HomeScreenState extends State<HomeScreen> {
     context.go('/login');
   }
 
+  void _setCallHovered(bool value) {
+    if (_isCallHovered == value) return;
+    setState(() => _isCallHovered = value);
+  }
+
+  void _setLogoutHovered(bool value) {
+    if (_isLogoutHovered == value) return;
+    setState(() => _isLogoutHovered = value);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -45,18 +57,6 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // 상단 로그아웃 버튼
-            Align(
-              alignment: Alignment.topRight,
-              child: TextButton(
-                onPressed: _logout,
-                child: const Text(
-                  '로그아웃',
-                  style: TextStyle(color: Color(0xFF888888)),
-                ),
-              ),
-            ),
-
             // 가운데 콘텐츠
             Expanded(
               child: Column(
@@ -70,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 24),
 
                   Image.asset(
-                    'assets/images/ddalangoo_text_icon.png',
+                    'assets/images/ddalangoo_logo_text.png',
                     height: 80,
                     fit: BoxFit.contain,
                   ),
@@ -99,22 +99,40 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // 하단 전화 걸기 버튼
             Padding(
-              padding: const EdgeInsets.only(bottom: 60),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
               child: Column(
                 children: [
-                  GestureDetector(
-                    onTap: () => context.go('/call'),
-                    child: Container(
-                      width: 72,
-                      height: 72,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF4CAF50),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.call,
-                        color: Colors.white,
-                        size: 32,
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    onEnter: (_) => _setCallHovered(true),
+                    onExit: (_) => _setCallHovered(false),
+                    child: GestureDetector(
+                      onTap: () => context.go('/call'),
+                      child: Container(
+                        width: 78,
+                        height: 78,
+                        decoration: BoxDecoration(
+                          color: _isCallHovered
+                              ? const Color(0xFF43A047)
+                              : const Color(0xFF4CAF50),
+                          shape: BoxShape.circle,
+                          boxShadow: _isCallHovered
+                              ? [
+                                  BoxShadow(
+                                    color: const Color(
+                                      0xFF4CAF50,
+                                    ).withOpacity(0.24),
+                                    blurRadius: 14,
+                                    spreadRadius: 1,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: const Icon(
+                          Icons.call,
+                          color: Colors.white,
+                          size: 32,
+                        ),
                       ),
                     ),
                   ),
@@ -122,6 +140,59 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Text(
                     '전화 걸기',
                     style: TextStyle(fontSize: 14, color: Color(0xFF555555)),
+                  ),
+                  const SizedBox(height: 18),
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    onEnter: (_) => _setLogoutHovered(true),
+                    onExit: (_) => _setLogoutHovered(false),
+                    child: GestureDetector(
+                      onTap: _logout,
+                      child: Container(
+                        width: double.infinity,
+                        height: 58,
+                        decoration: BoxDecoration(
+                          color: _isLogoutHovered
+                              ? const Color(0xFFE8325A)
+                              : const Color(0xFFD9D9D9),
+                          borderRadius: BorderRadius.circular(22),
+                          boxShadow: _isLogoutHovered
+                              ? [
+                                  BoxShadow(
+                                    color: const Color(
+                                      0xFFE8325A,
+                                    ).withOpacity(0.22),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.logout,
+                              color: _isLogoutHovered
+                                  ? Colors.white
+                                  : const Color(0xFF666666),
+                              size: 22,
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              '로그아웃',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                color: _isLogoutHovered
+                                    ? Colors.white
+                                    : const Color(0xFF666666),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),

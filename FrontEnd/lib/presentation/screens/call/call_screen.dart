@@ -132,8 +132,8 @@ class _CallScreenState extends State<CallScreen> {
       child: Column(
         children: [
           Image.asset(
-            'assets/images/ddalangoo_text_icon.png',
-            height: 32,
+            'assets/images/ddalangoo_logo_text.png',
+            height: 50,
             fit: BoxFit.contain,
           ),
           const SizedBox(height: 4),
@@ -269,7 +269,24 @@ class _CallScreenState extends State<CallScreen> {
                 filled: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
-                  borderSide: BorderSide.none,
+                  borderSide: const BorderSide(
+                    color: Color(0xFFE8325A),
+                    width: 1.6,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFE8325A),
+                    width: 1.6,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFE8325A),
+                    width: 2.0,
+                  ),
                 ),
               ),
               style: const TextStyle(
@@ -337,14 +354,16 @@ class _CallScreenState extends State<CallScreen> {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: isUser
-                        ? const Color(0xFFE8325A)
-                        : const Color(0xFFFFFFFF),
+                    color: const Color(0xFFFFFFFF),
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(16),
                       topRight: const Radius.circular(16),
                       bottomLeft: Radius.circular(isUser ? 16 : 4),
                       bottomRight: Radius.circular(isUser ? 4 : 16),
+                    ),
+                    border: Border.all(
+                      color: const Color(0xFFE8325A),
+                      width: 1.5,
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -358,8 +377,9 @@ class _CallScreenState extends State<CallScreen> {
                     text,
                     style: TextStyle(
                       fontSize: _bodyFontSize,
-                      color: isUser ? Colors.white : const Color(0xFF333333),
+                      color: const Color(0xFF333333),
                       height: 1.4,
+                      fontWeight: isUser ? FontWeight.w500 : FontWeight.w700,
                     ),
                   ),
                 ),
@@ -700,15 +720,6 @@ class _CallScreenState extends State<CallScreen> {
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
           child: Column(
             children: [
-              if (provider.stage != CallStage.completed && !provider.isLoading) ...[
-                _buildTextInputToggle(),
-                if (_showTextInput) ...[
-                  const SizedBox(height: 12),
-                  _buildDemoTextInput(),
-                ],
-                const SizedBox(height: 20),
-              ],
-
               // 말하기 버튼 (통화 중일 때만 표시)
               if (provider.stage != CallStage.idle &&
                   provider.stage != CallStage.loading &&
@@ -818,7 +829,15 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 18),
+                if (!provider.isLoading) ...[
+                  _buildTextInputToggle(),
+                  if (_showTextInput) ...[
+                    const SizedBox(height: 12),
+                    _buildDemoTextInput(),
+                  ],
+                  const SizedBox(height: 24),
+                ],
               ],
 
               // 전화 끊기 버튼

@@ -82,5 +82,5 @@ flutter:
   
   assets:
     - .env
-    - assets/images/ddalangoo_text_icon.png
+    - assets/images/ddalangoo_logo_text.png
     - assets/images/

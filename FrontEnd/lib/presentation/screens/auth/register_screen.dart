@@ -64,133 +64,162 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFFDF0F3),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset(
-                'assets/images/ddalangoo_logo_image.png',
-                height: 84,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                '딸랑구',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFFE8325A),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '처음 오셨군요! 간단히 가입해주세요',
-                style: TextStyle(fontSize: 14, color: Color(0xFF888888)),
-              ),
-              const SizedBox(height: 40),
-
-              // 이름 입력
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  hintText: '이름 (필수)',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // 전화번호 입력
-              TextField(
-                controller: _phoneController,
-                keyboardType: TextInputType.phone,
-                decoration: InputDecoration(
-                  hintText: '전화번호 (선택)',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // 연령대 선택
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    hint: const Text('연령대 선택 (선택)'),
-                    value: _selectedAgeGroup,
-                    items: _ageGroups
-                        .map(
-                          (age) =>
-                              DropdownMenuItem(value: age, child: Text(age)),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      setState(() => _selectedAgeGroup = value);
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // 에러 메시지
-              if (_errorMessage != null)
-                Text(
-                  _errorMessage!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13),
-                ),
-              const SizedBox(height: 24),
-
-              // 회원가입 버튼
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _register,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE8325A),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          '시작하기',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset(
+                        'assets/images/ddalangoo_logo_image.png',
+                        height: 250,
+                        fit: BoxFit.contain,
+                      ),
+                      const SizedBox(height: 18),
+                      Image.asset(
+                        'assets/images/ddalangoo_logo_text.png',
+                        height: 80,
+                        fit: BoxFit.contain,
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        '처음 오셨군요! 회원가입을 위한 정보를 입력해주세요',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 15, color: Color(0xFF777777)),
+                      ),
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.88),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
                         ),
+                        child: Column(
+                          children: [
+                            TextField(
+                              controller: _nameController,
+                              decoration: InputDecoration(
+                                hintText: '이름 (필수)',
+                                filled: true,
+                                fillColor: const Color(0xFFF9F4F6),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide.none,
+                                ),
+                                isDense: true,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _phoneController,
+                              keyboardType: TextInputType.phone,
+                              decoration: InputDecoration(
+                                hintText: '전화번호 (필수)',
+                                filled: true,
+                                fillColor: const Color(0xFFF9F4F6),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide.none,
+                                ),
+                                isDense: true,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF9F4F6),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  isExpanded: true,
+                                  hint: const Text('연령대 선택 (선택)'),
+                                  value: _selectedAgeGroup,
+                                  items: _ageGroups
+                                      .map(
+                                        (age) => DropdownMenuItem(
+                                          value: age,
+                                          child: Text(age),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (value) {
+                                    setState(() => _selectedAgeGroup = value);
+                                  },
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            if (_errorMessage != null)
+                              Text(
+                                _errorMessage!,
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            const SizedBox(height: 18),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: ElevatedButton(
+                                onPressed: _isLoading ? null : _register,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE8325A),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                child: _isLoading
+                                    ? const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.4,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Text('시작하기'),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextButton(
+                              onPressed: () => context.go('/login'),
+                              child: const Text(
+                                '이미 계정이 있으신가요? 로그인',
+                                style: TextStyle(
+                                  color: Color(0xFFE8325A),
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
-
-              // 로그인으로 이동
-              TextButton(
-                onPressed: () => context.go('/login'),
-                child: const Text(
-                  '이미 계정이 있으신가요? 로그인',
-                  style: TextStyle(color: Color(0xFFE8325A)),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

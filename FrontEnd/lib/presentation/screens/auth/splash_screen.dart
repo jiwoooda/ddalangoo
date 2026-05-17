@@ -18,7 +18,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _navigate() async {
     // 2초 딸랑구 로고 보여주기
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(seconds: 3));
 
     if (!mounted) return;
 
@@ -35,33 +35,49 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final frameHeight = size.height * 0.34;
+    final textLogoHeight = size.height * 0.12;
+
     return Scaffold(
       backgroundColor: const Color(0xFFFDF0F3),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset(
-              'assets/images/ddalangoo_logo_image.png',
-              height: 120,
-              fit: BoxFit.contain,
-            ),
-            const SizedBox(height: 24),
-            Image.asset(
-              'assets/images/ddalangoo_text_icon.png',
-              height: 80,
-              fit: BoxFit.contain,
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '부모님께서 더 쉽게 온라인 쇼핑을 할 수 있도록\n도와드리는 AI 어시스턴트입니다',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Color(0xFF888888)),
-            ),
-            const SizedBox(height: 40),
-            // 로딩 인디케이터
-            const CircularProgressIndicator(color: Color(0xFFE8325A)),
-          ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Center(
+                    child: Image.asset(
+                      'assets/images/ddalangoo_frame2.png',
+                      height: frameHeight.clamp(180.0, 320.0),
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Center(
+                    child: Image.asset(
+                      'assets/images/ddalangoo_logo_text.png',
+                      height: textLogoHeight.clamp(44.0, 88.0),
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '부모님께서 더 쉽게 온라인 쇼핑을 할 수 있도록\n도와드리는 AI 어시스턴트입니다',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Color(0xFF888888)),
+              ),
+              const SizedBox(height: 28),
+              const CircularProgressIndicator(color: Color(0xFFE8325A)),
+            ],
+          ),
         ),
       ),
     );
