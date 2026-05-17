@@ -23,6 +23,9 @@ checkpoints/
 # 환경변수
 .env
 
+# 에이전트 실행 로그
+logs/
+
 # IDE
 .vscode/
 .idea/
