@@ -346,8 +346,11 @@ def run_kurly_purchase(
     # 키워드가 아닌 정확한 상품명 자체를 검색어로 사용하여 타겟 상품이 최상단에 노출되도록 함
     search_query = product_name
 
+    if not storage_state_path:
+        storage_state_path = "kurly_session.json"
+
     playwright = sync_playwright().start()
-    print("[webview] 브라우저(Webkit) 시작 중...")
+    print("[webview] 브라우저(Webkit) 시작 및 스텔스 모드 적용 중...")
     browser = playwright.webkit.launch(headless=False)
 
     context_kwargs = {
@@ -361,6 +364,9 @@ def run_kurly_purchase(
 
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
+    
+    # 브라우저에 "나는 봇이 아니다"라는 추가 최면 스크립트 주입
+    page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
     stealth_sync(page)
 
     try:
@@ -406,13 +412,12 @@ def run_kurly_purchase(
 
         # ── 7. 세션 저장 ──
         print("\n[webview] Step 7. 세션 저장")
-        saved_path = storage_state_path or f"session_{os.getpid()}.json"
-        context.storage_state(path=saved_path)
-        print(f"[webview] 세션 저장: {saved_path}")
+        context.storage_state(path=storage_state_path)
+        print(f"[webview] 세션 저장: {storage_state_path}")
 
         return {
             "cart_added": True,
-            "storage_state_path": saved_path,
+            "storage_state_path": storage_state_path,
             "delivery_info": delivery_info,
             "error": None,
         }

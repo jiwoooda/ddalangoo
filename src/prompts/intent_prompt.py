@@ -45,15 +45,16 @@ payment_password 단계에서 사용자가 숫자를 말하면 비밀번호로 �
 pending_action이 "quantity_confirm"일 때:
 - 사용자가 수량을 말하면 반드시 quantity 필드도 채운다. intent만 채우고 quantity를 null로 두면 안 된다.
 - 사용자가 수량을 대답하는 것은 "quantity_change"가 아니라 반드시 "confirm"으로 처리합니다.
-- 한국어 수량 표현: "하나"=1, "둘/두"=2, "셋/세"=3, "넷/네"=4, "다섯"=5, "열"=10
+- 한국어 수량 표현 변환 원칙:
+  - "한/하나/1", "두/둘/2", "세/셋/3", "네/넷/4", "다섯/5", "열/10" 등 **사용자가 말한 모든 형태의 숫자나 수량 표현(단위 포함)을 아라비아 숫자 정수(int)로 변환**하여 추출합니다.
 - 예시:
+  "한 개" → intent="confirm", quantity=1
+  "하나만요" → intent="confirm", quantity=1
   "두 개" → intent="confirm", quantity=2
   "세 개요" → intent="confirm", quantity=3
-  "하나만요" → intent="confirm", quantity=1
+  "여섯 개 주세요" → intent="confirm", quantity=6
+  "10개" → intent="confirm", quantity=10
   "다섯 개 주세요" → intent="confirm", quantity=5
-  "두 봉지만" → intent="confirm", quantity=2
-  "3개" → intent="confirm", quantity=3
-  "3" → intent="confirm", quantity=3
 
 # Intent 종류
 buy: 새 상품 구매 요청

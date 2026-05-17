@@ -33,7 +33,7 @@ class IntentOutput(BaseModel):
         description=(
             "사용자가 명시적으로 말한 수량. 발화에 수량이 없으면 절대 임의로 1을 넣지 말고 null로 둘 것. "
             "단, pending_action=quantity_confirm일 때 수량 표현이 있으면 반드시 숫자로 채울 것. "
-            "예: '두 개'→2, '세개요'→3, '하나만요'→1, '다섯 봉지'→5, '3개'→3, '3'→3"
+            "어떤 형태의 한국어 수량 표현(예: 한, 두, 세, 열, 1, 2 등)이든 스스로 파악하여 정수(int)로 변환해 추출해야 합니다."
         ),
     )
     condition: Optional[ConditionType] = Field(default=None, description="검색 조건")
