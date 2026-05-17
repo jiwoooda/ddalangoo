@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.graph.builder import build_graph
 from src.state.schema import get_default_shopping_state
+from src.utils.agent_logger import agent_logger
 
 # ── Mock 상품 데이터 (컬리 우삼겹) ──────────────────────────────
 MOCK_KURLY_PRODUCTS = [
@@ -81,6 +82,7 @@ def get_last_assistant_msg(graph, config) -> str:
 
 def send(graph, config, user_input: str) -> tuple[str, dict]:
     """사용자 메시지 주입 → 그래프 실행 → (어시스턴트 응답, state values) 반환."""
+    agent_logger.new_turn(user_input)
     graph.update_state(config, {"messages": [{"role": "user", "content": user_input}]})
     graph.invoke(None, config)
     state = graph.get_state(config)
@@ -99,6 +101,8 @@ def print_turn(turn: int, human: str, assistant: str, stage: str, pending: str):
 # ── 메인 테스트 ──────────────────────────────────────────────────
 
 def test_full_usecase():
+    agent_logger.start_session("test-woosamgyeop")
+
     with patch("src.agents.platform_agent.meta_search", return_value=MOCK_KURLY_PRODUCTS):
 
         graph = build_graph()
@@ -108,6 +112,8 @@ def test_full_usecase():
         graph.invoke(get_default_shopping_state("user_test", "sess-test-001"), config)
         print("\n" + "="*55)
         print("  [테스트 시작] 우삼겹 구매 전체 유스케이스")
+        if agent_logger.log_path:
+            print(f"  LOG: {agent_logger.log_path}")
         print("="*55)
 
         # ── Turn 1: 구매 요청 → 컬리 제안 ──

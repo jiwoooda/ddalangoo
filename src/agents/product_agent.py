@@ -11,6 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.state.schema import ShoppingState
 from src.prompts.product_prompt import PRODUCT_AGENT_PROMPT
+from src.utils.agent_logger import agent_logger
 
 _llm: ChatAnthropic | None = None
 
@@ -121,4 +122,8 @@ def product_agent_node(state: ShoppingState) -> dict:
     stage = parsed.get("stage", "product_confirming")
     result["stage"] = stage
 
+    agent_logger.log_product_agent(
+        {"intent": intent, "results_count": len(state.get("search_results") or [])},
+        result,
+    )
     return result

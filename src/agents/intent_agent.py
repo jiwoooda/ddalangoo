@@ -12,6 +12,7 @@ from langchain_core.messages import SystemMessage
 
 from src.state.schema import ShoppingState
 from src.prompts.intent_prompt import INTENT_AGENT_PROMPT
+from src.utils.agent_logger import agent_logger
 
 IntentType = Literal[
     "buy", "reorder", "confirm", "deny", "next", "refine",
@@ -117,7 +118,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
             "last_agent": "intent_agent",
         }
 
-    return {
+    result = {
         "intent": parsed.intent,
         "keywords": parsed.keywords or state.get("keywords") or [],
         "exclude_keywords": parsed.exclude_keywords,
@@ -134,3 +135,5 @@ def intent_agent_node(state: ShoppingState) -> dict:
         "immediate_response": parsed.immediate_response,
         "last_agent": "intent_agent",
     }
+    agent_logger.log_intent(user_input, stage, pending_action, result)
+    return result

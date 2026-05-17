@@ -11,6 +11,7 @@ Kurly 제안 로직:
 from typing import Any
 from src.state.schema import ShoppingState
 from src.tools.meta_mcp_client import search_products as meta_search
+from src.utils.agent_logger import agent_logger
 
 CONDITION_MAP = {
     "최저가": "price_asc",
@@ -132,8 +133,8 @@ def platform_agent_node(state: ShoppingState) -> dict:
 
     # ── 신선식품 키워드 감지 → 검색 없이 바로 컬리 제안 ──
     if pending_action.get("type") != "platform_suggest" and _should_suggest_kurly_early(keywords, tried_platforms):
-        return {
-            "tried_platforms": list(set(tried_platforms + ["kurly"])),  # deny 시 재제안 방지
+        result = {
+            "tried_platforms": list(set(tried_platforms + ["kurly"])),
             "target_platforms": [],
             "search_results": [],
             "stage": "product_confirming",
@@ -145,6 +146,11 @@ def platform_agent_node(state: ShoppingState) -> dict:
                 "payload": {"target_platform": "kurly"},
             },
         }
+        agent_logger.log_platform_agent(
+            {"keywords": keywords, "intent": intent, "tried_platforms": tried_platforms, "trigger": "kurly_early_suggest"},
+            result,
+        )
+        return result
 
     # ── 컬리 제안 수락/거절 처리 ──
     if pending_action.get("type") == "platform_suggest" and intent == "confirm":
@@ -178,6 +184,13 @@ def platform_agent_node(state: ShoppingState) -> dict:
     }
 
     if not search_results:
-        return {**base, "search_results": [], "stage": "idle", "error": "no_results"}
+        result = {**base, "search_results": [], "stage": "idle", "error": "no_results"}
+    else:
+        result = {**base, "search_results": search_results, "stage": "searching"}
 
-    return {**base, "search_results": search_results, "stage": "searching"}
+    agent_logger.log_platform_agent(
+        {"keywords": keywords, "intent": intent, "tried_platforms": tried_platforms,
+         "selected_platforms": selected_platforms, "query": query},
+        result,
+    )
+    return result

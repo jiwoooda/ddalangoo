@@ -2,6 +2,7 @@
 공통 Graph 노드: wait_for_input, respond, interrupt_payment.
 """
 from src.state.schema import ShoppingState
+from src.utils.agent_logger import agent_logger
 
 
 def wait_for_input_node(state: ShoppingState) -> dict:
@@ -51,6 +52,7 @@ def respond_node(state: ShoppingState) -> dict:
     else:
         msg = immediate or "무엇을 도와드릴까요?"
 
+    agent_logger.log_respond(msg, stage, pending_action)
     return {
         "messages": [{"role": "assistant", "content": msg}]
     }

@@ -1,5 +1,6 @@
 from typing import Literal
 from src.state.schema import ShoppingState
+from src.utils.agent_logger import agent_logger, _ptype
 
 RouteName = Literal[
     "memory_agent",
@@ -27,77 +28,68 @@ def route(state: ShoppingState) -> RouteName:
     stage = state.get("stage", "idle")
     confidence = state.get("confidence") or 0.0
     needs_clarification = state.get("needs_clarification", False)
+    pending_type = _ptype(state.get("pending_action"))
+
+    def _decide(dest: RouteName) -> RouteName:
+        agent_logger.log_router("intent_agent", dest, intent or "-", stage, pending_type)
+        return dest
 
     # ── 1. 명확성 검사 ──
     if needs_clarification or confidence < 0.5 or intent == "unclear":
-        return "respond"
+        return _decide("respond")
 
     # ── 2. cancel은 어디서든 우선 처리 ──
     if intent == "cancel":
         if stage == "payment_processing":
-            return "interrupt_payment"
-        return "end"
+            return _decide("interrupt_payment")
+        return _decide("end")
 
     # ── 3. 결제 진행 중이면 Payment Subgraph가 처리 ──
-    # option_select, address_change, quantity_change, confirm/deny 등은
-    # payment_agent 내부 pending_action 기준으로 처리
     if stage == "payment_processing":
-        return "payment_agent"
+        return _decide("payment_agent")
 
     # ── 4. 장바구니 담긴 후 추가 쇼핑 여부 ──
     if stage == "cart_shopping":
         if intent == "confirm":
-            return "payment_agent"      # "결제할게요"
+            return _decide("payment_agent")
         if intent in ("deny", "next", "buy", "refine", "compare_platforms"):
-            return "platform_agent"     # "더 쇼핑할게요" (동일 플랫폼 유지)
-        return "respond"
+            return _decide("platform_agent")
+        return _decide("respond")
 
     # ── 5. 상품 확인 단계 ──
     if stage == "product_confirming":
-        pending_type = (state.get("pending_action") or {}).get("type")
+        pa_type = (state.get("pending_action") or {}).get("type")
 
-        # quantity_confirm 대기 중: 수량이 채워지면 결제로 (intent 무관)
-        if pending_type == "quantity_confirm":
+        if pa_type == "quantity_confirm":
             if state.get("quantity"):
-                return "payment_agent"
+                return _decide("payment_agent")
             if intent in ("confirm", "quantity_change"):
-                return "quantity_check"  # 수량 재질문
+                return _decide("quantity_check")
 
-        # platform_suggest 대기 중: confirm → 제안 플랫폼 검색, deny/next → 일반 검색
-        if pending_type == "platform_suggest":
+        if pa_type == "platform_suggest":
             if intent in ("confirm", "deny", "next"):
-                return "platform_agent"
+                return _decide("platform_agent")
 
         if intent == "confirm":
             if not state.get("quantity"):
-                return "quantity_check"
-            return "payment_agent"
+                return _decide("quantity_check")
+            return _decide("payment_agent")
 
         if intent in ("deny", "next", "ask"):
-            return "product_agent"
+            return _decide("product_agent")
 
         if intent in ("refine", "compare_platforms"):
-            return "platform_agent"
+            return _decide("platform_agent")
 
-        if intent in ("quantity_change", "address_change", "option_select"):
-            return "respond"
+        return _decide("respond")
 
-        return "respond"
-
-    # ── 5. 검색 중 ──
+    # ── 6. 검색 중 ──
     if stage == "searching":
-        if intent == "cancel":
-            return "end"
-
         if intent in ("refine", "compare_platforms"):
-            return "platform_agent"
+            return _decide("platform_agent")
+        return _decide("respond")
 
-        if intent == "ask":
-            return "respond"
-
-        return "respond"
-
-    # ── 6. idle / 기본 Intent 기반 라우팅 ──
+    # ── 7. idle / 기본 Intent 기반 라우팅 ──
     routing_map: dict[str, RouteName] = {
         "buy": "platform_agent",
         "reorder": "memory_agent",
@@ -105,18 +97,13 @@ def route(state: ShoppingState) -> RouteName:
         "refine": "platform_agent",
         "ask": "product_agent",
         "next": "product_agent",
-
-        # pending_action 없는 confirm/deny는 Intent Agent에서 unclear 처리되는 게 원칙
         "confirm": "respond",
         "deny": "respond",
-
-        # 결제 전용 intent는 idle에서는 직접 처리하지 않음 -> 해당 요청 필요 없으므로 안내메세지만
         "option_select": "respond",
         "quantity_change": "respond",
         "address_change": "respond",
     }
-
-    return routing_map.get(intent, "respond")
+    return _decide(routing_map.get(intent, "respond"))
 
 
 def after_platform_agent(state: ShoppingState) -> Literal["product_agent", "respond"]:
