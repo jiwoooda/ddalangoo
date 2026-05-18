@@ -1,10 +1,12 @@
 // Gemini STT/TTS 서비스
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:record/record.dart';
 
@@ -15,35 +17,28 @@ class GeminiVoiceService {
   GeminiVoiceService._();
 
   static const String _sttModelName = 'models/gemini-3-flash-preview';
+  static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
+  static const String _ttsVoiceName = 'Puck';
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
+  static const int _ttsSampleRate = 24000;
 
   final AudioRecorder _recorder = AudioRecorder();
-  final FlutterTts _tts = FlutterTts();
+  final AudioPlayer _player = AudioPlayer();
+  final Dio _dio = Dio();
   final BytesBuilder _audioBuffer = BytesBuilder(copy: false);
 
   StreamSubscription<Uint8List>? _recordingSubscription;
+  StreamSubscription<void>? _playerCompleteSubscription;
   bool _isRecording = false;
   bool _isSpeaking = false;
+  Completer<void>? _speakCompleter;
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _isSpeaking;
 
   Future<void> init() async {
-    await _tts.setLanguage('ko-KR');
-    await _tts.setSpeechRate(0.45);
-    await _tts.setVolume(1.0);
-    await _tts.setPitch(1.0);
-    _tts.setCompletionHandler(() {
-      _isSpeaking = false;
-    });
-    _tts.setCancelHandler(() {
-      _isSpeaking = false;
-    });
-    _tts.setErrorHandler((message) {
-      debugPrint('❌ [Gemini TTS Error] $message');
-      _isSpeaking = false;
-    });
+    await _player.setReleaseMode(ReleaseMode.stop);
   }
 
   GenerativeModel get _model => GenerativeModel(
@@ -141,24 +136,115 @@ class GeminiVoiceService {
   Future<void> speak(String text) async {
     if (_isSpeaking) await stopSpeaking();
     _isSpeaking = true;
+    _speakCompleter = Completer<void>();
+
     try {
-      await _tts.speak(text);
+      final wavBytes = await _generateSpeech(text);
+
+      await _playerCompleteSubscription?.cancel();
+      _playerCompleteSubscription = _player.onPlayerComplete.listen((_) {
+        _finishSpeaking();
+      });
+
+      await _player.play(BytesSource(wavBytes));
+      await _speakCompleter!.future;
     } catch (e) {
       debugPrint('❌ [Gemini TTS Error] $e');
-      _isSpeaking = false;
+      _finishSpeaking();
       rethrow;
     }
   }
 
   Future<void> stopSpeaking() async {
-    await _tts.stop();
-    _isSpeaking = false;
+    await _player.stop();
+    _finishSpeaking();
   }
 
   Future<void> dispose() async {
     await _recordingSubscription?.cancel();
+    await _playerCompleteSubscription?.cancel();
     await _recorder.dispose();
-    await _tts.stop();
+    await _player.dispose();
+  }
+
+  Future<Uint8List> _generateSpeech(String text) async {
+    final apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
+    if (apiKey.isEmpty) {
+      throw Exception('GEMINI_API_KEY가 설정되지 않았습니다.');
+    }
+
+    final response = await _dio.post(
+      'https://generativelanguage.googleapis.com/v1beta/models/'
+      '$_ttsModelName:generateContent',
+      options: Options(headers: {'x-goog-api-key': apiKey}),
+      data: {
+        'contents': [
+          {
+            'parts': [
+              {
+                'text':
+                    'Read the exact following Korean text in a bright, cheerful, '
+                    'friendly, and kind voice at about 1.2x speed. '
+                    'Sound lively and encouraging, but still clear and easy for '
+                    'older adults to understand. Do not add or change any words.\n$text',
+              },
+            ],
+          },
+        ],
+        'generationConfig': {
+          'responseModalities': ['AUDIO'],
+          'speechConfig': {
+            'voiceConfig': {
+              'prebuiltVoiceConfig': {'voiceName': _ttsVoiceName},
+            },
+          },
+        },
+        'model': _ttsModelName,
+      },
+    );
+
+    final data = response.data;
+    String? encodedAudio;
+    if (data is Map<String, dynamic>) {
+      final candidates = data['candidates'];
+      if (candidates is List && candidates.isNotEmpty) {
+        final firstCandidate = candidates.first;
+        if (firstCandidate is Map<String, dynamic>) {
+          final content = firstCandidate['content'];
+          if (content is Map<String, dynamic>) {
+            final parts = content['parts'];
+            if (parts is List && parts.isNotEmpty) {
+              final firstPart = parts.first;
+              if (firstPart is Map<String, dynamic>) {
+                final inlineData = firstPart['inlineData'];
+                if (inlineData is Map<String, dynamic>) {
+                  encodedAudio = inlineData['data'] as String?;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (encodedAudio == null || encodedAudio.isEmpty) {
+      throw Exception('Gemini TTS 응답에서 오디오 데이터를 받지 못했습니다.');
+    }
+
+    final pcmBytes = base64Decode(encodedAudio);
+    return _wrapPcm16AsWav(
+      pcmBytes,
+      sampleRate: _ttsSampleRate,
+      channels: 1,
+    );
+  }
+
+  void _finishSpeaking() {
+    _isSpeaking = false;
+    if (_speakCompleter != null && !_speakCompleter!.isCompleted) {
+      _speakCompleter!.complete();
+    }
+    _speakCompleter = null;
   }
 
   Uint8List _wrapPcm16AsWav(

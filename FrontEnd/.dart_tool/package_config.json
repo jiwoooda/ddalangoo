@@ -272,6 +272,12 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "google_fonts",
+      "rootUri": "file:///Users/synuo/.pub-cache/hosted/pub.dev/google_fonts-8.1.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.9"
+    },
+    {
       "name": "google_generative_ai",
       "rootUri": "file:///Users/synuo/.pub-cache/hosted/pub.dev/google_generative_ai-0.4.7",
       "packageUri": "lib/",

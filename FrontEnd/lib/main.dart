@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'core/storage/local_storage.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'presentation/providers/call_provider.dart';
 import 'presentation/screens/auth/splash_screen.dart';
 import 'presentation/screens/auth/login_screen.dart';
@@ -32,13 +32,145 @@ class DdalangooApp extends StatelessWidget {
       child: MaterialApp.router(
         title: '딸랑구',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFFE8325A), // 딸랑구 핑크
-          ),
-          useMaterial3: true,
-        ),
+        theme: _buildTheme(),
         routerConfig: _router,
+      ),
+    );
+  }
+
+  ThemeData _buildTheme() {
+    final fontFamily = GoogleFonts.nanumGothic().fontFamily;
+    final baseTheme = ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFFE8325A), // 딸랑구 핑크
+      ),
+      useMaterial3: true,
+      fontFamily: fontFamily,
+    );
+
+    final cuteTextTheme = GoogleFonts.nanumGothicTextTheme(
+      baseTheme.textTheme,
+    ).copyWith(
+      displayLarge: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.displayLarge,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w800,
+      ),
+      displayMedium: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.displayMedium,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w800,
+      ),
+      displaySmall: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.displaySmall,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w700,
+      ),
+      headlineLarge: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.headlineLarge,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w800,
+      ),
+      headlineMedium: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.headlineMedium,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w700,
+      ),
+      headlineSmall: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.headlineSmall,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w700,
+      ),
+      titleLarge: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.titleLarge,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w800,
+      ),
+      titleMedium: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.titleMedium,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w700,
+      ),
+      titleSmall: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.titleSmall,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w700,
+      ),
+      bodyLarge: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.bodyLarge,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w600,
+      ),
+      bodyMedium: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.bodyMedium,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w500,
+      ),
+      bodySmall: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.bodySmall,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w500,
+      ),
+      labelLarge: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.labelLarge,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w700,
+      ),
+      labelMedium: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.labelMedium,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w600,
+      ),
+      labelSmall: GoogleFonts.nanumGothic(
+        textStyle: baseTheme.textTheme.labelSmall,
+        color: const Color(0xFF333333),
+        fontWeight: FontWeight.w600,
+      ),
+    );
+
+    return baseTheme.copyWith(
+      textTheme: cuteTextTheme,
+      primaryTextTheme: cuteTextTheme,
+      appBarTheme: AppBarTheme(
+        titleTextStyle: cuteTextTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          textStyle: cuteTextTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          textStyle: cuteTextTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          textStyle: cuteTextTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          textStyle: cuteTextTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        labelStyle: cuteTextTheme.bodyMedium?.copyWith(
+          color: const Color(0xFF666666),
+        ),
+        hintStyle: cuteTextTheme.bodyMedium?.copyWith(
+          color: const Color(0xFF888888),
+        ),
       ),
     );
   }

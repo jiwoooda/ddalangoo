@@ -10,7 +10,7 @@ import '../../core/network/api_client.dart';
 
 class AgentRepository {
   // Mock 데이터 사용 여부 (테스트 시 true로 변경)
-  static const bool useMock = false;
+  static const bool useMock = true;
 
   // 데모 시나리오를 위한 상태 트래킹 (백엔드 대용)
   static String _mockContext = 'idle';
@@ -159,7 +159,7 @@ class AgentRepository {
       );
 
       // 1단계: 딸기 구매 요청
-      if (message.contains('딸기') && message.contains('저번')) {
+      if (message.contains('딸기')) {
         _mockContext = 'strawberry_history';
         return _mockResponse(
           message,

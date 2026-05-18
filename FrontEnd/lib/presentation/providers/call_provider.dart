@@ -48,15 +48,14 @@ class CallProvider extends ChangeNotifier {
       _stage != CallStage.loading &&
       _stage != CallStage.completed &&
       !_isLoading &&
-      !_isSpeaking &&
       !_isTranscribing;
 
   String get voiceStatusLabel {
-    if (_isListening) return '녹음 중... 버튼을 다시 누르면 전송됩니다';
-    if (_isTranscribing) return '음성을 텍스트로 변환하고 있어요...';
+    if (_isListening) return '말씀이 끝났으면 버튼을 다시 눌러주세요';
+    if (_isTranscribing) return '로딩 중..';
     if (_isSpeaking) return '딸랑구가 말하는 중입니다';
     if (_isLoading) return '서버 응답을 기다리는 중입니다';
-    return '버튼을 눌러 녹음을 시작하세요';
+    return '버튼을 누르고 말씀해주세요.';
   }
 
   // 전화 시작
@@ -91,9 +90,13 @@ class CallProvider extends ChangeNotifier {
 
   // 녹음 시작 (사용자가 말할 때)
   Future<void> startListening() async {
-    if (_isListening || _isSpeaking || _isLoading || _isTranscribing) return;
+    if (_isListening || _isLoading || _isTranscribing) return;
     try {
       _errorMessage = null;
+      if (_isSpeaking) {
+        await _voiceService.stopSpeaking();
+        _isSpeaking = false;
+      }
       await _voiceService.startRecording();
       _isListening = true;
       notifyListeners();

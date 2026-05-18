@@ -74,11 +74,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   Container(
                     padding: const EdgeInsets.all(22),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.88),
+                      color: Colors.white.withValues(alpha: 0.88),
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 18,
                           offset: const Offset(0, 8),
                         ),
@@ -124,10 +124,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
-                              textStyle: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                              ),
                             ),
                             child: _isLoading
                                 ? const SizedBox(
@@ -144,12 +140,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 14),
                         TextButton(
                           onPressed: () => context.go('/register'),
-                          child: const Text(
+                          child: Text(
                             '처음이신가요? 회원가입',
-                            style: TextStyle(
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(
                               color: Color(0xFFE8325A),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),

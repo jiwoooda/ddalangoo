@@ -1,5 +1,7 @@
 //통화 화면
 //전화 끊기 버튼이 항상 고정되고, stage에 따라 가운데 콘텐츠가 바뀌는 구조
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -19,14 +21,27 @@ class _CallScreenState extends State<CallScreen> {
   static const double _buttonFontSize = 18;
 
   final TextEditingController _textController = TextEditingController();
+  final ScrollController _messageScrollController = ScrollController();
+  CallProvider? _provider;
+  Timer? _callTimer;
+  DateTime? _callStartedAt;
+  String _pinInput = '';
   bool _isMicPressed = false;
   bool _isMicHovered = false;
   bool _isEndCallHovered = false;
   bool _showTextInput = false;
+  int _lastMessageCount = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _provider = context.read<CallProvider>();
+      _lastMessageCount = _provider!.messages.length;
+      _provider!.addListener(_handleProviderChanged);
+    });
+
     // 전화 시작 시 첫 메시지 전송
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<CallProvider>().startCall();
@@ -35,8 +50,88 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    _provider?.removeListener(_handleProviderChanged);
+    _callTimer?.cancel();
     _textController.dispose();
+    _messageScrollController.dispose();
     super.dispose();
+  }
+
+  void _handleProviderChanged() {
+    if (!mounted) return;
+
+    final provider = _provider;
+    if (provider == null) return;
+
+    if (provider.conversationId != null) {
+      _startCallTimerIfNeeded();
+    } else {
+      _stopCallTimer();
+    }
+
+    if (!_isPasswordInputMode(provider)) {
+      if (_pinInput.isNotEmpty) {
+        setState(() {
+          _pinInput = '';
+        });
+      }
+    } else if (_showTextInput) {
+      setState(() {
+        _showTextInput = false;
+      });
+    }
+
+    final messageCount = provider.messages.length;
+    if (messageCount <= _lastMessageCount) return;
+
+    _lastMessageCount = messageCount;
+    _scrollMessagesToBottom();
+  }
+
+  void _scrollMessagesToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || !_messageScrollController.hasClients) return;
+
+      final target = _messageScrollController.position.maxScrollExtent;
+      await _messageScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  void _startCallTimerIfNeeded() {
+    if (_callStartedAt != null) return;
+
+    setState(() {
+      _callStartedAt = DateTime.now();
+    });
+
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || _callStartedAt == null) return;
+      setState(() {});
+    });
+  }
+
+  void _stopCallTimer() {
+    _callTimer?.cancel();
+    _callTimer = null;
+    if (_callStartedAt != null) {
+      setState(() {
+        _callStartedAt = null;
+      });
+    }
+  }
+
+  String _formattedCallDuration() {
+    final startedAt = _callStartedAt;
+    if (startedAt == null) return '00분:00초';
+
+    final elapsed = DateTime.now().difference(startedAt);
+    final minutes = elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = elapsed.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes분:$seconds초';
   }
 
   void _endCall() {
@@ -50,6 +145,32 @@ class _CallScreenState extends State<CallScreen> {
     _textController.clear();
     setState(() {
       _showTextInput = false;
+    });
+  }
+
+  bool _isPasswordInputMode(CallProvider provider) =>
+      provider.stage == CallStage.payment &&
+      (provider.lastResponse?.assistantMessage.contains('비밀번호') ?? false);
+
+  void _appendPinDigit(String digit) {
+    if (_pinInput.length >= 6) return;
+    setState(() {
+      _pinInput = '$_pinInput$digit';
+    });
+  }
+
+  void _removePinDigit() {
+    if (_pinInput.isEmpty) return;
+    setState(() {
+      _pinInput = _pinInput.substring(0, _pinInput.length - 1);
+    });
+  }
+
+  void _submitPin() {
+    if (_pinInput.length != 6) return;
+    context.read<CallProvider>().sendTextMessage(_pinInput);
+    setState(() {
+      _pinInput = '';
     });
   }
 
@@ -133,18 +254,38 @@ class _CallScreenState extends State<CallScreen> {
         children: [
           Image.asset(
             'assets/images/ddalangoo_logo_text.png',
-            height: 50,
+            height: 60,
             fit: BoxFit.contain,
           ),
           const SizedBox(height: 4),
           Consumer<CallProvider>(
             builder: (context, provider, _) {
-              return Text(
-                provider.conversationId != null ? '통화 중' : '연결 중...',
-                style: const TextStyle(
-                  fontSize: _supportFontSize,
-                  color: Color(0xFF4CAF50),
-                ),
+              final isConnected = provider.conversationId != null;
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    isConnected ? '통화 중' : '연결 중...',
+                    style: TextStyle(
+                      fontSize: isConnected ? 14 : _supportFontSize,
+                      color: const Color(0xFF4CAF50),
+                      fontWeight: isConnected
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                  if (isConnected) ...[
+                    const SizedBox(width: 10),
+                    Text(
+                      _formattedCallDuration(),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF4CAF50),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
               );
             },
           ),
@@ -170,6 +311,7 @@ class _CallScreenState extends State<CallScreen> {
         // 말풍선 목록
         Expanded(
           child: ListView.builder(
+            controller: _messageScrollController,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             itemCount: provider.messages.length,
             itemBuilder: (context, index) {
@@ -246,11 +388,6 @@ class _CallScreenState extends State<CallScreen> {
 
   // 데모용 텍스트 입력 필드
   Widget _buildDemoTextInput() {
-    final provider = context.watch<CallProvider>();
-    // 딸랑구가 비밀번호를 요구하는 상황인지 판단
-    final bool isPasswordInput =
-        provider.lastResponse?.assistantMessage.contains('비밀번호') ?? false;
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
@@ -258,7 +395,6 @@ class _CallScreenState extends State<CallScreen> {
           Expanded(
             child: TextField(
               controller: _textController,
-              obscureText: isPasswordInput, // 비밀번호 입력 시 마스킹 처리
               decoration: InputDecoration(
                 hintText: '메시지를 입력하세요 (데모에만 표시됩니다)',
                 hintStyle: const TextStyle(
@@ -305,6 +441,156 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
+  Widget _buildPinPad() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: const Color(0xFFE8325A).withValues(alpha: 0.2),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            const Text(
+              '결제 비밀번호 입력',
+              style: TextStyle(
+                fontSize: _supportFontSize,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFE8325A),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(6, (index) {
+                final isFilled = index < _pinInput.length;
+                return Container(
+                  width: 18,
+                  height: 18,
+                  margin: const EdgeInsets.symmetric(horizontal: 6),
+                  decoration: BoxDecoration(
+                    color: isFilled
+                        ? const Color(0xFFE8325A)
+                        : const Color(0xFFF7D9E1),
+                    shape: BoxShape.circle,
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 16),
+            for (final row in const [
+              ['1', '2', '3'],
+              ['4', '5', '6'],
+              ['7', '8', '9'],
+              ['지우기', '0', '확인'],
+            ])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  children: row
+                      .map(
+                        (value) => Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            child: _buildPinPadKey(value),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPinPadKey(String value) {
+    final isAction = value == '지우기' || value == '확인';
+    final isSubmit = value == '확인';
+    final isEnabled = value != '확인' || _pinInput.length == 6;
+
+    return SizedBox(
+      height: 56,
+      child: ElevatedButton(
+        onPressed: !isEnabled
+            ? null
+            : () {
+                if (value == '지우기') {
+                  _removePinDigit();
+                  return;
+                }
+                if (value == '확인') {
+                  _submitPin();
+                  return;
+                }
+                _appendPinDigit(value);
+              },
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          backgroundColor: isSubmit
+              ? const Color(0xFFE8325A)
+              : isAction
+              ? const Color(0xFFFCE4EA)
+              : const Color(0xFFF7F7F7),
+          foregroundColor: isSubmit ? Colors.white : const Color(0xFF333333),
+          disabledBackgroundColor: const Color(0xFFF3C8D4),
+          disabledForegroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          textStyle: TextStyle(
+            fontSize: value.length == 1 ? _bodyFontSize : _supportFontSize,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        child: value == '지우기'
+            ? const Icon(Icons.backspace_outlined, size: 22)
+            : Text(value),
+      ),
+    );
+  }
+
+  Widget _buildProductImage(String? imageUrl, {double size = 80}) {
+    final placeholder = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCE4EA),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(
+        Icons.image_outlined,
+        color: Color(0xFFE8325A),
+        size: 28,
+      ),
+    );
+
+    if (imageUrl == null || imageUrl.isEmpty) return placeholder;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.network(
+        imageUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => placeholder,
+      ),
+    );
+  }
+
   Widget _buildTextInputToggle() {
     return OutlinedButton.icon(
       onPressed: _toggleTextInput,
@@ -344,7 +630,7 @@ class _CallScreenState extends State<CallScreen> {
                     padding: const EdgeInsets.only(left: 6, bottom: 8),
                     child: Image.asset(
                       'assets/images/ddalangoo_logo_image.png',
-                      height: 100,
+                      height: 150,
                       fit: BoxFit.contain,
                     ),
                   ),
@@ -367,7 +653,7 @@ class _CallScreenState extends State<CallScreen> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -402,7 +688,7 @@ class _CallScreenState extends State<CallScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -450,16 +736,7 @@ class _CallScreenState extends State<CallScreen> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (item.imageUrl != null)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    item.imageUrl!,
-                    width: 80,
-                    height: 80,
-                    fit: BoxFit.cover,
-                  ),
-                ),
+              _buildProductImage(item.imageUrl),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -506,23 +783,30 @@ class _CallScreenState extends State<CallScreen> {
 
           // 가격
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${item.price.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}원',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFFE8325A),
+              Expanded(
+                child: Text(
+                  '${item.price.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}원',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFE8325A),
+                  ),
                 ),
               ),
+              if (item.deliveryInfo != null) const SizedBox(width: 12),
               if (item.deliveryInfo != null)
-                Text(
-                  item.deliveryInfo!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.green,
-                    fontWeight: FontWeight.bold,
+                Flexible(
+                  child: Text(
+                    item.deliveryInfo!,
+                    textAlign: TextAlign.right,
+                    softWrap: true,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.green,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
             ],
@@ -541,7 +825,9 @@ class _CallScreenState extends State<CallScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8325A).withOpacity(0.3)),
+        border: Border.all(
+          color: const Color(0xFFE8325A).withValues(alpha: 0.3),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -591,7 +877,7 @@ class _CallScreenState extends State<CallScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -764,7 +1050,7 @@ class _CallScreenState extends State<CallScreen> {
                                 BoxShadow(
                                   color: const Color(
                                     0xFF4CAF50,
-                                  ).withOpacity(0.28),
+                                  ).withValues(alpha: 0.28),
                                   blurRadius: 16,
                                   spreadRadius: 2,
                                 ),
@@ -774,7 +1060,7 @@ class _CallScreenState extends State<CallScreen> {
                                 BoxShadow(
                                   color: const Color(
                                     0xFF4CAF50,
-                                  ).withOpacity(0.16),
+                                  ).withValues(alpha: 0.16),
                                   blurRadius: 12,
                                   spreadRadius: 1,
                                 ),
@@ -814,25 +1100,14 @@ class _CallScreenState extends State<CallScreen> {
                     textAlign: TextAlign.center,
                   ),
                 ],
-                const SizedBox(height: 4),
-                Text(
-                  provider.isListening
-                      ? (_isMicPressed ? '손을 떼면 녹음 종료' : '다시 누르면 녹음 종료')
-                      : (_isMicPressed ? '손을 떼면 녹음 시작' : '한 번 눌러 시작'),
-                  style: TextStyle(
-                    fontSize: _supportFontSize,
-                    color: _isMicPressed
-                        ? (provider.isListening
-                              ? const Color(0xFFE53935)
-                              : const Color(0xFF4CAF50))
-                        : const Color(0xFF888888),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
                 const SizedBox(height: 18),
                 if (!provider.isLoading) ...[
-                  _buildTextInputToggle(),
-                  if (_showTextInput) ...[
+                  if (_isPasswordInputMode(provider)) ...[
+                    _buildPinPad(),
+                  ] else ...[
+                    _buildTextInputToggle(),
+                  ],
+                  if (_showTextInput && !_isPasswordInputMode(provider)) ...[
                     const SizedBox(height: 12),
                     _buildDemoTextInput(),
                   ],
@@ -861,7 +1136,7 @@ class _CallScreenState extends State<CallScreen> {
                               BoxShadow(
                                 color: const Color(
                                   0xFFE8325A,
-                                ).withOpacity(0.28),
+                                ).withValues(alpha: 0.28),
                                 blurRadius: 18,
                                 offset: const Offset(0, 8),
                               ),
