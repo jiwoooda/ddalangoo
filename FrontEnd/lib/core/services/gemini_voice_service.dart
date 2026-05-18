@@ -1,6 +1,8 @@
 // Gemini STT/TTS 서비스
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -8,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 class GeminiVoiceService {
@@ -22,23 +25,39 @@ class GeminiVoiceService {
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
   static const int _ttsSampleRate = 24000;
+  static const int _maxCachedTtsItems = 12;
+  static const List<String> _precacheTexts = [
+    '안녕하세요! 무엇을 도와드릴까요?',
+    '다시 말씀해주시겠어요?',
+    '잠시만 기다려주세요.',
+    '구매를 진행하겠습니다.',
+    '결제가 완료되었습니다!',
+  ];
 
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
   final Dio _dio = Dio();
   final BytesBuilder _audioBuffer = BytesBuilder(copy: false);
+  final LinkedHashMap<String, Uint8List> _ttsCache = LinkedHashMap();
+  final Map<String, Future<Uint8List>> _ttsInFlight = {};
 
   StreamSubscription<Uint8List>? _recordingSubscription;
   StreamSubscription<void>? _playerCompleteSubscription;
   bool _isRecording = false;
   bool _isSpeaking = false;
   Completer<void>? _speakCompleter;
+  Future<void>? _precacheTask;
+  Future<Directory?>? _ttsCacheDirectoryFuture;
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _isSpeaking;
 
   Future<void> init() async {
     await _player.setReleaseMode(ReleaseMode.stop);
+    if (!kIsWeb) {
+      _ttsCacheDirectoryFuture ??= _prepareTtsCacheDirectory();
+    }
+    _precacheTask ??= _precacheCommonPhrases();
   }
 
   GenerativeModel get _model => GenerativeModel(
@@ -139,7 +158,7 @@ class GeminiVoiceService {
     _speakCompleter = Completer<void>();
 
     try {
-      final wavBytes = await _generateSpeech(text);
+      final wavBytes = await _getOrCreateSpeech(text);
 
       await _playerCompleteSubscription?.cancel();
       _playerCompleteSubscription = _player.onPlayerComplete.listen((_) {
@@ -165,6 +184,123 @@ class GeminiVoiceService {
     await _playerCompleteSubscription?.cancel();
     await _recorder.dispose();
     await _player.dispose();
+  }
+
+  Future<void> _precacheCommonPhrases() async {
+    for (final text in _precacheTexts) {
+      try {
+        await _getOrCreateSpeech(text);
+      } catch (e) {
+        debugPrint('⚠️ [Gemini TTS Precache Skipped] "$text" -> $e');
+      }
+    }
+  }
+
+  Future<Uint8List> _getOrCreateSpeech(String text) async {
+    final cacheKey = _buildTtsCacheKey(text);
+    final cached = _ttsCache.remove(cacheKey);
+    if (cached != null) {
+      _ttsCache[cacheKey] = cached;
+      debugPrint('🟢 [Gemini TTS Cache Hit] "$text"');
+      return cached;
+    }
+
+    final diskCached = await _readSpeechFromDisk(cacheKey);
+    if (diskCached != null) {
+      _rememberTtsCache(cacheKey, diskCached);
+      debugPrint('🔵 [Gemini TTS Disk Cache Hit] "$text"');
+      return diskCached;
+    }
+
+    final inFlight = _ttsInFlight[cacheKey];
+    if (inFlight != null) {
+      debugPrint('🟡 [Gemini TTS Await In-Flight] "$text"');
+      return inFlight;
+    }
+
+    final future = _generateSpeech(text);
+    _ttsInFlight[cacheKey] = future;
+
+    try {
+      final wavBytes = await future;
+      _rememberTtsCache(cacheKey, wavBytes);
+      unawaited(_writeSpeechToDisk(cacheKey, wavBytes));
+      debugPrint('🟣 [Gemini TTS Cache Store] "$text"');
+      return wavBytes;
+    } finally {
+      _ttsInFlight.remove(cacheKey);
+    }
+  }
+
+  String _buildTtsCacheKey(String text) =>
+      '$_ttsModelName|$_ttsVoiceName|1.2|$text';
+
+  void _rememberTtsCache(String cacheKey, Uint8List wavBytes) {
+    _ttsCache.remove(cacheKey);
+    _ttsCache[cacheKey] = wavBytes;
+
+    while (_ttsCache.length > _maxCachedTtsItems) {
+      _ttsCache.remove(_ttsCache.keys.first);
+    }
+  }
+
+  Future<Directory?> _prepareTtsCacheDirectory() async {
+    try {
+      final baseDirectory = await getApplicationSupportDirectory();
+      final cacheDirectory = Directory(
+        '${baseDirectory.path}${Platform.pathSeparator}tts_cache',
+      );
+      if (!await cacheDirectory.exists()) {
+        await cacheDirectory.create(recursive: true);
+      }
+      return cacheDirectory;
+    } catch (e) {
+      debugPrint('⚠️ [Gemini TTS Cache Dir Error] $e');
+      return null;
+    }
+  }
+
+  Future<File?> _getCacheFile(String cacheKey) async {
+    if (kIsWeb) return null;
+
+    final directoryFuture =
+        _ttsCacheDirectoryFuture ??= _prepareTtsCacheDirectory();
+    final directory = await directoryFuture;
+    if (directory == null) return null;
+
+    return File(
+      '${directory.path}${Platform.pathSeparator}${_hashCacheKey(cacheKey)}.wav',
+    );
+  }
+
+  Future<Uint8List?> _readSpeechFromDisk(String cacheKey) async {
+    try {
+      final file = await _getCacheFile(cacheKey);
+      if (file == null || !await file.exists()) return null;
+      return await file.readAsBytes();
+    } catch (e) {
+      debugPrint('⚠️ [Gemini TTS Disk Read Error] $e');
+      return null;
+    }
+  }
+
+  Future<void> _writeSpeechToDisk(String cacheKey, Uint8List wavBytes) async {
+    try {
+      final file = await _getCacheFile(cacheKey);
+      if (file == null) return;
+      await file.writeAsBytes(wavBytes, flush: true);
+    } catch (e) {
+      debugPrint('⚠️ [Gemini TTS Disk Write Error] $e');
+    }
+  }
+
+  String _hashCacheKey(String input) {
+    var hash = 0xcbf29ce484222325;
+    for (final unit in utf8.encode(input)) {
+      hash ^= unit;
+      hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
+    }
+    return hash.toRadixString(16);
   }
 
   Future<Uint8List> _generateSpeech(String text) async {
