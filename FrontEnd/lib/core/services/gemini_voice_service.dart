@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -43,6 +44,7 @@ class GeminiVoiceService {
 
   StreamSubscription<Uint8List>? _recordingSubscription;
   StreamSubscription<void>? _playerCompleteSubscription;
+  StreamSubscription<PlayerState>? _playerStateSubscription;
   bool _isRecording = false;
   bool _isSpeaking = false;
   Completer<void>? _speakCompleter;
@@ -161,8 +163,14 @@ class GeminiVoiceService {
       final wavBytes = await _getOrCreateSpeech(text);
 
       await _playerCompleteSubscription?.cancel();
+      await _playerStateSubscription?.cancel();
       _playerCompleteSubscription = _player.onPlayerComplete.listen((_) {
         _finishSpeaking();
+      });
+      _playerStateSubscription = _player.onPlayerStateChanged.listen((state) {
+        if (state == PlayerState.completed) {
+          _finishSpeaking();
+        }
       });
 
       await _player.play(BytesSource(wavBytes));
@@ -182,6 +190,7 @@ class GeminiVoiceService {
   Future<void> dispose() async {
     await _recordingSubscription?.cancel();
     await _playerCompleteSubscription?.cancel();
+    await _playerStateSubscription?.cancel();
     await _recorder.dispose();
     await _player.dispose();
   }
@@ -295,12 +304,7 @@ class GeminiVoiceService {
   }
 
   String _hashCacheKey(String input) {
-    var hash = 0xcbf29ce484222325;
-    for (final unit in utf8.encode(input)) {
-      hash ^= unit;
-      hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
-    }
-    return hash.toRadixString(16);
+    return sha1.convert(utf8.encode(input)).toString();
   }
 
   Future<Uint8List> _generateSpeech(String text) async {
@@ -376,6 +380,10 @@ class GeminiVoiceService {
   }
 
   void _finishSpeaking() {
+    unawaited(_playerCompleteSubscription?.cancel());
+    unawaited(_playerStateSubscription?.cancel());
+    _playerCompleteSubscription = null;
+    _playerStateSubscription = null;
     _isSpeaking = false;
     if (_speakCompleter != null && !_speakCompleter!.isCompleted) {
       _speakCompleter!.complete();

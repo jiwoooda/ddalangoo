@@ -1,4 +1,5 @@
 // 상태 관리
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,8 @@ enum CallStage {
 
 class CallProvider extends ChangeNotifier {
   static const JsonEncoder _jsonEncoder = JsonEncoder.withIndent('  ');
+  static const Duration _minTtsTimeout = Duration(seconds: 8);
+  static const Duration _maxTtsTimeout = Duration(seconds: 20);
   final AgentRepository _agentRepository = AgentRepository();
   final GeminiVoiceService _voiceService = GeminiVoiceService.instance;
 
@@ -320,7 +323,15 @@ class CallProvider extends ChangeNotifier {
     try {
       await _voiceService
           .speak(response.assistantMessage)
-          .timeout(const Duration(seconds: 8));
+          .timeout(_ttsTimeoutFor(response.assistantMessage));
+    } on TimeoutException catch (e) {
+      debugPrint(
+        '🔇 [TTS Fallback] 재생 완료 이벤트를 기다리다 타임아웃되었습니다. '
+        'messageLength=${response.assistantMessage.runes.length}, '
+        'timeout=${_ttsTimeoutFor(response.assistantMessage).inSeconds}s, '
+        '$e',
+      );
+      await _voiceService.stopSpeaking();
     } catch (e) {
       debugPrint('🔇 [TTS Fallback] $e');
     } finally {
@@ -347,5 +358,14 @@ class CallProvider extends ChangeNotifier {
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
+  }
+
+  Duration _ttsTimeoutFor(String text) {
+    final estimatedSeconds = 8 + (text.runes.length ~/ 12);
+    final clampedSeconds = estimatedSeconds.clamp(
+      _minTtsTimeout.inSeconds,
+      _maxTtsTimeout.inSeconds,
+    );
+    return Duration(seconds: clampedSeconds);
   }
 }

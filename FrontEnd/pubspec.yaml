@@ -67,6 +67,7 @@ dependencies:
   path_provider: ^2.1.4
   flutter_tts: ^4.2.5
   google_fonts: ^8.1.0
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:
