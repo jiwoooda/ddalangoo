@@ -44,22 +44,19 @@ class CallProvider extends ChangeNotifier {
 
   // 전화 시작
   Future<void> startCall() async {
-    _setLoading(true);
     try {
       final userId = await LocalStorage.getUserId();
       if (userId == null) throw Exception('로그인이 필요합니다');
 
-      final response = await _agentRepository.startShopping(
-        userId: userId,
-        message: 'INIT_CALL',
-      );
-
-      await _handleResponse(response);
+      _conversationId = null;
+      _lastResponse = null;
+      _stage = CallStage.idle;
+      _errorMessage = null;
+      _messages.clear();
+      notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
-    } finally {
-      _setLoading(false);
     }
   }
 
@@ -245,12 +242,18 @@ class CallProvider extends ChangeNotifier {
           _stage = CallStage.platformSelection;
           break;
         case 'product_selection':
+        case 'product_confirming':
           _stage = CallStage.productSelection;
           break;
         case 'cart':
+        case 'cart_shopping':
           _stage = CallStage.cart;
           break;
         case 'payment':
+        case 'address_confirming':
+        case 'payment_precheck':
+        case 'payment_password_required':
+        case 'payment_processing':
           _stage = CallStage.payment;
           break;
         case 'completed':

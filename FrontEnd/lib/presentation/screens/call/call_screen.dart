@@ -597,8 +597,7 @@ class _CallScreenState extends State<CallScreen> {
           child: Column(
             children: [
               // 말하기 버튼 (통화 중일 때만 표시)
-              if (provider.stage != CallStage.idle &&
-                  provider.stage != CallStage.loading &&
+              if (provider.stage != CallStage.loading &&
                   provider.stage != CallStage.completed) ...[
                 GestureDetector(
                   onTapDown: (_) => provider.startListening(),
