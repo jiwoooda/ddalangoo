@@ -1,11 +1,11 @@
 """
-ShoppingState → AgentResponse 변환.
+ShoppingState -> AgentResponse 변환.
 
-LangGraph ShoppingState의 필드를 기존 FastAPI AgentResponse 스키마로 매핑한다.
-프론트 계약(AgentResponse)을 유지하면서 백엔드 구현만 교체하는 것이 목적이다.
+LangGraph ShoppingState의 내부 필드를 프론트 API 명세의 AgentResponse로 매핑한다.
+프론트 계약은 유지하고, 백엔드 내부 구현만 LangGraph로 교체하는 것이 목적이다.
 """
 
-from typing import Optional
+from typing import Any, Optional
 from app.schemas.agent import AgentResponse, RecommendationItemInAgent
 
 
@@ -46,6 +46,13 @@ def _candidate_products(state: dict) -> list[dict]:
     return recommended or search_results
 
 
+def _payload_with_subtype(payload: dict, subtype: str) -> dict:
+    """프론트 type은 크게 유지하고, LangGraph 내부 세부 타입은 payload.subType에 보존한다."""
+    mapped_payload = dict(payload)
+    mapped_payload.setdefault("subType", subtype)
+    return mapped_payload
+
+
 def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
     """
     ShoppingState.pending_action → AgentResponse.pendingConfirmation
@@ -61,7 +68,7 @@ def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
 
     if ptype == "product_confirm":
         mapped_payload = {
-            "actions": payload.get("actions", ["order_now", "add_to_cart", "reject"]),
+            "actions": payload.get("actions", ["accept", "reject"]),
         }
         item_id = payload.get("recommendationItemId") or payload.get("recommendation_item_id")
         if item_id:
@@ -82,11 +89,25 @@ def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
     if ptype == "clarification":
         return {"type": "clarification"}
 
+    if ptype == "payment_method_confirm":
+        return {
+            "type": "payment",
+            "message": message,
+            "payload": _payload_with_subtype(payload, "payment_method_confirm"),
+        }
+
+    if ptype == "payment_password":
+        return {
+            "type": "payment",
+            "message": message,
+            "payload": _payload_with_subtype(payload, "payment_password"),
+        }
+
     if ptype == "payment_confirm":
         return {
             "type": "payment",
             "message": message,
-            "payload": payload,
+            "payload": _payload_with_subtype(payload, "payment_confirm"),
         }
 
     if ptype == "address_confirm":
@@ -96,8 +117,26 @@ def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
             "payload": payload,
         }
 
-    # 그 외 타입은 그대로 전달
-    return {"type": ptype, "message": message, "payload": payload}
+    if ptype == "platform_suggest":
+        return {
+            "type": "clarification",
+            "message": message,
+            "payload": _payload_with_subtype(payload, "platform_suggest"),
+        }
+
+    if ptype == "continue_shopping":
+        return {
+            "type": "payment",
+            "message": message,
+            "payload": _payload_with_subtype(payload, "continue_shopping"),
+        }
+
+    # 새 LangGraph pending 타입이 생겨도 프론트의 큰 흐름은 깨지지 않도록 clarification으로 감싼다.
+    return {
+        "type": "clarification",
+        "message": message,
+        "payload": _payload_with_subtype(payload, ptype or "unknown"),
+    }
 
 
 def _last_assistant_message(state: dict) -> str:
@@ -113,17 +152,90 @@ def _last_assistant_message(state: dict) -> str:
 
 
 def _stage_to_status(stage: str) -> str:
-    """ShoppingState.stage → AgentResponse.status"""
+    """API 명세 기준 stage -> status 변환."""
     mapping = {
-        "idle": "intent_detected",
-        "searching": "searching",
+        "idle": "started",
+        "searching": "searching_product",
         "product_confirming": "waiting_user_confirmation",
+        "address_confirming": "waiting_user_confirmation",
         "cart_shopping": "waiting_user_confirmation",
-        "payment_processing": "payment_processing",
+        "payment_precheck": "payment_in_progress",
+        "payment_password_required": "payment_in_progress",
+        "payment_processing": "payment_in_progress",
         "completed": "order_completed",
         "failed": "failed",
+        "cancelled": "cancelled",
     }
-    return mapping.get(stage, "intent_detected")
+    return mapping.get(stage, "started")
+
+
+def _payment_url_from(value: Any) -> Optional[str]:
+    """state/payload 안에서 프론트 웹뷰로 열 수 있는 결제 URL을 찾는다."""
+    if not isinstance(value, dict):
+        return None
+    return (
+        value.get("paymentUrl")
+        or value.get("payment_url")
+        or value.get("url")
+    )
+
+
+def _map_ui_command(state: dict) -> Optional[dict]:
+    """
+    LangGraph가 웹뷰 명령이나 결제 URL을 만든 경우에만 uiCommand를 내려준다.
+
+    현재 LangGraph MVP 결제는 fake password 방식이라 결제 URL이 없을 수 있다.
+    mapper가 없는 URL을 만들어내면 프론트가 실제 결제창을 열 수 없으므로, URL이 있을 때만 변환한다.
+    """
+    direct_command = state.get("uiCommand") or state.get("ui_command")
+    if isinstance(direct_command, dict):
+        return direct_command
+
+    pending_action = state.get("pending_action") or {}
+    pending_payload = pending_action.get("payload") or {}
+    payload_command = pending_payload.get("uiCommand") or pending_payload.get("ui_command")
+    if isinstance(payload_command, dict):
+        return payload_command
+
+    payment_url = (
+        _payment_url_from(state)
+        or _payment_url_from(pending_payload)
+        or _payment_url_from(state.get("payment") or {})
+    )
+    if payment_url:
+        return {
+            "type": "open_webview",
+            "target": "payment",
+            "url": payment_url,
+        }
+
+    return None
+
+
+def _map_stage(state: dict, ui_command: Optional[dict]) -> str:
+    """
+    LangGraph 내부 stage를 프론트 명세 stage로 보정한다.
+
+    LangGraph는 결제 세부 단계를 pending_action.type으로 표현하는 경우가 있어서,
+    프론트가 화면을 바꾸기 쉬운 stage로 한 번 더 번역한다.
+    """
+    stage = state.get("stage", "idle")
+    pending_type = (state.get("pending_action") or {}).get("type")
+
+    if pending_type == "address_confirm":
+        return "address_confirming"
+
+    if pending_type == "payment_method_confirm":
+        return "payment_precheck"
+
+    if (
+        pending_type == "payment_password"
+        and isinstance(ui_command, dict)
+        and ui_command.get("type") == "open_webview"
+    ):
+        return "payment_password_required"
+
+    return stage
 
 
 def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
@@ -132,7 +244,8 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
 
     AgentResponse 스키마를 유지하면서 LangGraph 결과를 프론트에 전달한다.
     """
-    stage = state.get("stage", "idle")
+    ui_command = _map_ui_command(state)
+    stage = _map_stage(state, ui_command)
     candidates = _candidate_products(state)
 
     return AgentResponse(
@@ -140,15 +253,15 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
         status=_stage_to_status(stage),
         stage=stage,
         assistantMessage=_last_assistant_message(state),
-        recommendationId=None,  # LangGraph는 recommendation ID를 별도 관리하지 않음
+        recommendationId=state.get("recommendation_id") or state.get("recommendationId"),
         recommendations=[_map_product(p) for p in candidates[:2]],
         selectedProduct=state.get("selected_product"),
         pendingConfirmation=_map_pending(state.get("pending_action")),
-        availableOptions=None,
-        deliveryAddress=None,
-        order=None,
-        payment=None,
-        uiCommand=None,
+        availableOptions=state.get("available_options") or state.get("availableOptions"),
+        deliveryAddress=state.get("delivery_address") or state.get("deliveryAddress"),
+        order=state.get("order"),
+        payment=state.get("payment"),
+        uiCommand=ui_command,
         asyncStatus=None,
         error=state.get("error"),
     )

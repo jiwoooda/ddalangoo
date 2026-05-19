@@ -1,11 +1,14 @@
 """
 confirm_action 변환.
 
-프론트가 버튼 탭으로 보내는 action (order_now / add_to_cart / reject / ...)을
+프론트가 버튼 탭으로 보내는 action (accept / reject / continue_shopping / checkout_cart / ...)을
 LangGraph state patch로 변환해 inject_and_resume에 넘긴다.
 
-LangGraph 라우터는 intent + stage 기준으로 동작하므로,
-버튼 액션을 intent로 매핑하고 필요한 경우 pending_action도 함께 초기화한다.
+흐름:
+  1. 추천 상품 → 프론트: accept / reject
+  2. accept → payment_agent Step 0: 장바구니 담기 + "계속 쇼핑?" pending
+  3. 프론트: continue_shopping / checkout_cart
+  4. checkout_cart → payment_agent Step 1: 결제수단 → 배송지 → 비밀번호 → 완료
 """
 
 from langchain_core.messages import HumanMessage
@@ -41,26 +44,12 @@ def build_patch(req: ConfirmRequest) -> dict:
     """
     action = req.action
 
-    if action == "order_now":
-        # 상품 확인 → 결제 진행
-        # router: stage=product_confirming + intent=confirm + quantity 없으면 quantity_check로 분기
+    if action in ("accept", "order_now", "add_to_cart"):
+        # 추천 상품 수락 → payment_agent Step 0에서 장바구니 담기 + "계속 쇼핑?" 처리
         return {
             "intent": "confirm",
             "pending_action": None,
             "messages": [HumanMessage(content="주문할게요")],
-        }
-
-    if action == "add_to_cart":
-        # 장바구니 담기 → cart_shopping stage로
-        return {
-            "intent": "confirm",
-            "stage": "cart_shopping",
-            "pending_action": {
-                "type": "continue_shopping",
-                "message": "장바구니에 담겼습니다. 계속 쇼핑하시겠어요, 아니면 바로 결제하시겠어요?",
-                "payload": {"actions": ["continue_shopping", "checkout_cart"]},
-            },
-            "messages": [HumanMessage(content="장바구니에 담아줘")],
         }
 
     if action == "reject":
