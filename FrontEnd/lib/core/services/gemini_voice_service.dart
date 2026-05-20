@@ -22,7 +22,7 @@ class GeminiVoiceService {
 
   static const String _sttModelName = 'models/gemini-3-flash-preview';
   static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
-  static const String _ttsVoiceName = 'Puck';
+  static const String _ttsVoiceName = 'Zephyr';
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
   static const int _ttsSampleRate = 24000;
@@ -324,7 +324,7 @@ class GeminiVoiceService {
               {
                 'text':
                     'Read the exact following Korean text in a bright, cheerful, '
-                    'friendly, and kind voice at about 1.2x speed. '
+                    'friendly, and kind feminine voice at about 1.2x speed. '
                     'Sound lively and encouraging, but still clear and easy for '
                     'older adults to understand. Do not add or change any words.\n$text',
               },
