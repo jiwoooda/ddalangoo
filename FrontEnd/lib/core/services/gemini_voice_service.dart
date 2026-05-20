@@ -10,6 +10,7 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -27,16 +28,12 @@ class GeminiVoiceService {
   static const int _numChannels = 1;
   static const int _ttsSampleRate = 24000;
   static const int _maxCachedTtsItems = 12;
-  static const List<String> _precacheTexts = [
-    '안녕하세요! 무엇을 도와드릴까요?',
-    '다시 말씀해주시겠어요?',
-    '잠시만 기다려주세요.',
-    '구매를 진행하겠습니다.',
-    '결제가 완료되었습니다!',
-  ];
+  static const int _ttsRetryCount = 2;
+  static const Duration _ttsRetryBaseDelay = Duration(milliseconds: 800);
 
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
+  final FlutterTts _fallbackTts = FlutterTts();
   final Dio _dio = Dio();
   final BytesBuilder _audioBuffer = BytesBuilder(copy: false);
   final LinkedHashMap<String, Uint8List> _ttsCache = LinkedHashMap();
@@ -48,7 +45,6 @@ class GeminiVoiceService {
   bool _isRecording = false;
   bool _isSpeaking = false;
   Completer<void>? _speakCompleter;
-  Future<void>? _precacheTask;
   Future<Directory?>? _ttsCacheDirectoryFuture;
 
   bool get isRecording => _isRecording;
@@ -56,10 +52,10 @@ class GeminiVoiceService {
 
   Future<void> init() async {
     await _player.setReleaseMode(ReleaseMode.stop);
+    await _configureFallbackTts();
     if (!kIsWeb) {
       _ttsCacheDirectoryFuture ??= _prepareTtsCacheDirectory();
     }
-    _precacheTask ??= _precacheCommonPhrases();
   }
 
   GenerativeModel get _model => GenerativeModel(
@@ -177,13 +173,18 @@ class GeminiVoiceService {
       await _speakCompleter!.future;
     } catch (e) {
       debugPrint('❌ [Gemini TTS Error] $e');
-      _finishSpeaking();
-      rethrow;
+
+      try {
+        await _speakWithFallbackTts(text);
+      } finally {
+        _finishSpeaking();
+      }
     }
   }
 
   Future<void> stopSpeaking() async {
     await _player.stop();
+    await _fallbackTts.stop();
     _finishSpeaking();
   }
 
@@ -193,16 +194,7 @@ class GeminiVoiceService {
     await _playerStateSubscription?.cancel();
     await _recorder.dispose();
     await _player.dispose();
-  }
-
-  Future<void> _precacheCommonPhrases() async {
-    for (final text in _precacheTexts) {
-      try {
-        await _getOrCreateSpeech(text);
-      } catch (e) {
-        debugPrint('⚠️ [Gemini TTS Precache Skipped] "$text" -> $e');
-      }
-    }
+    await _fallbackTts.stop();
   }
 
   Future<Uint8List> _getOrCreateSpeech(String text) async {
@@ -227,7 +219,7 @@ class GeminiVoiceService {
       return inFlight;
     }
 
-    final future = _generateSpeech(text);
+    final future = _generateSpeechWithRetry(text);
     _ttsInFlight[cacheKey] = future;
 
     try {
@@ -305,6 +297,54 @@ class GeminiVoiceService {
 
   String _hashCacheKey(String input) {
     return sha1.convert(utf8.encode(input)).toString();
+  }
+
+  Future<void> _configureFallbackTts() async {
+    try {
+      await _fallbackTts.awaitSpeakCompletion(true);
+      await _fallbackTts.setLanguage('ko-KR');
+      await _fallbackTts.setPitch(1.15);
+      await _fallbackTts.setSpeechRate(0.52);
+    } catch (e) {
+      debugPrint('⚠️ [Fallback TTS Config Error] $e');
+    }
+  }
+
+  Future<Uint8List> _generateSpeechWithRetry(String text) async {
+    var attempt = 0;
+
+    while (true) {
+      attempt += 1;
+
+      try {
+        return await _generateSpeech(text);
+      } on DioException catch (e) {
+        if (!_isRetryableTtsError(e) || attempt > _ttsRetryCount) {
+          rethrow;
+        }
+
+        final delay = Duration(
+          milliseconds: _ttsRetryBaseDelay.inMilliseconds * attempt,
+        );
+        debugPrint(
+          '⚠️ [Gemini TTS Retry] '
+          'status=${e.response?.statusCode}, attempt=$attempt/$_ttsRetryCount, '
+          'delay=${delay.inMilliseconds}ms',
+        );
+        await Future.delayed(delay);
+      }
+    }
+  }
+
+  bool _isRetryableTtsError(DioException error) {
+    final statusCode = error.response?.statusCode;
+    return statusCode == 429 || statusCode == 503;
+  }
+
+  Future<void> _speakWithFallbackTts(String text) async {
+    debugPrint('🟠 [Fallback TTS] Gemini TTS 대신 로컬 TTS를 사용합니다.');
+    await _player.stop();
+    await _fallbackTts.speak(text);
   }
 
   Future<Uint8List> _generateSpeech(String text) async {
