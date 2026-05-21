@@ -15,6 +15,8 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import '../utils/latency_logger.dart';
+
 class GeminiVoiceService {
   static GeminiVoiceService? _instance;
   static GeminiVoiceService get instance =>
@@ -46,6 +48,8 @@ class GeminiVoiceService {
   bool _isSpeaking = false;
   Completer<void>? _speakCompleter;
   Future<Directory?>? _ttsCacheDirectoryFuture;
+  LatencyRequestContext? _activeSpeakLatencyContext;
+  bool _audioPlayEndLogged = false;
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _isSpeaking;
@@ -150,25 +154,38 @@ class GeminiVoiceService {
     }
   }
 
-  Future<void> speak(String text) async {
+  Future<void> speak(String text, {LatencyRequestContext? latencyContext}) async {
     if (_isSpeaking) await stopSpeaking();
     _isSpeaking = true;
     _speakCompleter = Completer<void>();
+    _activeSpeakLatencyContext = latencyContext;
+    _audioPlayEndLogged = false;
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_start');
+    }
 
     try {
       final wavBytes = await _getOrCreateSpeech(text);
+      if (latencyContext != null) {
+        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_ready');
+      }
 
       await _playerCompleteSubscription?.cancel();
       await _playerStateSubscription?.cancel();
       _playerCompleteSubscription = _player.onPlayerComplete.listen((_) {
+        _markAudioPlayEnd();
         _finishSpeaking();
       });
       _playerStateSubscription = _player.onPlayerStateChanged.listen((state) {
         if (state == PlayerState.completed) {
+          _markAudioPlayEnd();
           _finishSpeaking();
         }
       });
 
+      if (latencyContext != null) {
+        FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
+      }
       await _player.play(BytesSource(wavBytes));
       await _speakCompleter!.future;
     } catch (e) {
@@ -177,6 +194,7 @@ class GeminiVoiceService {
       try {
         await _speakWithFallbackTts(text);
       } finally {
+        _markAudioPlayEnd();
         _finishSpeaking();
       }
     }
@@ -185,6 +203,7 @@ class GeminiVoiceService {
   Future<void> stopSpeaking() async {
     await _player.stop();
     await _fallbackTts.stop();
+    _markAudioPlayEnd();
     _finishSpeaking();
   }
 
@@ -344,6 +363,10 @@ class GeminiVoiceService {
   Future<void> _speakWithFallbackTts(String text) async {
     debugPrint('🟠 [Fallback TTS] Gemini TTS 대신 로컬 TTS를 사용합니다.');
     await _player.stop();
+    final latencyContext = _activeSpeakLatencyContext;
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
+    }
     await _fallbackTts.speak(text);
   }
 
@@ -425,10 +448,21 @@ class GeminiVoiceService {
     _playerCompleteSubscription = null;
     _playerStateSubscription = null;
     _isSpeaking = false;
+    _activeSpeakLatencyContext = null;
+    _audioPlayEndLogged = false;
     if (_speakCompleter != null && !_speakCompleter!.isCompleted) {
       _speakCompleter!.complete();
     }
     _speakCompleter = null;
+  }
+
+  void _markAudioPlayEnd() {
+    if (_audioPlayEndLogged) return;
+    final latencyContext = _activeSpeakLatencyContext;
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_end');
+    }
+    _audioPlayEndLogged = true;
   }
 
   Uint8List _wrapPcm16AsWav(

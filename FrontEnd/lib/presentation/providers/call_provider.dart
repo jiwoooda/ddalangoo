@@ -8,6 +8,7 @@ import '../../data/models/agent_model.dart';
 import '../../data/repositories/agent_repository.dart';
 import '../../core/storage/local_storage.dart';
 import '../../core/services/gemini_voice_service.dart';
+import '../../core/utils/latency_logger.dart';
 
 enum CallStage {
   idle,
@@ -36,6 +37,7 @@ class CallProvider extends ChangeNotifier {
   bool _isSpeaking = false; // TTS 재생 중
   String? _errorMessage;
   final List<Map<String, dynamic>> _messages = [];
+  LatencyRequestContext? _activeLatencyContext;
 
   CallStage get stage => _stage;
   AgentResponse? get lastResponse => _lastResponse;
@@ -65,6 +67,7 @@ class CallProvider extends ChangeNotifier {
   Future<void> startCall() async {
     _setLoading(true);
     try {
+      FrontendLatencyLogger.instance.startSession();
       final userId = await LocalStorage.getUserId();
       if (userId == null) throw Exception('로그인이 필요합니다');
 
@@ -100,6 +103,9 @@ class CallProvider extends ChangeNotifier {
         await _voiceService.stopSpeaking();
         _isSpeaking = false;
       }
+      final latencyContext = FrontendLatencyLogger.instance.beginTurn();
+      _activeLatencyContext = latencyContext;
+      FrontendLatencyLogger.instance.mark(latencyContext, 'user_speech_start');
       await _voiceService.startRecording();
       _isListening = true;
       notifyListeners();
@@ -119,11 +125,21 @@ class CallProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final latencyContext = _activeLatencyContext;
+      if (latencyContext != null) {
+        FrontendLatencyLogger.instance.mark(latencyContext, 'user_speech_end');
+        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_start');
+      }
+
       // Gemini STT로 텍스트 변환
       final transcript = await _voiceService.stopRecordingAndTranscribe();
+      if (latencyContext != null) {
+        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
+      }
 
       if (transcript == null || transcript.isEmpty) {
         _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
+        _activeLatencyContext = null;
         return;
       }
 
@@ -139,19 +155,22 @@ class CallProvider extends ChangeNotifier {
         final response = await _agentRepository.startShopping(
           userId: userId,
           message: transcript,
+          latencyContext: latencyContext,
         );
-        await _handleResponse(response);
+        await _handleResponse(response, latencyContext: latencyContext);
       } else {
         final response = await _agentRepository.sendMessage(
           conversationId: _conversationId!,
           message: transcript,
+          latencyContext: latencyContext,
         );
-        await _handleResponse(response);
+        await _handleResponse(response, latencyContext: latencyContext);
       }
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
     } finally {
+      _activeLatencyContext = null;
       _isTranscribing = false;
       _setLoading(false);
     }
@@ -243,6 +262,7 @@ class CallProvider extends ChangeNotifier {
   // 전화 끊기
   void endCall() {
     _voiceService.stopSpeaking();
+    FrontendLatencyLogger.instance.endSession();
     _conversationId = null;
     _lastResponse = null;
     _stage = CallStage.idle;
@@ -251,11 +271,15 @@ class CallProvider extends ChangeNotifier {
     _isListening = false;
     _isTranscribing = false;
     _isSpeaking = false;
+    _activeLatencyContext = null;
     notifyListeners();
   }
 
   // AgentResponse 처리 + TTS 재생
-  Future<void> _handleResponse(AgentResponse response) async {
+  Future<void> _handleResponse(
+    AgentResponse response, {
+    LatencyRequestContext? latencyContext,
+  }) async {
     final oldStage = _stage;
     _lastResponse = response;
     _conversationId = response.conversationId;
@@ -322,7 +346,7 @@ class CallProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _voiceService
-          .speak(response.assistantMessage)
+          .speak(response.assistantMessage, latencyContext: latencyContext)
           .timeout(_ttsTimeoutFor(response.assistantMessage));
     } on TimeoutException catch (e) {
       debugPrint(

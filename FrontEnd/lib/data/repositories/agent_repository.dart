@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../models/agent_model.dart';
 import '../models/user_model.dart';
 import '../../core/network/api_client.dart';
+import '../../core/utils/latency_logger.dart';
 
 class AgentRepository {
   // Mock 데이터 사용 여부 (테스트 시 true로 변경)
@@ -112,10 +113,27 @@ class AgentRepository {
     return agentResponse;
   }
 
+  AgentResponse _parseAgentResponseWithLatency(
+    dynamic data, {
+    required String label,
+    LatencyRequestContext? latencyContext,
+  }) {
+    final agentResponse = _parseAgentResponse(data, label: label);
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(
+        latencyContext,
+        'response_text_received',
+        responseText: agentResponse.assistantMessage,
+      );
+    }
+    return agentResponse;
+  }
+
   // 쇼핑 시작 (전화 걸기 버튼)
   Future<AgentResponse> startShopping({
     required int userId,
     required String message,
+    LatencyRequestContext? latencyContext,
   }) async {
     if (useMock) {
       if (message == 'INIT_CALL') {
@@ -135,11 +153,25 @@ class AgentRepository {
       endpoint: '/api/agent/shopping-requests',
       payload: payload,
     );
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_request_sent');
+    }
     final response = await _dio.post(
       '/api/agent/shopping-requests',
       data: payload,
+      options: Options(headers: {...?latencyContext?.toHeaders()}),
     );
-    return _parseAgentResponse(response.data, label: 'Shopping Start Response');
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(
+        latencyContext,
+        'frontend_response_received',
+      );
+    }
+    return _parseAgentResponseWithLatency(
+      response.data,
+      label: 'Shopping Start Response',
+      latencyContext: latencyContext,
+    );
   }
 
   // 대화 상태 가져오기 (폴링용)
@@ -152,6 +184,7 @@ class AgentRepository {
   Future<AgentResponse> sendMessage({
     required int conversationId,
     required String message,
+    LatencyRequestContext? latencyContext,
   }) async {
     if (useMock) {
       debugPrint(
@@ -242,13 +275,24 @@ class AgentRepository {
       endpoint: '/api/agent/conversations/$conversationId/messages',
       payload: payload,
     );
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_request_sent');
+    }
     final response = await _dio.post(
       '/api/agent/conversations/$conversationId/messages',
       data: payload,
+      options: Options(headers: {...?latencyContext?.toHeaders()}),
     );
-    return _parseAgentResponse(
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(
+        latencyContext,
+        'frontend_response_received',
+      );
+    }
+    return _parseAgentResponseWithLatency(
       response.data,
       label: 'Conversation Message Response',
+      latencyContext: latencyContext,
     );
   }
 
