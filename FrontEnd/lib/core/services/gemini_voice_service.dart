@@ -3,7 +3,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:crypto/crypto.dart';
@@ -26,30 +26,34 @@ class GeminiVoiceService {
   static const String _sttModelName = 'models/gemini-3-flash-preview';
   static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
   static const String _ttsVoiceName = 'Zephyr';
-  static const int _sampleRate = 16000;
+  static const int _sampleRate = 44100;
   static const int _numChannels = 1;
   static const int _ttsSampleRate = 24000;
   static const int _maxCachedTtsItems = 12;
   static const int _ttsRetryCount = 2;
   static const Duration _ttsRetryBaseDelay = Duration(milliseconds: 800);
+  static const int _vadFrameMs = 30;
+  static const double _vadEnergyThreshold = 0.0018;
+  static const int _minSpeechFrames = 4;
+  static const int _minSpeechSamples = 1600;
 
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
   final FlutterTts _fallbackTts = FlutterTts();
   final Dio _dio = Dio();
-  final BytesBuilder _audioBuffer = BytesBuilder(copy: false);
   final LinkedHashMap<String, Uint8List> _ttsCache = LinkedHashMap();
   final Map<String, Future<Uint8List>> _ttsInFlight = {};
 
-  StreamSubscription<Uint8List>? _recordingSubscription;
   StreamSubscription<void>? _playerCompleteSubscription;
   StreamSubscription<PlayerState>? _playerStateSubscription;
   bool _isRecording = false;
   bool _isSpeaking = false;
   Completer<void>? _speakCompleter;
   Future<Directory?>? _ttsCacheDirectoryFuture;
+  Future<Directory?>? _sttRecordingDirectoryFuture;
   LatencyRequestContext? _activeSpeakLatencyContext;
   bool _audioPlayEndLogged = false;
+  String? _activeRecordingPath;
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _isSpeaking;
@@ -59,6 +63,7 @@ class GeminiVoiceService {
     await _configureFallbackTts();
     if (!kIsWeb) {
       _ttsCacheDirectoryFuture ??= _prepareTtsCacheDirectory();
+      _sttRecordingDirectoryFuture ??= _prepareSttRecordingDirectory();
     }
   }
 
@@ -75,35 +80,28 @@ class GeminiVoiceService {
       throw Exception('브라우저/기기에서 마이크 권한이 허용되지 않았습니다.');
     }
 
-    _audioBuffer.clear();
-
     try {
-      final stream = await _recorder.startStream(
+      final path = await _createSttRecordingPath();
+      _activeRecordingPath = path;
+      await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
+          encoder: AudioEncoder.wav,
           sampleRate: _sampleRate,
           numChannels: _numChannels,
-          autoGain: true,
-          echoCancel: true,
-          noiseSuppress: true,
+          autoGain: false,
+          echoCancel: false,
+          noiseSuppress: false,
         ),
-      );
-
-      _recordingSubscription = stream.listen(
-        (chunk) {
-          _audioBuffer.add(chunk);
-        },
-        onError: (Object error, StackTrace stackTrace) {
-          debugPrint('❌ [Recording Stream Error] $error');
-        },
+        path: path,
       );
 
       _isRecording = true;
-      debugPrint('🎙️ [Recording Started] sampleRate=$_sampleRate');
+      debugPrint(
+        '🎙️ [Recording Started] sampleRate=$_sampleRate, path=$_activeRecordingPath',
+      );
     } catch (e) {
-      await _recordingSubscription?.cancel();
-      _recordingSubscription = null;
       _isRecording = false;
+      _activeRecordingPath = null;
       debugPrint('❌ [Recording Start Error] $e');
       rethrow;
     }
@@ -113,34 +111,59 @@ class GeminiVoiceService {
     if (!_isRecording) return null;
 
     _isRecording = false;
+    String? cleanupPath;
 
     try {
-      await _recordingSubscription?.cancel();
-      _recordingSubscription = null;
-      await _recorder.stop();
-
-      final pcmBytes = _audioBuffer.takeBytes();
-      if (pcmBytes.isEmpty) {
-        debugPrint('⚠️ [Gemini STT] empty recording buffer');
+      final recordedPath = await _recorder.stop();
+      final path = recordedPath ?? _activeRecordingPath;
+      cleanupPath = path;
+      _activeRecordingPath = null;
+      if (path == null) {
+        debugPrint('⚠️ [Gemini STT] recording path missing');
         return null;
       }
 
-      final wavBytes = _wrapPcm16AsWav(
-        pcmBytes,
+      final wavFile = File(path);
+      if (!await wavFile.exists()) {
+        debugPrint('⚠️ [Gemini STT] recording file missing: $path');
+        return null;
+      }
+
+      final wavBytes = await wavFile.readAsBytes();
+      if (wavBytes.isEmpty) {
+        debugPrint('⚠️ [Gemini STT] empty recording file');
+        return null;
+      }
+
+      final pcmBytes = _extractPcm16FromWav(wavBytes);
+      if (pcmBytes == null) {
+        debugPrint('⚠️ [Gemini STT] unable to parse wav payload');
+        return null;
+      }
+
+      final speechPcmBytes = _extractSpeechPcm(pcmBytes);
+      if (speechPcmBytes == null) {
+        debugPrint('⚠️ [Gemini STT] speech not detected after VAD');
+        return null;
+      }
+
+      final trimmedWavBytes = _wrapPcm16AsWav(
+        speechPcmBytes,
         sampleRate: _sampleRate,
         channels: _numChannels,
       );
 
       debugPrint(
-        '🎙️ [Gemini STT] model=$_sttModelName, bytes=${wavBytes.length}',
+        '🎙️ [Gemini STT] model=$_sttModelName, bytes=${trimmedWavBytes.length}, source=$path',
       );
 
       final response = await _model.generateContent([
         Content.multi([
-          DataPart('audio/wav', wavBytes),
+          DataPart('audio/wav', trimmedWavBytes),
           TextPart(
-            '이 오디오를 한국어로 정확하게 텍스트로 변환해줘. '
-            '텍스트만 출력하고 다른 설명은 절대 하지 마.',
+            '이 오디오에서 실제로 들리는 한국어 발화만 그대로 텍스트로 변환해줘. '
+            '추측해서 보충하거나 정리하지 말고, 들리지 않거나 불분명하면 빈 문자열로 응답해. '
+            '화자가 말하지 않은 문장을 만들어내지 말고 텍스트만 출력해.',
           ),
         ]),
       ]);
@@ -150,7 +173,10 @@ class GeminiVoiceService {
       debugPrint('❌ [Gemini STT Error] $e');
       return null;
     } finally {
-      _audioBuffer.clear();
+      _activeRecordingPath = null;
+      if (cleanupPath != null) {
+        unawaited(_deleteIfExists(cleanupPath));
+      }
     }
   }
 
@@ -208,7 +234,6 @@ class GeminiVoiceService {
   }
 
   Future<void> dispose() async {
-    await _recordingSubscription?.cancel();
     await _playerCompleteSubscription?.cancel();
     await _playerStateSubscription?.cancel();
     await _recorder.dispose();
@@ -277,6 +302,49 @@ class GeminiVoiceService {
     } catch (e) {
       debugPrint('⚠️ [Gemini TTS Cache Dir Error] $e');
       return null;
+    }
+  }
+
+  Future<Directory?> _prepareSttRecordingDirectory() async {
+    try {
+      final baseDirectory = await getTemporaryDirectory();
+      final recordingDirectory = Directory(
+        '${baseDirectory.path}${Platform.pathSeparator}stt_recordings',
+      );
+      if (!await recordingDirectory.exists()) {
+        await recordingDirectory.create(recursive: true);
+      }
+      return recordingDirectory;
+    } catch (e) {
+      debugPrint('⚠️ [Gemini STT Recording Dir Error] $e');
+      return null;
+    }
+  }
+
+  Future<String> _createSttRecordingPath() async {
+    if (kIsWeb) {
+      return 'stt-recording.wav';
+    }
+
+    final directoryFuture =
+        _sttRecordingDirectoryFuture ??= _prepareSttRecordingDirectory();
+    final directory = await directoryFuture;
+    if (directory == null) {
+      throw Exception('STT 임시 녹음 디렉터리를 준비하지 못했습니다.');
+    }
+
+    final now = DateTime.now().microsecondsSinceEpoch;
+    return '${directory.path}${Platform.pathSeparator}stt_$now.wav';
+  }
+
+  Future<void> _deleteIfExists(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('⚠️ [Gemini STT Recording Cleanup Error] $e');
     }
   }
 
@@ -463,6 +531,125 @@ class GeminiVoiceService {
       FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_end');
     }
     _audioPlayEndLogged = true;
+  }
+
+  Uint8List? _extractPcm16FromWav(Uint8List wavBytes) {
+    if (wavBytes.length < 44) return null;
+
+    final header = ByteData.sublistView(wavBytes);
+    final riff = String.fromCharCodes(wavBytes.sublist(0, 4));
+    final wave = String.fromCharCodes(wavBytes.sublist(8, 12));
+    if (riff != 'RIFF' || wave != 'WAVE') {
+      return null;
+    }
+
+    var offset = 12;
+    while (offset + 8 <= wavBytes.length) {
+      final chunkId = String.fromCharCodes(wavBytes.sublist(offset, offset + 4));
+      final chunkSize = header.getUint32(offset + 4, Endian.little);
+      final chunkDataStart = offset + 8;
+      final chunkDataEnd = chunkDataStart + chunkSize;
+
+      if (chunkDataEnd > wavBytes.length) {
+        return null;
+      }
+
+      if (chunkId == 'data') {
+        return Uint8List.sublistView(wavBytes, chunkDataStart, chunkDataEnd);
+      }
+
+      offset = chunkDataEnd + (chunkSize.isOdd ? 1 : 0);
+    }
+
+    return null;
+  }
+
+  Uint8List? _extractSpeechPcm(Uint8List pcmBytes) {
+    if (pcmBytes.length < 2) return null;
+
+    final bytesPerSample = 2;
+    final totalSamples = pcmBytes.length ~/ bytesPerSample;
+    if (totalSamples < _minSpeechSamples) {
+      debugPrint(
+        '⚠️ [Gemini STT] recording too short for STT: samples=$totalSamples',
+      );
+      return null;
+    }
+
+    final samplesPerFrame = (_sampleRate * _vadFrameMs) ~/ 1000;
+    if (samplesPerFrame <= 0 || totalSamples < samplesPerFrame) {
+      debugPrint(
+        '⚠️ [Gemini STT] recording shorter than one VAD frame: samples=$totalSamples',
+      );
+      return null;
+    }
+
+    int? firstSpeechFrame;
+    int? lastSpeechFrame;
+    var speechFrameCount = 0;
+    var frameIndex = 0;
+
+    for (var sampleStart = 0;
+        sampleStart + samplesPerFrame <= totalSamples;
+        sampleStart += samplesPerFrame, frameIndex++) {
+      final energy = _frameEnergy(
+        pcmBytes,
+        sampleStart: sampleStart,
+        sampleCount: samplesPerFrame,
+      );
+      if (energy >= _vadEnergyThreshold) {
+        firstSpeechFrame ??= frameIndex;
+        lastSpeechFrame = frameIndex;
+        speechFrameCount += 1;
+      }
+    }
+
+    if (firstSpeechFrame == null ||
+        lastSpeechFrame == null ||
+        speechFrameCount < _minSpeechFrames) {
+      debugPrint(
+        '⚠️ [Gemini STT] insufficient speech frames: speechFrames=$speechFrameCount',
+      );
+      return null;
+    }
+
+    final keepPaddingFrames = math.max(2, 150 ~/ _vadFrameMs);
+    final startFrame = (firstSpeechFrame - keepPaddingFrames).clamp(
+      0,
+      frameIndex - 1,
+    );
+    final endFrame = (lastSpeechFrame + keepPaddingFrames).clamp(
+      0,
+      frameIndex - 1,
+    );
+    final startSample = startFrame * samplesPerFrame;
+    final endSample = ((endFrame + 1) * samplesPerFrame).clamp(0, totalSamples);
+    final startByte = startSample * bytesPerSample;
+    final endByte = endSample * bytesPerSample;
+
+    debugPrint(
+      '🎙️ [Gemini STT VAD] totalSamples=$totalSamples, '
+      'speechFrames=$speechFrameCount, startFrame=$startFrame, endFrame=$endFrame',
+    );
+
+    return Uint8List.sublistView(pcmBytes, startByte, endByte);
+  }
+
+  double _frameEnergy(
+    Uint8List pcmBytes, {
+    required int sampleStart,
+    required int sampleCount,
+  }) {
+    final data = ByteData.sublistView(pcmBytes);
+    var sumSquares = 0.0;
+
+    for (var i = 0; i < sampleCount; i++) {
+      final sample = data.getInt16((sampleStart + i) * 2, Endian.little);
+      final normalized = sample / 32768.0;
+      sumSquares += normalized * normalized;
+    }
+
+    return sumSquares / sampleCount;
   }
 
   Uint8List _wrapPcm16AsWav(
