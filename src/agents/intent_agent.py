@@ -5,8 +5,9 @@ Intent Agent Node.
 with_structured_output(Pydantic)으로 스키마를 강제해 누락 방지.
 """
 import json
+import re
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage
 
@@ -22,6 +23,36 @@ IntentType = Literal[
 
 ConditionType = Literal["최저가", "가성비", "빠른배송", "인기순", "무료배송", "리뷰좋은"]
 
+_KR_NUM = {
+    "하나": 1, "한": 1, "일": 1,
+    "둘": 2, "두": 2,
+    "셋": 3, "세": 3,
+    "넷": 4, "네": 4,
+    "다섯": 5, "오": 5,
+    "여섯": 6, "육": 6,
+    "일곱": 7, "칠": 7,
+    "여덟": 8, "팔": 8,
+    "아홉": 9, "구": 9,
+    "열": 10, "십": 10,
+    "스물": 20, "스무": 20, "이십": 20,
+}
+
+
+def _parse_quantity(v) -> Optional[int]:
+    """아라비아 숫자 또는 한국어 수량 표현 → int. 파싱 불가면 None."""
+    if v is None:
+        return None
+    if isinstance(v, int):
+        return v
+    text = str(v).strip()
+    m = re.search(r"(\d+)", text)
+    if m:
+        return int(m.group(1))
+    for kr, num in sorted(_KR_NUM.items(), key=lambda x: -len(x[0])):
+        if kr in text:
+            return num
+    return None
+
 
 class IntentOutput(BaseModel):
     intent: IntentType = Field(description="사용자 의도")
@@ -30,12 +61,10 @@ class IntentOutput(BaseModel):
     negative_constraints: list[str] = Field(default_factory=list, description="자연어 제외 조건")
     quantity: Optional[int] = Field(
         default=None,
-        description=(
-            "사용자가 명시적으로 말한 수량. 발화에 수량이 없으면 절대 임의로 1을 넣지 말고 null로 둘 것. "
-            "단, pending_action=quantity_confirm일 때 수량 표현이 있으면 반드시 숫자로 채울 것. "
-            "어떤 형태의 한국어 수량 표현(예: 한, 두, 세, 열, 1, 2 등)이든 스스로 파악하여 정수(int)로 변환해 추출해야 합니다."
-        ),
+        description="명시된 수량만 정수로. 없으면 null. 한국어 수량(한·두·세…)도 정수로 변환.",
+        json_schema_extra={"examples": [1, 2, 3, 5, 10]},
     )
+
     condition: Optional[ConditionType] = Field(default=None, description="검색 조건")
     target_platforms: list[str] = Field(default_factory=list, description="비교 대상 플랫폼 목록")
     override_platform: Optional[str] = Field(default=None, description="명시적으로 지정한 단일 플랫폼")
@@ -48,6 +77,11 @@ class IntentOutput(BaseModel):
         description="의도 해석 확신도 0.0~1.0. 명확하면 0.9 이상, 모호하면 0.5~0.8, 불분명하면 0.3 이하",
     )
     immediate_response: str = Field(default="", description="음성 출력용 한 문장 응답")
+
+    @field_validator("quantity", mode="before")
+    @classmethod
+    def coerce_quantity(cls, v):
+        return _parse_quantity(v)
 
 
 _llm: ChatOpenAI | None = None
@@ -120,12 +154,19 @@ def intent_agent_node(state: ShoppingState) -> dict:
             "last_agent": "intent_agent",
         }
 
+    # quantity_confirm 대기 중인데 LLM이 null로 줬으면 user_input에서 직접 파싱
+    quantity = parsed.quantity
+    if quantity is None and pending_type == "quantity_confirm":
+        quantity = _parse_quantity(user_input)
+    if quantity is None:
+        quantity = state.get("quantity")
+
     result = {
         "intent": parsed.intent,
         "keywords": parsed.keywords or state.get("keywords") or [],
         "exclude_keywords": parsed.exclude_keywords,
         "negative_constraints": parsed.negative_constraints,
-        "quantity": parsed.quantity if parsed.quantity is not None else state.get("quantity"),
+        "quantity": quantity,
         "condition": parsed.condition,
         "target_platforms": parsed.target_platforms,
         "override_platform": parsed.override_platform,
