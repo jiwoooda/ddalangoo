@@ -296,16 +296,22 @@ class MockCheckoutSession:
         quantity: int,
         selected_platform: Optional[str],
         delivery_address: Optional[dict[str, Any]] = None,
+        conversation_id: Optional[int] = None,
     ):
         self.id = session_id
         self.user_id = user_id
         self.product = product
         self.product_url = product_url
         self.quantity = quantity
-        self.selected_platform = selected_platform
+        self.selected_platform = selected_platform or "naver"
         self.delivery_address = delivery_address
         self.price = product.get("price", 0)
         self.payment_url = f"https://mock.naverpay.com/checkout/{session_id}"
+        self.conversation_id = conversation_id
+        self.cart_id = str(uuid.uuid4())
+        self.status = "active"
+        self.total_expected_amount = self.price * quantity
+        self.address_confirmed = False
 
 
 _checkout_sessions: dict[str, MockCheckoutSession] = {}
@@ -331,6 +337,7 @@ def create_checkout_session(
         product_url=product_url,
         quantity=quantity,
         selected_platform=selected_platform,
+        conversation_id=conversation_id,
     )
     _checkout_sessions[session_id] = session
     return session
@@ -347,16 +354,43 @@ def update_checkout_price(checkout_session_id: str, new_price: int) -> None:
 # ══════════════════════════════════════════════
 
 class MockOrder:
-    def __init__(self, order_id: str, checkout_id: str, payment_url: str):
+    def __init__(
+        self,
+        order_id: str,
+        checkout_id: str,
+        payment_url: str,
+        user_id: str = "",
+        conversation_id: Optional[int] = None,
+        status: str = "pending_confirmation",
+        total_payment_amount: int = 0,
+        platform: str = "naver",
+    ):
         self.id = order_id
         self.checkout_id = checkout_id
         self.payment_url = payment_url
+        self.user_id = user_id
+        self.conversation_id = conversation_id
+        self.status = status
+        self.total_payment_amount = total_payment_amount
+        self.platform = platform
 
 
 class MockPaymentRecord:
-    def __init__(self, payment_id: str, order_id: str):
+    def __init__(
+        self,
+        payment_id: str,
+        order_id: str,
+        payment_amount: int = 0,
+        payment_provider: str = "naver_pay",
+        payment_status: str = "pending",
+        payment_url: Optional[str] = None,
+    ):
         self.id = payment_id
         self.order_id = order_id
+        self.payment_amount = payment_amount
+        self.payment_provider = payment_provider
+        self.payment_status = payment_status
+        self.payment_url = payment_url or f"https://mock.naverpay.com/payment/{payment_id}"
 
 
 _orders: dict[str, MockOrder] = {}  # checkout_id → order
@@ -371,11 +405,18 @@ def create_order_from_checkout(
     checkout_id: str,
     validation: MockValidation,
 ) -> MockOrder:
+    checkout = _checkout_sessions.get(checkout_id)
+    total = checkout.total_expected_amount if checkout else 0
     order_id = str(uuid.uuid4())
     order = MockOrder(
         order_id=order_id,
         checkout_id=checkout_id,
         payment_url=f"https://mock.naverpay.com/payment/{order_id}",
+        user_id=checkout.user_id if checkout else "",
+        conversation_id=checkout.conversation_id if checkout else None,
+        status="pending_confirmation",
+        total_payment_amount=total,
+        platform=checkout.selected_platform if checkout else "naver",
     )
     _orders[checkout_id] = order
     _order_ids[order_id] = order
@@ -387,8 +428,15 @@ def create_order_item(order_id: str, checkout_id: str, validation: MockValidatio
 
 
 def create_payment_record(order_id: str) -> MockPaymentRecord:
+    order = _order_ids.get(order_id)
     payment_id = str(uuid.uuid4())
-    return MockPaymentRecord(payment_id=payment_id, order_id=order_id)
+    return MockPaymentRecord(
+        payment_id=payment_id,
+        order_id=order_id,
+        payment_amount=order.total_payment_amount if order else 0,
+        payment_provider="naver_pay",
+        payment_status="pending",
+    )
 
 
 def mark_order_payment_failed(order_id: str) -> None:
@@ -429,30 +477,36 @@ MOCK_USERS: dict[str, dict[str, Any]] = {
 MOCK_ADDRESSES: dict[str, dict[str, Any]] = {
     "1": {
         "id": "addr_001",
+        "address_label": "집",
         "recipient_name": "김영희",
         "recipient_phone": "010-1234-5678",
         "address_line1": "서울특별시 강남구 테헤란로 1길 10",
         "address_line2": "101호",
         "zip_code": "06000",
         "delivery_request": "문 앞에 놓아주세요",
+        "is_default": True,
     },
     "user_001": {
         "id": "addr_001",
+        "address_label": "집",
         "recipient_name": "김영희",
         "recipient_phone": "010-1234-5678",
         "address_line1": "서울특별시 강남구 테헤란로 123",
         "address_line2": "101호",
         "zip_code": "06234",
         "delivery_request": "문 앞에 놓아주세요",
+        "is_default": True,
     },
     "user_test": {
         "id": "addr_test",
+        "address_label": "집",
         "recipient_name": "테스트유저",
         "recipient_phone": "010-0000-0000",
         "address_line1": "서울특별시 마포구 합정동 100",
         "address_line2": "",
         "zip_code": "04040",
         "delivery_request": "",
+        "is_default": True,
     },
 }
 
@@ -467,6 +521,7 @@ MOCK_PURCHASE_HISTORY: dict[str, list[dict[str, Any]]] = {
             "platform": "kurly",
             "price_at_purchase": 12900,
             "quantity": 1,
+            "total_price": 12900,
             "selected_options": {},
             "product_url": "https://mock.kurly.com/products/strawberry-500g",
             "purchased_at": "2025-01-10T10:00:00",
@@ -474,6 +529,40 @@ MOCK_PURCHASE_HISTORY: dict[str, list[dict[str, Any]]] = {
     ],
     "user_test": [],
 }
+
+
+def mock_save_purchase_history(
+    user_id: str,
+    conversation_id: Optional[int],
+    order_id: str,
+    product_name: str,
+    price_at_purchase: int,
+    quantity: int,
+    platform: str = "",
+    product_url: str = "",
+    selected_options: Optional[dict[str, Any]] = None,
+) -> str:
+    """결제 완료 후 구매 이력 저장."""
+    from datetime import datetime
+    history_id = f"ph_{str(uuid.uuid4())[:8]}"
+    entry = {
+        "id": history_id,
+        "user_id": user_id,
+        "conversation_id": conversation_id,
+        "order_id": order_id,
+        "product_name_snapshot": product_name,
+        "brand_snapshot": None,
+        "category_snapshot": None,
+        "platform": platform,
+        "price_at_purchase": price_at_purchase,
+        "quantity": quantity,
+        "total_price": price_at_purchase * quantity,
+        "selected_options": selected_options or {},
+        "product_url": product_url,
+        "purchased_at": datetime.now().isoformat(),
+    }
+    MOCK_PURCHASE_HISTORY.setdefault(user_id, []).append(entry)
+    return history_id
 
 MOCK_PREFERENCE_MEMORY: dict[str, dict[str, Any]] = {
     "user_001": {

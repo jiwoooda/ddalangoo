@@ -1,6 +1,26 @@
-from app.repositories import payment_repository, order_repository, conversation_repository
+from app.repositories import payment_repository, order_repository, conversation_repository, purchase_history_repository
 from app.schemas.payment import PaymentDetailResponse, WebviewResultRequest, PaymentRetryRequest
 from fastapi import HTTPException
+
+def _save_purchase_histories(conversation_id: int, user_id: int) -> None:
+    order = order_repository.get_order_by_conversation_id(conversation_id)
+    if not order:
+        return
+    items = order_repository.get_order_items_by_order_id(order["id"])
+    for item in items:
+        purchase_history_repository.create_history({
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "order_id": order["id"],
+            "product_id": item.get("product_id"),
+            "product_name": item.get("product_name", ""),
+            "option_text": item.get("option_text"),
+            "price_at_purchase": item.get("unit_price", 0),
+            "quantity": item.get("quantity", 1),
+            "total_price": item.get("total_price", 0),
+            "platform": order.get("platform", "naver"),
+        })
+
 
 def _to_detail(p: dict) -> PaymentDetailResponse:
     return PaymentDetailResponse(
@@ -26,6 +46,7 @@ def handle_webview_result(conversation_id: int, req: WebviewResultRequest):
             "deliveryAddress": None, "order": None, "payment": None, "asyncStatus": None}
     if req.result == "completed":
         conv["stage"] = "completed"
+        _save_purchase_histories(conversation_id, conv.get("user_id"))
         return {**base, "status": "order_completed", "stage": "completed",
                 "assistantMessage": "결제가 완료되었습니다.", "uiCommand": {"type": "close_webview"}, "error": None}
     elif req.result == "cancelled":

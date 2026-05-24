@@ -4,6 +4,28 @@ from app.repositories import conversation_repository, user_repository
 from app.agent import runtime, mapper, actions, recommendation_sync
 
 
+def _save_agent_intent(state: dict, user_id: int, conversation_id: int) -> None:
+    intent = state.get("intent")
+    if not intent or intent == "unclear":
+        return
+    messages = state.get("messages") or []
+    raw_input = ""
+    for msg in reversed(messages):
+        role = getattr(msg, "type", None) or (msg.get("role") if isinstance(msg, dict) else None)
+        if role == "human":
+            raw_input = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "") or ""
+            break
+    conversation_repository.create_agent_intent(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        raw_user_request=raw_input,
+        intent=intent,
+        keywords=state.get("keywords") or [],
+        confidence=state.get("confidence") or 0.9,
+        needs_clarification=state.get("needs_clarification") or False,
+    )
+
+
 def _sync_recommendations(state: dict, user_id: int, conversation_id: int) -> dict:
     synced = recommendation_sync.persist_and_attach_ids(
         state=state,
@@ -41,6 +63,7 @@ def start_shopping(req: ShoppingRequest) -> AgentResponse:
         message=req.message,
         conversation_id=conv["id"],
     )
+    _save_agent_intent(state, req.userId, conv["id"])
     state = _sync_recommendations(state, req.userId, conv["id"])
     return mapper.state_to_response(state, conv["id"])
 
@@ -72,7 +95,9 @@ def send_message(conversation_id: int, req: MessageRequest) -> AgentResponse:
         })
 
     state = runtime.resume(conversation_id=conversation_id, message=req.message)
-    state = _sync_recommendations(state, snapshot.values["user_id"], conversation_id)
+    user_id = snapshot.values["user_id"]
+    _save_agent_intent(state, user_id, conversation_id)
+    state = _sync_recommendations(state, user_id, conversation_id)
     return mapper.state_to_response(state, conversation_id)
 
 
