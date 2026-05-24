@@ -2,6 +2,39 @@ from fastapi import HTTPException
 from app.schemas.agent import AgentResponse, ShoppingRequest, MessageRequest, ConfirmRequest
 from app.repositories import conversation_repository, user_repository
 from app.agent import runtime, mapper, actions, recommendation_sync
+from app.services import memory_tools
+
+
+def _execute_tools(state: dict, user_id: int, conversation_id: int) -> None:
+    """
+    Memory Agent가 state["tool_calls"]에 올려둔 tool 요청을 실행한다.
+
+    save_* 계열: fire-and-forget (DB 저장).
+    search_* 계열: 결과를 LangGraph state에 다시 주입.
+    """
+    tool_calls = state.get("tool_calls")
+    if not tool_calls:
+        return
+
+    state_patch: dict = {}
+
+    for call in tool_calls:
+        tool_name = call.get("tool", "")
+        args = call.get("args") or {}
+
+        # user_id / conversation_id는 서비스 레이어에서 보장
+        args.setdefault("user_id", user_id)
+        args.setdefault("conversation_id", conversation_id)
+
+        result = memory_tools.execute_tool(tool_name, args)
+
+        # search 계열: 결과를 state에 주입
+        if tool_name in memory_tools._SEARCH_TOOLS and result.get("success"):
+            state_patch["tool_results"] = state_patch.get("tool_results", {})
+            state_patch["tool_results"][tool_name] = result.get("results", [])
+
+    if state_patch:
+        runtime.update_state(conversation_id, state_patch)
 
 
 def _save_agent_intent(state: dict, user_id: int, conversation_id: int) -> None:
@@ -64,6 +97,7 @@ def start_shopping(req: ShoppingRequest) -> AgentResponse:
         conversation_id=conv["id"],
     )
     _save_agent_intent(state, req.userId, conv["id"])
+    _execute_tools(state, req.userId, conv["id"])
     state = _sync_recommendations(state, req.userId, conv["id"])
     return mapper.state_to_response(state, conv["id"])
 
@@ -97,6 +131,7 @@ def send_message(conversation_id: int, req: MessageRequest) -> AgentResponse:
     state = runtime.resume(conversation_id=conversation_id, message=req.message)
     user_id = snapshot.values["user_id"]
     _save_agent_intent(state, user_id, conversation_id)
+    _execute_tools(state, user_id, conversation_id)
     state = _sync_recommendations(state, user_id, conversation_id)
     return mapper.state_to_response(state, conversation_id)
 
