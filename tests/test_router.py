@@ -95,6 +95,7 @@ def test_route_product_confirming_confirm():
         stage="product_confirming",
         confidence=0.9,
         needs_clarification=False,
+        quantity=1,
     )
     assert route(state) == "payment_agent"
 

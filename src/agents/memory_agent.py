@@ -1,10 +1,15 @@
 """
 Memory Agent Node.
 
-역할: 사용자 프로필/구매 이력/선호 조회 → recommendation_context 생성 → store 저장.
-ShoppingState에 과도한 context를 직접 주입하지 않는다.
-bridge_memory_to_shopping()이 반환하는 최소값만 ShoppingState에 반영한다.
+역할:
+  [Context Loading]  사용자 프로필/구매 이력/선호 조회 → recommendation_context 생성 → store 저장.
+  [Tool Dispatch]    tool_calls를 State에 올려 backend가 실행하도록 위임.
+
+호출 시점:
+  - router → memory_agent (reorder intent)          : context loading + search tool
+  - payment_agent → memory_agent (결제 완료 후)     : purchase_history save tool
 """
+import re
 from typing import Any, Optional
 from langgraph.store.base import BaseStore
 
@@ -123,27 +128,118 @@ def get_recommendation_context(
     }
 
 
+def _summarize_messages(messages: list) -> str:
+    """메시지 요약 (임시: 최근 5개 단순 연결 / TODO: Claude API로 교체)."""
+    recent = messages[-5:] if len(messages) > 5 else messages
+    parts = []
+    for msg in recent:
+        if isinstance(msg, dict):
+            role, content = msg.get("role", ""), str(msg.get("content", ""))[:50]
+        else:
+            role = getattr(msg, "type", "") or getattr(msg, "role", "")
+            content = str(getattr(msg, "content", ""))[:50]
+        parts.append(f"[{role}] {content}")
+    return " | ".join(parts)
+
+
+def _extract_reorder_keyword(user_input: str, keywords: list[str]) -> str:
+    """재구매 키워드 추출: state keywords 우선, 없으면 간단 패턴 매칭."""
+    if keywords:
+        return " ".join(keywords)
+    for pattern in [r"저번에\s*산\s*(\S+)", r"(\S+)\s*다시", r"(\S+)\s*또"]:
+        m = re.search(pattern, user_input)
+        if m:
+            return m.group(1)
+    return user_input
+
+
+def _build_tool_calls(state: ShoppingState) -> list[dict[str, Any]]:
+    """State를 보고 필요한 tool_calls 목록을 생성한다."""
+    calls: list[dict[str, Any]] = []
+    stage = state.get("stage")
+    intent = state.get("intent")
+    messages = state.get("messages") or []
+
+    # 1. 결제 완료 후 → 구매 이력 저장
+    if stage == "completed" and state.get("order_id"):
+        selected = state.get("selected_product") or {}
+        calls.append({
+            "tool": "save_purchase_history",
+            "args": {
+                # user_id는 backend가 주입 (int 타입 보장)
+                "conversation_id": state.get("conversation_id"),
+                "order_id": state.get("order_id"),
+                "product": selected,
+                "quantity": state.get("quantity") or 1,
+            },
+        })
+
+    # 2. 메시지 수 초과 → 대화 요약 저장
+    if len(messages) > 10:
+        summary = _summarize_messages(messages)
+        calls.append({
+            "tool": "save_conversation_summary",
+            "args": {
+                "conversation_id": state.get("conversation_id"),
+                "summary": summary,
+                "message_count": len(messages),
+            },
+        })
+
+    # 3. reorder → 유사 구매 검색 (백엔드 tool로 위임)
+    if intent == "reorder":
+        messages_list = list(messages)
+        last_human = ""
+        for msg in reversed(messages_list):
+            role = (msg.get("role") if isinstance(msg, dict)
+                    else getattr(msg, "type", None) or getattr(msg, "role", None))
+            if role == "human":
+                last_human = (msg.get("content") if isinstance(msg, dict)
+                              else getattr(msg, "content", "")) or ""
+                break
+        query = _extract_reorder_keyword(last_human, state.get("keywords") or [])
+        if query:
+            calls.append({
+                "tool": "search_similar_purchases",
+                "args": {
+                    "query": query,
+                    "top_k": 3,
+                },
+            })
+
+    return calls
+
+
 def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -> dict:
     """
     Memory Agent.
-    역할:
-    - reorder intent 처리 → 구매 이력 조회
-    - 추천 retrieval context 생성
-    - store에 recommendation_context 저장 (ShoppingState에 직접 주입하지 않음)
 
-    반환: bridge_memory_to_shopping() 결과만 (last_agent만 설정)
+    [결제 완료 후] stage=="completed": tool_calls만 방출하고 종료.
+    [reorder 탐색] intent=="reorder":  context loading + tool_calls 방출.
     """
+    stage = state.get("stage")
+    intent = state.get("intent")
     user_id = state.get("user_id", "")
     keywords = state.get("keywords") or []
-    intent = state.get("intent")
 
+    tool_calls = _build_tool_calls(state)
+    updates: dict[str, Any] = {"last_agent": "memory_agent", "tool_calls": tool_calls or None}
+
+    # 메시지 요약이 생성됐다면 state에도 기록
+    if len(state.get("messages") or []) > 10:
+        updates["conversation_summary"] = _summarize_messages(state.get("messages") or [])
+
+    # ── 결제 완료 후 호출: context loading 불필요 ──
+    if stage == "completed":
+        return updates
+
+    # ── Context Loading (reorder / 기타) ──
     recommendation_context = get_recommendation_context(
         user_id=user_id,
         keywords=keywords,
         intent=intent,
     )
 
-    # Store에 recommendation_context 저장 (platform/product agent가 조회)
     if store is not None:
         store.put(
             ("recommendation_context", user_id),
@@ -154,9 +250,10 @@ def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -
     base = {
         **bridge_memory_to_shopping({}),
         "recommendation_context": recommendation_context,
+        **updates,
     }
 
-    # reorder: 구매 이력에서 상품 후보를 만들어 search_results에 제공
+    # reorder: 구매 이력에서 search_results 직접 구성 (기존 동작 유지)
     if intent == "reorder":
         history = mock_keyword_search_history(user_id, keywords, limit=5)
         if history:

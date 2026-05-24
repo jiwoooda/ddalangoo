@@ -122,6 +122,15 @@ class ShoppingState(TypedDict):
     current_option_value: Optional[str]
     address_text: Optional[str]
 
+    # ── Memory Agent Tool Call 채널 ──
+    # memory_agent가 올려두면 backend _execute_tools()가 읽어 실행
+    tool_calls: Optional[list[dict[str, Any]]]
+    tool_results: Optional[dict[str, Any]]
+    conversation_summary: Optional[str]
+
+    # ── 결제 완료 후 order 참조 (bridge_payment_to_shopping에서 주입) ──
+    order_id: Optional[str]
+
 # ══════════════════════════════════════════════
 # 2. PaymentState — Payment Subgraph 전용
 # ══════════════════════════════════════════════
@@ -286,6 +295,7 @@ def bridge_payment_to_shopping(payment: PaymentState) -> dict:
             "error": None,
             "last_agent": "payment_agent",
             "pending_action": payment.get("pending_action"),  # 결제 완료 메시지 보존
+            "order_id": payment.get("order_id"),
         }
 
     if payment["payment_status"] == "failed":
@@ -340,4 +350,8 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "storage_state_path": None,
         "current_option_value": None,
         "address_text": None,
+        "tool_calls": None,
+        "tool_results": None,
+        "conversation_summary": None,
+        "order_id": None,
     }

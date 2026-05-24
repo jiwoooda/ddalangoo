@@ -125,6 +125,13 @@ def after_reorder(state: ShoppingState) -> Literal["respond", "platform_agent"]:
     return "respond"
 
 
+def after_memory_agent(state: ShoppingState) -> Literal["reorder_node", "respond"]:
+    """memory_agent 이후 분기: reorder면 reorder_node, 그 외(결제 완료 등)는 respond."""
+    if state.get("intent") == "reorder":
+        return "reorder_node"
+    return "respond"
+
+
 def after_respond(state: ShoppingState) -> Literal["wait_for_input", "end"]:
     """respond 이후 계속 진행 여부 판단."""
     stage = state.get("stage", "idle")
