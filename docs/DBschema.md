@@ -645,4 +645,5 @@ LangGraph State는 영구 저장소가 아니라 Agent 실행 중 Node 간 데�
     ```
     
     ---
- 
+    
+    [설계할 때 의문](https://www.notion.so/36a2194bf4c781118da7e6c83124364c?pvs=21)
