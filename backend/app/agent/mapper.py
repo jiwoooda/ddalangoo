@@ -259,6 +259,7 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
         pendingConfirmation=_map_pending(state.get("pending_action")),
         availableOptions=state.get("available_options") or state.get("availableOptions"),
         deliveryAddress=state.get("delivery_address") or state.get("deliveryAddress"),
+        cart=state.get("cart"),
         order=state.get("order"),
         payment=state.get("payment"),
         uiCommand=ui_command,
