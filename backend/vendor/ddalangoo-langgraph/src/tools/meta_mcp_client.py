@@ -8,6 +8,8 @@ import json
 import os
 import subprocess
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 META_MCP_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "meta-mcp")
@@ -23,6 +25,95 @@ SORT_MAP = {
     "free_shipping": "price_low",
     "value": "price_low",
 }
+
+NAVER_SORT_MAP = {
+    "price_low": "sim",
+    "price_high": "sim",
+    "recent": "date",
+    "relevance": "sim",
+    "popularity": "sim",
+    "review_score": "sim",
+    "delivery_fast": "sim",
+    "free_shipping": "sim",
+    "value": "sim",
+}
+
+KURLY_SHOP_KEYWORDS = ("컬리", "마켓컬리", "kurly", "컬리n마트", "컬리 n마트")
+
+
+def _strip_naver_html(value: str) -> str:
+    """네이버 검색 API title의 <b> 태그를 제거한다."""
+    return value.replace("<b>", "").replace("</b>", "")
+
+
+def _search_naver_direct(
+    query: str,
+    platform: str,
+    condition: str,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """
+    Railway 배포 환경에서 Node 기반 meta-mcp가 timeout 날 때를 대비한 Naver API fallback.
+    naver와 kurly 검색만 직접 처리하고, coupang은 기존 MCP 경로에 맡긴다.
+    """
+    client_id = os.environ.get("NAVER_CLIENT_ID")
+    client_secret = os.environ.get("NAVER_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        print("[meta_mcp_client] missing NAVER_CLIENT_ID or NAVER_CLIENT_SECRET")
+        return []
+
+    search_query = query
+    display = limit
+    if platform == "kurly" and not any(k.lower() in query.lower() for k in KURLY_SHOP_KEYWORDS):
+        search_query = f"{query} 컬리N마트"
+        display = limit * 3
+
+    params = urlencode({
+        "query": search_query,
+        "display": min(max(display, 1), 100),
+        "sort": NAVER_SORT_MAP.get(condition, "sim"),
+    })
+    request = Request(
+        f"https://openapi.naver.com/v1/search/shop.json?{params}",
+        headers={
+            "X-Naver-Client-Id": client_id,
+            "X-Naver-Client-Secret": client_secret,
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=8) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[meta_mcp_client] naver direct search failed: {e}")
+        return []
+
+    products: list[dict[str, Any]] = []
+    for item in data.get("items", []):
+        name = _strip_naver_html(item.get("title", ""))
+        mall_name = item.get("mallName")
+        if platform == "kurly":
+            lower_name = name.lower()
+            lower_mall = (mall_name or "").lower()
+            if not any(k.lower() in lower_name or k.lower() in lower_mall for k in KURLY_SHOP_KEYWORDS):
+                continue
+
+        price = int(item.get("lprice") or 0)
+        products.append({
+            "product_name": name,
+            "price": price,
+            "rating": None,
+            "review_count": None,
+            "delivery": "샛별배송 내일 아침 7시 전" if platform == "kurly" else "일반배송",
+            "delivery_fee": None,
+            "platform": platform,
+            "image_url": item.get("image"),
+            "product_url": item.get("link", ""),
+            "is_sold_out": False,
+            "raw": item,
+        })
+
+    return products[:limit]
 
 
 def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -150,6 +241,31 @@ def search_products(
     valid_platforms = [p for p in platforms if p in ("naver", "coupang", "kurly")]
     if not valid_platforms:
         valid_platforms = ["naver", "coupang"]
+
+    # Naver/Kurly는 Python에서 직접 처리한다.
+    # 기존 Node meta-mcp 경로는 Railway에서 이중 npx 실행 때문에 timeout이 잦다.
+    direct_results: list[dict[str, Any]] = []
+    for platform in valid_platforms:
+        if platform in ("naver", "kurly"):
+            direct_results.extend(
+                _search_naver_direct(
+                    query=query,
+                    platform=platform,
+                    condition=condition,
+                    limit=5,
+                )
+            )
+
+    if direct_results:
+        if condition == "price_low":
+            direct_results.sort(key=lambda p: p.get("price") or 0)
+        elif condition == "price_high":
+            direct_results.sort(key=lambda p: p.get("price") or 0, reverse=True)
+        if budget_max is not None:
+            direct_results = [p for p in direct_results if (p.get("price") or 0) <= budget_max]
+        return direct_results[:5]
+
+    # Coupang 또는 직접 검색 실패 시에만 기존 MCP 경로를 시도한다.
 
     params: dict[str, Any] = {
         "query": query,
