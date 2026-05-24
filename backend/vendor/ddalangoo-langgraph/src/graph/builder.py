@@ -13,7 +13,7 @@ from langgraph.store.memory import InMemoryStore
 from langgraph.store.base import BaseStore
 
 from src.state.schema import ShoppingState
-from src.graph.router import route, after_respond, after_reorder, after_platform_agent
+from src.graph.router import route, after_respond, after_reorder, after_platform_agent, after_memory_agent
 from src.agents.intent_agent import intent_agent_node
 from src.agents.memory_agent import memory_agent_node
 from src.agents.platform_agent import platform_agent_node
@@ -85,8 +85,15 @@ def build_graph(
         },
     )
 
-    # ── memory_agent → reorder_node (항상) ──
-    builder.add_edge("memory_agent", "reorder_node")
+    # ── memory_agent → reorder_node (reorder) / respond (결제 완료 등) ──
+    builder.add_conditional_edges(
+        "memory_agent",
+        after_memory_agent,
+        {
+            "reorder_node": "reorder_node",
+            "respond": "respond",
+        },
+    )
 
     # ── reorder_node → respond (URL 유효) / platform_agent (URL 실패 fallback) ──
     builder.add_conditional_edges(
@@ -111,7 +118,7 @@ def build_graph(
         },
     )
     builder.add_edge("product_agent", "respond")
-    builder.add_edge("payment_agent", "respond")
+    builder.add_edge("payment_agent", "memory_agent")
     builder.add_edge("interrupt_payment", "respond")
 
     # ── respond 이후 계속 진행 여부 판단 ──

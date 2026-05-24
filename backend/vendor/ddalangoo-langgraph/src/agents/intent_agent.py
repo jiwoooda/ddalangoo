@@ -152,6 +152,8 @@ def intent_agent_node(state: ShoppingState) -> dict:
             "confidence": 0.0,
             "immediate_response": "다시 말씀해 주세요.",
             "last_agent": "intent_agent",
+            "tool_calls": None,
+            "tool_results": None,
         }
 
     # quantity_confirm 대기 중인데 LLM이 null로 줬으면 user_input에서 직접 파싱
@@ -177,6 +179,8 @@ def intent_agent_node(state: ShoppingState) -> dict:
         "confidence": parsed.confidence if parsed.confidence > 0 else 0.9,
         "immediate_response": parsed.immediate_response,
         "last_agent": "intent_agent",
+        "tool_calls": None,
+        "tool_results": None,
     }
     agent_logger.log_intent(user_input, stage, pending_action, result)
     return result

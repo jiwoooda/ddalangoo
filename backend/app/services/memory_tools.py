@@ -16,34 +16,69 @@ from app.repositories import order_repository, purchase_history_repository, conv
 def save_purchase_history(
     user_id: int,
     conversation_id: int,
-    order_id: int,
+    order_id: Any,
+    product: dict[str, Any] | None = None,
+    quantity: int = 1,
 ) -> dict[str, Any]:
-    """결제 완료 후 order_items 기반으로 purchase_histories 저장."""
-    order = order_repository.get_order_by_id(order_id)
-    if not order:
-        return {"success": False, "error": f"order {order_id} not found"}
+    """결제 완료 후 order_items 기반으로 purchase_histories 저장.
 
-    items = order_repository.get_order_items_by_order_id(order_id)
-    if not items:
-        return {"success": False, "error": "order_items empty"}
+    order_id가 vendor UUID 문자열인 경우 DB에서 조회되지 않으므로
+    conversation_id로 fallback 후, 그마저 없으면 product 인자로 직접 저장한다.
+    """
+    order = None
+    # DB는 int ID만 인식 — UUID 문자열이면 conversation_id로 fallback
+    if isinstance(order_id, int):
+        order = order_repository.get_order_by_id(order_id)
+    if order is None:
+        order = order_repository.get_order_by_conversation_id(conversation_id)
 
-    saved = []
-    for item in items:
+    if order:
+        items = order_repository.get_order_items_by_order_id(order["id"])
+        if not items and product:
+            items = [{
+                "product_id": product.get("product_id"),
+                "product_name": product.get("product_name", ""),
+                "option_text": product.get("option_text"),
+                "unit_price": product.get("price", 0),
+                "quantity": quantity,
+                "total_price": product.get("price", 0) * quantity,
+            }]
+        if not items:
+            return {"success": False, "error": "order_items empty"}
+        saved = []
+        for item in items:
+            h = purchase_history_repository.create_history({
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "order_id": order["id"],
+                "product_id": item.get("product_id"),
+                "product_name": item.get("product_name", ""),
+                "option_text": item.get("option_text"),
+                "price_at_purchase": item.get("unit_price", 0),
+                "quantity": item.get("quantity", 1),
+                "total_price": item.get("total_price", 0),
+                "platform": order.get("platform", "naver"),
+            })
+            saved.append(h["id"])
+        return {"success": True, "count": len(saved), "history_ids": saved}
+
+    # order도 없고 product 인자가 있으면 직접 저장
+    if product:
         h = purchase_history_repository.create_history({
             "user_id": user_id,
             "conversation_id": conversation_id,
-            "order_id": order_id,
-            "product_id": item.get("product_id"),
-            "product_name": item.get("product_name", ""),
-            "option_text": item.get("option_text"),
-            "price_at_purchase": item.get("unit_price", 0),
-            "quantity": item.get("quantity", 1),
-            "total_price": item.get("total_price", 0),
-            "platform": order.get("platform", "naver"),
+            "order_id": None,
+            "product_id": product.get("product_id"),
+            "product_name": product.get("product_name", ""),
+            "option_text": product.get("option_text"),
+            "price_at_purchase": product.get("price", 0),
+            "quantity": quantity,
+            "total_price": product.get("price", 0) * quantity,
+            "platform": product.get("platform", "naver"),
         })
-        saved.append(h["id"])
+        return {"success": True, "count": 1, "history_ids": [h["id"]]}
 
-    return {"success": True, "count": len(saved), "history_ids": saved}
+    return {"success": False, "error": f"order {order_id} not found and no product fallback"}
 
 
 def save_conversation_summary(
