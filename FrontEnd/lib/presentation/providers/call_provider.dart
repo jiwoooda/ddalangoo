@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/models/agent_model.dart';
 import '../../data/repositories/agent_repository.dart';
 import '../../core/storage/local_storage.dart';
-import '../../core/services/gemini_voice_service.dart';
+import '../../core/services/gpt_voice_service.dart';
 import '../../core/utils/latency_logger.dart';
 
 enum CallStage {
@@ -26,7 +26,7 @@ class CallProvider extends ChangeNotifier {
   static const Duration _minTtsTimeout = Duration(seconds: 8);
   static const Duration _maxTtsTimeout = Duration(seconds: 20);
   final AgentRepository _agentRepository = AgentRepository();
-  final GeminiVoiceService _voiceService = GeminiVoiceService.instance;
+  final GptVoiceService _voiceService = GptVoiceService.instance;
 
   CallStage _stage = CallStage.idle;
   AgentResponse? _lastResponse;
@@ -131,13 +131,13 @@ class CallProvider extends ChangeNotifier {
         FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_start');
       }
 
-      // Gemini STT로 텍스트 변환
+      // OpenAI STT로 텍스트 변환
       final transcript = await _voiceService.stopRecordingAndTranscribe();
       if (latencyContext != null) {
         FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
       }
 
-      if (transcript == null || transcript.isEmpty) {
+      if (transcript.isEmpty) {
         _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
         _activeLatencyContext = null;
         return;
