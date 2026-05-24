@@ -228,6 +228,35 @@ class GeminiVoiceService {
     }
   }
 
+  Future<Uint8List> synthesizeSpeechToBytes(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      throw Exception('TTS 입력 텍스트가 비어 있습니다.');
+    }
+    return _getOrCreateSpeech(normalized);
+  }
+
+  Future<String> synthesizeSpeechToFile(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      throw Exception('TTS 입력 텍스트가 비어 있습니다.');
+    }
+
+    final wavBytes = await _getOrCreateSpeech(normalized);
+    final source = await _createSpeechPlaybackSource(normalized, wavBytes);
+    if (source is DeviceFileSource) {
+      return source.path;
+    }
+
+    final directory = await getTemporaryDirectory();
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}'
+      'ddalangoo_tts_${DateTime.now().microsecondsSinceEpoch}.wav',
+    );
+    await file.writeAsBytes(wavBytes, flush: true);
+    return file.path;
+  }
+
   Future<void> speak(String text, {LatencyRequestContext? latencyContext}) async {
     if (_isSpeaking) await stopSpeaking();
     _isSpeaking = true;
@@ -587,10 +616,14 @@ class GeminiVoiceService {
             'parts': [
               {
                 'text':
-                    'Read the exact following Korean text in a bright, cheerful, '
-                    'friendly, and kind feminine voice at about 1.2x speed. '
-                    'Sound lively and encouraging, but still clear and easy for '
-                    'older adults to understand. Do not add or change any words.\n$text',
+                    'Read the exact following Korean text in Korean. '
+                    'Speak like a warm, affectionate daughter helping an older parent shop. '
+                    'Use a bright, reassuring, and very kind tone. '
+                    'Keep the voice gentle, patient, and easy for older adults to understand. '
+                    'Do not rush. Pause naturally between sentences. '
+                    'Pronounce prices, quantities, dates, addresses, and payment-related words very clearly. '
+                    'Sound friendly and comforting, never cold or robotic. '
+                    'Do not add, remove, or change any words.\n$text',
               },
             ],
           },

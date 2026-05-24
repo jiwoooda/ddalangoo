@@ -88,9 +88,16 @@ class AgentRepository {
     String label, {
     required String endpoint,
     required Map<String, dynamic> payload,
+    bool redactMessage = false,
   }) {
+    final sanitizedPayload = redactMessage
+        ? {
+            ...payload,
+            if (payload.containsKey('message')) 'message': '******',
+          }
+        : payload;
     debugPrint(
-      '📤 [$label]\n${_jsonEncoder.convert({'endpoint': endpoint, 'payload': payload})}',
+      '📤 [$label]\n${_jsonEncoder.convert({'endpoint': endpoint, 'payload': sanitizedPayload})}',
     );
   }
 
@@ -185,6 +192,7 @@ class AgentRepository {
     required int conversationId,
     required String message,
     LatencyRequestContext? latencyContext,
+    bool redactMessageForLogs = false,
   }) async {
     if (useMock) {
       debugPrint(
@@ -274,6 +282,7 @@ class AgentRepository {
       'Conversation Message Request',
       endpoint: '/api/agent/conversations/$conversationId/messages',
       payload: payload,
+      redactMessage: redactMessageForLogs,
     );
     if (latencyContext != null) {
       FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_request_sent');
@@ -334,7 +343,7 @@ class AgentRepository {
   }
 
   // 결제 웹뷰 결과 전송
-  Future<void> sendWebviewResult({
+  Future<AgentResponse> sendWebviewResult({
     required int conversationId,
     required int orderId,
     required int paymentId,
@@ -342,12 +351,20 @@ class AgentRepository {
   }) async {
     if (useMock) {
       await Future.delayed(const Duration(milliseconds: 500));
-      return;
+      return _mockResponse(
+        result,
+        result == 'success' ? 'completed' : 'payment',
+        convId: conversationId,
+        customAssistantMessage: result == 'success'
+            ? '결제가 완료되었습니다.'
+            : '결제가 취소되었습니다.',
+      );
     }
-    await _dio.post(
+    final response = await _dio.post(
       '/api/agent/conversations/$conversationId/payments/webview-result',
       data: {'orderId': orderId, 'paymentId': paymentId, 'result': result},
     );
+    return _parseAgentResponse(response.data, label: 'Webview Result Response');
   }
 }
 

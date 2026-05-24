@@ -9,16 +9,18 @@ import 'presentation/screens/auth/register_screen.dart';
 import 'presentation/screens/home/home_screen.dart';
 import 'presentation/screens/call/call_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'core/services/gemini_voice_service.dart';
+import 'core/services/gpt_voice_service.dart';
+import 'core/services/gpt_realtime_voice_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
   debugPrint(
-    '🚀 [App Start] .env loaded, GEMINI_API_KEY='
-    '${dotenv.env['GEMINI_API_KEY']?.isNotEmpty == true ? 'configured' : 'missing'}',
+    '🚀 [App Start] .env loaded, OPENAI_API_KEY='
+    '${dotenv.env['OPENAI_API_KEY']?.isNotEmpty == true ? 'configured' : 'missing'}',
   );
-  await GeminiVoiceService.instance.init(); // TTS 초기화
+  await GptVoiceService.instance.init();
+  await GptRealtimeVoiceService.instance.init();
   runApp(const DdalangooApp());
 }
 

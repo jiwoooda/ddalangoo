@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../presentation/providers/call_provider.dart';
+import 'payment_webview_screen.dart';
 
 class CallScreen extends StatefulWidget {
   const CallScreen({super.key});
@@ -31,6 +32,8 @@ class _CallScreenState extends State<CallScreen> {
   bool _isEndCallHovered = false;
   bool _showTextInput = false;
   int _lastMessageCount = 0;
+  bool _isWebviewOpen = false;
+  String? _lastWebviewCommandKey;
 
   @override
   void initState() {
@@ -81,11 +84,43 @@ class _CallScreenState extends State<CallScreen> {
       });
     }
 
+    _handleWebviewCommand(provider);
+
     final messageCount = provider.messages.length;
     if (messageCount <= _lastMessageCount) return;
 
     _lastMessageCount = messageCount;
     _scrollMessagesToBottom();
+  }
+
+  void _handleWebviewCommand(CallProvider provider) {
+    final webviewUrl = provider.webviewUrl;
+    final orderId = provider.currentOrderId;
+    final paymentId = provider.currentPaymentId;
+    if (webviewUrl == null || orderId == null || paymentId == null) return;
+
+    final commandKey = '$webviewUrl|$orderId|$paymentId';
+    if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) return;
+
+    _isWebviewOpen = true;
+    _lastWebviewCommandKey = commandKey;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PaymentWebViewScreen(
+            url: webviewUrl,
+            orderId: orderId,
+            paymentId: paymentId,
+          ),
+        ),
+      );
+      _isWebviewOpen = false;
+      if (mounted && provider.webviewUrl != webviewUrl) {
+        _lastWebviewCommandKey = null;
+      }
+    });
   }
 
   void _scrollMessagesToBottom() {
@@ -168,7 +203,7 @@ class _CallScreenState extends State<CallScreen> {
 
   void _submitPin() {
     if (_pinInput.length != 6) return;
-    context.read<CallProvider>().sendTextMessage(_pinInput);
+    context.read<CallProvider>().submitPaymentPassword(_pinInput);
     setState(() {
       _pinInput = '';
     });

@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import 'gemini_voice_service.dart';
 import '../utils/latency_logger.dart';
 
 class GptVoiceService {
@@ -17,9 +17,7 @@ class GptVoiceService {
       _dio = Dio(
         BaseOptions(
           baseUrl: 'https://api.openai.com/v1',
-          headers: {
-            'Authorization': 'Bearer ${apiKey.trim()}',
-          },
+          headers: {'Authorization': 'Bearer ${apiKey.trim()}'},
         ),
       );
 
@@ -31,8 +29,8 @@ class GptVoiceService {
   }
 
   static const String _sttModelName = 'gpt-4o-mini-transcribe';
-  static const String _ttsModelName = 'gpt-4o-mini-tts';
-  static const String _ttsVoiceName = 'coral';
+
+  /// static const String _sttModelName = 'gpt-realtime-whisper';
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
 
@@ -44,36 +42,22 @@ class GptVoiceService {
       '상품명, 수량, 가격, 배송지, 장바구니, 결제, 재주문과 관련된 표현은 특히 정확히 전사해주세요. '
       '불확실한 내용은 임의로 바꾸지 말고 들리는 대로 전사해주세요.';
 
-  static const String _ttsInstructions =
-      '한국어로 말해줘. '
-      '고령층 사용자가 듣기 쉽도록 천천히, 또렷하게 말해줘. '
-      '친근한 딸 같은 말투로 부드럽고 따뜻하게 말해줘. '
-      '문장은 너무 길게 끌지 말고 자연스럽게 쉬어가며 말해줘. '
-      '가격, 수량, 날짜, 배송 관련 표현은 특히 또박또박 말해줘.';
-
   final String _apiKey;
   final Dio _dio;
   final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _player = AudioPlayer();
-
-  StreamSubscription<void>? _playerCompleteSubscription;
-  StreamSubscription<PlayerState>? _playerStateSubscription;
-  Completer<void>? _speakCompleter;
+  final GeminiVoiceService _geminiTts = GeminiVoiceService.instance;
   Future<Directory?>? _sttRecordingDirectoryFuture;
-  LatencyRequestContext? _activeSpeakLatencyContext;
   String? _activeRecordingPath;
-  bool _audioPlayEndLogged = false;
   bool _isRecording = false;
-  bool _isSpeaking = false;
 
   bool get isRecording => _isRecording;
-  bool get isSpeaking => _isSpeaking;
+  bool get isSpeaking => _geminiTts.isSpeaking;
+  bool get _supportsFileAudioFlow => !kIsWeb;
 
   Future<void> init() async {
     _ensureApiKey();
-    await _player.setReleaseMode(ReleaseMode.stop);
-    if (!Platform.isIOS && !Platform.isAndroid && !Platform.isMacOS) {
-      _sttRecordingDirectoryFuture ??= _prepareSttRecordingDirectory();
+    await _geminiTts.init();
+    if (!_supportsFileAudioFlow) {
       return;
     }
     _sttRecordingDirectoryFuture ??= _prepareSttRecordingDirectory();
@@ -81,6 +65,7 @@ class GptVoiceService {
 
   Future<void> startRecording() async {
     _ensureApiKey();
+    _ensureRecordingSupported();
     if (_isRecording) return;
 
     final hasPermission = await _recorder.hasPermission();
@@ -111,6 +96,7 @@ class GptVoiceService {
   }
 
   Future<String> stopRecordingAndTranscribe() async {
+    _ensureRecordingSupported();
     if (!_isRecording) {
       throw Exception('현재 진행 중인 녹음이 없습니다.');
     }
@@ -185,113 +171,34 @@ class GptVoiceService {
   }
 
   Future<Uint8List> synthesizeSpeechToBytes(String text) async {
-    _ensureApiKey();
-
-    final normalized = text.trim();
-    if (normalized.isEmpty) {
-      throw Exception('TTS 입력 텍스트가 비어 있습니다.');
-    }
-
-    try {
-      final response = await _dio.post<List<int>>(
-        '/audio/speech',
-        data: {
-          'model': _ttsModelName,
-          'voice': _ttsVoiceName,
-          'input': normalized,
-          'response_format': 'mp3',
-          'instructions': _ttsInstructions,
-        },
-        options: Options(responseType: ResponseType.bytes),
-      );
-
-      final bytes = response.data == null
-          ? Uint8List(0)
-          : Uint8List.fromList(response.data!);
-      if (bytes.isEmpty) {
-        throw Exception('TTS 응답 오디오가 비어 있습니다.');
-      }
-      return bytes;
-    } on DioException catch (e) {
-      throw Exception(_buildHttpErrorMessage('TTS', e));
-    }
+    return _geminiTts.synthesizeSpeechToBytes(text);
   }
 
   Future<String> synthesizeSpeechToFile(String text) async {
-    final bytes = await synthesizeSpeechToBytes(text);
-    final directory = await getTemporaryDirectory();
-    final filePath =
-        '${directory.path}${Platform.pathSeparator}gpt_tts_${DateTime.now().microsecondsSinceEpoch}.mp3';
-    final file = File(filePath);
-    await file.writeAsBytes(bytes, flush: true);
-    return file.path;
+    return _geminiTts.synthesizeSpeechToFile(text);
   }
 
-  Future<void> speak(String text, {LatencyRequestContext? latencyContext}) async {
+  Future<void> speak(
+    String text, {
+    LatencyRequestContext? latencyContext,
+  }) async {
     final normalized = text.trim();
     if (normalized.isEmpty) {
       throw Exception('음성으로 읽을 텍스트가 비어 있습니다.');
     }
-
-    if (_isSpeaking) {
-      await stopSpeaking();
-    }
-
-    _isSpeaking = true;
-    _speakCompleter = Completer<void>();
-    _activeSpeakLatencyContext = latencyContext;
-    _audioPlayEndLogged = false;
-
-    if (latencyContext != null) {
-      FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_start');
-    }
-
-    try {
-      final mp3Bytes = await synthesizeSpeechToBytes(normalized);
-      if (latencyContext != null) {
-        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_ready');
-      }
-
-      await _playerCompleteSubscription?.cancel();
-      await _playerStateSubscription?.cancel();
-      _playerCompleteSubscription = _player.onPlayerComplete.listen((_) {
-        _markAudioPlayEnd();
-        _finishSpeaking();
-      });
-      _playerStateSubscription = _player.onPlayerStateChanged.listen((state) {
-        if (state == PlayerState.completed) {
-          _markAudioPlayEnd();
-          _finishSpeaking();
-        }
-      });
-
-      if (latencyContext != null) {
-        FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
-      }
-
-      await _player.play(BytesSource(mp3Bytes));
-      await _speakCompleter!.future;
-    } catch (e) {
-      _markAudioPlayEnd();
-      _finishSpeaking();
-      rethrow;
-    }
+    await _geminiTts.speak(normalized, latencyContext: latencyContext);
   }
 
   Future<void> stopSpeaking() async {
-    await _player.stop();
-    _markAudioPlayEnd();
-    _finishSpeaking();
+    await _geminiTts.stopSpeaking();
   }
 
   Future<void> dispose() async {
-    await _playerCompleteSubscription?.cancel();
-    await _playerStateSubscription?.cancel();
     await _recorder.dispose();
-    await _player.dispose();
   }
 
   Future<void> cancelRecording() async {
+    _ensureRecordingSupported();
     if (!_isRecording) return;
 
     _isRecording = false;
@@ -319,8 +226,8 @@ class GptVoiceService {
   }
 
   Future<String> _createSttRecordingPath() async {
-    final directoryFuture =
-        _sttRecordingDirectoryFuture ??= _prepareSttRecordingDirectory();
+    final directoryFuture = _sttRecordingDirectoryFuture ??=
+        _prepareSttRecordingDirectory();
     final directory = await directoryFuture;
     if (directory == null) {
       throw Exception('STT 임시 녹음 디렉터리를 준비하지 못했습니다.');
@@ -370,26 +277,13 @@ class GptVoiceService {
     }
   }
 
-  void _finishSpeaking() {
-    unawaited(_playerCompleteSubscription?.cancel());
-    unawaited(_playerStateSubscription?.cancel());
-    _playerCompleteSubscription = null;
-    _playerStateSubscription = null;
-    _isSpeaking = false;
-    _activeSpeakLatencyContext = null;
-    _audioPlayEndLogged = false;
-    if (_speakCompleter != null && !_speakCompleter!.isCompleted) {
-      _speakCompleter!.complete();
+  void _ensureRecordingSupported() {
+    if (!_supportsFileAudioFlow) {
+      throw UnsupportedError(
+        'GptVoiceService의 현재 파일 기반 STT/TTS 구현은 Flutter Web을 지원하지 않습니다. '
+        'Android/iOS/macOS 앱에서 실행해주세요.',
+      );
     }
-    _speakCompleter = null;
   }
 
-  void _markAudioPlayEnd() {
-    if (_audioPlayEndLogged) return;
-    final latencyContext = _activeSpeakLatencyContext;
-    if (latencyContext != null) {
-      FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_end');
-    }
-    _audioPlayEndLogged = true;
-  }
 }

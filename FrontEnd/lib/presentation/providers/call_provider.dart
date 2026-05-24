@@ -4,10 +4,12 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../data/models/agent_model.dart';
 import '../../data/repositories/agent_repository.dart';
 import '../../core/storage/local_storage.dart';
-import '../../core/services/gemini_voice_service.dart';
+import '../../core/services/gpt_voice_service.dart';
+import '../../core/services/gpt_realtime_voice_service.dart';
 import '../../core/utils/latency_logger.dart';
 
 enum CallStage {
@@ -26,7 +28,9 @@ class CallProvider extends ChangeNotifier {
   static const Duration _minTtsTimeout = Duration(seconds: 8);
   static const Duration _maxTtsTimeout = Duration(seconds: 20);
   final AgentRepository _agentRepository = AgentRepository();
-  final GeminiVoiceService _voiceService = GeminiVoiceService.instance;
+  final GptVoiceService _voiceService = GptVoiceService.instance;
+  final GptRealtimeVoiceService _realtimeVoiceService =
+      GptRealtimeVoiceService.instance;
 
   CallStage _stage = CallStage.idle;
   AgentResponse? _lastResponse;
@@ -48,11 +52,47 @@ class CallProvider extends ChangeNotifier {
   bool get isSpeaking => _isSpeaking;
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get messages => _messages;
+  Map<String, dynamic>? get uiCommand =>
+      _lastResponse?.uiCommand is Map
+      ? Map<String, dynamic>.from(_lastResponse!.uiCommand as Map)
+      : null;
+  String? get webviewUrl {
+    final command = uiCommand;
+    if (command == null || command['type'] != 'open_webview') return null;
+    final url = command['url'];
+    return url is String && url.isNotEmpty ? url : null;
+  }
+  int? get currentOrderId {
+    final order = _lastResponse?.order;
+    if (order is Map && order['orderId'] is int) return order['orderId'] as int;
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is Map &&
+        pending['payload'] is Map &&
+        pending['payload']['orderId'] is int) {
+      return pending['payload']['orderId'] as int;
+    }
+    return null;
+  }
+  int? get currentPaymentId {
+    final payment = _lastResponse?.payment;
+    if (payment is Map && payment['paymentId'] is int) {
+      return payment['paymentId'] as int;
+    }
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is Map &&
+        pending['payload'] is Map &&
+        pending['payload']['paymentId'] is int) {
+      return pending['payload']['paymentId'] as int;
+    }
+    return null;
+  }
   bool get canUseVoice =>
       _stage != CallStage.loading &&
       _stage != CallStage.completed &&
       !_isLoading &&
       !_isTranscribing;
+  bool get _useRealtimeVoice =>
+      (dotenv.env['USE_OPENAI_REALTIME_VOICE'] ?? '').toLowerCase() == 'true';
 
   String get voiceStatusLabel {
     if (_isListening) return '말씀이 끝났으면 버튼을 다시 눌러주세요';
@@ -96,13 +136,21 @@ class CallProvider extends ChangeNotifier {
     try {
       _errorMessage = null;
       if (_isSpeaking) {
-        await _voiceService.stopSpeaking();
+        if (_useRealtimeVoice) {
+          await _realtimeVoiceService.stopSpeaking();
+        } else {
+          await _voiceService.stopSpeaking();
+        }
         _isSpeaking = false;
       }
       final latencyContext = FrontendLatencyLogger.instance.beginTurn();
       _activeLatencyContext = latencyContext;
       FrontendLatencyLogger.instance.mark(latencyContext, 'user_speech_start');
-      await _voiceService.startRecording();
+      if (_useRealtimeVoice) {
+        await _realtimeVoiceService.startStreamingConversation();
+      } else {
+        await _voiceService.startRecording();
+      }
       _isListening = true;
       notifyListeners();
     } catch (e) {
@@ -127,40 +175,63 @@ class CallProvider extends ChangeNotifier {
         FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_start');
       }
 
-      // Gemini STT로 텍스트 변환
-      final transcript = await _voiceService.stopRecordingAndTranscribe();
-      if (latencyContext != null) {
-        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
-      }
+      if (_useRealtimeVoice) {
+        _isSpeaking = true;
+        notifyListeners();
+        await _realtimeVoiceService.stopStreamingConversation();
+        final snapshot = await _realtimeVoiceService.waitForAssistantTurn();
+        if (latencyContext != null) {
+          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
+        }
+        if (snapshot.userTranscript.isEmpty) {
+          _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
+          _activeLatencyContext = null;
+          return;
+        }
 
-      if (transcript == null || transcript.isEmpty) {
-        _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
-        _activeLatencyContext = null;
-        return;
-      }
-
-      _setLoading(true);
-      _errorMessage = null;
-      // 사용자 말풍선 추가
-      _addMessage(text: transcript, isUser: true);
-
-      // 백엔드 전송
-      if (_conversationId == null) {
-        final userId = await LocalStorage.getUserId();
-        if (userId == null) return;
-        final response = await _agentRepository.startShopping(
-          userId: userId,
-          message: transcript,
-          latencyContext: latencyContext,
-        );
-        await _handleResponse(response, latencyContext: latencyContext);
+        _errorMessage = null;
+        _addMessage(text: snapshot.userTranscript, isUser: true);
+        if (snapshot.assistantTranscript.isNotEmpty) {
+          _addMessage(text: snapshot.assistantTranscript, isUser: false);
+        }
+        _stage = CallStage.clarification;
+        notifyListeners();
       } else {
-        final response = await _agentRepository.sendMessage(
-          conversationId: _conversationId!,
-          message: transcript,
-          latencyContext: latencyContext,
-        );
-        await _handleResponse(response, latencyContext: latencyContext);
+        // OpenAI STT로 텍스트 변환
+        final transcript = await _voiceService.stopRecordingAndTranscribe();
+        if (latencyContext != null) {
+          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
+        }
+
+        if (transcript.isEmpty) {
+          _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
+          _activeLatencyContext = null;
+          return;
+        }
+
+        _setLoading(true);
+        _errorMessage = null;
+        // 사용자 말풍선 추가
+        _addMessage(text: transcript, isUser: true);
+
+        // 백엔드 전송
+        if (_conversationId == null) {
+          final userId = await LocalStorage.getUserId();
+          if (userId == null) return;
+          final response = await _agentRepository.startShopping(
+            userId: userId,
+            message: transcript,
+            latencyContext: latencyContext,
+          );
+          await _handleResponse(response, latencyContext: latencyContext);
+        } else {
+          final response = await _agentRepository.sendMessage(
+            conversationId: _conversationId!,
+            message: transcript,
+            latencyContext: latencyContext,
+          );
+          await _handleResponse(response, latencyContext: latencyContext);
+        }
       }
     } catch (e) {
       _errorMessage = e.toString();
@@ -168,6 +239,7 @@ class CallProvider extends ChangeNotifier {
     } finally {
       _activeLatencyContext = null;
       _isTranscribing = false;
+      _isSpeaking = false;
       _setLoading(false);
     }
   }
@@ -195,6 +267,27 @@ class CallProvider extends ChangeNotifier {
         );
         await _handleResponse(response);
       }
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> submitPaymentPassword(String password) async {
+    if (password.length != 6 || _conversationId == null) return;
+
+    _setLoading(true);
+    _addMessage(text: '●●●●●●', isUser: true, isSensitive: true);
+
+    try {
+      final response = await _agentRepository.sendMessage(
+        conversationId: _conversationId!,
+        message: password,
+        redactMessageForLogs: true,
+      );
+      await _handleResponse(response);
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -239,14 +332,13 @@ class CallProvider extends ChangeNotifier {
     if (_conversationId == null) return;
     _setLoading(true);
     try {
-      await _agentRepository.sendWebviewResult(
+      final response = await _agentRepository.sendWebviewResult(
         conversationId: _conversationId!,
         orderId: orderId,
         paymentId: paymentId,
         result: result,
       );
-      _stage = result == 'success' ? CallStage.completed : CallStage.payment;
-      notifyListeners();
+      await _handleResponse(response);
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -257,8 +349,13 @@ class CallProvider extends ChangeNotifier {
 
   // 전화 끊기
   void endCall() {
-    _voiceService.stopSpeaking();
-    _voiceService.cancelRecording();
+    if (_useRealtimeVoice) {
+      _realtimeVoiceService.stopSpeaking();
+      _realtimeVoiceService.disconnect();
+    } else {
+      _voiceService.stopSpeaking();
+      _voiceService.cancelRecording();
+    }
     FrontendLatencyLogger.instance.endSession();
     _conversationId = null;
     _lastResponse = null;
@@ -376,9 +473,19 @@ class CallProvider extends ChangeNotifier {
     // 대신 DEMO: TT 방식 — 자동 녹음 없음, 사용자가 버튼 눌러서 말함
   }
 
-  void _addMessage({required String text, required bool isUser}) {
-    debugPrint('💬 [Message Log] ${isUser ? "USER" : "AI"}: $text');
-    _messages.add({'text': text, 'isUser': isUser, 'time': DateTime.now()});
+  void _addMessage({
+    required String text,
+    required bool isUser,
+    bool isSensitive = false,
+  }) {
+    final logText = isSensitive ? '******' : text;
+    debugPrint('💬 [Message Log] ${isUser ? "USER" : "AI"}: $logText');
+    _messages.add({
+      'text': text,
+      'isUser': isUser,
+      'isSensitive': isSensitive,
+      'time': DateTime.now(),
+    });
     notifyListeners();
   }
 
