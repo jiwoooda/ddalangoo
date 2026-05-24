@@ -1,0 +1,5 @@
+MOCK_PURCHASE_HISTORIES = [
+    {"id": 1, "user_id": 1, "product_id": 1, "product_option_id": 1, "product_name": "설향 딸기 500g", "brand": "설향", "category": "fruit", "option_text": "500g", "price_at_purchase": 9900, "quantity": 1, "total_price": 9900, "platform": "naver", "purchased_at": "2026-04-10T10:00:00", "satisfaction_score": 5, "memo": "맛있게 먹음", "keyword": "strawberry"},
+    {"id": 2, "user_id": 1, "product_id": 4, "product_option_id": None, "product_name": "국산 참기름 300ml", "brand": "CJ", "category": "condiment", "option_text": "300ml", "price_at_purchase": 8000, "quantity": 1, "total_price": 8000, "platform": "naver", "purchased_at": "2026-04-20T10:00:00", "satisfaction_score": 5, "memo": None, "keyword": "sesame_oil"},
+    {"id": 3, "user_id": 1, "product_id": 6, "product_option_id": 2, "product_name": "검은콩 두유 190ml 24팩", "brand": "정식품", "category": "beverage", "option_text": "190ml 24팩", "price_at_purchase": 18000, "quantity": 1, "total_price": 18000, "platform": "naver", "purchased_at": "2026-04-25T10:00:00", "satisfaction_score": 4, "memo": None, "keyword": "soy_milk"},
+]

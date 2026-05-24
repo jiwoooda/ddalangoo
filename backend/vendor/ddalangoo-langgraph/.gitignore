@@ -1,0 +1,31 @@
+# Node.js
+node_modules/
+
+# 가상환경
+.venv/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 테스트/빌드
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# LangGraph
+.langgraph_api/
+checkpoints/
+
+# 환경변수
+.env
+
+# 에이전트 실행 로그
+logs/
+
+# IDE
+.vscode/
+.idea/

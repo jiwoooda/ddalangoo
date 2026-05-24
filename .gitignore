@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -149,6 +149,8 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -216,3 +218,24 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Flutter / Dart local outputs
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+**/build/
+**/.dart_tool/
+**/Flutter/ephemeral/
+**/flutter_export_environment.sh
+**/Pods/
+**/android/local.properties
+
+# Local browser/session artifacts for E2E demos
+kurly_session.json
+session_*.json
+**/kurly_session.json
+**/session_*.json
+
+# Local assistant/tool settings
+.claude/
+**/.claude/settings.local.json
