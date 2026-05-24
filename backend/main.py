@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
@@ -5,8 +6,17 @@ from app.routers import (
     purchase_history, recommendation, order, payment,
     admin, dev, cart
 )
+from app.agent import runtime
 
-app = FastAPI(title="Ddalangoo API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await runtime.init()
+    yield
+    await runtime.shutdown()
+
+
+app = FastAPI(title="Ddalangoo API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

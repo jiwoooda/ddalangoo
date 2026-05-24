@@ -5,13 +5,13 @@ LangGraph 실행 wrapper.
 매 사용자 입력마다 아래 패턴으로 동작한다.
 
   [최초]
-  1. invoke(초기 state, config)  → wait_for_input 직전에서 interrupt
-  2. update_state(config, {messages: [user_msg]})
-  3. invoke(None, config)        → 그래프 실행 → 다음 wait_for_input 직전에서 interrupt
+  1. ainvoke(초기 state, config)  → wait_for_input 직전에서 interrupt
+  2. aupdate_state(config, {messages: [user_msg]})
+  3. ainvoke(None, config)        → 그래프 실행 → 다음 wait_for_input 직전에서 interrupt
 
   [이후 메시지]
-  1. update_state(config, {messages: [user_msg]})
-  2. invoke(None, config)        → 실행 → interrupt
+  1. aupdate_state(config, {messages: [user_msg]})
+  2. ainvoke(None, config)        → 실행 → interrupt
 
 thread_id = conversation_id 로 사용한다.
 """
@@ -32,17 +32,43 @@ if _VENDOR not in sys.path:
     sys.path.insert(0, _VENDOR)
 
 from langchain_core.messages import HumanMessage
+from psycopg_pool import AsyncConnectionPool
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from src.graph.builder import build_graph
 from src.state.schema import get_default_shopping_state
 
-# 그래프 싱글턴 (서버 시작 시 한 번만 빌드)
+# asyncpg URL → psycopg3 conninfo 변환
+_RAW_DB_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/ddalangoo")
+_PG_CONNINFO = _RAW_DB_URL.replace("postgresql+asyncpg://", "postgresql://")
+
 _graph = None
+_pool: AsyncConnectionPool | None = None
+
+
+async def init():
+    """FastAPI lifespan startup: 풀 생성 + checkpoint 테이블 초기화 + 그래프 빌드."""
+    global _graph, _pool
+    # setup()은 CREATE INDEX CONCURRENTLY를 실행하므로 autocommit 단독 커넥션으로 처리
+    async with AsyncPostgresSaver.from_conn_string(_PG_CONNINFO) as saver:
+        await saver.setup()
+    # 실제 운영은 커넥션 풀 기반 체크포인터 사용
+    _pool = AsyncConnectionPool(_PG_CONNINFO, max_size=10, open=False)
+    await _pool.open()
+    checkpointer = AsyncPostgresSaver(_pool)
+    _graph = build_graph(checkpointer=checkpointer)
+
+
+async def shutdown():
+    """FastAPI lifespan shutdown: 풀 종료."""
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
 
 
 def get_graph():
-    global _graph
     if _graph is None:
-        _graph = build_graph()
+        raise RuntimeError("runtime.init() 이 완료되기 전에 그래프가 호출되었습니다.")
     return _graph
 
 
@@ -50,22 +76,16 @@ def _config(conversation_id: int) -> dict:
     return {"configurable": {"thread_id": str(conversation_id)}}
 
 
-def update_state(conversation_id: int, patch: dict) -> dict:
-    """
-    외부 sync 단계에서 생성한 값을 LangGraph checkpoint에 반영한다.
-    예) recommendation_item_id를 state 상품 후보/pending_action에 주입.
-    """
+async def update_state(conversation_id: int, patch: dict) -> dict:
     graph = get_graph()
     config = _config(conversation_id)
-    graph.update_state(config, patch)
-    return graph.get_state(config).values
+    await graph.aupdate_state(config, patch)
+    snapshot = await graph.aget_state(config)
+    return snapshot.values
 
 
-def start(user_id: int, message: str, conversation_id: int) -> dict:
-    """
-    새 대화 시작. 그래프를 초기화하고 첫 메시지를 처리한다.
-    Returns: 최종 ShoppingState dict
-    """
+async def start(user_id: int, message: str, conversation_id: int) -> dict:
+    """새 대화 시작. 그래프를 초기화하고 첫 메시지를 처리한다."""
     graph = get_graph()
     config = _config(conversation_id)
 
@@ -75,42 +95,33 @@ def start(user_id: int, message: str, conversation_id: int) -> dict:
     )
     initial_state["conversation_id"] = conversation_id
 
-    # 1. 초기 invoke → wait_for_input 직전 interrupt
-    graph.invoke(initial_state, config)
+    await graph.ainvoke(initial_state, config)
+    await graph.aupdate_state(config, {"messages": [HumanMessage(content=message)]})
+    await graph.ainvoke(None, config)
 
-    # 2. 사용자 메시지 주입
-    graph.update_state(config, {"messages": [HumanMessage(content=message)]})
-
-    # 3. 재개 → 그래프 실행 → 다음 interrupt
-    graph.invoke(None, config)
-
-    return graph.get_state(config).values
+    snapshot = await graph.aget_state(config)
+    return snapshot.values
 
 
-def resume(conversation_id: int, message: str) -> dict:
-    """
-    기존 대화에 메시지를 추가하고 그래프를 재개한다.
-    Returns: 최종 ShoppingState dict
-    """
+async def resume(conversation_id: int, message: str) -> dict:
+    """기존 대화에 메시지를 추가하고 그래프를 재개한다."""
     graph = get_graph()
     config = _config(conversation_id)
 
-    graph.update_state(config, {"messages": [HumanMessage(content=message)]})
-    graph.invoke(None, config)
+    await graph.aupdate_state(config, {"messages": [HumanMessage(content=message)]})
+    await graph.ainvoke(None, config)
 
-    return graph.get_state(config).values
+    snapshot = await graph.aget_state(config)
+    return snapshot.values
 
 
-def inject_and_resume(conversation_id: int, patch: dict) -> dict:
-    """
-    confirm_action 등 프론트가 직접 state 변경을 주입할 때 사용.
-    예) {"intent": "confirm", "messages": [HumanMessage(content="확인")]}
-    Returns: 최종 ShoppingState dict
-    """
+async def inject_and_resume(conversation_id: int, patch: dict) -> dict:
+    """confirm_action 등 프론트가 직접 state 변경을 주입할 때 사용."""
     graph = get_graph()
     config = _config(conversation_id)
 
-    graph.update_state(config, patch)
-    graph.invoke(None, config)
+    await graph.aupdate_state(config, patch)
+    await graph.ainvoke(None, config)
 
-    return graph.get_state(config).values
+    snapshot = await graph.aget_state(config)
+    return snapshot.values

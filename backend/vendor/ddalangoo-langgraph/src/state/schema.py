@@ -9,8 +9,9 @@ Stage = Literal[
     "idle",
     "searching",
     "product_confirming",
-    "cart_shopping",        # 장바구니 담긴 후 추가 쇼핑 여부 대기
-    "payment_processing",
+    "cart_shopping",            # 장바구니 담긴 후 추가 쇼핑 여부 대기
+    "payment_processing",       # 결제 진행 중
+    "payment_password_required", # 결제 비밀번호 입력 대기
     "completed",
     "failed",
 ]
@@ -105,6 +106,12 @@ class ShoppingState(TypedDict):
 
     # ── 확인/대기 액션 ──
     pending_action: Optional[PendingAction]
+
+    # ── 백엔드 DB 연결 결과 (confirm 후 주입) ──
+    cart: Optional[dict[str, Any]]
+    order: Optional[dict[str, Any]]
+    payment: Optional[dict[str, Any]]
+    checkout_session: Optional[dict[str, Any]]
 
     # ── 세션 식별자 ──
     session_id: str
@@ -340,4 +347,8 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "storage_state_path": None,
         "current_option_value": None,
         "address_text": None,
+        "cart": None,
+        "order": None,
+        "payment": None,
+        "checkout_session": None,
     }
