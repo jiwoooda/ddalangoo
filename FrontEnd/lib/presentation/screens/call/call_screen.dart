@@ -591,6 +591,19 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
+  String? _resolveProductImageUrl(CallProvider provider) {
+    final selectedProduct = provider.lastResponse?.selectedProduct;
+    if (selectedProduct is! Map) return null;
+
+    // 백엔드는 추천 목록에는 imageUrl=null, 선택 상품에는 image_url을 내려줄 수 있다.
+    // 화면 카드는 추천 목록을 기준으로 그리므로 선택 상품 이미지가 있으면 보조값으로 사용한다.
+    final selectedImageUrl =
+        selectedProduct['imageUrl'] ?? selectedProduct['image_url'];
+    return selectedImageUrl is String && selectedImageUrl.isNotEmpty
+        ? selectedImageUrl
+        : null;
+  }
+
   Widget _buildTextInputToggle() {
     return OutlinedButton.icon(
       onPressed: _toggleTextInput,
@@ -680,6 +693,7 @@ class _CallScreenState extends State<CallScreen> {
   // 상품 추천 카드
   Widget _buildProductCard(CallProvider provider) {
     final item = provider.lastResponse!.recommendations.first;
+    final imageUrl = item.imageUrl ?? _resolveProductImageUrl(provider);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(16),
@@ -736,7 +750,7 @@ class _CallScreenState extends State<CallScreen> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildProductImage(item.imageUrl),
+              _buildProductImage(imageUrl),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1007,8 +1021,7 @@ class _CallScreenState extends State<CallScreen> {
           child: Column(
             children: [
               // 말하기 버튼 (통화 중일 때만 표시)
-              if (provider.stage != CallStage.idle &&
-                  provider.stage != CallStage.loading &&
+              if (provider.stage != CallStage.loading &&
                   provider.stage != CallStage.completed) ...[
                 MouseRegion(
                   cursor: (provider.canUseVoice || provider.isListening)

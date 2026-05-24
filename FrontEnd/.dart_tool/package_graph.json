@@ -198,12 +198,13 @@
     },
     {
       "name": "record",
-      "version": "5.2.1",
+      "version": "6.2.0",
       "dependencies": [
         "flutter",
         "record_android",
-        "record_darwin",
+        "record_ios",
         "record_linux",
+        "record_macos",
         "record_platform_interface",
         "record_web",
         "record_windows",
@@ -878,8 +879,16 @@
       ]
     },
     {
-      "name": "record_darwin",
-      "version": "1.2.2",
+      "name": "record_macos",
+      "version": "1.2.1",
+      "dependencies": [
+        "flutter",
+        "record_platform_interface"
+      ]
+    },
+    {
+      "name": "record_ios",
+      "version": "1.2.0",
       "dependencies": [
         "flutter",
         "record_platform_interface"
@@ -895,7 +904,7 @@
     },
     {
       "name": "record_linux",
-      "version": "0.7.2",
+      "version": "1.3.0",
       "dependencies": [
         "flutter",
         "record_platform_interface"

@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/models/agent_model.dart';
 import '../../data/repositories/agent_repository.dart';
 import '../../core/storage/local_storage.dart';
-import '../../core/services/gpt_voice_service.dart';
+import '../../core/services/gemini_voice_service.dart';
 import '../../core/utils/latency_logger.dart';
 
 enum CallStage {
@@ -26,7 +26,7 @@ class CallProvider extends ChangeNotifier {
   static const Duration _minTtsTimeout = Duration(seconds: 8);
   static const Duration _maxTtsTimeout = Duration(seconds: 20);
   final AgentRepository _agentRepository = AgentRepository();
-  final GptVoiceService _voiceService = GptVoiceService.instance;
+  final GeminiVoiceService _voiceService = GeminiVoiceService.instance;
 
   CallStage _stage = CallStage.idle;
   AgentResponse? _lastResponse;
@@ -49,7 +49,6 @@ class CallProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get messages => _messages;
   bool get canUseVoice =>
-      _stage != CallStage.idle &&
       _stage != CallStage.loading &&
       _stage != CallStage.completed &&
       !_isLoading &&
@@ -65,23 +64,20 @@ class CallProvider extends ChangeNotifier {
 
   // 전화 시작
   Future<void> startCall() async {
-    _setLoading(true);
     try {
       FrontendLatencyLogger.instance.startSession();
       final userId = await LocalStorage.getUserId();
       if (userId == null) throw Exception('로그인이 필요합니다');
 
-      final response = await _agentRepository.startShopping(
-        userId: userId,
-        message: 'INIT_CALL',
-      );
-
-      await _handleResponse(response);
+      _conversationId = null;
+      _lastResponse = null;
+      _stage = CallStage.idle;
+      _errorMessage = null;
+      _messages.clear();
+      notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
-    } finally {
-      _setLoading(false);
     }
   }
 
@@ -131,13 +127,13 @@ class CallProvider extends ChangeNotifier {
         FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_start');
       }
 
-      // OpenAI STT로 텍스트 변환
+      // Gemini STT로 텍스트 변환
       final transcript = await _voiceService.stopRecordingAndTranscribe();
       if (latencyContext != null) {
         FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
       }
 
-      if (transcript.isEmpty) {
+      if (transcript == null || transcript.isEmpty) {
         _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
         _activeLatencyContext = null;
         return;
@@ -262,6 +258,7 @@ class CallProvider extends ChangeNotifier {
   // 전화 끊기
   void endCall() {
     _voiceService.stopSpeaking();
+    _voiceService.cancelRecording();
     FrontendLatencyLogger.instance.endSession();
     _conversationId = null;
     _lastResponse = null;
@@ -299,12 +296,18 @@ class CallProvider extends ChangeNotifier {
           _stage = CallStage.platformSelection;
           break;
         case 'product_selection':
+        case 'product_confirming':
           _stage = CallStage.productSelection;
           break;
         case 'cart':
+        case 'cart_shopping':
           _stage = CallStage.cart;
           break;
         case 'payment':
+        case 'address_confirming':
+        case 'payment_precheck':
+        case 'payment_password_required':
+        case 'payment_processing':
           _stage = CallStage.payment;
           break;
         case 'completed':

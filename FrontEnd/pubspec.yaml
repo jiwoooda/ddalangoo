@@ -55,7 +55,7 @@ dependencies:
   flutter_dotenv: ^5.2.1
 
   # 마이크 녹음
-  record: ^5.1.2
+  record: ^6.1.2
   
   # 오디오 재생 (TTS 결과)
   audioplayers: ^6.1.0
