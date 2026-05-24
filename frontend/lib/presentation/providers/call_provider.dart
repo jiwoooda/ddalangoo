@@ -52,6 +52,16 @@ class CallProvider extends ChangeNotifier {
   bool get isSpeaking => _isSpeaking;
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get messages => _messages;
+  String get currentAssistantMessage =>
+      (_lastResponse?.assistantMessage ?? '').trim();
+  String? get currentAsyncStatusMessage {
+    final asyncStatus = _lastResponse?.asyncStatus;
+    if (asyncStatus is Map && asyncStatus['message'] is String) {
+      final message = (asyncStatus['message'] as String).trim();
+      return message.isEmpty ? null : message;
+    }
+    return null;
+  }
   Map<String, dynamic>? get uiCommand =>
       _lastResponse?.uiCommand is Map
       ? Map<String, dynamic>.from(_lastResponse!.uiCommand as Map)
@@ -61,6 +71,23 @@ class CallProvider extends ChangeNotifier {
     if (command == null || command['type'] != 'open_webview') return null;
     final url = command['url'];
     return url is String && url.isNotEmpty ? url : null;
+  }
+  String get webviewStatusText {
+    final asyncMessage = currentAsyncStatusMessage;
+    if (asyncMessage != null) return asyncMessage;
+    if (currentAssistantMessage.isNotEmpty) return currentAssistantMessage;
+
+    final target = uiCommand?['target'];
+    if (target == 'cart') return '장바구니에 담는 중이에요.';
+    if (target == 'payment') return '결제 화면을 준비하고 있어요.';
+    return '웹 화면을 준비하고 있어요.';
+  }
+  String get webviewTargetLabel {
+    final target = uiCommand?['target'];
+    if (target == 'cart') return '장바구니 작업';
+    if (target == 'payment') return '결제 진행';
+    if (target == 'checkout') return '주문 진행';
+    return '웹 진행 상황';
   }
   int? get currentOrderId {
     final order = _lastResponse?.order;
