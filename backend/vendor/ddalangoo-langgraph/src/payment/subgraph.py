@@ -41,6 +41,39 @@ _KR_NUMBERS = {
 }
 
 
+def _save_purchase_history(
+    state: ShoppingState,
+    selected_product: dict,
+    price: int,
+    quantity: int,
+) -> None:
+    try:
+        from app.repositories import purchase_history_repository
+        user_id_raw = state.get("user_id", 0)
+        keywords = state.get("keywords") or []
+        purchase_history_repository.create_history({
+            "user_id": int(user_id_raw),
+            "conversation_id": state.get("conversation_id"),
+            "product_id": selected_product.get("product_id"),
+            "product_option_id": selected_product.get("product_option_id"),
+            "product_name": selected_product.get("product_name", ""),
+            "brand": selected_product.get("brand"),
+            "category": selected_product.get("category"),
+            "option_text": selected_product.get("option_text"),
+            "selected_options": selected_product.get("selected_options") or {},
+            "product_url": selected_product.get("product_url", ""),
+            "price_at_purchase": price,
+            "quantity": quantity,
+            "total_price": price * quantity,
+            "platform": selected_product.get("platform", ""),
+            "keyword": keywords[0] if keywords else None,
+            "satisfaction_score": None,
+            "memo": None,
+        })
+    except Exception as e:
+        print(f"[payment_agent] purchase history save failed: {e}")
+
+
 def _coerce_positive_int(value, default: int | None = None) -> int | None:
     """LLM이 문자열로 준 숫자/한국어 수량도 결제 단계에서는 안전하게 정수로 맞춘다."""
     if value is None:
@@ -115,25 +148,43 @@ def payment_agent_node(state: ShoppingState) -> dict:
     if use_real_browser and stage not in ("cart_shopping", "payment_processing"):
         from src.tools.webview_tool import run_kurly_purchase
 
-        payment_state = bridge_shopping_to_payment(state, _build_delivery_address(state))
+        stored_url = selected_product.get("product_url", "")
+        reorder_url = stored_url if "www.kurly.com/goods/" in stored_url else None
+
         result = run_kurly_purchase(
             product_name=product_name,
             keywords=state.get("keywords"),
             quantity=quantity,
             storage_state_path=state.get("storage_state_path"),
+            reorder_url=reorder_url,
         )
 
         if result.get("cart_added"):
-            # 웹뷰에서 추출한 배송 정보를 selected_product에 반영
-            webview_delivery = result.get("delivery_info", "")
+            # 웹뷰에서 추출한 배송 정보 및 실제 URL을 selected_product에 반영
             updated_product = {**selected_product}
+            webview_delivery = result.get("delivery_info", "")
             if webview_delivery:
                 updated_product["delivery"] = webview_delivery
+            webview_url = result.get("product_url")
+            if webview_url:
+                updated_product["product_url"] = webview_url
+
+            # 장바구니 항목 누적 (구매이력 저장에 필요한 전체 상품 정보 포함)
+            existing_cart_items = state.get("cart_items") or []
+            new_cart_item = {
+                "product_name": product_name,
+                "price": price,
+                "quantity": quantity,
+                "total": price * quantity,
+                "product": updated_product,  # 전체 상품 정보 보존
+            }
+            new_cart_items = existing_cart_items + [new_cart_item]
 
             return {
                 "stage": "cart_shopping",
                 "storage_state_path": result["storage_state_path"],
                 "selected_product": updated_product,
+                "cart_items": new_cart_items,
                 "error": None,
                 "last_agent": "payment_agent",
                 "pending_action": {
@@ -157,16 +208,22 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # cart_shopping에서 첫 진입 또는 payment_processing인데 pending 없는 경우
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if stage == "cart_shopping" or pending_type is None:
+        cart_items = state.get("cart_items") or []
+        if len(cart_items) > 1:
+            items_text = ", ".join(
+                f"'{item['product_name']}' {item['quantity']}개" for item in cart_items
+            )
+            cart_total = sum(item["total"] for item in cart_items)
+            payment_msg = f"{items_text}, 총 {cart_total:,}원입니다! 네이버 페이로 결제하실래요?"
+        else:
+            payment_msg = f"'{product_name}' {quantity}개, 총 {total:,}원입니다! 네이버 페이로 결제하실래요?"
         return {
             "stage": "payment_processing",
             "error": None,
             "last_agent": "payment_agent",
             "pending_action": {
                 "type": "payment_method_confirm",
-                "message": (
-                    f"'{product_name}' {quantity}개, 총 {total:,}원입니다! "
-                    "네이버 페이로 결제하실래요?"
-                ),
+                "message": payment_msg,
             },
         }
 
@@ -218,6 +275,19 @@ def payment_agent_node(state: ShoppingState) -> dict:
                 "type": "payment_confirm",
                 "message": f"구매 완료되었습니다!{arrival_msg}",
             }
+            result["storage_state_path"] = None
+            cart_items = state.get("cart_items") or []
+            if cart_items:
+                for item in cart_items:
+                    _save_purchase_history(
+                        state,
+                        item.get("product") or selected_product,
+                        item.get("price", 0),
+                        item.get("quantity", 1),
+                    )
+            else:
+                _save_purchase_history(state, selected_product, price, quantity)
+            result["cart_items"] = []
 
         return result
 

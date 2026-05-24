@@ -105,6 +105,8 @@
 
 ### purchase_histories
 - 추가: `keyword varchar` — 재구매 검색용 키워드
+- 추가: `product_url text` — 재구매/주문 재현 시 상품 페이지 재진입용 URL
+- 추가: `selected_options json` — 재구매/주문 재현용 구조화 옵션
 - 근거: `mock_data/purchase_histories.py:2-4` (`"keyword": "strawberry"` 사용)
 
 ---
@@ -141,8 +143,8 @@
 | 제거 | `payment_id` | 없음 | `memory_tools.py` 저장 시 미포함 |
 | 제거 | `external_order_id` | 없음 | 저장 시 미포함 |
 | 제거 | `external_product_order_id` | 없음 | 저장 시 미포함 |
-| 제거 | `product_url_snapshot` | `product_url` (vendor만) | backend는 미저장 |
-| 제거 | `selected_options` | 없음 | backend 저장 시 미포함 |
+| 이름 변경 | `product_url_snapshot` | `product_url` | 재구매/주문 재현 시 상품 페이지 URL 필요 |
+| 유지/추가 | `selected_options` | `selected_options` | 재구매/주문 재현 시 구조화된 옵션 값 필요. `option_text`는 표시용 스냅샷, `selected_options`는 재주문 입력용 |
 | 제거 | `memo` | `memo` (mock_data에만) | 저장 로직 없음 |
 
 ### orders
@@ -182,6 +184,8 @@
 //  - purchase_histories 필드명 _snapshot 접미사 제거 (product_name, option_text 등)
 //  - purchase_histories.satisfaction → satisfaction_score 이름 변경
 //  - purchase_histories.keyword 추가
+//  - purchase_histories.product_url 추가 (재구매/주문 재현용)
+//  - purchase_histories.selected_options 유지 (재구매/주문 재현용 구조화 옵션)
 //  - orders 배송지 snapshot 필드명 코드 기준으로 통일
 //  - recommendation_items 필드명 _snapshot 접미사 제거
 //  - payments.payment_status Enum 정의 추가
@@ -243,7 +247,9 @@ Table purchase_histories {
   brand varchar                            // (구 brand_snapshot)
   category varchar                         // (구 category_snapshot)
   price_at_purchase int [not null]
-  // product_url_snapshot, selected_options, external_order_id 제거
+  product_url text                         // 재구매/주문 재현용 상품 페이지 URL (구 product_url_snapshot)
+  selected_options json                    // 재구매/주문 재현용 구조화 옵션 (예: {"용량": "500g"})
+  // external_order_id 제거
 
   quantity int [not null]
   total_price int [not null]

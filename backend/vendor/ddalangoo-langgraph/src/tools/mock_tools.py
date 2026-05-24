@@ -515,16 +515,19 @@ MOCK_PURCHASE_HISTORY: dict[str, list[dict[str, Any]]] = {
         {
             "id": "ph_001",
             "order_id": "order_001",
-            "product_name_snapshot": "설향 딸기 500g",
-            "brand_snapshot": None,
-            "category_snapshot": "과일",
+            "product_name": "설향 딸기 500g",
+            "brand": None,
+            "category": "과일",
+            "option_text": "500g",
             "platform": "kurly",
             "price_at_purchase": 12900,
             "quantity": 1,
             "total_price": 12900,
-            "selected_options": {},
+            "selected_options": {"용량": "500g"},
             "product_url": "https://mock.kurly.com/products/strawberry-500g",
             "purchased_at": "2025-01-10T10:00:00",
+            "satisfaction_score": None,
+            "keyword": "딸기",
         },
     ],
     "user_test": [],
@@ -540,7 +543,11 @@ def mock_save_purchase_history(
     quantity: int,
     platform: str = "",
     product_url: str = "",
+    option_text: Optional[str] = None,
     selected_options: Optional[dict[str, Any]] = None,
+    brand: Optional[str] = None,
+    category: Optional[str] = None,
+    keyword: Optional[str] = None,
 ) -> str:
     """결제 완료 후 구매 이력 저장."""
     from datetime import datetime
@@ -550,9 +557,10 @@ def mock_save_purchase_history(
         "user_id": user_id,
         "conversation_id": conversation_id,
         "order_id": order_id,
-        "product_name_snapshot": product_name,
-        "brand_snapshot": None,
-        "category_snapshot": None,
+        "product_name": product_name,
+        "brand": brand,
+        "category": category,
+        "option_text": option_text,
         "platform": platform,
         "price_at_purchase": price_at_purchase,
         "quantity": quantity,
@@ -560,6 +568,8 @@ def mock_save_purchase_history(
         "selected_options": selected_options or {},
         "product_url": product_url,
         "purchased_at": datetime.now().isoformat(),
+        "satisfaction_score": None,
+        "keyword": keyword,
     }
     MOCK_PURCHASE_HISTORY.setdefault(user_id, []).append(entry)
     return history_id
@@ -607,9 +617,10 @@ def mock_keyword_search_history(
     history = mock_get_purchase_history(user_id)
     results = []
     for item in history:
-        name = item.get("product_name_snapshot", "").lower()
-        cat = item.get("category_snapshot", "").lower()
-        if any(k.lower() in name or k.lower() in cat for k in keywords):
+        name = item.get("product_name", "").lower()
+        cat = item.get("category", "").lower()
+        keyword = item.get("keyword", "").lower()
+        if any(k.lower() in name or k.lower() in cat or k.lower() in keyword for k in keywords):
             results.append(item)
     return results[:limit]
 
@@ -665,7 +676,8 @@ def mock_validate_product_url(url: str) -> bool:
         return False
     if url in _BLOCKED_URLS:
         return False
-    valid_domains = ("mock.kurly.com", "mock.coupang.com", "mock.naver.com")
+    valid_domains = ("mock.kurly.com", "mock.coupang.com", "mock.naver.com", "example.com",
+                     "www.kurly.com", "www.coupang.com")
     return any(domain in url for domain in valid_domains)
 
 

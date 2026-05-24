@@ -5,12 +5,13 @@ Memory Agent(vendor)는 tool_calls를 state에 올려두고,
 백엔드 서비스가 여기서 실제 실행한다.
 
 tool 종류:
-  - save_purchase_history     : 결제 완료 후 구매 이력 저장
+  - save_purchase_history     : deprecated no-op. purchase history is saved by payment_service
   - save_conversation_summary : 메시지 수 초과 시 대화 요약 저장
   - search_similar_purchases  : 재구매 시 유사 구매 이력 검색
 """
 from typing import Any
-from app.repositories import order_repository, purchase_history_repository, conversation_repository
+from app.repositories import purchase_history_repository, conversation_repository
+from app.services import reorder_memory_resolver
 
 
 def save_purchase_history(
@@ -20,65 +21,12 @@ def save_purchase_history(
     product: dict[str, Any] | None = None,
     quantity: int = 1,
 ) -> dict[str, Any]:
-    """결제 완료 후 order_items 기반으로 purchase_histories 저장.
-
-    order_id가 vendor UUID 문자열인 경우 DB에서 조회되지 않으므로
-    conversation_id로 fallback 후, 그마저 없으면 product 인자로 직접 저장한다.
-    """
-    order = None
-    # DB는 int ID만 인식 — UUID 문자열이면 conversation_id로 fallback
-    if isinstance(order_id, int):
-        order = order_repository.get_order_by_id(order_id)
-    if order is None:
-        order = order_repository.get_order_by_conversation_id(conversation_id)
-
-    if order:
-        items = order_repository.get_order_items_by_order_id(order["id"])
-        if not items and product:
-            items = [{
-                "product_id": product.get("product_id"),
-                "product_name": product.get("product_name", ""),
-                "option_text": product.get("option_text"),
-                "unit_price": product.get("price", 0),
-                "quantity": quantity,
-                "total_price": product.get("price", 0) * quantity,
-            }]
-        if not items:
-            return {"success": False, "error": "order_items empty"}
-        saved = []
-        for item in items:
-            h = purchase_history_repository.create_history({
-                "user_id": user_id,
-                "conversation_id": conversation_id,
-                "order_id": order["id"],
-                "product_id": item.get("product_id"),
-                "product_name": item.get("product_name", ""),
-                "option_text": item.get("option_text"),
-                "price_at_purchase": item.get("unit_price", 0),
-                "quantity": item.get("quantity", 1),
-                "total_price": item.get("total_price", 0),
-                "platform": order.get("platform", "naver"),
-            })
-            saved.append(h["id"])
-        return {"success": True, "count": len(saved), "history_ids": saved}
-
-    # order도 없고 product 인자가 있으면 직접 저장
-    if product:
-        h = purchase_history_repository.create_history({
-            "user_id": user_id,
-            "conversation_id": conversation_id,
-            "order_id": None,
-            "product_id": product.get("product_id"),
-            "product_name": product.get("product_name", ""),
-            "option_text": product.get("option_text"),
-            "price_at_purchase": product.get("price", 0),
-            "quantity": quantity,
-            "total_price": product.get("price", 0) * quantity,
-            "platform": product.get("platform", "naver"),
-        })
-        return {"success": True, "count": 1, "history_ids": [h["id"]]}
-
-    return {"success": False, "error": f"order {order_id} not found and no product fallback"}
+    """Deprecated: payment_service is the only trigger for purchase history persistence."""
+    return {
+        "success": True,
+        "skipped": True,
+        "reason": "purchase_history_saved_by_payment_service",
+    }
 
 
 def save_conversation_summary(
@@ -120,6 +68,9 @@ def search_similar_purchases(
             "price_at_purchase": h.get("price_at_purchase", 0),
             "quantity": h.get("quantity", 1),
             "platform": h.get("platform"),
+            "option_text": h.get("option_text"),
+            "selected_options": h.get("selected_options") or {},
+            "product_url": h.get("product_url"),
             "purchased_at": h.get("purchased_at"),
         }
         for h in matched[:top_k]
@@ -127,11 +78,27 @@ def search_similar_purchases(
     return {"success": True, "results": results, "count": len(results)}
 
 
+def resolve_reorder_memory(
+    user_id: int,
+    query: str,
+    keywords: list[str] | None = None,
+    top_k: int = 5,
+) -> dict[str, Any]:
+    """Resolve a reorder request against purchase history candidates."""
+    return reorder_memory_resolver.resolve_reorder_memory(
+        user_id=user_id,
+        query=query,
+        keywords=keywords or [],
+        top_k=top_k,
+    )
+
+
 # tool 이름 → 함수 매핑
 _TOOL_REGISTRY: dict[str, Any] = {
     "save_purchase_history": save_purchase_history,
     "save_conversation_summary": save_conversation_summary,
     "search_similar_purchases": search_similar_purchases,
+    "resolve_reorder_memory": resolve_reorder_memory,
 }
 
 # search 계열 tool은 결과를 state에 주입해야 함

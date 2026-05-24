@@ -7,5 +7,5 @@ MOCK_ORDERS = [
 ]
 
 MOCK_ORDER_ITEMS = [
-    {"id": 1, "order_id": 77, "product_id": 1, "product_name": "설향 딸기 500g", "option_text": "500g", "unit_price": 12000, "quantity": 1, "total_price": 12000},
+    {"id": 1, "order_id": 77, "product_id": 1, "product_option_id": 1, "product_name": "설향 딸기 500g", "option_text": "500g", "selected_options": {"용량": "500g"}, "product_url": "https://example.com/product/1", "unit_price": 12000, "quantity": 1, "total_price": 12000},
 ]

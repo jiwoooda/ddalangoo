@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Any, Optional, List
 
 class PurchaseHistoryItem(BaseModel):
     purchaseHistoryId: int
@@ -7,6 +7,8 @@ class PurchaseHistoryItem(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     optionText: Optional[str] = None
+    selectedOptions: Optional[dict[str, Any]] = None
+    productUrl: Optional[str] = None
     priceAtPurchase: int
     quantity: int
     totalPrice: int
@@ -29,6 +31,8 @@ class PurchaseHistoryDetailResponse(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     optionText: Optional[str] = None
+    selectedOptions: Optional[dict[str, Any]] = None
+    productUrl: Optional[str] = None
     priceAtPurchase: int
     quantity: int
     totalPrice: int

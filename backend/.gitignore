@@ -5,3 +5,4 @@ __pycache__/
 venv/
 .pytest_cache/
 .DS_Store
+app/mock_data/purchase_histories_extra.json
