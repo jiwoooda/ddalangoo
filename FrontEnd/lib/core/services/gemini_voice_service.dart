@@ -26,11 +26,13 @@ class GeminiVoiceService {
   static const String _sttModelName = 'models/gemini-3-flash-preview';
   static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
   static const String _ttsVoiceName = 'Zephyr';
+  static const String _useGeminiTtsEnvKey = 'USE_GEMINI_TTS';
   static const int _sampleRate = 44100;
   static const int _numChannels = 1;
   static const int _ttsSampleRate = 24000;
   static const int _maxCachedTtsItems = 12;
   static const int _ttsRetryCount = 2;
+  static const int _maxTranscriptLength = 80;
   static const Duration _ttsRetryBaseDelay = Duration(milliseconds: 800);
   static const int _vadFrameMs = 30;
   static const double _vadEnergyThreshold = 0.0018;
@@ -57,6 +59,8 @@ class GeminiVoiceService {
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _isSpeaking;
+  bool get _shouldUseGeminiTts =>
+      (dotenv.env[_useGeminiTtsEnvKey] ?? 'true').toLowerCase() == 'true';
 
   Future<void> init() async {
     await _player.setReleaseMode(ReleaseMode.stop);
@@ -161,14 +165,16 @@ class GeminiVoiceService {
         Content.multi([
           DataPart('audio/wav', trimmedWavBytes),
           TextPart(
-            '이 오디오에서 실제로 들리는 한국어 발화만 그대로 텍스트로 변환해줘. '
-            '추측해서 보충하거나 정리하지 말고, 들리지 않거나 불분명하면 빈 문자열로 응답해. '
-            '화자가 말하지 않은 문장을 만들어내지 말고 텍스트만 출력해.',
+            '너는 한국어 음성 인식 엔진이다. '
+            '오디오에서 실제로 들리는 사용자의 말만 한 줄 한국어 텍스트로 전사해라. '
+            '오디오에 없는 문장, 대화 예시, 답변, 설명은 절대 만들지 마라. '
+            '말이 불명확하거나 배경음/무음이면 빈 문자열만 출력해라. '
+            '줄바꿈 없이 텍스트만 출력해라.',
           ),
         ]),
       ]);
 
-      return response.text?.trim();
+      return _normalizeSttTranscript(response.text);
     } catch (e) {
       debugPrint('❌ [Gemini STT Error] $e');
       return null;
@@ -191,6 +197,16 @@ class GeminiVoiceService {
     }
 
     try {
+      if (!_shouldUseGeminiTts) {
+        if (latencyContext != null) {
+          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_ready');
+        }
+        await _speakWithFallbackTts(text);
+        _markAudioPlayEnd();
+        _finishSpeaking();
+        return;
+      }
+
       final wavBytes = await _getOrCreateSpeech(text);
       if (latencyContext != null) {
         FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_ready');
@@ -346,6 +362,50 @@ class GeminiVoiceService {
     } catch (e) {
       debugPrint('⚠️ [Gemini STT Recording Cleanup Error] $e');
     }
+  }
+
+  String? _normalizeSttTranscript(String? rawText) {
+    final transcript = rawText?.trim();
+    if (transcript == null || transcript.isEmpty) return null;
+
+    debugPrint('📝 [Gemini STT Raw] $transcript');
+
+    final lines = transcript
+        .split(RegExp(r'[\r\n]+'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    if (lines.length != 1) {
+      debugPrint('⚠️ [Gemini STT] rejected multi-line transcript: $transcript');
+      return null;
+    }
+
+    final cleaned = _stripWrappingQuotes(lines.single);
+    if (cleaned.isEmpty) return null;
+
+    if (cleaned.length > _maxTranscriptLength) {
+      debugPrint('⚠️ [Gemini STT] rejected long transcript: $cleaned');
+      return null;
+    }
+
+    return cleaned;
+  }
+
+  String _stripWrappingQuotes(String text) {
+    var cleaned = text.trim();
+    const wrappingQuotes = ['"', "'", '“', '”', '‘', '’'];
+
+    while (cleaned.isNotEmpty && wrappingQuotes.contains(cleaned[0])) {
+      cleaned = cleaned.substring(1).trimLeft();
+    }
+
+    while (cleaned.isNotEmpty &&
+        wrappingQuotes.contains(cleaned[cleaned.length - 1])) {
+      cleaned = cleaned.substring(0, cleaned.length - 1).trimRight();
+    }
+
+    return cleaned.trim();
   }
 
   Future<File?> _getCacheFile(String cacheKey) async {
