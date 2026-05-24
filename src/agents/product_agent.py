@@ -102,6 +102,7 @@ def product_agent_node(state: ShoppingState) -> dict:
             parsed["selected_product"].get("product_url")
             or parsed["selected_product"].get("url")
         )
+        result["quantity"] = None  # 새 상품 선택 시 이전 수량 초기화
 
     if parsed.get("recommended_products") is not None:
         result["recommended_products"] = parsed["recommended_products"]

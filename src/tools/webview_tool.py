@@ -328,9 +328,10 @@ def run_kurly_purchase(
     keywords: list[str] | None = None,
     quantity: int = 1,
     storage_state_path: str | None = None,
+    reorder_url: str | None = None,
 ) -> dict:
     """
-    컬리 모바일웹에서 상품 검색 → 장바구니 담기.
+    컬리 모바일웹에서 장바구니 담기.
 
     Parameters
     ----------
@@ -338,10 +339,13 @@ def run_kurly_purchase(
     keywords           : 검색 키워드 (없으면 product_name 사용)
     quantity           : 장바구니에 담을 수량
     storage_state_path : 이전 세션 파일 경로 (로그인 상태 유지용)
+    reorder_url        : 재구매 시 바로 진입할 상품 URL. 제공되면 검색/VLM 단계를 건너뜀.
+                         로그인 리다이렉트 등 실패 시 검색 방식으로 자동 fallback.
 
     Returns
     -------
-    dict: {"cart_added": bool, "storage_state_path": str|None, "delivery_info": str, "error": str|None}
+    dict: {"cart_added": bool, "storage_state_path": str|None, "delivery_info": str,
+           "product_url": str|None, "error": str|None}
     """
     # 키워드가 아닌 정확한 상품명 자체를 검색어로 사용하여 타겟 상품이 최상단에 노출되도록 함
     search_query = product_name
@@ -370,30 +374,57 @@ def run_kurly_purchase(
     stealth_sync(page)
 
     try:
-        # ── 1. 컬리 메인 접속 및 로그인 확인 ──
-        print("[webview] 컬리 접속 중...")
-        page.goto(KURLY_BASE_URL)
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(2000)
+        # ── 재구매: URL로 바로 진입 (검색/VLM 단계 스킵) ──
+        if reorder_url:
+            try:
+                print(f"[webview] 재구매 직접 진입: {reorder_url}")
+                page.goto(reorder_url, timeout=10000)
+                page.wait_for_load_state("domcontentloaded")
+                page.wait_for_timeout(2000)
 
-        if not _is_logged_in(page):
-            print("[webview] 로그인이 필요합니다. 로그인 플로우 시작...")
-            success = _login(page)
-            if not success:
-                print("[webview] 로그인 플로우 실패. 종료합니다.")
+                # 로그인 리다이렉트, 404, 단종 등 비정상 페이지 감지
+                current = page.url
+                if ("login" in current or "member" in current
+                        or "404" in current or "not-found" in current
+                        or current.rstrip("/") == KURLY_BASE_URL.rstrip("/")):
+                    raise ValueError(f"비정상 페이지 감지: {current}")
+
+                product_url = current
+                print(f"[webview] 상품 URL 확인: {product_url}")
+
+            except Exception as e:
+                print(f"[webview] URL 직접 진입 실패 ({e}) → 검색 방식으로 fallback")
+                reorder_url = None
+
+        # ── 일반 구매 (또는 reorder fallback): 로그인 확인 → 검색 → VLM 선택 ──
+        if not reorder_url:
+            # ── 1. 컬리 메인 접속 및 로그인 확인 ──
+            print("[webview] 컬리 접속 중...")
+            page.goto(KURLY_BASE_URL)
+            page.wait_for_load_state("domcontentloaded")
+            page.wait_for_timeout(2000)
+
+            if not _is_logged_in(page):
+                print("[webview] 로그인이 필요합니다. 로그인 플로우 시작...")
+                success = _login(page)
+                if not success:
+                    print("[webview] 로그인 플로우 실패. 종료합니다.")
+                    return {"cart_added": False, "storage_state_path": None,
+                            "delivery_info": "", "product_url": None, "error": "login_failed"}
+
+            # ── 2. 상품 검색 ──
+            print(f"\n[webview] Step 2. 상품 검색 시작 ({search_query})")
+            _search_product(page, search_query)
+
+            # ── 3. 검색 결과에서 상품 선택 ──
+            print(f"\n[webview] Step 3. 검색 결과에서 상품 선택 ({product_name})")
+            found = _select_product_from_results(page, product_name)
+            if not found:
                 return {"cart_added": False, "storage_state_path": None,
-                        "delivery_info": "", "error": "login_failed"}
+                        "delivery_info": "", "product_url": None, "error": "product_not_found_in_search"}
 
-        # ── 2. 상품 검색 ──
-        print(f"\n[webview] Step 2. 상품 검색 시작 ({search_query})")
-        _search_product(page, search_query)
-
-        # ── 3. 검색 결과에서 상품 선택 ──
-        print(f"\n[webview] Step 3. 검색 결과에서 상품 선택 ({product_name})")
-        found = _select_product_from_results(page, product_name)
-        if not found:
-            return {"cart_added": False, "storage_state_path": None,
-                    "delivery_info": "", "error": "product_not_found_in_search"}
+            product_url = page.url
+            print(f"[webview] 상품 URL 캡처: {product_url}")
 
         # ── 4. 배송 정보 추출 ──
         print("\n[webview] Step 4. 배송 정보 확인")
@@ -419,6 +450,7 @@ def run_kurly_purchase(
             "cart_added": True,
             "storage_state_path": storage_state_path,
             "delivery_info": delivery_info,
+            "product_url": product_url,
             "error": None,
         }
 

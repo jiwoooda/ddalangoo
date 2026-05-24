@@ -19,7 +19,7 @@ from src.agents.memory_agent import memory_agent_node
 from src.agents.platform_agent import platform_agent_node
 from src.agents.product_agent import product_agent_node
 from src.agents.reorder_node import reorder_node
-from src.agents.nodes import wait_for_input_node, respond_node, interrupt_payment_node, quantity_check_node
+from src.agents.nodes import wait_for_input_node, respond_node, interrupt_payment_node, quantity_check_node, ask_what_to_buy_node
 from src.payment.subgraph import payment_agent_node
 
 
@@ -61,6 +61,7 @@ def build_graph(
     builder.add_node("payment_agent", payment_agent_node)
     builder.add_node("respond", respond_node)
     builder.add_node("quantity_check", quantity_check_node)
+    builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
     builder.add_node("interrupt_payment", interrupt_payment_node)
 
     # ── 진입점 ──
@@ -75,10 +76,12 @@ def build_graph(
         route,
         {
             "memory_agent": "memory_agent",
+            "reorder_node": "reorder_node",
             "platform_agent": "platform_agent",
             "product_agent": "product_agent",
             "payment_agent": "payment_agent",
             "quantity_check": "quantity_check",
+            "ask_what_to_buy": "ask_what_to_buy",
             "respond": "respond",
             "interrupt_payment": "interrupt_payment",
             "end": END,
@@ -107,6 +110,7 @@ def build_graph(
 
     # ── quantity_check → respond (수량 질문) ──
     builder.add_edge("quantity_check", "respond")
+    builder.add_edge("ask_what_to_buy", "respond")
 
     # ── platform_agent → product_agent (랭킹/추천) 또는 respond (platform_suggest) ──
     builder.add_conditional_edges(

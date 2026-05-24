@@ -42,6 +42,7 @@ Condition = Literal[
 
 PendingActionType = Literal[
     "product_confirm",
+    "product_select",
     "clarification",
     "payment_confirm",
     "option_select",
@@ -49,6 +50,7 @@ PendingActionType = Literal[
     "price_change_confirm",
     "quantity_confirm",
     "continue_shopping",
+    "what_to_buy",             # 장바구니 담은 후 새 상품 입력 대기
     "platform_suggest",        # product_agent가 다른 플랫폼 검색을 제안할 때
     "payment_method_confirm",  # 총액 + 결제수단 확인 요청
     "payment_password",        # 비밀번호 입력 요청 (fake)
@@ -114,8 +116,12 @@ class ShoppingState(TypedDict):
     # ── 브라우저 세션 (장바구니 storageState 유지) ──
     storage_state_path: Optional[str]
 
+    # ── 장바구니 누적 항목 (여러 상품 담을 때 합산용) ──
+    cart_items: list[dict[str, Any]]
+
     # ── Memory Agent → Platform/Product 전달 context ──
     recommendation_context: Optional[dict[str, Any]]
+    reorder_resolution: Optional[dict[str, Any]]
 
     # ── Intent Agent 슬롯 (bridge 없이 payment agent로 전달) ──
     # spec의 intent_agent_node 반환값에 명시되어 있으나 ShoppingState에 누락된 필드
@@ -347,7 +353,9 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "conversation_id": None,
         "user_id": user_id,
         "recommendation_context": None,
+        "reorder_resolution": None,
         "storage_state_path": None,
+        "cart_items": [],
         "current_option_value": None,
         "address_text": None,
         "tool_calls": None,
