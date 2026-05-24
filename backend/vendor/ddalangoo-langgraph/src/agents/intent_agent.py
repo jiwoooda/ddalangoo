@@ -131,8 +131,8 @@ def intent_agent_node(state: ShoppingState) -> dict:
         context="",
     )
 
-    llm = _get_llm()
     try:
+        llm = _get_llm()
         parsed: IntentOutput = llm.invoke([SystemMessage(content=prompt)])
     except Exception as e:
         print(f"[intent_agent] structured output error: {e}")

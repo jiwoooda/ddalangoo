@@ -67,9 +67,19 @@ def product_agent_node(state: ShoppingState) -> dict:
         intent=intent or "null",
     )
 
-    llm = _get_llm()
-    response = llm.invoke([HumanMessage(content=prompt)])
-    content = response.content.strip()
+    try:
+        llm = _get_llm()
+        response = llm.invoke([HumanMessage(content=prompt)])
+        content = response.content.strip()
+    except Exception as e:
+        print(f"[product_agent] llm error: {e}")
+        return {
+            "error": "product_agent_llm_error",
+            "stage": "idle",
+            "last_agent": "product_agent",
+            "needs_clarification": True,
+            "immediate_response": "상품 추천을 준비하는 중 문제가 생겼어요. 잠시 후 다시 말씀해 주세요.",
+        }
 
     try:
         if "```" in content:
