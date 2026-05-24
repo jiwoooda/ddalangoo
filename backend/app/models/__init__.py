@@ -1,0 +1,48 @@
+from app.models.address import UserAddress
+from app.models.base import Base
+from app.models.conversation import AgentIntent, Conversation, ConversationMessage
+from app.models.log import AgentEvent, ExternalApiLog
+from app.models.order import (
+    Cart,
+    CartItem,
+    CheckoutSession,
+    NaverOrderMapping,
+    Order,
+    OrderItem,
+    Payment,
+)
+from app.models.product import (
+    CrawledProductSnapshot,
+    ExternalProductMapping,
+    Product,
+    ProductOption,
+)
+from app.models.purchase_history import PurchaseHistory
+from app.models.recommendation import Recommendation, RecommendationItem
+from app.models.user import User, UserNaverAccount
+
+__all__ = [
+    "Base",
+    "AgentEvent",
+    "AgentIntent",
+    "Cart",
+    "CartItem",
+    "CheckoutSession",
+    "Conversation",
+    "ConversationMessage",
+    "CrawledProductSnapshot",
+    "ExternalApiLog",
+    "ExternalProductMapping",
+    "NaverOrderMapping",
+    "Order",
+    "OrderItem",
+    "Payment",
+    "Product",
+    "ProductOption",
+    "PurchaseHistory",
+    "Recommendation",
+    "RecommendationItem",
+    "User",
+    "UserAddress",
+    "UserNaverAccount",
+]
