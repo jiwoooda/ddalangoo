@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "packages": {
+    "python": "3.13",
+    "node": "20"
+  },
+  "steps": {
+    "install": {
+      "commands": [
+        "...",
+        "cd vendor/ddalangoo-langgraph/meta-mcp && npm ci"
+      ]
+    }
+  },
+  "deploy": {
+    "startCommand": "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
+  }
+}
