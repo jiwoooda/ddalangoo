@@ -193,14 +193,18 @@ def _dom_click_kurly_id_login(page: Page) -> bool:
     """'컬리아이디로 로그인' 버튼 DOM 클릭. 이미 이메일 입력 폼이면 True 반환."""
     # 이미 이메일 입력 폼이 보이면 클릭 불필요
     try:
-        if page.locator("input[type='email'], input[name='id']").count() > 0:
+        if page.locator("input[type='email'], input[name='id'], input[type='password']").count() > 0:
             return True
     except Exception:
         pass
 
     selectors = [
+        "text=컬리 아이디로 로그인",
         "text=컬리아이디로 로그인",
         "text=이메일로 로그인",
+        "button:has-text('컬리 아이디')",
+        "[role=button]:has-text('컬리 아이디')",
+        "div:has-text('컬리 아이디로 로그인')",
         "a:has-text('컬리아이디')",
         "button:has-text('컬리아이디')",
     ]
@@ -210,8 +214,10 @@ def _dom_click_kurly_id_login(page: Page) -> bool:
             if loc.count() > 0:
                 loc.click(timeout=2000)
                 page.wait_for_timeout(1500)
+                if page.locator("input[type='email'], input[name='id'], input[type='password']").count() > 0:
+                    print(f"[webview:DOM] 컬리아이디 로그인 폼 열림: {sel}")
+                    return True
                 print(f"[webview:DOM] 컬리아이디 로그인 버튼 클릭: {sel}")
-                return True
         except Exception:
             continue
     return False
