@@ -139,6 +139,11 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
       2) notifications/initialized  (notification, 응답 없음)
       3) tools/call  → 결과 수신
     """
+    sdk_dir = os.path.join(META_MCP_DIR, "node_modules", "@modelcontextprotocol", "sdk")
+    if not os.path.isdir(sdk_dir):
+        print("[meta_mcp_client] meta-mcp dependencies missing; using naver fallback")
+        return _call_naver_search_api(params)
+
     messages = "\n".join([
         json.dumps({
             "jsonrpc": "2.0",
