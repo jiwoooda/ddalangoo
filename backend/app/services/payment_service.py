@@ -1,11 +1,16 @@
-from app.repositories import payment_repository, order_repository, conversation_repository
-from app.services import purchase_history_service
+from datetime import UTC, datetime
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.repositories import (
+    agent_event_repository,
+    conversation_repository,
+    order_repository,
+    payment_repository,
+    purchase_history_repository,
+)
 from app.schemas.payment import PaymentDetailResponse, WebviewResultRequest, PaymentRetryRequest
 from fastapi import HTTPException
-
-def _save_purchase_histories(conversation_id: int, user_id: int) -> None:
-    purchase_history_service.create_histories_from_order(conversation_id, user_id)
-
 
 def _to_detail(p: dict) -> PaymentDetailResponse:
     return PaymentDetailResponse(
@@ -31,7 +36,6 @@ def handle_webview_result(conversation_id: int, req: WebviewResultRequest):
             "deliveryAddress": None, "order": None, "payment": None, "asyncStatus": None}
     if req.result == "completed":
         conv["stage"] = "completed"
-        _save_purchase_histories(conversation_id, conv.get("user_id"))
         return {**base, "status": "order_completed", "stage": "completed",
                 "assistantMessage": "결제가 완료되었습니다.", "uiCommand": {"type": "close_webview"}, "error": None}
     elif req.result == "cancelled":
@@ -43,6 +47,194 @@ def handle_webview_result(conversation_id: int, req: WebviewResultRequest):
         return {**base, "status": "failed", "stage": "failed",
                 "assistantMessage": "결제에 실패했습니다.", "uiCommand": None,
                 "error": {"category": "PAYMENT_ERROR", "code": "PAYMENT_FAILED", "message": "결제 실패"}}
+
+
+async def handle_webview_result_db(
+    db: AsyncSession,
+    conversation_id: int,
+    req: WebviewResultRequest,
+):
+    """웹뷰 결제 결과를 DB 주문/결제/구매이력 상태에 반영한다."""
+    conversation = await conversation_repository.get_conversation_by_id_db(db, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail={
+            "category": "CONVERSATION_ERROR",
+            "code": "CONVERSATION_NOT_FOUND",
+            "message": "대화를 찾을 수 없습니다.",
+        })
+
+    order = await order_repository.get_order_by_id_db(db, req.orderId)
+    if not order or order.get("conversation_id") != conversation_id:
+        raise HTTPException(status_code=404, detail={
+            "category": "ORDER_ERROR",
+            "code": "ORDER_NOT_FOUND",
+            "message": "주문을 찾을 수 없습니다.",
+        })
+
+    payment = await payment_repository.get_payment_by_id_db(db, req.paymentId)
+    if not payment or payment.get("order_id") != req.orderId:
+        raise HTTPException(status_code=404, detail={
+            "category": "PAYMENT_ERROR",
+            "code": "PAYMENT_NOT_FOUND",
+            "message": "결제를 찾을 수 없습니다.",
+        })
+
+    base = {
+        "conversationId": conversation_id,
+        "recommendationId": None,
+        "recommendations": [],
+        "selectedProduct": None,
+        "pendingConfirmation": None,
+        "availableOptions": None,
+        "deliveryAddress": None,
+        "cart": None,
+        "asyncStatus": None,
+    }
+
+    result = req.result.lower()
+    if result in {"success", "completed", "paid"}:
+        updated_payment = await payment_repository.update_payment_status_db(
+            db,
+            req.paymentId,
+            payment_status="paid",
+        )
+        updated_order = await order_repository.update_order_status_db(
+            db,
+            req.orderId,
+            status="order_completed",
+        )
+        histories = await purchase_history_repository.create_histories_from_order_db(
+            db,
+            order_id=req.orderId,
+            payment_id=req.paymentId,
+        )
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {
+                "status": "completed",
+                "stage": "completed",
+                "ended_at": datetime.now(UTC),
+            },
+        )
+        await agent_event_repository.create_agent_event_db(
+            db,
+            conversation_id=conversation_id,
+            agent_name="payment_service",
+            event_type="payment_completed",
+            input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
+            output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
+        )
+        return {
+            **base,
+            "status": "order_completed",
+            "stage": "completed",
+            "assistantMessage": "결제가 완료되었습니다.",
+            "order": {
+                "orderId": updated_order["id"],
+                "status": updated_order["status"],
+                "totalPaymentAmount": updated_order["total_payment_amount"],
+            },
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "orderId": updated_payment["order_id"],
+                "paymentStatus": updated_payment["payment_status"],
+                "paymentProvider": updated_payment["payment_provider"],
+                "paymentAmount": updated_payment["payment_amount"],
+            },
+            "purchaseHistories": histories,
+            "uiCommand": {"type": "close_webview"},
+            "error": None,
+        }
+
+    if result == "cancelled":
+        updated_payment = await payment_repository.update_payment_status_db(
+            db,
+            req.paymentId,
+            payment_status="cancelled",
+        )
+        updated_order = await order_repository.update_order_status_db(
+            db,
+            req.orderId,
+            status="cancelled",
+        )
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {
+                "status": "cancelled",
+                "stage": "cancelled",
+                "ended_at": datetime.now(UTC),
+            },
+        )
+        await agent_event_repository.create_agent_event_db(
+            db,
+            conversation_id=conversation_id,
+            agent_name="payment_service",
+            event_type="payment_cancelled",
+            input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
+            output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
+        )
+        return {
+            **base,
+            "status": "cancelled",
+            "stage": "cancelled",
+            "assistantMessage": "결제가 취소되었습니다.",
+            "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "paymentStatus": updated_payment["payment_status"],
+            },
+            "uiCommand": None,
+            "error": None,
+        }
+
+    updated_payment = await payment_repository.update_payment_status_db(
+        db,
+        req.paymentId,
+        payment_status="failed",
+        failure_reason="webview_result_failed",
+    )
+    updated_order = await order_repository.update_order_status_db(
+        db,
+        req.orderId,
+        status="failed",
+        failed_reason="webview_result_failed",
+    )
+    await conversation_repository.update_conversation_db(
+        db,
+        conversation_id,
+        {
+            "status": "failed",
+            "stage": "failed",
+            "ended_at": datetime.now(UTC),
+        },
+    )
+    await agent_event_repository.create_agent_event_db(
+        db,
+        conversation_id=conversation_id,
+        agent_name="payment_service",
+        event_type="payment_failed",
+        input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
+        output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
+    )
+    return {
+        **base,
+        "status": "failed",
+        "stage": "failed",
+        "assistantMessage": "결제에 실패했습니다.",
+        "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+        "payment": {
+            "paymentId": updated_payment["id"],
+            "paymentStatus": updated_payment["payment_status"],
+        },
+        "uiCommand": None,
+        "error": {
+            "category": "PAYMENT_ERROR",
+            "code": "PAYMENT_FAILED",
+            "message": "결제 실패",
+        },
+    }
 
 def retry_payment(order_id: int, req: PaymentRetryRequest):
     o = order_repository.get_order_by_id(order_id)

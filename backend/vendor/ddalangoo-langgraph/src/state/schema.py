@@ -9,8 +9,9 @@ Stage = Literal[
     "idle",
     "searching",
     "product_confirming",
-    "cart_shopping",        # 장바구니 담긴 후 추가 쇼핑 여부 대기
-    "payment_processing",
+    "cart_shopping",            # 장바구니 담긴 후 추가 쇼핑 여부 대기
+    "payment_processing",       # 결제 진행 중
+    "payment_password_required", # 결제 비밀번호 입력 대기
     "completed",
     "failed",
 ]
@@ -42,7 +43,6 @@ Condition = Literal[
 
 PendingActionType = Literal[
     "product_confirm",
-    "product_select",
     "clarification",
     "payment_confirm",
     "option_select",
@@ -50,7 +50,6 @@ PendingActionType = Literal[
     "price_change_confirm",
     "quantity_confirm",
     "continue_shopping",
-    "what_to_buy",             # 장바구니 담은 후 새 상품 입력 대기
     "platform_suggest",        # product_agent가 다른 플랫폼 검색을 제안할 때
     "payment_method_confirm",  # 총액 + 결제수단 확인 요청
     "payment_password",        # 비밀번호 입력 요청 (fake)
@@ -108,6 +107,12 @@ class ShoppingState(TypedDict):
     # ── 확인/대기 액션 ──
     pending_action: Optional[PendingAction]
 
+    # ── 백엔드 DB 연결 결과 (confirm 후 주입) ──
+    cart: Optional[dict[str, Any]]
+    order: Optional[dict[str, Any]]
+    payment: Optional[dict[str, Any]]
+    checkout_session: Optional[dict[str, Any]]
+
     # ── 세션 식별자 ──
     session_id: str
     conversation_id: Optional[int]
@@ -115,8 +120,6 @@ class ShoppingState(TypedDict):
 
     # ── 브라우저 세션 (장바구니 storageState 유지) ──
     storage_state_path: Optional[str]
-
-    # ── 장바구니 누적 항목 (여러 상품 담을 때 합산용) ──
     cart_items: list[dict[str, Any]]
 
     # ── Memory Agent → Platform/Product 전달 context ──
@@ -127,14 +130,9 @@ class ShoppingState(TypedDict):
     # spec의 intent_agent_node 반환값에 명시되어 있으나 ShoppingState에 누락된 필드
     current_option_value: Optional[str]
     address_text: Optional[str]
-
-    # ── Memory Agent Tool Call 채널 ──
-    # memory_agent가 올려두면 backend _execute_tools()가 읽어 실행
     tool_calls: Optional[list[dict[str, Any]]]
     tool_results: Optional[dict[str, Any]]
     conversation_summary: Optional[str]
-
-    # ── 결제 완료 후 order 참조 (bridge_payment_to_shopping에서 주입) ──
     order_id: Optional[str]
 
 # ══════════════════════════════════════════════
@@ -301,7 +299,6 @@ def bridge_payment_to_shopping(payment: PaymentState) -> dict:
             "error": None,
             "last_agent": "payment_agent",
             "pending_action": payment.get("pending_action"),  # 결제 완료 메시지 보존
-            "order_id": payment.get("order_id"),
         }
 
     if payment["payment_status"] == "failed":
@@ -362,4 +359,8 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "tool_results": None,
         "conversation_summary": None,
         "order_id": None,
+        "cart": None,
+        "order": None,
+        "payment": None,
+        "checkout_session": None,
     }

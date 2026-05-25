@@ -32,6 +32,7 @@ class AgentResponse(BaseModel):
     pendingConfirmation: Optional[Any] = None
     availableOptions: Optional[Any] = None
     deliveryAddress: Optional[Any] = None
+    cart: Optional[Any] = None
     order: Optional[Any] = None
     payment: Optional[Any] = None
     uiCommand: Optional[Any] = None
