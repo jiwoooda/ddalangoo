@@ -7,7 +7,7 @@
     "install": {
       "commands": [
         "...",
-        "PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install --with-deps webkit"
+        "PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install --with-deps chromium"
       ]
     }
   },
@@ -18,9 +18,12 @@
       "gstreamer1.0-plugins-bad",
       "gstreamer1.0-plugins-base",
       "gstreamer1.0-plugins-good",
+      "libasound2",
       "libatk-bridge2.0-0",
       "libatk1.0-0",
+      "libatspi2.0-0",
       "libcairo2",
+      "libcups2",
       "libdbus-1-3",
       "libdrm2",
       "libegl1",
@@ -47,6 +50,8 @@
       "liblcms2-2",
       "libmanette-0.2-0",
       "libnotify4",
+      "libnspr4",
+      "libnss3",
       "libopengl0",
       "libopenjp2-7",
       "libopus0",
@@ -63,7 +68,10 @@
       "libx11-6",
       "libxcomposite1",
       "libxdamage1",
+      "libxext6",
+      "libxfixes3",
       "libxkbcommon0",
+      "libxrandr2",
       "libxml2",
       "libxslt1.1",
       "libatomic1",
@@ -73,6 +81,7 @@
     "variables": {
       "USE_REAL_BROWSER": "true",
       "WEBVIEW_HEADLESS": "true",
+      "WEBVIEW_BROWSER": "chromium",
       "PLAYWRIGHT_BROWSERS_PATH": "0"
     },
     "startCommand": "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"

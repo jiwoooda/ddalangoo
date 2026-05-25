@@ -62,6 +62,7 @@ KURLY_EMAIL    = os.environ.get("KURLY_EMAIL", "")
 KURLY_PASSWORD = os.environ.get("KURLY_PASSWORD", "")
 KURLY_BASE_URL = "https://www.kurly.com"
 WEBVIEW_HEADLESS = os.environ.get("WEBVIEW_HEADLESS", "true").lower() != "false"
+WEBVIEW_BROWSER = os.environ.get("WEBVIEW_BROWSER", "chromium").lower()
 
 VIEWPORT = {"width": 390, "height": 844}
 USER_AGENT = (
@@ -824,9 +825,10 @@ def run_kurly_purchase(
 
     _clear_cancel()
     playwright = sync_playwright().start()
-    print("[webview] 브라우저(Webkit) 시작...")
+    browser_type = getattr(playwright, WEBVIEW_BROWSER, playwright.chromium)
+    print(f"[webview] 브라우저({WEBVIEW_BROWSER}) 시작...")
     # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
-    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
+    browser = browser_type.launch(headless=WEBVIEW_HEADLESS)
 
     context_kwargs = {
         "viewport": VIEWPORT,
