@@ -9,7 +9,7 @@
       "commands": [
         "...",
         "python -m playwright install --with-deps webkit",
-        "cd vendor/ddalangoo-langgraph/meta-mcp && npm ci"
+        "[ -d vendor/ddalangoo-langgraph/meta-mcp ] && cd vendor/ddalangoo-langgraph/meta-mcp && npm ci || echo 'meta-mcp install skipped'"
       ]
     }
   },
