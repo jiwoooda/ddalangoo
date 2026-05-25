@@ -191,9 +191,14 @@ def _is_logged_in(page: Page) -> bool:
 
 def _dom_click_kurly_id_login(page: Page) -> bool:
     """'컬리아이디로 로그인' 버튼 DOM 클릭. 이미 이메일 입력 폼이면 True 반환."""
+    login_input_selector = (
+        "input[type='email'], input[name='id'], input[type='password'], "
+        "input[placeholder*='아이디'], input[placeholder*='이메일']"
+    )
+
     # 이미 이메일 입력 폼이 보이면 클릭 불필요
     try:
-        if page.locator("input[type='email'], input[name='id'], input[type='password']").count() > 0:
+        if page.locator(login_input_selector).count() > 0:
             return True
     except Exception:
         pass
@@ -212,9 +217,9 @@ def _dom_click_kurly_id_login(page: Page) -> bool:
         try:
             loc = page.locator(sel).last
             if loc.count() > 0:
-                loc.click(timeout=2000)
+                loc.click(timeout=2000, force=True)
                 page.wait_for_timeout(1500)
-                if page.locator("input[type='email'], input[name='id'], input[type='password']").count() > 0:
+                if page.locator(login_input_selector).count() > 0:
                     print(f"[webview:DOM] 컬리아이디 로그인 폼 열림: {sel}")
                     return True
                 print(f"[webview:DOM] 컬리아이디 로그인 버튼 클릭: {sel}")
@@ -222,9 +227,9 @@ def _dom_click_kurly_id_login(page: Page) -> bool:
             continue
     try:
         # 컬리 모바일 로그인 화면의 접힌 "컬리 아이디로 로그인" 영역은 하단에 고정적으로 노출된다.
-        page.mouse.click(195, 620)
+        page.mouse.click(195, 625)
         page.wait_for_timeout(1500)
-        if page.locator("input[type='email'], input[name='id'], input[type='password']").count() > 0:
+        if page.locator(login_input_selector).count() > 0:
             print("[webview:DOM] 컬리아이디 로그인 폼 열림: fixed tap")
             return True
     except Exception:
@@ -315,14 +320,24 @@ def _login(
     # SNS 선택 화면 → 컬리아이디 로그인으로 전환
     if not _dom_click_kurly_id_login(page):
         _vlm_click_kurly_id_login(page)
+    _emit_progress(
+        progress_callback,
+        flow=flow,
+        step="logging_in",
+        message="컬리 아이디 로그인 화면을 열고 있어요.",
+        page=page,
+    )
 
     # 이메일 / 비밀번호 입력
     try:
         print("[webview] 아이디(이메일) 입력 중...")
-        page.fill("input[name='id'], input[type='email'], input[placeholder*='아이디']", KURLY_EMAIL)
+        page.locator(
+            "input[name='id'], input[type='email'], "
+            "input[placeholder*='아이디'], input[placeholder*='이메일'], input[type='text']"
+        ).first.fill(KURLY_EMAIL, timeout=3000)
         page.wait_for_timeout(300)
         print("[webview] 비밀번호 입력 중...")
-        page.fill("input[type='password']", KURLY_PASSWORD)
+        page.locator("input[type='password']").first.fill(KURLY_PASSWORD, timeout=3000)
         page.wait_for_timeout(300)
     except Exception as e:
         print(f"[webview] 입력 필드 오류: {e}")
