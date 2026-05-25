@@ -156,11 +156,17 @@ def intent_agent_node(state: ShoppingState) -> dict:
             "tool_results": None,
         }
 
-    # quantity_confirm 대기 중인데 LLM이 null로 줬으면 user_input에서 직접 파싱
+    # quantity_confirm 대기 중엔 직접 파싱 우선 (LLM이 상품명 숫자에 혼동될 수 있음)
     quantity = parsed.quantity
-    if quantity is None and pending_type == "quantity_confirm":
-        quantity = _parse_quantity(user_input)
-    if quantity is None:
+    if pending_type == "quantity_confirm":
+        direct = _parse_quantity(user_input)
+        if direct is not None:
+            quantity = direct
+
+    # 새 구매 탐색 intent에서는 이전 state 수량 인계 금지
+    # (이전 상품 구매 때 남은 quantity가 새 상품에 그대로 쓰이는 문제 방지)
+    _new_search_intents = {"buy", "reorder", "refine", "compare_platforms"}
+    if quantity is None and parsed.intent not in _new_search_intents:
         quantity = state.get("quantity")
 
     result = {

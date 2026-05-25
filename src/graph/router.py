@@ -90,6 +90,11 @@ def route(state: ShoppingState) -> RouteName:
             if intent in ("confirm", "deny", "next"):
                 return _decide("platform_agent")
 
+        if pa_type == "price_change_confirm":
+            if intent in ("confirm", "deny", "cancel", "next"):
+                return _decide("payment_agent")
+            return _decide("respond")
+
         if intent == "confirm":
             if not state.get("quantity"):
                 return _decide("quantity_check")
