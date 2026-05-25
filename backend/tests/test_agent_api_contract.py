@@ -20,6 +20,26 @@ def test_webview_status_default_matches_frontend_contract():
     )
 
 
+def test_webview_status_normalizes_legacy_idle_payload():
+    """예전 서버 메모리의 idle payload도 현재 프론트 계약 형태로 보정한다."""
+    conversation_id = 999006
+    webview_progress_service.clear_progress(conversation_id)
+    webview_progress_service._latest_status[conversation_id] = {
+        "type": "webview_progress",
+        "conversationId": conversation_id,
+        "status": "idle",
+    }
+
+    status = webview_progress_service.get_status_or_default(conversation_id)
+
+    assert status["status"] == "waiting"
+    assert status["step"] == "not_started"
+    assert status["message"]
+    assert status["screenshotUrl"] == (
+        f"/api/agent/conversations/{conversation_id}/webview/screenshot"
+    )
+
+
 def test_webview_progress_emit_always_includes_screenshot_url():
     """캡처가 아직 없어도 프론트가 같은 screenshotUrl을 폴링할 수 있어야 한다."""
     conversation_id = 999004

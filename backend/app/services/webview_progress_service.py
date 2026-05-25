@@ -41,12 +41,8 @@ def get_latest_status(conversation_id: int) -> dict[str, Any] | None:
     return _latest_status.get(conversation_id)
 
 
-def get_status_or_default(conversation_id: int) -> dict[str, Any]:
-    latest_status = get_latest_status(conversation_id)
-    if latest_status:
-        return latest_status
-
-    # 아직 웹뷰 작업이 시작되지 않았어도 프론트 계약 필드는 항상 내려준다.
+def _default_status(conversation_id: int) -> dict[str, Any]:
+    """아직 웹뷰 작업이 시작되지 않았을 때도 프론트 계약 필드를 모두 채운다."""
     return {
         "type": "webview_progress",
         "conversationId": conversation_id,
@@ -59,6 +55,35 @@ def get_status_or_default(conversation_id: int) -> dict[str, Any]:
     }
 
 
+def _normalize_status(conversation_id: int, status: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    예전 배포에서 남긴 {"status": "idle"} 같은 progress도 현재 API 계약으로 보정한다.
+
+    서버 메모리나 WebSocket 최초 전송에 오래된 payload가 남아도 프론트는 항상
+    step/message/screenshotUrl을 받을 수 있어야 한다.
+    """
+    if not status:
+        return _default_status(conversation_id)
+
+    normalized = dict(status)
+    normalized.setdefault("type", "webview_progress")
+    normalized.setdefault("conversationId", conversation_id)
+    normalized.setdefault("flow", "unknown")
+    normalized.setdefault("screenshotUrl", _screenshot_url(conversation_id))
+    normalized.setdefault("updatedAt", _now_iso())
+
+    if normalized.get("status") == "idle":
+        normalized["status"] = "waiting"
+    normalized.setdefault("status", "waiting")
+    normalized.setdefault("step", "not_started")
+    normalized.setdefault("message", "웹뷰 진행을 기다리고 있어요.")
+    return normalized
+
+
+def get_status_or_default(conversation_id: int) -> dict[str, Any]:
+    return _normalize_status(conversation_id, get_latest_status(conversation_id))
+
+
 def get_latest_screenshot(conversation_id: int) -> bytes | None:
     return _latest_screenshot.get(conversation_id)
 
@@ -68,9 +93,7 @@ async def connect(conversation_id: int, websocket: WebSocket) -> None:
     loop = asyncio.get_running_loop()
     _connections.setdefault(conversation_id, []).append((websocket, loop))
 
-    latest = get_latest_status(conversation_id)
-    if latest:
-        await websocket.send_json(latest)
+    await websocket.send_json(get_status_or_default(conversation_id))
 
 
 def disconnect(conversation_id: int, websocket: WebSocket) -> None:
