@@ -54,6 +54,25 @@ def _payload_with_subtype(payload: dict, subtype: str) -> dict:
     return mapped_payload
 
 
+def _product_confirm_actions(payload: dict) -> list[str]:
+    """내부 accept 표현을 프론트 계약의 order_now 표현으로 정규화한다."""
+    actions = payload.get("actions") or ["order_now", "add_to_cart", "reject"]
+    normalized: list[str] = []
+    for action in actions:
+        mapped_action = "order_now" if action == "accept" else action
+        if mapped_action not in normalized:
+            normalized.append(mapped_action)
+
+    documented_order = ["order_now", "add_to_cart", "reject"]
+    for required_action in documented_order:
+        if required_action not in normalized:
+            normalized.append(required_action)
+
+    ordered_actions = [action for action in documented_order if action in normalized]
+    extra_actions = [action for action in normalized if action not in documented_order]
+    return ordered_actions + extra_actions
+
+
 def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
     """
     ShoppingState.pending_action → AgentResponse.pendingConfirmation
@@ -69,7 +88,7 @@ def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
 
     if ptype == "product_confirm":
         mapped_payload = {
-            "actions": payload.get("actions", ["accept", "reject"]),
+            "actions": _product_confirm_actions(payload),
         }
         item_id = payload.get("recommendationItemId") or payload.get("recommendation_item_id")
         if item_id:
@@ -87,8 +106,19 @@ def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
             "payload": payload,
         }
 
+    if ptype == "price_change_confirm":
+        return {
+            "type": "price_changed",
+            "message": message,
+            "payload": _payload_with_subtype(payload, "price_change_confirm"),
+        }
+
     if ptype == "clarification":
-        return {"type": "clarification"}
+        return {
+            "type": "clarification",
+            "message": message,
+            "payload": payload or None,
+        }
 
     if ptype == "payment_method_confirm":
         return {
@@ -227,6 +257,9 @@ def _map_stage(state: dict, ui_command: Optional[dict]) -> str:
         return "address_confirming"
 
     if pending_type == "payment_method_confirm":
+        return "payment_precheck"
+
+    if pending_type == "price_change_confirm":
         return "payment_precheck"
 
     if (

@@ -41,6 +41,24 @@ def get_latest_status(conversation_id: int) -> dict[str, Any] | None:
     return _latest_status.get(conversation_id)
 
 
+def get_status_or_default(conversation_id: int) -> dict[str, Any]:
+    latest_status = get_latest_status(conversation_id)
+    if latest_status:
+        return latest_status
+
+    # 아직 웹뷰 작업이 시작되지 않았어도 프론트 계약 필드는 항상 내려준다.
+    return {
+        "type": "webview_progress",
+        "conversationId": conversation_id,
+        "flow": "unknown",
+        "step": "not_started",
+        "message": "웹뷰 진행을 기다리고 있어요.",
+        "status": "waiting",
+        "screenshotUrl": _screenshot_url(conversation_id),
+        "updatedAt": _now_iso(),
+    }
+
+
 def get_latest_screenshot(conversation_id: int) -> bytes | None:
     return _latest_screenshot.get(conversation_id)
 

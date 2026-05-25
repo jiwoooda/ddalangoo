@@ -53,11 +53,7 @@ async def webview_progress(conversationId: int, websocket: WebSocket):
 
 @router.get("/conversations/{conversationId}/webview/status")
 def webview_status(conversationId: int):
-    return webview_progress_service.get_latest_status(conversationId) or {
-        "type": "webview_progress",
-        "conversationId": conversationId,
-        "status": "idle",
-    }
+    return webview_progress_service.get_status_or_default(conversationId)
 
 
 @router.get("/conversations/{conversationId}/webview/screenshot")
