@@ -828,7 +828,19 @@ def run_kurly_purchase(
     browser_type = getattr(playwright, WEBVIEW_BROWSER, playwright.chromium)
     print(f"[webview] 브라우저({WEBVIEW_BROWSER}) 시작...")
     # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
-    browser = browser_type.launch(headless=WEBVIEW_HEADLESS)
+    launch_options: dict[str, Any] = {"headless": WEBVIEW_HEADLESS}
+    if WEBVIEW_BROWSER == "chromium":
+        # Railway의 작은 컨테이너에서는 sandbox/dev-shm 제약 때문에 기본 Chromium이
+        # 페이지 로딩이나 스크린샷 시점에 종료될 수 있어 서버용 옵션을 명시한다.
+        launch_options["args"] = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--no-zygote",
+            "--single-process",
+        ]
+    browser = browser_type.launch(**launch_options)
 
     context_kwargs = {
         "viewport": VIEWPORT,
