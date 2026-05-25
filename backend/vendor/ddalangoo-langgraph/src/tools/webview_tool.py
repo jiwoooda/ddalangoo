@@ -210,7 +210,7 @@ def _dom_click_kurly_id_login(page: Page) -> bool:
     ]
     for sel in selectors:
         try:
-            loc = page.locator(sel).first
+            loc = page.locator(sel).last
             if loc.count() > 0:
                 loc.click(timeout=2000)
                 page.wait_for_timeout(1500)
@@ -220,6 +220,15 @@ def _dom_click_kurly_id_login(page: Page) -> bool:
                 print(f"[webview:DOM] 컬리아이디 로그인 버튼 클릭: {sel}")
         except Exception:
             continue
+    try:
+        # 컬리 모바일 로그인 화면의 접힌 "컬리 아이디로 로그인" 영역은 하단에 고정적으로 노출된다.
+        page.mouse.click(195, 620)
+        page.wait_for_timeout(1500)
+        if page.locator("input[type='email'], input[name='id'], input[type='password']").count() > 0:
+            print("[webview:DOM] 컬리아이디 로그인 폼 열림: fixed tap")
+            return True
+    except Exception:
+        pass
     return False
 
 
