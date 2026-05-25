@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../../data/models/agent_model.dart';
 import '../../../presentation/providers/call_provider.dart';
 import 'payment_webview_screen.dart';
 
@@ -199,7 +200,9 @@ class _CallScreenState extends State<CallScreen> {
         streamUrl: streamUrl,
       );
     } catch (error) {
-      debugPrint('🪟 [CallScreen WebView Check] progress fallback error: $error');
+      debugPrint(
+        '🪟 [CallScreen WebView Check] progress fallback error: $error',
+      );
     } finally {
       _isCheckingWebviewAvailability = false;
     }
@@ -431,19 +434,34 @@ class _CallScreenState extends State<CallScreen> {
   // 상단 헤더
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
       child: Consumer<CallProvider>(
         builder: (context, provider, _) {
           final isConnected = provider.conversationId != null;
           return Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Image.asset(
-                    'assets/images/ddalangoo_logo_text.png',
-                    height: 28,
-                    fit: BoxFit.contain,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 50,
+                        height: 50,
+                        child: Image.asset(
+                          'assets/images/ddalangoo_logo_image.png',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                      const SizedBox(width: 1),
+                      Image.asset(
+                        'assets/images/ddalangoo_logo_text.png',
+                        height: 28,
+                        fit: BoxFit.contain,
+                      ),
+                    ],
                   ),
                   const Spacer(),
                   Row(
@@ -474,7 +492,7 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 4),
               Container(
                 width: double.infinity,
                 height: 1,
@@ -494,151 +512,157 @@ class _CallScreenState extends State<CallScreen> {
 
   // 채팅 말풍선 화면 (의도파악, 플랫폼선택, 상품선택, 결제 등)
   Widget _buildChatContent(CallProvider provider) {
-    final hasProductCard =
-        provider.stage == CallStage.productSelection &&
-        provider.lastResponse?.recommendations.isNotEmpty == true;
     final hasAddressCard =
         provider.stage == CallStage.payment &&
         provider.lastResponse?.deliveryAddress != null;
     final hasCartSummary = provider.stage == CallStage.cart;
+    final shouldShowAssistantLoadingBubble =
+        provider.isAwaitingAssistantPresentation ||
+        (provider.isLoading &&
+            provider.messages.isNotEmpty &&
+            provider.messages.last['isUser'] == true);
 
-    return Column(
-      children: [
-        // 말풍선 목록
-        Expanded(
-          child: ListView(
-            controller: _messageScrollController,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            children: [
-              for (final message in provider.messages)
-                _buildMessageBubble(
-                  text: message['text'],
-                  isUser: message['isUser'],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Column(
+          children: [
+            // 말풍선 목록
+            Expanded(
+              child: ListView(
+                controller: _messageScrollController,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
                 ),
-              if (provider.isAwaitingAssistantPresentation ||
-                  provider.stage == CallStage.loading)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4, bottom: 8),
-                  child: _buildAssistantLoadingBubble(provider),
-                ),
-            ],
-          ),
-        ),
-
-        if (hasProductCard || hasAddressCard || hasCartSummary)
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.34,
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
                 children: [
-                  if (hasProductCard) _buildProductCard(provider),
-                  if (hasAddressCard) _buildAddressConfirmation(provider),
-                  if (hasCartSummary) _buildCartSummary(provider),
+                  for (var index = 0; index < provider.messages.length; index++)
+                    _buildConversationItem(provider.messages[index], index),
+                  if (shouldShowAssistantLoadingBubble)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 8),
+                      child: _buildAssistantLoadingBubble(provider),
+                    ),
+                  if (hasAddressCard)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 8),
+                      child: _buildAddressConfirmation(provider),
+                    ),
+                  if (hasCartSummary)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 8),
+                      child: _buildCartSummary(provider),
+                    ),
                 ],
               ),
             ),
-          ),
+          ],
+        );
+      },
+    );
+  }
 
-        // 로딩 인디케이터
-        if (provider.isLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: CircularProgressIndicator(color: Color(0xFFE8325A)),
-          ),
-      ],
+  Widget _buildConversationItem(Map<String, dynamic> message, int index) {
+    final type = message['type'] as String?;
+    if (type == 'product_card') {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 8),
+        child: _buildProductCardFromMessage(
+          recommendation: message['recommendation'] as RecommendationItemInAgent,
+          selectedProduct: message['selectedProduct'],
+        ),
+      );
+    }
+
+    final isUser = message['isUser'] as bool? ?? false;
+    return _buildMessageBubble(
+      text: message['text'],
+      isUser: isUser,
+      showHeroAvatar: !isUser && index == 0,
     );
   }
 
   Widget _buildAssistantLoadingBubble(CallProvider provider) {
-    final asyncStatus = provider.lastResponse?.asyncStatus;
-    var loadingText =
-        provider.assistantPresentationMessage ?? '안내 내용을 음성으로 준비하고 있어요.';
-    if (!provider.isAwaitingAssistantPresentation &&
-        asyncStatus is Map &&
-        asyncStatus['message'] != null) {
-      loadingText = asyncStatus['message'];
-    }
+    final loadingText = provider.assistantLoadingMessage;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(left: 6, bottom: 8),
-                child: Image.asset(
-                  'assets/images/ddalangoo_logo_image.png',
-                  height: 150,
-                  fit: BoxFit.contain,
-                ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFFFF),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+                bottomLeft: Radius.circular(4),
+                bottomRight: Radius.circular(16),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFFFFF),
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    topRight: Radius.circular(16),
-                    bottomLeft: Radius.circular(4),
-                    bottomRight: Radius.circular(16),
-                  ),
-                  border: Border.all(
-                    color: const Color(0xFFE8325A),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+              border: Border.all(color: const Color(0xFFE8325A), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
                 ),
-                child: Column(
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            color: Color(0xFFE8325A),
-                            strokeWidth: 2.4,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            loadingText,
-                            style: const TextStyle(
-                              fontSize: _bodyFontSize,
-                              color: Color(0xFF333333),
-                              height: 1.45,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
+                    Container(
+                      width: 28,
+                      height: 28,
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFEEF3),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Image.asset(
+                        'assets/images/ddalangoo_logo_image.png',
+                        fit: BoxFit.contain,
+                      ),
                     ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      '딸랑구가 음성으로 차근차근 설명드릴게요.',
-                      style: TextStyle(
-                        fontSize: _supportFontSize,
-                        color: Color(0xFF888888),
-                        height: 1.45,
+                    const SizedBox(width: 10),
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFE8325A),
+                        strokeWidth: 2.4,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        loadingText,
+                        style: const TextStyle(
+                          fontSize: _bodyFontSize,
+                          color: Color(0xFF333333),
+                          height: 1.45,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 10),
+                const Padding(
+                  padding: EdgeInsets.only(left: 48),
+                  child: Text(
+                    '딸랑구가 음성으로 차근차근 설명드릴게요.',
+                    style: TextStyle(
+                      fontSize: _supportFontSize,
+                      color: Color(0xFF888888),
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -857,8 +881,7 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  String? _resolveProductImageUrl(CallProvider provider) {
-    final selectedProduct = provider.lastResponse?.selectedProduct;
+  String? _resolveProductImageUrl(dynamic selectedProduct) {
     if (selectedProduct is! Map) return null;
 
     // 백엔드는 추천 목록에는 imageUrl=null, 선택 상품에는 image_url을 내려줄 수 있다.
@@ -873,23 +896,28 @@ class _CallScreenState extends State<CallScreen> {
   Widget _buildTextInputToggle() {
     return OutlinedButton.icon(
       onPressed: _toggleTextInput,
-      icon: Icon(_showTextInput ? Icons.keyboard_hide : Icons.keyboard),
-      label: Text(_showTextInput ? '텍스트 입력 닫기' : '텍스트 입력하기'),
+      icon: Icon(_showTextInput ? Icons.keyboard_hide : Icons.keyboard, size: 18),
+      label: Text(_showTextInput ? '텍스트 닫기' : '텍스트 입력'),
       style: OutlinedButton.styleFrom(
         foregroundColor: const Color(0xFFE8325A),
         side: const BorderSide(color: Color(0xFFE8325A)),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         textStyle: const TextStyle(
-          fontSize: _supportFontSize,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        minimumSize: const Size(0, 44),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
 
   // 말풍선
-  Widget _buildMessageBubble({required String text, required bool isUser}) {
+  Widget _buildMessageBubble({
+    required String text,
+    required bool isUser,
+    bool showHeroAvatar = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -905,14 +933,15 @@ class _CallScreenState extends State<CallScreen> {
                   : CrossAxisAlignment.start,
               children: [
                 if (!isUser)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6, bottom: 8),
-                    child: Image.asset(
-                      'assets/images/ddalangoo_logo_image.png',
-                      height: 150,
-                      fit: BoxFit.contain,
+                  if (showHeroAvatar)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6, bottom: 8),
+                      child: Image.asset(
+                        'assets/images/ddalangoo_logo_image.png',
+                        height: 150,
+                        fit: BoxFit.contain,
+                      ),
                     ),
-                  ),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 18,
@@ -938,14 +967,40 @@ class _CallScreenState extends State<CallScreen> {
                       ),
                     ],
                   ),
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      fontSize: _bodyFontSize,
-                      color: const Color(0xFF333333),
-                      height: 1.5,
-                      fontWeight: isUser ? FontWeight.w500 : FontWeight.w700,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!isUser && !showHeroAvatar) ...[
+                        Container(
+                          width: 24,
+                          height: 24,
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFEEF3),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Image.asset(
+                            'assets/images/ddalangoo_logo_image.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      Flexible(
+                        child: Text(
+                          text,
+                          style: TextStyle(
+                            fontSize: _bodyFontSize,
+                            color: const Color(0xFF333333),
+                            height: 1.5,
+                            fontWeight: isUser
+                                ? FontWeight.w500
+                                : FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -956,10 +1011,54 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
+  Widget _buildCollapsedProductSummary({
+    required String title,
+    required String priceText,
+    required String? imageUrl,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildProductImage(imageUrl, size: 96),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF222222),
+                  height: 1.35,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '$priceText원',
+                style: const TextStyle(
+                  fontSize: 27,
+                  color: Color(0xFFE8325A),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   // 상품 추천 카드
-  Widget _buildProductCard(CallProvider provider) {
-    final item = provider.lastResponse!.recommendations.first;
-    final imageUrl = item.imageUrl ?? _resolveProductImageUrl(provider);
+  Widget _buildProductCardFromMessage({
+    required RecommendationItemInAgent recommendation,
+    required dynamic selectedProduct,
+  }) {
+    final item = recommendation;
+    final imageUrl = item.imageUrl ?? _resolveProductImageUrl(selectedProduct);
     final formattedPrice = _formatPrice(item.price);
     final hasBrand = item.brand != null && item.brand!.trim().isNotEmpty;
     return Container(
@@ -983,7 +1082,10 @@ class _CallScreenState extends State<CallScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFEEF3),
                   borderRadius: BorderRadius.circular(999),
@@ -1030,19 +1132,26 @@ class _CallScreenState extends State<CallScreen> {
             child: Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Text(
-                      item.productName,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF222222),
-                        height: 1.35,
-                      ),
-                      maxLines: _isProductCardExpanded ? 3 : 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: _isProductCardExpanded
+                        ? Text(
+                            item.productName,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF222222),
+                              height: 1.35,
+                            ),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        : _buildCollapsedProductSummary(
+                            title: item.productName,
+                            priceText: formattedPrice,
+                            imageUrl: imageUrl,
+                          ),
                   ),
                   const SizedBox(width: 12),
                   Container(
@@ -1063,39 +1172,12 @@ class _CallScreenState extends State<CallScreen> {
               ),
             ),
           ),
-          if (!_isProductCardExpanded)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                children: [
-                  if (hasBrand)
-                    Expanded(
-                      child: Text(
-                        '브랜드 ${item.brand!}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF666666),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  Text(
-                    '$formattedPrice원',
-                    style: const TextStyle(
-                      fontSize: 22,
-                      color: Color(0xFFE8325A),
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ],
-              ),
-            ),
 
           if (_isProductCardExpanded) ...[
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildProductImage(imageUrl, size: 112),
+                _buildProductImage(imageUrl, size: 124),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
@@ -1455,7 +1537,14 @@ class _CallScreenState extends State<CallScreen> {
     return Consumer<CallProvider>(
       builder: (context, provider, _) {
         final canInteractWithMic =
-            !widget.previewMode && (provider.canUseVoice || provider.isListening);
+            !widget.previewMode &&
+            (provider.canUseVoice || provider.isListening);
+        final isCompactBottomBar =
+            provider.isLoading ||
+            provider.isSpeaking ||
+            provider.stage == CallStage.productSelection ||
+            provider.stage == CallStage.cart ||
+            provider.stage == CallStage.payment;
         final shouldShowVoiceStatus =
             !_hasStartedVoiceInteraction ||
             provider.isListening ||
@@ -1464,7 +1553,12 @@ class _CallScreenState extends State<CallScreen> {
             provider.isLoading ||
             provider.errorMessage != null;
         return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            isCompactBottomBar ? 10 : 20,
+          ),
           child: Column(
             children: [
               if (widget.previewMode) ...[
@@ -1516,8 +1610,8 @@ class _CallScreenState extends State<CallScreen> {
                             ? () => _handleMicTap(provider)
                             : null,
                         child: Container(
-                          width: 88,
-                          height: 88,
+                          width: isCompactBottomBar ? 64 : 82,
+                          height: isCompactBottomBar ? 64 : 82,
                           decoration: BoxDecoration(
                             color: _micButtonColor(provider),
                             shape: BoxShape.circle,
@@ -1559,24 +1653,25 @@ class _CallScreenState extends State<CallScreen> {
                           child: Icon(
                             _micIcon(provider),
                             color: _micIconColor(provider),
-                            size: 34,
+                            size: isCompactBottomBar ? 28 : 32,
                           ),
                         ),
                       ),
                     ),
-                    if (!_isPasswordInputMode(provider) && !provider.isLoading) ...[
-                      const SizedBox(width: 14),
+                    if (!_isPasswordInputMode(provider) &&
+                        !provider.isLoading) ...[
+                      SizedBox(width: isCompactBottomBar ? 10 : 14),
                       Flexible(child: _buildTextInputToggle()),
                     ],
                   ],
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: isCompactBottomBar ? 4 : 10),
                 if (shouldShowVoiceStatus) ...[
-                  const SizedBox(height: 8),
+                  SizedBox(height: isCompactBottomBar ? 2 : 6),
                   Text(
                     provider.voiceStatusLabel,
                     style: TextStyle(
-                      fontSize: _supportFontSize,
+                      fontSize: isCompactBottomBar ? 13 : _supportFontSize,
                       color: provider.isListening
                           ? const Color(0xFF4CAF50)
                           : provider.canUseVoice
@@ -1597,16 +1692,14 @@ class _CallScreenState extends State<CallScreen> {
                     textAlign: TextAlign.center,
                   ),
                 ],
-                const SizedBox(height: 18),
+                SizedBox(height: isCompactBottomBar ? 6 : 14),
                 if (!provider.isLoading) ...[
-                  if (_isPasswordInputMode(provider)) ...[
-                    _buildPinPad(),
-                  ],
+                  if (_isPasswordInputMode(provider)) ...[_buildPinPad()],
                   if (_showTextInput && !_isPasswordInputMode(provider)) ...[
-                    const SizedBox(height: 12),
+                    SizedBox(height: isCompactBottomBar ? 8 : 12),
                     _buildDemoTextInput(),
                   ],
-                  const SizedBox(height: 24),
+                  SizedBox(height: isCompactBottomBar ? 6 : 16),
                 ],
               ],
 
@@ -1614,7 +1707,7 @@ class _CallScreenState extends State<CallScreen> {
               Container(
                 width: double.infinity,
                 height: 1,
-                margin: const EdgeInsets.only(bottom: 16),
+                margin: EdgeInsets.only(bottom: isCompactBottomBar ? 8 : 12),
                 color: const Color(0xFFEFD8DF),
               ),
               MouseRegion(
@@ -1625,7 +1718,7 @@ class _CallScreenState extends State<CallScreen> {
                   onTap: _endCall,
                   child: Container(
                     width: double.infinity,
-                    height: 64,
+                    height: isCompactBottomBar ? 50 : 60,
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     decoration: BoxDecoration(
                       color: _isEndCallHovered
@@ -1652,13 +1745,13 @@ class _CallScreenState extends State<CallScreen> {
                           color: _isEndCallHovered
                               ? Colors.white
                               : const Color(0xFF666666),
-                          size: 24,
+                          size: isCompactBottomBar ? 21 : 24,
                         ),
-                        const SizedBox(width: 10),
+                        SizedBox(width: isCompactBottomBar ? 8 : 10),
                         Text(
                           '전화 끊기',
                           style: TextStyle(
-                            fontSize: _buttonFontSize,
+                            fontSize: isCompactBottomBar ? 16 : _buttonFontSize,
                             color: _isEndCallHovered
                                 ? Colors.white
                                 : const Color(0xFF666666),

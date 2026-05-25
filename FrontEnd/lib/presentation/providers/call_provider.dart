@@ -45,6 +45,7 @@ class CallProvider extends ChangeNotifier {
   String? _errorMessage;
   String _userDisplayName = '';
   String? _assistantPresentationMessage;
+  bool _isAwaitingCartWebviewProgress = false;
   final List<Map<String, dynamic>> _messages = [];
   LatencyRequestContext? _activeLatencyContext;
 
@@ -59,6 +60,45 @@ class CallProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get messages => _messages;
   String? get assistantPresentationMessage => _assistantPresentationMessage;
+  String get assistantLoadingMessage {
+    if (_isAwaitingAssistantPresentation &&
+        _assistantPresentationMessage != null &&
+        _assistantPresentationMessage!.trim().isNotEmpty) {
+      return _assistantPresentationMessage!.trim();
+    }
+
+    final asyncMessage = currentAsyncStatusMessage;
+    if (asyncMessage != null) return asyncMessage;
+
+    if (_isLoading) {
+      final prefix = _userDisplayName.isEmpty ? '' : '$_userDisplayName님을 위한 ';
+      final pending = _lastResponse?.pendingConfirmation;
+      final pendingType = pending is Map ? pending['type'] : null;
+
+      if (_conversationId == null) {
+        return '$prefix상품을 검색 중입니다.';
+      }
+      if (_stage == CallStage.productSelection &&
+          _isAwaitingCartWebviewProgress) {
+        return '선택하신 상품을 장바구니에 담는 중입니다.';
+      }
+      if (_stage == CallStage.productSelection && pendingType == 'quantity') {
+        return '수량에 맞춰 상품 정보를 정리하고 있습니다.';
+      }
+      if (_stage == CallStage.productSelection) {
+        return '$prefix상품을 검색 중입니다.';
+      }
+      if (_stage == CallStage.cart) {
+        return '장바구니 내용을 확인하고 있습니다.';
+      }
+      if (_stage == CallStage.payment) {
+        return '결제에 필요한 내용을 준비하고 있습니다.';
+      }
+      return '$prefix요청을 확인하고 있습니다.';
+    }
+
+    return '안내 내용을 음성으로 준비하고 있어요.';
+  }
   String get currentAssistantMessage =>
       (_lastResponse?.assistantMessage ?? '').trim();
   String? get currentAsyncStatusMessage {
@@ -87,7 +127,9 @@ class CallProvider extends ChangeNotifier {
       _conversationId != null &&
       (_stage == CallStage.cart ||
           _stage == CallStage.payment ||
-          (_stage == CallStage.productSelection && _isLoading));
+          (_stage == CallStage.productSelection &&
+              _isLoading &&
+              _isAwaitingCartWebviewProgress));
   String get webviewStatusText {
     final asyncMessage = currentAsyncStatusMessage;
     if (asyncMessage != null) return asyncMessage;
@@ -298,6 +340,7 @@ class CallProvider extends ChangeNotifier {
           return;
         }
 
+        _prepareWebviewProgressTrackingForOutgoingMessage(transcript);
         _setLoading(true);
         _errorMessage = null;
         // 사용자 말풍선 추가
@@ -337,6 +380,7 @@ class CallProvider extends ChangeNotifier {
   Future<void> sendTextMessage(String text) async {
     if (text.isEmpty) return;
 
+    _prepareWebviewProgressTrackingForOutgoingMessage(text);
     _setLoading(true);
     _addMessage(text: text, isUser: true);
 
@@ -367,6 +411,7 @@ class CallProvider extends ChangeNotifier {
   Future<void> submitPaymentPassword(String password) async {
     if (password.length != 6 || _conversationId == null) return;
 
+    _isAwaitingCartWebviewProgress = false;
     _setLoading(true);
     _addMessage(text: '●●●●●●', isUser: true, isSensitive: true);
 
@@ -391,6 +436,7 @@ class CallProvider extends ChangeNotifier {
     required String action,
   }) async {
     if (_conversationId == null) return;
+    _isAwaitingCartWebviewProgress = false;
     _setLoading(true);
     try {
       _addMessage(
@@ -419,6 +465,7 @@ class CallProvider extends ChangeNotifier {
     required String result,
   }) async {
     if (_conversationId == null) return;
+    _isAwaitingCartWebviewProgress = false;
     _setLoading(true);
     try {
       final response = await _agentRepository.sendWebviewResult(
@@ -456,6 +503,7 @@ class CallProvider extends ChangeNotifier {
     _isSpeaking = false;
     _isAwaitingAssistantPresentation = false;
     _assistantPresentationMessage = null;
+    _isAwaitingCartWebviewProgress = false;
     _activeLatencyContext = null;
     notifyListeners();
   }
@@ -467,6 +515,7 @@ class CallProvider extends ChangeNotifier {
   }) async {
     final oldStage = _stage;
     final nextStage = _mapResponseStage(response);
+    _isAwaitingCartWebviewProgress = false;
     _conversationId = response.conversationId;
     _assistantPresentationMessage = _buildAssistantPresentationMessage(
       response,
@@ -567,6 +616,26 @@ class CallProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _addProductCardMessage(AgentResponse response) {
+    if (response.recommendations.isEmpty) return;
+    final recommendation = response.recommendations.first;
+    final lastMessage = _messages.isNotEmpty ? _messages.last : null;
+    final alreadyAddedCard =
+        lastMessage != null &&
+        lastMessage['type'] == 'product_card' &&
+        lastMessage['recommendationItemId'] == recommendation.recommendationItemId;
+    if (alreadyAddedCard) return;
+
+    _messages.add({
+      'type': 'product_card',
+      'recommendation': recommendation,
+      'selectedProduct': response.selectedProduct,
+      'recommendationItemId': recommendation.recommendationItemId,
+      'time': DateTime.now(),
+    });
+    notifyListeners();
+  }
+
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
@@ -580,9 +649,32 @@ class CallProvider extends ChangeNotifier {
         lastMessage['text'] == response.assistantMessage;
     _lastResponse = response;
     _stage = nextStage;
+    _isAwaitingAssistantPresentation = false;
+    _assistantPresentationMessage = null;
     if (!alreadyAddedAssistant) {
       _addMessage(text: response.assistantMessage, isUser: false);
+      if (_shouldAddProductCard(response, nextStage)) {
+        _addProductCardMessage(response);
+      }
+      return;
     }
+    if (_shouldAddProductCard(response, nextStage)) {
+      _addProductCardMessage(response);
+      return;
+    }
+    notifyListeners();
+  }
+
+  bool _shouldAddProductCard(AgentResponse response, CallStage nextStage) {
+    if (nextStage != CallStage.productSelection ||
+        response.recommendations.isEmpty) {
+      return false;
+    }
+
+    final pending = response.pendingConfirmation;
+    if (pending is! Map) return false;
+
+    return pending['type'] == 'product';
   }
 
   CallStage _mapResponseStage(AgentResponse response) {
@@ -651,6 +743,29 @@ class CallProvider extends ChangeNotifier {
       _maxTtsTimeout.inSeconds,
     );
     return Duration(seconds: clampedSeconds);
+  }
+
+  void _prepareWebviewProgressTrackingForOutgoingMessage(String text) {
+    _isAwaitingCartWebviewProgress =
+        _isWaitingForQuantityConfirmation && _looksLikeQuantityResponse(text);
+  }
+
+  bool get _isWaitingForQuantityConfirmation {
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is! Map) return false;
+    return pending['type'] == 'quantity';
+  }
+
+  bool _looksLikeQuantityResponse(String text) {
+    final normalized = text.trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+
+    final quantityPattern = RegExp(
+      r'(^|\s)(\d+|[일이삼사오육칠팔구십한두세네])\s*(개|박스|봉지|팩|통|세트)\b',
+    );
+    if (quantityPattern.hasMatch(normalized)) return true;
+
+    return RegExp(r'^\d+$').hasMatch(normalized);
   }
 
   void loadPreviewState({

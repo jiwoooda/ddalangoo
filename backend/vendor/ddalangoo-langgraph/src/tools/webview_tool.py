@@ -790,27 +790,29 @@ def run_kurly_purchase(
     if not storage_state_path:
         storage_state_path = "kurly_session.json"
 
-    playwright = sync_playwright().start()
-    print("[webview] 브라우저(Webkit) 시작...")
-    browser = playwright.webkit.launch(headless=False)
-
-    context_kwargs = {
-        "viewport": VIEWPORT,
-        "user_agent": USER_AGENT,
-        "locale": "ko-KR",
-        "has_touch": True,  # 모바일 터치 이벤트 활성화 (page.tap() 필수)
-    }
-    if storage_state_path and os.path.exists(storage_state_path):
-        context_kwargs["storage_state"] = storage_state_path
-        print(f"[webview] 세션 복원: {storage_state_path}")
-
-    context = browser.new_context(**context_kwargs)
-    page = context.new_page()
-    page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
-    stealth_sync(page)
+    playwright = None
+    browser = None
     flow = progress_flow or ("reorder" if reorder_url else "new_purchase")
-
     try:
+        playwright = sync_playwright().start()
+        print("[webview] 브라우저(Webkit) 시작...")
+        browser = playwright.webkit.launch(headless=False)
+
+        context_kwargs = {
+            "viewport": VIEWPORT,
+            "user_agent": USER_AGENT,
+            "locale": "ko-KR",
+            "has_touch": True,  # 모바일 터치 이벤트 활성화 (page.tap() 필수)
+        }
+        if storage_state_path and os.path.exists(storage_state_path):
+            context_kwargs["storage_state"] = storage_state_path
+            print(f"[webview] 세션 복원: {storage_state_path}")
+
+        context = browser.new_context(**context_kwargs)
+        page = context.new_page()
+        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+        stealth_sync(page)
+
         # ── 재구매: URL로 바로 진입 (검색/VLM 단계 스킵) ──
         if reorder_url:
             try:
@@ -976,5 +978,7 @@ def run_kurly_purchase(
                 "delivery_info": "", "error": str(e)}
 
     finally:
-        browser.close()
-        playwright.stop()
+        if browser is not None:
+            browser.close()
+        if playwright is not None:
+            playwright.stop()
