@@ -19,6 +19,7 @@ import anthropic
 import base64
 import json
 import os
+from typing import Callable
 from playwright.sync_api import sync_playwright, Page
 
 try:
@@ -38,6 +39,8 @@ USER_AGENT = (
     "AppleWebKit/605.1.15 (KHTML, like Gecko) "
     "Version/16.0 Mobile/15E148 Safari/604.1"
 )
+
+ProgressCallback = Callable[[dict], None]
 
 
 # ══════════════════════════════════════════════
@@ -71,6 +74,42 @@ def _ask_vlm(screenshot_bytes: bytes, question: str) -> dict:
 
 def _screenshot_and_ask(page: Page, question: str) -> dict:
     return _ask_vlm(page.screenshot(), question)
+
+
+def _emit_progress(
+    callback: ProgressCallback | None,
+    *,
+    status: str,
+    message: str,
+    stage: str,
+    page: Page | None = None,
+    final: bool = False,
+    is_error: bool = False,
+) -> None:
+    if callback is None:
+        return
+
+    image_b64 = None
+    mime_type = None
+    if page is not None:
+        try:
+            image_b64 = base64.standard_b64encode(
+                page.screenshot(type="jpeg", quality=45)
+            ).decode("utf-8")
+            mime_type = "image/jpeg"
+        except Exception as exc:
+            print(f"[webview] 스크린샷 스트림 전송 실패: {exc}")
+
+    callback({
+        "type": "snapshot" if image_b64 else "status",
+        "status": status,
+        "message": message,
+        "stage": stage,
+        "final": final,
+        "isError": is_error,
+        "imageBase64": image_b64,
+        "mimeType": mime_type,
+    })
 
 
 # ══════════════════════════════════════════════
@@ -328,6 +367,7 @@ def run_kurly_purchase(
     keywords: list[str] | None = None,
     quantity: int = 1,
     storage_state_path: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     """
     컬리 모바일웹에서 상품 검색 → 장바구니 담기.
@@ -371,49 +411,167 @@ def run_kurly_purchase(
 
     try:
         # ── 1. 컬리 메인 접속 및 로그인 확인 ──
+        _emit_progress(
+            progress_callback,
+            status="launching_browser",
+            message="컬리 모바일 웹을 여는 중이에요.",
+            stage="launch",
+        )
         print("[webview] 컬리 접속 중...")
         page.goto(KURLY_BASE_URL)
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(2000)
+        _emit_progress(
+            progress_callback,
+            status="opened_home",
+            message="컬리 메인 화면에 들어왔어요.",
+            stage="home",
+            page=page,
+        )
 
         if not _is_logged_in(page):
+            _emit_progress(
+                progress_callback,
+                status="login_required",
+                message="로그인이 필요해서 로그인 화면으로 이동할게요.",
+                stage="login",
+                page=page,
+            )
             print("[webview] 로그인이 필요합니다. 로그인 플로우 시작...")
             success = _login(page)
             if not success:
                 print("[webview] 로그인 플로우 실패. 종료합니다.")
+                _emit_progress(
+                    progress_callback,
+                    status="login_failed",
+                    message="컬리 로그인에 실패했어요.",
+                    stage="login",
+                    page=page,
+                    final=True,
+                    is_error=True,
+                )
                 return {"cart_added": False, "storage_state_path": None,
                         "delivery_info": "", "error": "login_failed"}
+            _emit_progress(
+                progress_callback,
+                status="login_completed",
+                message="로그인이 완료됐어요.",
+                stage="login",
+                page=page,
+            )
 
         # ── 2. 상품 검색 ──
         print(f"\n[webview] Step 2. 상품 검색 시작 ({search_query})")
+        _emit_progress(
+            progress_callback,
+            status="searching",
+            message=f"'{search_query}' 상품을 검색 중이에요.",
+            stage="search",
+            page=page,
+        )
         _search_product(page, search_query)
+        _emit_progress(
+            progress_callback,
+            status="search_loaded",
+            message="검색 결과 화면을 확인하고 있어요.",
+            stage="search",
+            page=page,
+        )
 
         # ── 3. 검색 결과에서 상품 선택 ──
         print(f"\n[webview] Step 3. 검색 결과에서 상품 선택 ({product_name})")
+        _emit_progress(
+            progress_callback,
+            status="selecting_product",
+            message="검색 결과에서 가장 맞는 상품을 찾는 중이에요.",
+            stage="select_product",
+            page=page,
+        )
         found = _select_product_from_results(page, product_name)
         if not found:
+            _emit_progress(
+                progress_callback,
+                status="product_not_found",
+                message="검색 결과에서 상품을 찾지 못했어요.",
+                stage="select_product",
+                page=page,
+                final=True,
+                is_error=True,
+            )
             return {"cart_added": False, "storage_state_path": None,
                     "delivery_info": "", "error": "product_not_found_in_search"}
+        _emit_progress(
+            progress_callback,
+            status="product_selected",
+            message="상품 상세 화면으로 이동했어요.",
+            stage="product_detail",
+            page=page,
+        )
 
         # ── 4. 배송 정보 추출 ──
         print("\n[webview] Step 4. 배송 정보 확인")
         delivery_info = _extract_delivery_info(page)
+        _emit_progress(
+            progress_callback,
+            status="delivery_checked",
+            message=delivery_info or "배송 정보를 확인했어요.",
+            stage="product_detail",
+            page=page,
+        )
 
         # ── 5. 구매하기 버튼 클릭 ──
         print("\n[webview] Step 5. 구매하기 버튼 클릭")
+        _emit_progress(
+            progress_callback,
+            status="clicking_purchase",
+            message="구매하기 버튼을 누르는 중이에요.",
+            stage="purchase",
+            page=page,
+        )
         clicked = _click_purchase_button(page)
         if not clicked:
+            _emit_progress(
+                progress_callback,
+                status="purchase_button_not_found",
+                message="구매하기 버튼을 찾지 못했어요.",
+                stage="purchase",
+                page=page,
+                final=True,
+                is_error=True,
+            )
             return {"cart_added": False, "storage_state_path": None,
                     "delivery_info": delivery_info, "error": "purchase_button_not_found"}
+        _emit_progress(
+            progress_callback,
+            status="purchase_clicked",
+            message="장바구니 확인 팝업이 열렸어요.",
+            stage="purchase",
+            page=page,
+        )
 
         # ── 6. 장바구니 담기 확인 팝업 처리 ──
         print("\n[webview] Step 6. 장바구니 팝업 처리")
         _confirm_cart(page, quantity=quantity)
+        _emit_progress(
+            progress_callback,
+            status="cart_added",
+            message="장바구니에 상품을 담았어요.",
+            stage="cart",
+            page=page,
+        )
 
         # ── 7. 세션 저장 ──
         print("\n[webview] Step 7. 세션 저장")
         context.storage_state(path=storage_state_path)
         print(f"[webview] 세션 저장: {storage_state_path}")
+        _emit_progress(
+            progress_callback,
+            status="completed",
+            message="장바구니 담기가 완료됐어요.",
+            stage="completed",
+            page=page,
+            final=True,
+        )
 
         return {
             "cart_added": True,
@@ -424,6 +582,15 @@ def run_kurly_purchase(
 
     except Exception as e:
         print(f"[webview] 오류: {e}")
+        _emit_progress(
+            progress_callback,
+            status="unexpected_error",
+            message=f"오류가 발생했어요: {e}",
+            stage="failed",
+            page=page if 'page' in locals() else None,
+            final=True,
+            is_error=True,
+        )
         return {"cart_added": False, "storage_state_path": None,
                 "delivery_info": "", "error": str(e)}
 

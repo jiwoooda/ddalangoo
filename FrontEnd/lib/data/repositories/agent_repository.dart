@@ -347,15 +347,15 @@ class AgentRepository {
     required int conversationId,
     required int orderId,
     required int paymentId,
-    required String result, // "success" or "fail"
+    required String result, // "completed" or "cancelled"
   }) async {
     if (useMock) {
       await Future.delayed(const Duration(milliseconds: 500));
       return _mockResponse(
         result,
-        result == 'success' ? 'completed' : 'payment',
+        result == 'completed' ? 'completed' : 'payment',
         convId: conversationId,
-        customAssistantMessage: result == 'success'
+        customAssistantMessage: result == 'completed'
             ? '결제가 완료되었습니다.'
             : '결제가 취소되었습니다.',
       );

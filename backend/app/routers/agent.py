@@ -1,7 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import asyncio
 from app.schemas.agent import ShoppingRequest, MessageRequest, ConfirmRequest, AgentResponse
 from app.schemas.payment import WebviewResultRequest
 from app.services import agent_service, payment_service
+from app.services.playwright_stream_service import playwright_stream_service
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 
@@ -24,3 +26,24 @@ def confirm_action(conversationId: int, req: ConfirmRequest):
 @router.post("/conversations/{conversationId}/payments/webview-result")
 def webview_result(conversationId: int, req: WebviewResultRequest):
     return payment_service.handle_webview_result(conversationId, req)
+
+
+@router.websocket("/conversations/{conversationId}/playwright-stream")
+async def playwright_stream(conversationId: int, websocket: WebSocket):
+    await websocket.accept()
+    last_version = -1
+
+    try:
+        while True:
+            event = playwright_stream_service.latest(conversationId)
+            if event is not None and event.get("version", -1) != last_version:
+                await websocket.send_json(event)
+                last_version = event["version"]
+                if event.get("final"):
+                    await asyncio.sleep(0.2)
+                    break
+            await asyncio.sleep(0.25)
+    except WebSocketDisconnect:
+        return
+    finally:
+        await websocket.close()

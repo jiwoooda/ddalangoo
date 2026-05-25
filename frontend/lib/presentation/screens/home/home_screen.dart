@@ -1,6 +1,9 @@
 // 홈 화면
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/gpt_voice_service.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
 
@@ -13,9 +16,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final UserRepository _userRepository = UserRepository();
+  final GptVoiceService _voiceService = GptVoiceService.instance;
   String _userName = '';
   bool _isCallHovered = false;
   bool _isLogoutHovered = false;
+  bool _hasPlayedHomeIntro = false;
+  bool _keepSpeakingOnDispose = false;
 
   @override
   void initState() {
@@ -25,16 +31,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadUser() async {
     final userId = await LocalStorage.getUserId();
-    if (userId == null) return;
+    if (userId == null) {
+      _playHomeIntroIfNeeded();
+      return;
+    }
     try {
       final user = await _userRepository.getUser(userId);
+      if (!mounted) return;
       setState(() => _userName = user.name);
     } catch (e) {
       // 유저 정보 로드 실패 시 무시
+    } finally {
+      _playHomeIntroIfNeeded();
     }
   }
 
   Future<void> _logout() async {
+    await _voiceService.stopSpeaking();
     await LocalStorage.clearUserId();
     if (!mounted) return;
     context.go('/login');
@@ -48,6 +61,34 @@ class _HomeScreenState extends State<HomeScreen> {
   void _setLogoutHovered(bool value) {
     if (_isLogoutHovered == value) return;
     setState(() => _isLogoutHovered = value);
+  }
+
+  String get _homeIntroText =>
+      _userName.isEmpty
+      ? '딸랑구와 전화 한통으로 원하는 걸 구매해요! 화면 하단의 초록색 전화 버튼을 눌러 딸랑구를 호출하세요!'
+      : '$_userName님, 딸랑구와 전화 한통으로 원하는 걸 구매해요! 화면 하단의 초록색 전화 버튼을 눌러 딸랑구를 호출하세요!';
+
+  void _playHomeIntroIfNeeded() {
+    if (!mounted || _hasPlayedHomeIntro) return;
+    _hasPlayedHomeIntro = true;
+    unawaited(_voiceService.speak(_homeIntroText));
+  }
+
+  Future<void> _handleCallTap() async {
+    _keepSpeakingOnDispose = true;
+    unawaited(
+      _voiceService.speak('딸랑구를 연결하고 있어요. 잠시만 기다려주세요.'),
+    );
+    if (!mounted) return;
+    context.go('/call');
+  }
+
+  @override
+  void dispose() {
+    if (!_keepSpeakingOnDispose) {
+      unawaited(_voiceService.stopSpeaking());
+    }
+    super.dispose();
   }
 
   @override
@@ -107,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onEnter: (_) => _setCallHovered(true),
                     onExit: (_) => _setCallHovered(false),
                     child: GestureDetector(
-                      onTap: () => context.go('/call'),
+                      onTap: _handleCallTap,
                       child: Container(
                         width: 78,
                         height: 78,
@@ -121,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   BoxShadow(
                                     color: const Color(
                                       0xFF4CAF50,
-                                    ).withOpacity(0.24),
+                                    ).withValues(alpha: 0.24),
                                     blurRadius: 14,
                                     spreadRadius: 1,
                                   ),
@@ -161,7 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   BoxShadow(
                                     color: const Color(
                                       0xFFE8325A,
-                                    ).withOpacity(0.22),
+                                    ).withValues(alpha: 0.22),
                                     blurRadius: 16,
                                     offset: const Offset(0, 8),
                                   ),

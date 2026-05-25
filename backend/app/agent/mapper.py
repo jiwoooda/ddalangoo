@@ -5,8 +5,14 @@ LangGraph ShoppingState의 내부 필드를 프론트 API 명세의 AgentRespons
 프론트 계약은 유지하고, 백엔드 내부 구현만 LangGraph로 교체하는 것이 목적이다.
 """
 
+import json
 from typing import Any, Optional
 from app.schemas.agent import AgentResponse, RecommendationItemInAgent
+
+
+def _log_mapper(event: str, **payload) -> None:
+    log = {"event": event, **payload}
+    print(f"[agent.mapper] {json.dumps(log, ensure_ascii=False, default=str)}")
 
 
 def _recommendation_item_id(product: dict) -> int | None:
@@ -187,15 +193,20 @@ def _map_ui_command(state: dict) -> Optional[dict]:
     현재 LangGraph MVP 결제는 fake password 방식이라 결제 URL이 없을 수 있다.
     mapper가 없는 URL을 만들어내면 프론트가 실제 결제창을 열 수 없으므로, URL이 있을 때만 변환한다.
     """
+    conversation_id = state.get("conversation_id")
     direct_command = state.get("uiCommand") or state.get("ui_command")
     if isinstance(direct_command, dict):
-        return direct_command
+        command = _with_stream_metadata(direct_command, conversation_id)
+        _log_mapper("ui_command_direct", ui_command=command)
+        return command
 
     pending_action = state.get("pending_action") or {}
     pending_payload = pending_action.get("payload") or {}
     payload_command = pending_payload.get("uiCommand") or pending_payload.get("ui_command")
     if isinstance(payload_command, dict):
-        return payload_command
+        command = _with_stream_metadata(payload_command, conversation_id)
+        _log_mapper("ui_command_pending_payload", ui_command=command)
+        return command
 
     payment_url = (
         _payment_url_from(state)
@@ -203,13 +214,37 @@ def _map_ui_command(state: dict) -> Optional[dict]:
         or _payment_url_from(state.get("payment") or {})
     )
     if payment_url:
-        return {
+        command = {
             "type": "open_webview",
             "target": "payment",
             "url": payment_url,
         }
+        command = _with_stream_metadata(command, conversation_id)
+        _log_mapper("ui_command_from_payment_url", ui_command=command)
+        return command
+
+    _log_mapper(
+        "ui_command_missing",
+        stage=state.get("stage"),
+        pending_type=(state.get("pending_action") or {}).get("type"),
+        state_keys=sorted(state.keys()),
+    )
 
     return None
+
+
+def _with_stream_metadata(command: dict, conversation_id: Any) -> dict:
+    mapped = dict(command)
+    if mapped.get("type") != "open_webview" or conversation_id is None:
+        return mapped
+
+    stream_path = (
+        mapped.get("streamPath")
+        or mapped.get("stream_path")
+        or f"/api/agent/conversations/{conversation_id}/playwright-stream"
+    )
+    mapped["streamPath"] = stream_path
+    return mapped
 
 
 def _map_stage(state: dict, ui_command: Optional[dict]) -> str:
@@ -247,6 +282,15 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
     ui_command = _map_ui_command(state)
     stage = _map_stage(state, ui_command)
     candidates = _candidate_products(state)
+    _log_mapper(
+        "state_to_response",
+        conversation_id=conversation_id,
+        original_stage=state.get("stage"),
+        mapped_stage=stage,
+        pending_type=(state.get("pending_action") or {}).get("type"),
+        ui_command=ui_command,
+        recommendation_count=len(candidates),
+    )
 
     return AgentResponse(
         conversationId=conversation_id,

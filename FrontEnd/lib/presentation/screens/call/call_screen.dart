@@ -17,7 +17,7 @@ class CallScreen extends StatefulWidget {
 
 class _CallScreenState extends State<CallScreen> {
   static const double _titleFontSize = 18;
-  static const double _bodyFontSize = 19;
+  static const double _bodyFontSize = 22;
   static const double _supportFontSize = 15;
   static const double _buttonFontSize = 18;
 
@@ -95,15 +95,33 @@ class _CallScreenState extends State<CallScreen> {
 
   void _handleWebviewCommand(CallProvider provider) {
     final webviewUrl = provider.webviewUrl;
-    final orderId = provider.currentOrderId;
-    final paymentId = provider.currentPaymentId;
-    if (webviewUrl == null || orderId == null || paymentId == null) return;
+    debugPrint(
+      '🪟 [CallScreen WebView Check] '
+      'target=${provider.webviewTarget}, '
+      'url=$webviewUrl, '
+      'streamUrl=${provider.webviewStreamUrl}, '
+      'orderId=${provider.currentOrderId}, '
+      'paymentId=${provider.currentPaymentId}, '
+      'uiCommand=${provider.uiCommand}',
+    );
+    if (webviewUrl == null) {
+      debugPrint('🪟 [CallScreen WebView Check] webviewUrl is null, skip open');
+      return;
+    }
 
-    final commandKey = '$webviewUrl|$orderId|$paymentId';
-    if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) return;
+    final commandKey =
+        '$webviewUrl|${provider.webviewStreamUrl}|${provider.webviewTarget}|${provider.currentOrderId}|${provider.currentPaymentId}';
+    if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) {
+      debugPrint(
+        '🪟 [CallScreen WebView Check] already handled. '
+        '_isWebviewOpen=$_isWebviewOpen, commandKey=$commandKey',
+      );
+      return;
+    }
 
     _isWebviewOpen = true;
     _lastWebviewCommandKey = commandKey;
+    debugPrint('🪟 [CallScreen WebView Open] commandKey=$commandKey');
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
@@ -111,11 +129,13 @@ class _CallScreenState extends State<CallScreen> {
         MaterialPageRoute<void>(
           builder: (_) => PaymentWebViewScreen(
             url: webviewUrl,
-            orderId: orderId,
-            paymentId: paymentId,
+            streamUrl: provider.webviewStreamUrl,
+            orderId: provider.currentOrderId,
+            paymentId: provider.currentPaymentId,
           ),
         ),
       );
+      debugPrint('🪟 [CallScreen WebView Close] commandKey=$commandKey');
       _isWebviewOpen = false;
       if (mounted && provider.webviewUrl != webviewUrl) {
         _lastWebviewCommandKey = null;
@@ -684,8 +704,8 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
+                    horizontal: 18,
+                    vertical: 14,
                   ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFFFFF),
@@ -712,7 +732,7 @@ class _CallScreenState extends State<CallScreen> {
                     style: TextStyle(
                       fontSize: _bodyFontSize,
                       color: const Color(0xFF333333),
-                      height: 1.4,
+                      height: 1.5,
                       fontWeight: isUser ? FontWeight.w500 : FontWeight.w700,
                     ),
                   ),

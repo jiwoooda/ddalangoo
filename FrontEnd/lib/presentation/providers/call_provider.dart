@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../core/network/api_client.dart';
 import '../../data/models/agent_model.dart';
 import '../../data/repositories/agent_repository.dart';
 import '../../core/storage/local_storage.dart';
@@ -28,6 +29,7 @@ class CallProvider extends ChangeNotifier {
   static const Duration _minTtsTimeout = Duration(seconds: 8);
   static const Duration _maxTtsTimeout = Duration(seconds: 20);
   final AgentRepository _agentRepository = AgentRepository();
+  final UserRepository _userRepository = UserRepository();
   final GptVoiceService _voiceService = GptVoiceService.instance;
   final GptRealtimeVoiceService _realtimeVoiceService =
       GptRealtimeVoiceService.instance;
@@ -66,24 +68,49 @@ class CallProvider extends ChangeNotifier {
       _lastResponse?.uiCommand is Map
       ? Map<String, dynamic>.from(_lastResponse!.uiCommand as Map)
       : null;
+  String? get webviewTarget {
+    final command = uiCommand;
+    if (command == null || command['type'] != 'open_webview') return null;
+    final target = command['target'] ?? command['webview_type'];
+    return target is String && target.isNotEmpty ? target : null;
+  }
   String? get webviewUrl {
     final command = uiCommand;
     if (command == null || command['type'] != 'open_webview') return null;
     final url = command['url'];
     return url is String && url.isNotEmpty ? url : null;
   }
+  String? get webviewStreamUrl {
+    final command = uiCommand;
+    if (command == null || command['type'] != 'open_webview') return null;
+
+    final rawUrl = command['streamUrl'] ?? command['stream_url'];
+    if (rawUrl is String && rawUrl.isNotEmpty) return rawUrl;
+
+    final rawPath = command['streamPath'] ?? command['stream_path'];
+    if (rawPath is! String || rawPath.isEmpty) return null;
+
+    final baseUri = Uri.parse(ApiClient.baseUrl);
+    final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
+    return baseUri.replace(
+      scheme: wsScheme,
+      path: rawPath,
+      query: null,
+      fragment: null,
+    ).toString();
+  }
   String get webviewStatusText {
     final asyncMessage = currentAsyncStatusMessage;
     if (asyncMessage != null) return asyncMessage;
     if (currentAssistantMessage.isNotEmpty) return currentAssistantMessage;
 
-    final target = uiCommand?['target'];
+    final target = webviewTarget;
     if (target == 'cart') return '장바구니에 담는 중이에요.';
     if (target == 'payment') return '결제 화면을 준비하고 있어요.';
     return '웹 화면을 준비하고 있어요.';
   }
   String get webviewTargetLabel {
-    final target = uiCommand?['target'];
+    final target = webviewTarget;
     if (target == 'cart') return '장바구니 작업';
     if (target == 'payment') return '결제 진행';
     if (target == 'checkout') return '주문 진행';
@@ -136,11 +163,25 @@ class CallProvider extends ChangeNotifier {
       final userId = await LocalStorage.getUserId();
       if (userId == null) throw Exception('로그인이 필요합니다');
 
+      String greetingName = '';
+      try {
+        final user = await _userRepository.getUser(userId);
+        greetingName = user.name.trim();
+      } catch (e) {
+        debugPrint('⚠️ [Call Start User Load Error] $e');
+      }
+
       _conversationId = null;
       _lastResponse = null;
       _stage = CallStage.idle;
       _errorMessage = null;
       _messages.clear();
+      _addMessage(
+        text: greetingName.isEmpty
+            ? '무엇을 구매하고 싶으신가요?'
+            : '$greetingName님, 무엇을 구매하고 싶으신가요?',
+        isUser: false,
+      );
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
