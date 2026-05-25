@@ -19,6 +19,27 @@ def test_webview_status_default_matches_frontend_contract():
     )
 
 
+def test_webview_progress_emit_always_includes_screenshot_url():
+    """캡처가 아직 없어도 프론트가 같은 screenshotUrl을 폴링할 수 있어야 한다."""
+    conversation_id = 999004
+    webview_progress_service.clear_progress(conversation_id)
+
+    status = webview_progress_service.emit_progress(
+        conversation_id,
+        step="payment_ready",
+        message="주문 준비가 완료되었습니다.",
+        flow="payment",
+        status="waiting_user_action",
+    )
+
+    assert status["step"] == "payment_ready"
+    assert status["message"] == "주문 준비가 완료되었습니다."
+    assert status["screenshotUrl"] == (
+        f"/api/agent/conversations/{conversation_id}/webview/screenshot"
+    )
+    assert webview_progress_service.get_latest_status(conversation_id) == status
+
+
 def test_product_pending_confirmation_uses_documented_actions():
     """내부 accept 액션은 API 명세의 order_now로 정규화한다."""
     response = state_to_response(

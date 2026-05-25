@@ -120,8 +120,9 @@ def emit_progress(
     }
     if flow:
         payload["flow"] = flow
-    if screenshot_bytes or conversation_id in _latest_screenshot:
-        payload["screenshotUrl"] = _screenshot_url(conversation_id)
+    # 프론트는 progress 표시 중 항상 같은 screenshot endpoint를 폴링할 수 있다.
+    # 아직 캡처가 없으면 endpoint가 204를 반환하고, 캡처가 생기면 같은 URL에서 이미지를 내려준다.
+    payload["screenshotUrl"] = _screenshot_url(conversation_id)
     if screenshot_path:
         payload["debugScreenshotPath"] = screenshot_path
     if meta:

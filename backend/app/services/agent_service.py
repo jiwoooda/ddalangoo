@@ -13,6 +13,12 @@ from app.repositories import (
     user_repository,
 )
 from app.agent import runtime, mapper, actions, product_data_layer, recommendation_sync
+from app.services import webview_progress_service
+
+try:
+    from langchain_core.messages import AIMessage
+except ImportError:  # pragma: no cover - langchain_core는 앱 런타임 의존성이다.
+    AIMessage = None
 
 
 async def _sync_recommendations(
@@ -87,6 +93,25 @@ def _payment_response(payment: dict) -> dict:
         "paymentAmount": payment["payment_amount"],
         "paymentUrl": payment.get("payment_url"),
     }
+
+
+def _payment_ready_message(order_bundle: dict) -> str:
+    """주문/결제 레코드가 준비된 뒤 프론트와 TTS에 내려줄 문장을 만든다."""
+    order_items = order_bundle.get("order_items") or []
+    first_item = order_items[0] if order_items else {}
+    product_name = first_item.get("product_name_snapshot") or "상품"
+    quantity = first_item.get("quantity") or 1
+    total_amount = (order_bundle.get("order") or {}).get("total_payment_amount") or 0
+    if total_amount:
+        return f"'{product_name}' {quantity}개 주문 준비가 완료되었습니다. 결제를 진행해 주세요. 총 {total_amount:,}원입니다."
+    return f"'{product_name}' {quantity}개 주문 준비가 완료되었습니다. 결제를 진행해 주세요."
+
+
+def _assistant_message_patch(message: str) -> list:
+    """LangGraph messages에 assistant 응답을 추가할 수 있는 형태로 감싼다."""
+    if AIMessage is None:
+        return [{"role": "assistant", "content": message}]
+    return [AIMessage(content=message)]
 
 
 def _intent_type_from(intent: str | None, needs_clarification: bool | None) -> str:
@@ -442,11 +467,26 @@ async def _persist_cart_order_payment_for_confirm(
             output_summary={"payment_id": payment_bundle["payment"]["id"], "payment_status": payment_bundle["payment"]["payment_status"]},
         )
 
+        assistant_message = _payment_ready_message(order_bundle)
+        progress_payload = webview_progress_service.emit_progress(
+            conversation_id,
+            step="payment_ready",
+            message=assistant_message,
+            flow="payment",
+            status="waiting_user_action",
+            meta={
+                "orderId": order_bundle["order"]["id"],
+                "paymentId": payment_bundle["payment"]["id"],
+            },
+        )
+
         state_patch.update({
             "stage": "payment_password_required",
+            "messages": _assistant_message_patch(assistant_message),
+            "webview_progress": progress_payload,
             "pending_action": {
                 "type": "payment_confirm",
-                "message": "주문 준비가 완료되었습니다. 결제를 진행해 주세요.",
+                "message": assistant_message,
                 "payload": {
                     "orderId": order_bundle["order"]["id"],
                     "paymentId": payment_bundle["payment"]["id"],
