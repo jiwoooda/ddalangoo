@@ -41,7 +41,10 @@ class CallProvider extends ChangeNotifier {
   bool _isListening = false; // STT 녹음 중
   bool _isTranscribing = false; // STT 전사/전송 중
   bool _isSpeaking = false; // TTS 재생 중
+  bool _isAwaitingAssistantPresentation = false;
   String? _errorMessage;
+  String _userDisplayName = '';
+  String? _assistantPresentationMessage;
   final List<Map<String, dynamic>> _messages = [];
   LatencyRequestContext? _activeLatencyContext;
 
@@ -52,8 +55,10 @@ class CallProvider extends ChangeNotifier {
   bool get isListening => _isListening;
   bool get isTranscribing => _isTranscribing;
   bool get isSpeaking => _isSpeaking;
+  bool get isAwaitingAssistantPresentation => _isAwaitingAssistantPresentation;
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get messages => _messages;
+  String? get assistantPresentationMessage => _assistantPresentationMessage;
   String get currentAssistantMessage =>
       (_lastResponse?.assistantMessage ?? '').trim();
   String? get currentAsyncStatusMessage {
@@ -64,56 +69,34 @@ class CallProvider extends ChangeNotifier {
     }
     return null;
   }
-  Map<String, dynamic>? get uiCommand =>
-      _lastResponse?.uiCommand is Map
-      ? Map<String, dynamic>.from(_lastResponse!.uiCommand as Map)
-      : null;
-  String? get webviewTarget {
-    final command = uiCommand;
-    if (command == null || command['type'] != 'open_webview') return null;
-    final target = command['target'] ?? command['webview_type'];
-    return target is String && target.isNotEmpty ? target : null;
-  }
-  String? get webviewUrl {
-    final command = uiCommand;
-    if (command == null || command['type'] != 'open_webview') return null;
-    final url = command['url'];
-    return url is String && url.isNotEmpty ? url : null;
-  }
   String? get webviewStreamUrl {
-    final command = uiCommand;
-    if (command == null || command['type'] != 'open_webview') return null;
-
-    final rawUrl = command['streamUrl'] ?? command['stream_url'];
-    if (rawUrl is String && rawUrl.isNotEmpty) return rawUrl;
-
-    final rawPath = command['streamPath'] ?? command['stream_path'];
-    if (rawPath is! String || rawPath.isEmpty) return null;
+    final conversationId = _conversationId;
+    if (conversationId == null) return null;
 
     final baseUri = Uri.parse(ApiClient.baseUrl);
     final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
     return baseUri.replace(
       scheme: wsScheme,
-      path: rawPath,
+      path: '/api/agent/conversations/$conversationId/webview',
       query: null,
       fragment: null,
     ).toString();
   }
+  String get webviewUrl => 'about:blank';
+  bool get canShowWebviewProgress =>
+      _conversationId != null &&
+      (_stage == CallStage.cart || _stage == CallStage.payment);
   String get webviewStatusText {
     final asyncMessage = currentAsyncStatusMessage;
     if (asyncMessage != null) return asyncMessage;
     if (currentAssistantMessage.isNotEmpty) return currentAssistantMessage;
-
-    final target = webviewTarget;
-    if (target == 'cart') return '장바구니에 담는 중이에요.';
-    if (target == 'payment') return '결제 화면을 준비하고 있어요.';
+    if (_stage == CallStage.cart) return '장바구니에 담는 중이에요.';
+    if (_stage == CallStage.payment) return '결제 화면을 준비하고 있어요.';
     return '웹 화면을 준비하고 있어요.';
   }
   String get webviewTargetLabel {
-    final target = webviewTarget;
-    if (target == 'cart') return '장바구니 작업';
-    if (target == 'payment') return '결제 진행';
-    if (target == 'checkout') return '주문 진행';
+    if (_stage == CallStage.cart) return '장바구니 작업';
+    if (_stage == CallStage.payment) return '결제 진행';
     return '웹 진행 상황';
   }
   int? get currentOrderId {
@@ -139,6 +122,11 @@ class CallProvider extends ChangeNotifier {
       return pending['payload']['paymentId'] as int;
     }
     return null;
+  }
+  Future<Map<String, dynamic>?> getWebviewStatus() async {
+    final conversationId = _conversationId;
+    if (conversationId == null) return null;
+    return _agentRepository.getWebviewStatus(conversationId);
   }
   bool get canUseVoice =>
       _stage != CallStage.loading &&
@@ -167,6 +155,7 @@ class CallProvider extends ChangeNotifier {
       try {
         final user = await _userRepository.getUser(userId);
         greetingName = user.name.trim();
+        _userDisplayName = greetingName;
       } catch (e) {
         debugPrint('⚠️ [Call Start User Load Error] $e');
       }
@@ -175,14 +164,38 @@ class CallProvider extends ChangeNotifier {
       _lastResponse = null;
       _stage = CallStage.idle;
       _errorMessage = null;
+      _assistantPresentationMessage = null;
+      _isAwaitingAssistantPresentation = false;
       _messages.clear();
-      _addMessage(
-        text: greetingName.isEmpty
-            ? '무엇을 구매하고 싶으신가요?'
-            : '$greetingName님, 무엇을 구매하고 싶으신가요?',
-        isUser: false,
-      );
+      final greetingText = greetingName.isEmpty
+          ? '무엇을 구매하고 싶으신가요?'
+          : '$greetingName님, 무엇을 구매하고 싶으신가요?';
+      unawaited(_voiceService.prefetchSpeech(greetingText));
+      var greetingPresented = false;
+      _isSpeaking = true;
       notifyListeners();
+      try {
+        await _voiceService.speak(
+          greetingText,
+          onPlaybackStart: () {
+            if (greetingPresented) return;
+            greetingPresented = true;
+            _addMessage(
+              text: greetingText,
+              isUser: false,
+            );
+          },
+        );
+      } finally {
+        if (!greetingPresented) {
+          _addMessage(
+            text: greetingText,
+            isUser: false,
+          );
+        }
+        _isSpeaking = false;
+        notifyListeners();
+      }
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -433,6 +446,8 @@ class CallProvider extends ChangeNotifier {
     _isListening = false;
     _isTranscribing = false;
     _isSpeaking = false;
+    _isAwaitingAssistantPresentation = false;
+    _assistantPresentationMessage = null;
     _activeLatencyContext = null;
     notifyListeners();
   }
@@ -443,44 +458,18 @@ class CallProvider extends ChangeNotifier {
     LatencyRequestContext? latencyContext,
   }) async {
     final oldStage = _stage;
-    _lastResponse = response;
+    final nextStage = _mapResponseStage(response);
     _conversationId = response.conversationId;
-
-    // 딸랑구 말풍선 추가
-    _addMessage(text: response.assistantMessage, isUser: false);
+    _assistantPresentationMessage = _buildAssistantPresentationMessage(
+      response,
+      nextStage,
+    );
+    _isAwaitingAssistantPresentation = true;
+    var responsePresented = false;
 
     // stage 결정
     if (response.asyncStatus != null) {
       _stage = CallStage.loading;
-    } else {
-      switch (response.stage) {
-        case 'clarification':
-          _stage = CallStage.clarification;
-          break;
-        case 'platform_selection':
-          _stage = CallStage.platformSelection;
-          break;
-        case 'product_selection':
-        case 'product_confirming':
-          _stage = CallStage.productSelection;
-          break;
-        case 'cart':
-        case 'cart_shopping':
-          _stage = CallStage.cart;
-          break;
-        case 'payment':
-        case 'address_confirming':
-        case 'payment_precheck':
-        case 'payment_password_required':
-        case 'payment_processing':
-          _stage = CallStage.payment;
-          break;
-        case 'completed':
-          _stage = CallStage.completed;
-          break;
-        default:
-          _stage = CallStage.clarification;
-      }
     }
 
     debugPrint(
@@ -488,7 +477,7 @@ class CallProvider extends ChangeNotifier {
         'conversationId': response.conversationId,
         'backendStatus': response.status,
         'backendStage': response.stage,
-        'mappedUiStage': _stage.name,
+        'mappedUiStage': nextStage.name,
         'pendingConfirmation': response.pendingConfirmation,
         'recommendationCount': response.recommendations.length,
         'assistantMessage': response.assistantMessage,
@@ -504,7 +493,7 @@ class CallProvider extends ChangeNotifier {
     }
 
     debugPrint(
-      '🔄 [Provider State Change] $oldStage -> $_stage (ConvID: $_conversationId)',
+      '🔄 [Provider State Change] $oldStage -> ${nextStage.name} (ConvID: $_conversationId)',
     );
     notifyListeners();
 
@@ -514,7 +503,15 @@ class CallProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _voiceService
-          .speak(response.assistantMessage, latencyContext: latencyContext)
+          .speak(
+            response.assistantMessage,
+            latencyContext: latencyContext,
+            onPlaybackStart: () {
+              if (responsePresented) return;
+              responsePresented = true;
+              _presentAssistantResponse(response, nextStage);
+            },
+          )
           .timeout(_ttsTimeoutFor(response.assistantMessage));
     } on TimeoutException catch (e) {
       debugPrint(
@@ -527,7 +524,12 @@ class CallProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('🔇 [TTS Fallback] $e');
     } finally {
+      if (!responsePresented) {
+        _presentAssistantResponse(response, nextStage);
+      }
       _isSpeaking = false;
+      _isAwaitingAssistantPresentation = false;
+      _assistantPresentationMessage = null;
       notifyListeners();
     }
 
@@ -562,6 +564,78 @@ class CallProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _presentAssistantResponse(AgentResponse response, CallStage nextStage) {
+    final lastMessage = _messages.isNotEmpty ? _messages.last : null;
+    final alreadyAddedAssistant =
+        lastMessage != null &&
+        lastMessage['isUser'] == false &&
+        lastMessage['text'] == response.assistantMessage;
+    _lastResponse = response;
+    _stage = nextStage;
+    if (!alreadyAddedAssistant) {
+      _addMessage(text: response.assistantMessage, isUser: false);
+    }
+  }
+
+  CallStage _mapResponseStage(AgentResponse response) {
+    if (response.asyncStatus != null) {
+      return CallStage.loading;
+    }
+
+    switch (response.stage) {
+      case 'clarification':
+        return CallStage.clarification;
+      case 'platform_selection':
+        return CallStage.platformSelection;
+      case 'product_selection':
+      case 'product_confirming':
+        return CallStage.productSelection;
+      case 'cart':
+      case 'cart_shopping':
+        return CallStage.cart;
+      case 'payment':
+      case 'address_confirming':
+      case 'payment_precheck':
+      case 'payment_password_required':
+      case 'payment_processing':
+        return CallStage.payment;
+      case 'completed':
+        return CallStage.completed;
+      default:
+        return CallStage.clarification;
+    }
+  }
+
+  String _buildAssistantPresentationMessage(
+    AgentResponse response,
+    CallStage nextStage,
+  ) {
+    final prefix = _userDisplayName.isEmpty ? '' : '$_userDisplayName님을 위한 ';
+    if (response.asyncStatus is Map && response.asyncStatus['message'] is String) {
+      final asyncMessage = (response.asyncStatus['message'] as String).trim();
+      if (asyncMessage.isNotEmpty) return asyncMessage;
+    }
+
+    switch (nextStage) {
+      case CallStage.productSelection:
+        return '$prefix맞춤 상품을 정리하고 있어요.';
+      case CallStage.cart:
+        return '장바구니 진행 상황을 차분히 안내하고 있어요.';
+      case CallStage.payment:
+        return '결제에 필요한 내용을 천천히 안내하고 있어요.';
+      case CallStage.completed:
+        return '주문 결과를 정리해서 안내하고 있어요.';
+      case CallStage.platformSelection:
+        return '$prefix쇼핑 플랫폼을 살펴보고 있어요.';
+      case CallStage.clarification:
+        return '말씀하신 내용을 이해해서 안내를 준비하고 있어요.';
+      case CallStage.loading:
+        return '처리 결과를 정리하고 있어요.';
+      case CallStage.idle:
+        return '답변을 준비하고 있어요.';
+    }
+  }
+
   Duration _ttsTimeoutFor(String text) {
     final estimatedSeconds = 20 + (text.runes.length ~/ 10);
     final clampedSeconds = estimatedSeconds.clamp(
@@ -569,5 +643,36 @@ class CallProvider extends ChangeNotifier {
       _maxTtsTimeout.inSeconds,
     );
     return Duration(seconds: clampedSeconds);
+  }
+
+  void loadPreviewState({
+    required CallStage stage,
+    AgentResponse? response,
+    List<Map<String, dynamic>> messages = const [],
+    int? conversationId,
+    String userDisplayName = '김영희',
+    bool isLoading = false,
+    bool isListening = false,
+    bool isTranscribing = false,
+    bool isSpeaking = false,
+    bool isAwaitingAssistantPresentation = false,
+    String? assistantPresentationMessage,
+    String? errorMessage,
+  }) {
+    _stage = stage;
+    _lastResponse = response;
+    _conversationId = conversationId;
+    _userDisplayName = userDisplayName;
+    _isLoading = isLoading;
+    _isListening = isListening;
+    _isTranscribing = isTranscribing;
+    _isSpeaking = isSpeaking;
+    _isAwaitingAssistantPresentation = isAwaitingAssistantPresentation;
+    _assistantPresentationMessage = assistantPresentationMessage;
+    _errorMessage = errorMessage;
+    _messages
+      ..clear()
+      ..addAll(messages);
+    notifyListeners();
   }
 }

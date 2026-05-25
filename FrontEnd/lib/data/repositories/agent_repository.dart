@@ -187,6 +187,15 @@ class AgentRepository {
     return AgentResponse.fromJson(response.data);
   }
 
+  Future<Map<String, dynamic>?> getWebviewStatus(int conversationId) async {
+    final response = await _dio.get(
+      '/api/agent/conversations/$conversationId/webview/status',
+    );
+    final data = response.data;
+    if (data is! Map<String, dynamic>) return null;
+    return data;
+  }
+
   // 메시지 보내기 (STT 결과 전송)
   Future<AgentResponse> sendMessage({
     required int conversationId,

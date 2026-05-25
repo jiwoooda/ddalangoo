@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +10,7 @@ import 'presentation/screens/auth/login_screen.dart';
 import 'presentation/screens/auth/register_screen.dart';
 import 'presentation/screens/home/home_screen.dart';
 import 'presentation/screens/call/call_screen.dart';
+import 'presentation/screens/preview/ui_preview_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/services/gpt_voice_service.dart';
 import 'core/services/gpt_realtime_voice_service.dart';
@@ -21,7 +24,17 @@ void main() async {
   );
   await GptVoiceService.instance.init();
   await GptRealtimeVoiceService.instance.init();
+  _warmCommonTtsPhrases();
   runApp(const DdalangooApp());
+}
+
+void _warmCommonTtsPhrases() {
+  final commonPhrases = <String>[
+    '딸랑구를 연결하고 있어요. 잠시만 기다려주세요.',
+    '무엇을 구매하고 싶으신가요?',
+    '구매 완료되었습니다!',
+  ];
+  unawaited(GptVoiceService.instance.prefetchMultiple(commonPhrases));
 }
 
 class DdalangooApp extends StatelessWidget {
@@ -207,6 +220,11 @@ final GoRouter _router = GoRouter(
       name: 'call',
       path: '/call',
       builder: (context, state) => const CallScreen(),
+    ),
+    GoRoute(
+      name: 'ui-preview',
+      path: '/ui-preview',
+      builder: (context, state) => const UiPreviewScreen(),
     ),
   ],
 );

@@ -178,15 +178,28 @@ class GptVoiceService {
     return _geminiTts.synthesizeSpeechToFile(text);
   }
 
+  Future<void> prefetchSpeech(String text) async {
+    await _geminiTts.prefetchSpeech(text);
+  }
+
+  Future<void> prefetchMultiple(Iterable<String> texts) async {
+    await _geminiTts.prefetchMultiple(texts);
+  }
+
   Future<void> speak(
     String text, {
     LatencyRequestContext? latencyContext,
+    VoidCallback? onPlaybackStart,
   }) async {
     final normalized = text.trim();
     if (normalized.isEmpty) {
       throw Exception('음성으로 읽을 텍스트가 비어 있습니다.');
     }
-    await _geminiTts.speak(normalized, latencyContext: latencyContext);
+    await _geminiTts.speak(
+      normalized,
+      latencyContext: latencyContext,
+      onPlaybackStart: onPlaybackStart,
+    );
   }
 
   Future<void> stopSpeaking() async {

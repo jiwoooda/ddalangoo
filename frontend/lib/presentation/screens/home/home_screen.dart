@@ -8,7 +8,16 @@ import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    this.previewUserName,
+    this.enableDataLoad = true,
+    this.enableVoiceIntro = true,
+  });
+
+  final String? previewUserName;
+  final bool enableDataLoad;
+  final bool enableVoiceIntro;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -26,7 +35,14 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUser();
+    if (widget.previewUserName != null) {
+      _userName = widget.previewUserName!;
+    }
+    if (widget.enableDataLoad) {
+      _loadUser();
+    } else if (widget.enableVoiceIntro) {
+      _playHomeIntroIfNeeded();
+    }
   }
 
   Future<void> _loadUser() async {
@@ -47,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _logout() async {
+    if (!widget.enableDataLoad) return;
     await _voiceService.stopSpeaking();
     await LocalStorage.clearUserId();
     if (!mounted) return;
@@ -68,17 +85,31 @@ class _HomeScreenState extends State<HomeScreen> {
       ? '딸랑구와 전화 한통으로 원하는 걸 구매해요! 화면 하단의 초록색 전화 버튼을 눌러 딸랑구를 호출하세요!'
       : '$_userName님, 딸랑구와 전화 한통으로 원하는 걸 구매해요! 화면 하단의 초록색 전화 버튼을 눌러 딸랑구를 호출하세요!';
 
+  String get _callGreetingText =>
+      _userName.isEmpty ? '무엇을 구매하고 싶으신가요?' : '$_userName님, 무엇을 구매하고 싶으신가요?';
+
+  void _warmScreenTtsPhrases() {
+    unawaited(
+      _voiceService.prefetchMultiple([
+        _homeIntroText,
+        _callGreetingText,
+        '딸랑구를 연결하고 있어요. 잠시만 기다려주세요.',
+      ]),
+    );
+  }
+
   void _playHomeIntroIfNeeded() {
-    if (!mounted || _hasPlayedHomeIntro) return;
+    if (!mounted || _hasPlayedHomeIntro || !widget.enableVoiceIntro) return;
     _hasPlayedHomeIntro = true;
+    _warmScreenTtsPhrases();
     unawaited(_voiceService.speak(_homeIntroText));
   }
 
   Future<void> _handleCallTap() async {
+    if (!widget.enableDataLoad) return;
     _keepSpeakingOnDispose = true;
-    unawaited(
-      _voiceService.speak('딸랑구를 연결하고 있어요. 잠시만 기다려주세요.'),
-    );
+    await _voiceService.stopSpeaking();
+    await _voiceService.speak('딸랑구를 연결하고 있어요. 잠시만 기다려주세요.');
     if (!mounted) return;
     context.go('/call');
   }

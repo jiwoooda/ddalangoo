@@ -27,6 +27,7 @@ class GeminiVoiceService {
   static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
   static const String _ttsVoiceName = 'Zephyr';
   static const String _useGeminiTtsEnvKey = 'USE_GEMINI_TTS';
+  static const double _ttsSpeedMultiplier = 1.2;
   static const int _sampleRate = 44100;
   static const int _numChannels = 1;
   static const int _ttsSampleRate = 24000;
@@ -258,7 +259,28 @@ class GeminiVoiceService {
     return file.path;
   }
 
-  Future<void> speak(String text, {LatencyRequestContext? latencyContext}) async {
+  Future<void> prefetchSpeech(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) return;
+
+    try {
+      await _getOrCreateSpeech(normalized);
+    } catch (e) {
+      debugPrint('⚠️ [Gemini TTS Prefetch Error] "$normalized" $e');
+    }
+  }
+
+  Future<void> prefetchMultiple(Iterable<String> texts) async {
+    for (final text in texts) {
+      await prefetchSpeech(text);
+    }
+  }
+
+  Future<void> speak(
+    String text, {
+    LatencyRequestContext? latencyContext,
+    VoidCallback? onPlaybackStart,
+  }) async {
     if (_isSpeaking) await stopSpeaking();
     _isSpeaking = true;
     _speakCompleter = Completer<void>();
@@ -276,7 +298,7 @@ class GeminiVoiceService {
             'frontend_tts_ready',
           );
         }
-        await _speakWithFallbackTts(text);
+        await _speakWithFallbackTts(text, onPlaybackStart: onPlaybackStart);
         _markAudioPlayEnd();
         _finishSpeaking();
         return;
@@ -305,13 +327,14 @@ class GeminiVoiceService {
       if (latencyContext != null) {
         FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
       }
+      onPlaybackStart?.call();
       await _player.play(speechSource);
       await _speakCompleter!.future;
     } catch (e) {
       debugPrint('❌ [Gemini TTS Error] $e');
 
       try {
-        await _speakWithFallbackTts(text);
+        await _speakWithFallbackTts(text, onPlaybackStart: onPlaybackStart);
       } finally {
         _markAudioPlayEnd();
         _finishSpeaking();
@@ -462,7 +485,7 @@ class GeminiVoiceService {
   }
 
   String _buildTtsCacheKey(String text) =>
-      '$_ttsModelName|$_ttsVoiceName|1.2|$text';
+      '$_ttsModelName|$_ttsVoiceName|$_ttsSpeedMultiplier|$text';
 
   void _rememberTtsCache(String cacheKey, Uint8List wavBytes) {
     _ttsCache.remove(cacheKey);
@@ -556,7 +579,7 @@ class GeminiVoiceService {
       await _fallbackTts.awaitSpeakCompletion(true);
       await _fallbackTts.setLanguage('ko-KR');
       await _fallbackTts.setPitch(1.15);
-      await _fallbackTts.setSpeechRate(0.52);
+      await _fallbackTts.setSpeechRate(0.62);
     } catch (e) {
       debugPrint('⚠️ [Fallback TTS Config Error] $e');
     }
@@ -593,7 +616,10 @@ class GeminiVoiceService {
     return statusCode == 429 || statusCode == 503;
   }
 
-  Future<void> _speakWithFallbackTts(String text) async {
+  Future<void> _speakWithFallbackTts(
+    String text, {
+    VoidCallback? onPlaybackStart,
+  }) async {
     debugPrint('🟠 [Fallback TTS] Gemini TTS 대신 로컬 TTS를 사용합니다.');
     await _player.stop();
     _playbackFallbackTimer?.cancel();
@@ -601,6 +627,7 @@ class GeminiVoiceService {
     if (latencyContext != null) {
       FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
     }
+    onPlaybackStart?.call();
     await _fallbackTts.speak(text);
   }
 
@@ -624,7 +651,8 @@ class GeminiVoiceService {
                     'Speak like a warm, affectionate daughter helping an older parent shop. '
                     'Use a bright, reassuring, and very kind tone. '
                     'Keep the voice gentle, patient, and easy for older adults to understand. '
-                    'Do not rush. Pause naturally between sentences. '
+                    'Speak about 1.2x faster than a neutral default pace without sounding rushed. '
+                    'Pause naturally between sentences. '
                     'Pronounce prices, quantities, dates, addresses, and payment-related words very clearly. '
                     'Sound friendly and comforting, never cold or robotic. '
                     'Do not add, remove, or change any words.\n$text',
