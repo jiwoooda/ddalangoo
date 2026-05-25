@@ -18,7 +18,7 @@
         }
       ],
       "commands": [
-        "if [ -d /app/vendor/ddalangoo-langgraph/meta-mcp ]; then cd /app/vendor/ddalangoo-langgraph/meta-mcp && npm ci; elif [ -d /app/backend/vendor/ddalangoo-langgraph/meta-mcp ]; then cd /app/backend/vendor/ddalangoo-langgraph/meta-mcp && npm ci; else echo 'meta-mcp directory not found; skipping npm ci'; fi"
+        "[ -f /app/vendor/ddalangoo-langgraph/meta-mcp/package-lock.json ] && cd /app/vendor/ddalangoo-langgraph/meta-mcp && npm ci || true"
       ]
     }
   },
