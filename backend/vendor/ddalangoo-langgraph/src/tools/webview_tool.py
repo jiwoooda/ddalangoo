@@ -721,7 +721,8 @@ def check_product_price(
         storage_state_path = "kurly_session.json"
 
     playwright = sync_playwright().start()
-    browser = playwright.webkit.launch(headless=False)
+    # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
+    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
 
     context_kwargs = {
         "viewport": VIEWPORT,
