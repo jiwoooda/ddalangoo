@@ -16,6 +16,10 @@ def _get_database_url() -> str:
             "DATABASE_URL 환경변수가 필요합니다. "
             "예: postgresql+asyncpg://user:password@localhost:5432/ddalangoo"
         )
+    # Railway는 기본적으로 postgresql:// URL을 제공한다.
+    # 앱은 SQLAlchemy async engine을 쓰므로 asyncpg 드라이버를 명시해야 한다.
+    if DATABASE_URL.startswith("postgresql://"):
+        return DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
     return DATABASE_URL
 
 

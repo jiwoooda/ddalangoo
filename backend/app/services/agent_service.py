@@ -160,6 +160,25 @@ def _is_product_confirmation_accept(
     return pending_action_before == "product_confirm" and state.get("intent") == "confirm"
 
 
+def _is_payment_method_accept(
+    state: dict,
+    pending_action_before: str | None,
+) -> bool:
+    """결제수단 확인 단계에서 사용자가 수락했는지 판단한다."""
+    return pending_action_before == "payment_method_confirm" and state.get("intent") == "confirm"
+
+
+def _selected_recommendation_item_id(state: dict) -> int | None:
+    """현재 선택된 상품에서 DB recommendation_item_id를 찾는다."""
+    selected = state.get("selected_product") or {}
+    if not isinstance(selected, dict):
+        return None
+    return (
+        selected.get("recommendation_item_id")
+        or selected.get("recommendationItemId")
+    )
+
+
 async def _persist_external_search_log(
     db: AsyncSession,
     *,
@@ -542,6 +561,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             "message": "대화를 찾을 수 없습니다.",
         })
 
+    pending_action_before = _pending_action_type_from(snapshot.values)
     state = await runtime.resume(conversation_id=conversation_id, message=req.message)
     user_id = int(snapshot.values["user_id"])
     state = await _run_post_graph_persistence(
@@ -551,8 +571,19 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         user_message=req.message,
         state=state,
         stage_before=snapshot.values.get("stage"),
-        pending_action_before=_pending_action_type_from(snapshot.values),
+        pending_action_before=pending_action_before,
     )
+    if _is_payment_method_accept(state, pending_action_before):
+        recommendation_item_id = _selected_recommendation_item_id(state)
+        if recommendation_item_id is not None:
+            state = await _persist_cart_order_payment_for_confirm(
+                db,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                action="order_now",
+                recommendation_item_id=int(recommendation_item_id),
+                state=state,
+            )
     return mapper.state_to_response(state, conversation_id)
 
 

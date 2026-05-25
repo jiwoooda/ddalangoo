@@ -7,10 +7,12 @@ from app.routers import (
     admin, dev, cart
 )
 from app.agent import runtime
+from app.core.migrations import run_migrations
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await run_migrations()
     await runtime.init()
     yield
     await runtime.shutdown()
