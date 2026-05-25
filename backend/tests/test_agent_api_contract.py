@@ -157,6 +157,29 @@ def test_product_pending_confirmation_uses_documented_actions():
     }
 
 
+def test_blocked_product_confirmation_does_not_readd_order_actions():
+    """주문 불가 후보는 pending actions에 order_now를 다시 붙이지 않는다."""
+    response = state_to_response(
+        {
+            "stage": "product_confirming",
+            "messages": [{"role": "assistant", "content": "컬리 상품만 지원해요."}],
+            "pending_action": {
+                "type": "product_confirm",
+                "message": "컬리 상품만 지원해요.",
+                "payload": {
+                    "recommendationItemId": 10,
+                    "actions": ["reject"],
+                    "orderBlockReason": "real_browser_requires_kurly",
+                },
+            },
+        },
+        conversation_id=999008,
+    )
+
+    assert response.pendingConfirmation["payload"]["actions"] == ["reject"]
+    assert response.pendingConfirmation["payload"]["orderBlockReason"] == "real_browser_requires_kurly"
+
+
 def test_price_change_pending_confirmation_uses_documented_type():
     """가격 변경 확인은 clarification이 아니라 price_changed로 내려준다."""
     response = state_to_response(

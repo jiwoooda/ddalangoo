@@ -310,9 +310,27 @@ async def _block_real_browser_unsupported_order(
     )
     selected_product["is_orderable"] = False
     selected_product["order_block_reason"] = "real_browser_requires_kurly"
+
+    def mark_blocked_candidate(product: dict) -> dict:
+        """선택된 추천 후보가 카드 목록에서도 주문 불가로 보이도록 동기화한다."""
+        mapped = dict(product)
+        candidate_id = mapped.get("recommendation_item_id") or mapped.get("recommendationItemId")
+        if candidate_id == recommendation_item_id:
+            mapped["is_orderable"] = False
+            mapped["order_block_reason"] = "real_browser_requires_kurly"
+        return mapped
+
     return await runtime.update_state(conversation_id, {
         "stage": "product_confirming",
         "selected_product": selected_product,
+        "recommended_products": [
+            mark_blocked_candidate(product)
+            for product in state.get("recommended_products", [])
+        ],
+        "search_results": [
+            mark_blocked_candidate(product)
+            for product in state.get("search_results", [])
+        ],
         "webview_progress": progress_payload,
         "pending_action": {
             "type": "product_confirm",
