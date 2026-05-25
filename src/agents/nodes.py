@@ -63,11 +63,12 @@ def quantity_check_node(state: ShoppingState) -> dict:
     상품 확인 후 수량이 없을 때 호출.
     pending_action으로 수량 질문을 설정하고 respond로 넘긴다.
     """
-    product_name = (state.get("selected_product") or {}).get("product_name", "해당 상품")
+    keywords = state.get("keywords") or []
+    short_name = keywords[0] if keywords else (state.get("selected_product") or {}).get("product_name", "상품")
     return {
         "pending_action": {
             "type": "quantity_confirm",
-            "message": f"네, {product_name}으로 구매하겠습니다. 몇 개 살까요?",
+            "message": f"{short_name} 몇 개 사실래요?",
         }
     }
 

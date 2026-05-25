@@ -12,6 +12,7 @@ VLM이 필수인 단계: _select_product_from_results (검색 결과는 매번 �
   ANTHROPIC_API_KEY : Claude API 키
   KURLY_EMAIL       : 컬리 로그인 이메일
   KURLY_PASSWORD    : 컬리 로그인 비밀번호
+  WEBVIEW_HEADLESS  : true면 서버 환경에서 headless 브라우저로 실행
 """
 import anthropic
 import base64
@@ -32,6 +33,7 @@ client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 KURLY_EMAIL    = os.environ.get("KURLY_EMAIL", "")
 KURLY_PASSWORD = os.environ.get("KURLY_PASSWORD", "")
 KURLY_BASE_URL = "https://www.kurly.com"
+WEBVIEW_HEADLESS = os.environ.get("WEBVIEW_HEADLESS", "true").lower() != "false"
 
 VIEWPORT = {"width": 390, "height": 844}
 USER_AGENT = (
@@ -719,7 +721,8 @@ def check_product_price(
         storage_state_path = "kurly_session.json"
 
     playwright = sync_playwright().start()
-    browser = playwright.webkit.launch(headless=False)
+    # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
+    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
 
     context_kwargs = {
         "viewport": VIEWPORT,
@@ -792,7 +795,8 @@ def run_kurly_purchase(
 
     playwright = sync_playwright().start()
     print("[webview] 브라우저(Webkit) 시작...")
-    browser = playwright.webkit.launch(headless=False)
+    # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
+    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
 
     context_kwargs = {
         "viewport": VIEWPORT,
@@ -819,7 +823,7 @@ def run_kurly_purchase(
                     progress_callback,
                     flow=flow,
                     step="opening_product",
-                    message="이전에 구매한 상품 페이지로 이동하고 있어요.",
+                    message="이전 상품 페이지 열고 있어요.",
                 )
                 page.goto(reorder_url, timeout=10000)
                 page.wait_for_load_state("domcontentloaded")
@@ -836,7 +840,7 @@ def run_kurly_purchase(
                     progress_callback,
                     flow=flow,
                     step="opening_product",
-                    message="이전에 구매한 상품 페이지로 이동하고 있어요.",
+                    message="이전 상품 페이지 열고 있어요.",
                     page=page,
                 )
                 print(f"[webview] 상품 URL 확인: {product_url}")
@@ -847,7 +851,7 @@ def run_kurly_purchase(
                     progress_callback,
                     flow=flow,
                     step="fallback_searching",
-                    message="상품 페이지가 바뀌어서 다시 검색하고 있어요.",
+                    message="상품이 바뀌어서 다시 찾고 있어요.",
                     page=page,
                 )
                 reorder_url = None

@@ -112,12 +112,20 @@ def _build_delivery_address(state: ShoppingState) -> dict:
 def _delivery_completion_msg(delivery_info: str) -> str:
     """배송 정보에서 도착 예정 멘트 생성."""
     if "샛별" in delivery_info:
-        return " 내일 아침 7시 전에 도착할거예요!"
+        return " 내일 아침 7시 전 도착이에요."
     if "로켓" in delivery_info:
-        return " 내일 도착할거예요!"
+        return " 내일 도착이에요."
     if "당일" in delivery_info:
-        return " 오늘 도착할거예요!"
+        return " 오늘 도착이에요."
     return ""
+
+
+def _short_address(address_display: str) -> str:
+    """긴 주소에서 핵심 부분만 추출 (TTS용)."""
+    parts = address_display.split()
+    if len(parts) > 3:
+        return " ".join(parts[:3]) + "..."
+    return address_display
 
 
 def payment_agent_node(state: ShoppingState) -> dict:
@@ -126,6 +134,8 @@ def payment_agent_node(state: ShoppingState) -> dict:
 
     selected_product = state.get("selected_product") or {}
     product_name = selected_product.get("product_name", "상품")
+    keywords = state.get("keywords") or []
+    short_name = keywords[0] if keywords else product_name
     price = _coerce_positive_int(selected_product.get("price"), default=0) or 0
     quantity = _coerce_positive_int(state.get("quantity"), default=None)
     if quantity is None:
@@ -135,7 +145,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
             "last_agent": "payment_agent",
             "pending_action": {
                 "type": "quantity_confirm",
-                "message": f"네, {product_name}으로 구매하겠습니다. 몇 개 살까요?",
+                "message": f"{short_name} 몇 개 사실래요?",
             },
         }
 
@@ -147,7 +157,17 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     intent = state.get("intent")
     use_real_browser = os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
-    if use_real_browser and stage not in ("cart_shopping", "payment_processing"):
+    selected_platform = (selected_product.get("platform") or "").lower()
+    # 수량 입력 직후에는 결제수단/주소 확인이 아직 끝나지 않았다.
+    # 실제 브라우저 자동화는 주소 확인까지 수락된 컬리 상품에서만 시도한다.
+    should_run_real_browser = (
+        use_real_browser
+        and selected_platform == "kurly"
+        and pending_type == "address_confirm"
+        and intent == "confirm"
+        and stage not in ("cart_shopping", "payment_processing")
+    )
+    if should_run_real_browser:
         from src.tools.webview_tool import run_kurly_purchase
 
         stored_url = selected_product.get("product_url", "")
@@ -214,9 +234,8 @@ def payment_agent_node(state: ShoppingState) -> dict:
                 "pending_action": {
                     "type": "price_change_confirm",
                     "message": (
-                        f"'{product_name}'의 가격이 이전 {history_price:,}원에서 "
-                        f"현재 {current_price:,}원으로 {direction}. "
-                        "그래도 구매하실 건가요?"
+                        f"{short_name} 가격이 {history_price:,}원에서 "
+                        f"{current_price:,}원으로 {direction}. 그래도 살까요?"
                     ),
                     "payload": {
                         "current_price": current_price,
@@ -247,6 +266,11 @@ def payment_agent_node(state: ShoppingState) -> dict:
             }
             new_cart_items = existing_cart_items + [new_cart_item]
 
+            if len(new_cart_items) > 1:
+                cart_msg = f"{short_name}도 담았어요! 총 {len(new_cart_items)}가지예요. 결제할까요?"
+            else:
+                cart_msg = f"{short_name} 담았어요! 바로 결제할까요, 다른 것도 보실래요?"
+
             return {
                 "stage": "cart_shopping",
                 "storage_state_path": result["storage_state_path"],
@@ -256,10 +280,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
                 "last_agent": "payment_agent",
                 "pending_action": {
                     "type": "continue_shopping",
-                    "message": (
-                        f"'{product_name}'을(를) 장바구니에 담았어요. "
-                        "결제하시겠어요, 아니면 같은 플랫폼에서 다른 상품도 더 보시겠어요?"
-                    ),
+                    "message": cart_msg,
                     "payload": {"storage_state_path": result["storage_state_path"]},
                 },
             }
@@ -277,13 +298,14 @@ def payment_agent_node(state: ShoppingState) -> dict:
     if stage == "cart_shopping" or pending_type is None:
         cart_items = state.get("cart_items") or []
         if len(cart_items) > 1:
-            items_text = ", ".join(
-                f"'{item['product_name']}' {item['quantity']}개" for item in cart_items
-            )
             cart_total = sum(item["total"] for item in cart_items)
-            payment_msg = f"{items_text}, 총 {cart_total:,}원입니다! 네이버 페이로 결제하실래요?"
+            items_summary = ", ".join(
+                f"{(item.get('keywords') or [item.get('product_name', '상품')])[0]} {item.get('quantity', 1)}개"
+                for item in cart_items
+            )
+            payment_msg = f"{items_summary}, 총 {cart_total:,}원이에요. 네이버로 결제할까요?"
         else:
-            payment_msg = f"'{product_name}' {quantity}개, 총 {total:,}원입니다! 네이버 페이로 결제하실래요?"
+            payment_msg = f"{short_name} {quantity}개, {total:,}원이에요. 네이버로 결제할까요?"
         return {
             "stage": "payment_processing",
             "error": None,
@@ -308,7 +330,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
             "last_agent": "payment_agent",
             "pending_action": {
                 "type": "address_confirm",
-                "message": f"배송지 '{address_display}'로 보낼게요! 맞으시죠?",
+                "message": f"{_short_address(address_display)}로 보낼게요. 맞으시죠?",
             },
         }
 
@@ -322,7 +344,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
             "last_agent": "payment_agent",
             "pending_action": {
                 "type": "payment_password",
-                "message": "비밀번호를 입력해주세요!",
+                "message": "비밀번호 입력해주세요!",
             },
         }
 
@@ -340,7 +362,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
             arrival_msg = _delivery_completion_msg(delivery_info)
             result["pending_action"] = {
                 "type": "payment_confirm",
-                "message": f"구매 완료되었습니다!{arrival_msg}",
+                "message": f"완료!{arrival_msg}" if arrival_msg else "완료! 주문이 접수됐어요.",
             }
             result["storage_state_path"] = None
             cart_items = state.get("cart_items") or []
@@ -366,9 +388,6 @@ def payment_agent_node(state: ShoppingState) -> dict:
         "last_agent": "payment_agent",
         "pending_action": {
             "type": "payment_method_confirm",
-            "message": (
-                f"'{product_name}' {quantity}개, 총 {total:,}원입니다! "
-                "네이버 페이로 결제하실래요?"
-            ),
+            "message": f"{short_name} {quantity}개, {total:,}원이에요. 네이버로 결제할까요?",
         },
     }
