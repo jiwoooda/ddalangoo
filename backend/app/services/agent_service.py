@@ -1,3 +1,5 @@
+import os
+
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,12 @@ from app.repositories import (
     user_repository,
 )
 from app.agent import runtime, mapper, actions, product_data_layer, recommendation_sync
+from app.services import webview_progress_service
+
+try:
+    from langchain_core.messages import AIMessage
+except ImportError:  # pragma: no cover - langchain_core는 앱 런타임 의존성이다.
+    AIMessage = None
 
 
 async def _sync_recommendations(
@@ -87,6 +95,25 @@ def _payment_response(payment: dict) -> dict:
         "paymentAmount": payment["payment_amount"],
         "paymentUrl": payment.get("payment_url"),
     }
+
+
+def _payment_ready_message(order_bundle: dict) -> str:
+    """주문/결제 레코드가 준비된 뒤 프론트와 TTS에 내려줄 문장을 만든다."""
+    order_items = order_bundle.get("order_items") or []
+    first_item = order_items[0] if order_items else {}
+    product_name = first_item.get("product_name_snapshot") or "상품"
+    quantity = first_item.get("quantity") or 1
+    total_amount = (order_bundle.get("order") or {}).get("total_payment_amount") or 0
+    if total_amount:
+        return f"'{product_name}' {quantity}개 주문 준비가 완료되었습니다. 결제를 진행해 주세요. 총 {total_amount:,}원입니다."
+    return f"'{product_name}' {quantity}개 주문 준비가 완료되었습니다. 결제를 진행해 주세요."
+
+
+def _assistant_message_patch(message: str) -> list:
+    """LangGraph messages에 assistant 응답을 추가할 수 있는 형태로 감싼다."""
+    if AIMessage is None:
+        return [{"role": "assistant", "content": message}]
+    return [AIMessage(content=message)]
 
 
 def _intent_type_from(intent: str | None, needs_clarification: bool | None) -> str:
@@ -168,6 +195,19 @@ def _is_payment_method_accept(
     return pending_action_before == "payment_method_confirm" and state.get("intent") == "confirm"
 
 
+def _should_create_order_from_message(
+    state: dict,
+    pending_action_before: str | None,
+) -> bool:
+    """자연어 /messages 흐름에서 주문 생성 후처리를 연결해야 하는지 판단한다."""
+    return (
+        pending_action_before in {"payment_method_confirm", "address_confirm"}
+        and state.get("intent") == "confirm"
+        and not state.get("order")
+        and not state.get("payment")
+    )
+
+
 def _selected_recommendation_item_id(state: dict) -> int | None:
     """현재 선택된 상품에서 DB recommendation_item_id를 찾는다."""
     selected = state.get("selected_product") or {}
@@ -177,6 +217,135 @@ def _selected_recommendation_item_id(state: dict) -> int | None:
         selected.get("recommendation_item_id")
         or selected.get("recommendationItemId")
     )
+
+
+def _real_browser_enabled() -> bool:
+    """Railway/env에서 실제 브라우저 흐름이 켜져 있는지 확인한다."""
+    return os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
+
+
+def _is_kurly_browser_product(selected_product: dict) -> bool:
+    """실제 브라우저 자동화가 처리할 수 있는 컬리 상품인지 확인한다."""
+    platform = (selected_product.get("platform") or "").lower()
+    product_url = (selected_product.get("product_url") or selected_product.get("url") or "").lower()
+    return platform == "kurly" and "kurly.com" in product_url
+
+
+def _emit_real_browser_progress(
+    conversation_id: int,
+    *,
+    selected_product: dict,
+    order_bundle: dict,
+    payment_bundle: dict,
+    assistant_message: str,
+) -> dict:
+    """
+    DB 주문 준비 직후 웹뷰 진행 상태를 남긴다.
+
+    현재 실제 브라우저 자동화는 컬리 모바일웹 도구만 있으므로,
+    네이버 상품은 조용히 idle로 남기지 않고 명시적인 failed progress로 기록한다.
+    """
+    platform = (selected_product.get("platform") or "").lower()
+    base_meta = {
+        "orderId": order_bundle["order"]["id"],
+        "paymentId": payment_bundle["payment"]["id"],
+        "platform": platform or None,
+    }
+
+    if not _real_browser_enabled():
+        return webview_progress_service.emit_progress(
+            conversation_id,
+            step="payment_ready",
+            message=assistant_message,
+            flow="payment",
+            status="waiting_user_action",
+            meta=base_meta,
+        )
+
+    if platform and platform != "kurly":
+        return webview_progress_service.emit_progress(
+            conversation_id,
+            step="payment_automation_unsupported",
+            message="현재 이 플랫폼은 자동 웹뷰 결제를 아직 지원하지 않아요.",
+            flow="payment",
+            status="failed",
+            meta={
+                **base_meta,
+                "error": "unsupported_real_browser_platform",
+            },
+        )
+
+    return webview_progress_service.emit_progress(
+        conversation_id,
+        step="searching_product",
+        message="컬리에서 상품을 찾고 있어요.",
+        flow="payment",
+        status="running",
+        meta=base_meta,
+    )
+
+
+async def _block_real_browser_unsupported_order(
+    conversation_id: int,
+    *,
+    recommendation_item_id: int,
+    state: dict,
+) -> dict:
+    """실제 브라우저 모드에서 컬리가 아닌 상품을 조용히 주문 생성하지 않도록 막는다."""
+    selected_product = dict(state.get("selected_product") or {})
+    platform = (selected_product.get("platform") or "").lower() or None
+    product_url = selected_product.get("product_url") or selected_product.get("url")
+    message = "현재 실제 자동 주문은 마켓컬리 상품만 지원해요. 컬리 상품으로 다시 찾아볼까요?"
+    progress_payload = webview_progress_service.emit_progress(
+        conversation_id,
+        step="payment_automation_unsupported",
+        message=message,
+        flow="payment",
+        status="failed",
+        meta={
+            "platform": platform,
+            "productUrl": product_url,
+            "error": "unsupported_real_browser_platform",
+        },
+    )
+    selected_product["is_orderable"] = False
+    selected_product["order_block_reason"] = "real_browser_requires_kurly"
+
+    def mark_blocked_candidate(product: dict) -> dict:
+        """선택된 추천 후보가 카드 목록에서도 주문 불가로 보이도록 동기화한다."""
+        mapped = dict(product)
+        candidate_id = mapped.get("recommendation_item_id") or mapped.get("recommendationItemId")
+        if candidate_id == recommendation_item_id:
+            mapped["is_orderable"] = False
+            mapped["order_block_reason"] = "real_browser_requires_kurly"
+        return mapped
+
+    return await runtime.update_state(conversation_id, {
+        "stage": "product_confirming",
+        "selected_product": selected_product,
+        "recommended_products": [
+            mark_blocked_candidate(product)
+            for product in state.get("recommended_products", [])
+        ],
+        "search_results": [
+            mark_blocked_candidate(product)
+            for product in state.get("search_results", [])
+        ],
+        "webview_progress": progress_payload,
+        "pending_action": {
+            "type": "product_confirm",
+            "message": message,
+            "payload": {
+                "recommendationItemId": recommendation_item_id,
+                "actions": ["reject"],
+                "orderBlockReason": "real_browser_requires_kurly",
+            },
+        },
+        "messages": _assistant_message_patch(message),
+        "order": None,
+        "payment": None,
+    })
+
 
 
 async def _persist_external_search_log(
@@ -364,6 +533,18 @@ async def _persist_cart_order_payment_for_confirm(
     if action not in {"add_to_cart", "order_now"}:
         return state
 
+    selected_product = state.get("selected_product") or {}
+    if (
+        action == "order_now"
+        and _real_browser_enabled()
+        and not _is_kurly_browser_product(selected_product if isinstance(selected_product, dict) else {})
+    ):
+        return await _block_real_browser_unsupported_order(
+            conversation_id,
+            recommendation_item_id=recommendation_item_id,
+            state=state,
+        )
+
     try:
         cart = await cart_repository.get_or_create_active_cart_db(
             db,
@@ -442,11 +623,23 @@ async def _persist_cart_order_payment_for_confirm(
             output_summary={"payment_id": payment_bundle["payment"]["id"], "payment_status": payment_bundle["payment"]["payment_status"]},
         )
 
+        assistant_message = _payment_ready_message(order_bundle)
+        selected_product = state.get("selected_product") or {}
+        progress_payload = _emit_real_browser_progress(
+            conversation_id,
+            selected_product=selected_product if isinstance(selected_product, dict) else {},
+            order_bundle=order_bundle,
+            payment_bundle=payment_bundle,
+            assistant_message=assistant_message,
+        )
+
         state_patch.update({
             "stage": "payment_password_required",
+            "messages": _assistant_message_patch(assistant_message),
+            "webview_progress": progress_payload,
             "pending_action": {
                 "type": "payment_confirm",
-                "message": "주문 준비가 완료되었습니다. 결제를 진행해 주세요.",
+                "message": assistant_message,
                 "payload": {
                     "orderId": order_bundle["order"]["id"],
                     "paymentId": payment_bundle["payment"]["id"],
@@ -573,7 +766,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         stage_before=snapshot.values.get("stage"),
         pending_action_before=pending_action_before,
     )
-    if _is_payment_method_accept(state, pending_action_before):
+    if _should_create_order_from_message(state, pending_action_before):
         recommendation_item_id = _selected_recommendation_item_id(state)
         if recommendation_item_id is not None:
             state = await _persist_cart_order_payment_for_confirm(

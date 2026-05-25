@@ -9,8 +9,15 @@ from app.repositories import (
     payment_repository,
     purchase_history_repository,
 )
+from app.agent import runtime
 from app.schemas.payment import PaymentDetailResponse, WebviewResultRequest, PaymentRetryRequest
+from app.services import webview_progress_service
 from fastapi import HTTPException
+
+try:
+    from langchain_core.messages import AIMessage
+except ImportError:  # pragma: no cover - langchain_core는 앱 런타임 의존성이다.
+    AIMessage = None
 
 def _to_detail(p: dict) -> PaymentDetailResponse:
     return PaymentDetailResponse(
@@ -47,6 +54,13 @@ def handle_webview_result(conversation_id: int, req: WebviewResultRequest):
         return {**base, "status": "failed", "stage": "failed",
                 "assistantMessage": "결제에 실패했습니다.", "uiCommand": None,
                 "error": {"category": "PAYMENT_ERROR", "code": "PAYMENT_FAILED", "message": "결제 실패"}}
+
+
+def _assistant_message_patch(message: str) -> list:
+    """결제 결과 반영 후 checkpoint의 마지막 assistant 메시지를 갱신한다."""
+    if AIMessage is None:
+        return [{"role": "assistant", "content": message}]
+    return [AIMessage(content=message)]
 
 
 async def handle_webview_result_db(
@@ -125,6 +139,25 @@ async def handle_webview_result_db(
             input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
             output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
         )
+        webview_progress_service.clear_progress(conversation_id)
+        await runtime.update_state(conversation_id, {
+            "stage": "completed",
+            "messages": _assistant_message_patch("결제가 완료되었습니다."),
+            "pending_action": None,
+            "order": {
+                "orderId": updated_order["id"],
+                "status": updated_order["status"],
+                "totalPaymentAmount": updated_order["total_payment_amount"],
+            },
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "orderId": updated_payment["order_id"],
+                "paymentStatus": updated_payment["payment_status"],
+                "paymentProvider": updated_payment["payment_provider"],
+                "paymentAmount": updated_payment["payment_amount"],
+            },
+            "webview_progress": None,
+        })
         return {
             **base,
             "status": "order_completed",
@@ -175,6 +208,18 @@ async def handle_webview_result_db(
             input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
             output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
         )
+        webview_progress_service.clear_progress(conversation_id)
+        await runtime.update_state(conversation_id, {
+            "stage": "cancelled",
+            "messages": _assistant_message_patch("결제가 취소되었습니다."),
+            "pending_action": None,
+            "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "paymentStatus": updated_payment["payment_status"],
+            },
+            "webview_progress": None,
+        })
         return {
             **base,
             "status": "cancelled",
@@ -218,6 +263,19 @@ async def handle_webview_result_db(
         input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
         output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
     )
+    webview_progress_service.clear_progress(conversation_id)
+    await runtime.update_state(conversation_id, {
+        "stage": "failed",
+        "messages": _assistant_message_patch("결제에 실패했습니다."),
+        "pending_action": None,
+        "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+        "payment": {
+            "paymentId": updated_payment["id"],
+            "paymentStatus": updated_payment["payment_status"],
+        },
+        "webview_progress": None,
+        "error": "webview_result_failed",
+    })
     return {
         **base,
         "status": "failed",

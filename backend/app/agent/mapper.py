@@ -63,6 +63,9 @@ def _product_confirm_actions(payload: dict) -> list[str]:
         if mapped_action not in normalized:
             normalized.append(mapped_action)
 
+    if payload.get("orderBlockReason"):
+        return normalized
+
     documented_order = ["order_now", "add_to_cart", "reject"]
     for required_action in documented_order:
         if required_action not in normalized:
@@ -93,6 +96,8 @@ def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
         item_id = payload.get("recommendationItemId") or payload.get("recommendation_item_id")
         if item_id:
             mapped_payload["recommendationItemId"] = item_id
+        if payload.get("orderBlockReason"):
+            mapped_payload["orderBlockReason"] = payload["orderBlockReason"]
         return {
             "type": "product",
             "message": message,

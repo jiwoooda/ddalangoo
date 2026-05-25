@@ -8,6 +8,7 @@ Kurly 제안 로직:
 - naver/coupang 검색 후 신선식품 키워드가 있고 kurly를 아직 안 써봤으면
   product_agent를 건너뛰고 바로 "마켓컬리에서도 찾아볼까요?" 제안.
 """
+import os
 from typing import Any
 from src.state.schema import ShoppingState
 from src.tools.meta_mcp_client import search_products as meta_search
@@ -30,6 +31,8 @@ PLATFORM_DEFAULTS_BY_CONDITION = {
 
 PLATFORM_DEFAULTS_BY_KEYWORD = {
     "과일": "kurly", "딸기": "kurly", "채소": "kurly", "정육": "kurly",
+    "아보카도": "kurly", "블루베리": "kurly", "두부": "kurly",
+    "달걀": "kurly", "계란": "kurly", "식재료": "kurly", "신선": "kurly",
     "화장품": "oliveyoung", "뷰티": "oliveyoung",
     "패션": "musinsa", "의류": "musinsa", "신발": "musinsa",
 }
@@ -40,6 +43,16 @@ _KURLY_SUGGEST_KEYWORDS = {
     "갈비", "등심", "안심", "차돌", "불고기", "수육", "삼겹살", "육류",
     "두부", "버섯", "콩나물", "시금치", "신선", "식재료", "고기",
 }
+
+
+def _env_true(name: str) -> bool:
+    """문자열 환경변수를 bool 플래그처럼 해석한다."""
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _kurly_mvp_mode() -> bool:
+    """실제 브라우저 MVP에서는 자동화 가능한 컬리만 주문 후보로 사용한다."""
+    return _env_true("USE_REAL_BROWSER") or os.environ.get("MVP_MODE", "").strip().lower() == "kurly"
 
 
 def _select_platforms(state: ShoppingState, recommendation_context: dict) -> list[str]:
@@ -56,6 +69,9 @@ def _select_platforms(state: ShoppingState, recommendation_context: dict) -> lis
     target = state.get("target_platforms") or []
     if target:
         return target
+
+    if _kurly_mvp_mode():
+        return ["kurly"]
 
     pref = recommendation_context.get("preference_memory", {})
     platform_pattern = pref.get("platform_pattern", {})
@@ -132,7 +148,11 @@ def platform_agent_node(state: ShoppingState) -> dict:
         }
 
     # ── 신선식품 키워드 감지 → 검색 없이 바로 컬리 제안 ──
-    if pending_action.get("type") != "platform_suggest" and _should_suggest_kurly_early(keywords, tried_platforms):
+    if (
+        not _kurly_mvp_mode()
+        and pending_action.get("type") != "platform_suggest"
+        and _should_suggest_kurly_early(keywords, tried_platforms)
+    ):
         result = {
             "tried_platforms": list(set(tried_platforms + ["kurly"])),
             "target_platforms": [],

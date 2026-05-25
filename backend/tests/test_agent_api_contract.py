@@ -1,5 +1,7 @@
 from app.agent.mapper import state_to_response
+from app.services import agent_service
 from app.services import webview_progress_service
+from src.agents import platform_agent
 
 
 def test_webview_status_default_matches_frontend_contract():
@@ -17,6 +19,114 @@ def test_webview_status_default_matches_frontend_contract():
     assert status["screenshotUrl"] == (
         f"/api/agent/conversations/{conversation_id}/webview/screenshot"
     )
+
+
+def test_webview_status_normalizes_legacy_idle_payload():
+    """예전 서버 메모리의 idle payload도 현재 프론트 계약 형태로 보정한다."""
+    conversation_id = 999006
+    webview_progress_service.clear_progress(conversation_id)
+    webview_progress_service._latest_status[conversation_id] = {
+        "type": "webview_progress",
+        "conversationId": conversation_id,
+        "status": "idle",
+    }
+
+    status = webview_progress_service.get_status_or_default(conversation_id)
+
+    assert status["status"] == "waiting"
+    assert status["step"] == "not_started"
+    assert status["message"]
+    assert status["screenshotUrl"] == (
+        f"/api/agent/conversations/{conversation_id}/webview/screenshot"
+    )
+
+
+def test_webview_progress_emit_always_includes_screenshot_url():
+    """캡처가 아직 없어도 프론트가 같은 screenshotUrl을 폴링할 수 있어야 한다."""
+    conversation_id = 999004
+    webview_progress_service.clear_progress(conversation_id)
+
+    status = webview_progress_service.emit_progress(
+        conversation_id,
+        step="payment_ready",
+        message="주문 준비가 완료되었습니다.",
+        flow="payment",
+        status="waiting_user_action",
+    )
+
+    assert status["step"] == "payment_ready"
+    assert status["message"] == "주문 준비가 완료되었습니다."
+    assert status["screenshotUrl"] == (
+        f"/api/agent/conversations/{conversation_id}/webview/screenshot"
+    )
+    assert webview_progress_service.get_latest_status(conversation_id) == status
+
+
+def test_messages_address_confirm_can_trigger_order_creation():
+    """주소 확인 수락도 /messages 자연어 흐름에서 주문 생성 후처리 대상이다."""
+    assert agent_service._should_create_order_from_message(
+        {"intent": "confirm"},
+        "address_confirm",
+    )
+
+
+def test_real_browser_unsupported_platform_records_failed_progress(monkeypatch):
+    """실제 브라우저 모드에서 지원하지 않는 플랫폼은 idle 대신 failed progress를 남긴다."""
+    conversation_id = 999005
+    webview_progress_service.clear_progress(conversation_id)
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+
+    status = agent_service._emit_real_browser_progress(
+        conversation_id,
+        selected_product={"platform": "naver"},
+        order_bundle={"order": {"id": 77}},
+        payment_bundle={"payment": {"id": 88}},
+        assistant_message="주문 준비가 완료되었습니다.",
+    )
+
+    assert status["status"] == "failed"
+    assert status["step"] == "payment_automation_unsupported"
+    assert status["screenshotUrl"] == (
+        f"/api/agent/conversations/{conversation_id}/webview/screenshot"
+    )
+    assert status["meta"]["orderId"] == 77
+    assert status["meta"]["paymentId"] == 88
+    assert status["meta"]["error"] == "unsupported_real_browser_platform"
+
+
+def test_real_browser_kurly_product_records_searching_progress(monkeypatch):
+    """컬리 상품은 실제 브라우저 모드에서 검색 진행 상태로 시작한다."""
+    conversation_id = 999007
+    webview_progress_service.clear_progress(conversation_id)
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+
+    status = agent_service._emit_real_browser_progress(
+        conversation_id,
+        selected_product={
+            "platform": "kurly",
+            "product_url": "https://www.kurly.com/search?sword=아보카도",
+        },
+        order_bundle={"order": {"id": 79}},
+        payment_bundle={"payment": {"id": 90}},
+        assistant_message="주문 준비가 완료되었습니다.",
+    )
+
+    assert status["status"] == "running"
+    assert status["step"] == "searching_product"
+    assert status["message"] == "컬리에서 상품을 찾고 있어요."
+    assert status["meta"]["platform"] == "kurly"
+
+
+def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
+    """실제 브라우저 MVP에서는 아보카도 같은 신선식품을 컬리 후보로 검색한다."""
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+
+    platforms = platform_agent._select_platforms(
+        {"keywords": ["아보카도"]},
+        {},
+    )
+
+    assert platforms == ["kurly"]
 
 
 def test_product_pending_confirmation_uses_documented_actions():
@@ -45,6 +155,29 @@ def test_product_pending_confirmation_uses_documented_actions():
             "recommendationItemId": 10,
         },
     }
+
+
+def test_blocked_product_confirmation_does_not_readd_order_actions():
+    """주문 불가 후보는 pending actions에 order_now를 다시 붙이지 않는다."""
+    response = state_to_response(
+        {
+            "stage": "product_confirming",
+            "messages": [{"role": "assistant", "content": "컬리 상품만 지원해요."}],
+            "pending_action": {
+                "type": "product_confirm",
+                "message": "컬리 상품만 지원해요.",
+                "payload": {
+                    "recommendationItemId": 10,
+                    "actions": ["reject"],
+                    "orderBlockReason": "real_browser_requires_kurly",
+                },
+            },
+        },
+        conversation_id=999008,
+    )
+
+    assert response.pendingConfirmation["payload"]["actions"] == ["reject"]
+    assert response.pendingConfirmation["payload"]["orderBlockReason"] == "real_browser_requires_kurly"
 
 
 def test_price_change_pending_confirmation_uses_documented_type():

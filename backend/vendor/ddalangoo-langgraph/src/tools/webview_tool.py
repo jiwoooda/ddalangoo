@@ -12,6 +12,7 @@ VLM이 필수인 단계: _select_product_from_results (검색 결과는 매번 �
   ANTHROPIC_API_KEY : Claude API 키
   KURLY_EMAIL       : 컬리 로그인 이메일
   KURLY_PASSWORD    : 컬리 로그인 비밀번호
+  WEBVIEW_HEADLESS  : true면 서버 환경에서 headless 브라우저로 실행
 """
 import anthropic
 import base64
@@ -32,6 +33,7 @@ client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 KURLY_EMAIL    = os.environ.get("KURLY_EMAIL", "")
 KURLY_PASSWORD = os.environ.get("KURLY_PASSWORD", "")
 KURLY_BASE_URL = "https://www.kurly.com"
+WEBVIEW_HEADLESS = os.environ.get("WEBVIEW_HEADLESS", "true").lower() != "false"
 
 VIEWPORT = {"width": 390, "height": 844}
 USER_AGENT = (
@@ -719,7 +721,8 @@ def check_product_price(
         storage_state_path = "kurly_session.json"
 
     playwright = sync_playwright().start()
-    browser = playwright.webkit.launch(headless=False)
+    # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
+    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
 
     context_kwargs = {
         "viewport": VIEWPORT,
@@ -790,29 +793,28 @@ def run_kurly_purchase(
     if not storage_state_path:
         storage_state_path = "kurly_session.json"
 
-    playwright = None
-    browser = None
+    playwright = sync_playwright().start()
+    print("[webview] 브라우저(Webkit) 시작...")
+    # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
+    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
+
+    context_kwargs = {
+        "viewport": VIEWPORT,
+        "user_agent": USER_AGENT,
+        "locale": "ko-KR",
+        "has_touch": True,  # 모바일 터치 이벤트 활성화 (page.tap() 필수)
+    }
+    if storage_state_path and os.path.exists(storage_state_path):
+        context_kwargs["storage_state"] = storage_state_path
+        print(f"[webview] 세션 복원: {storage_state_path}")
+
+    context = browser.new_context(**context_kwargs)
+    page = context.new_page()
+    page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+    stealth_sync(page)
     flow = progress_flow or ("reorder" if reorder_url else "new_purchase")
+
     try:
-        playwright = sync_playwright().start()
-        print("[webview] 브라우저(Webkit) 시작...")
-        browser = playwright.webkit.launch(headless=False)
-
-        context_kwargs = {
-            "viewport": VIEWPORT,
-            "user_agent": USER_AGENT,
-            "locale": "ko-KR",
-            "has_touch": True,  # 모바일 터치 이벤트 활성화 (page.tap() 필수)
-        }
-        if storage_state_path and os.path.exists(storage_state_path):
-            context_kwargs["storage_state"] = storage_state_path
-            print(f"[webview] 세션 복원: {storage_state_path}")
-
-        context = browser.new_context(**context_kwargs)
-        page = context.new_page()
-        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
-        stealth_sync(page)
-
         # ── 재구매: URL로 바로 진입 (검색/VLM 단계 스킵) ──
         if reorder_url:
             try:
@@ -978,7 +980,5 @@ def run_kurly_purchase(
                 "delivery_info": "", "error": str(e)}
 
     finally:
-        if browser is not None:
-            browser.close()
-        if playwright is not None:
-            playwright.stop()
+        browser.close()
+        playwright.stop()
