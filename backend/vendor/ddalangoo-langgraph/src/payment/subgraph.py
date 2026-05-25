@@ -147,7 +147,17 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     intent = state.get("intent")
     use_real_browser = os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
-    if use_real_browser and stage not in ("cart_shopping", "payment_processing"):
+    selected_platform = (selected_product.get("platform") or "").lower()
+    # 수량 입력 직후에는 결제수단/주소 확인이 아직 끝나지 않았다.
+    # 실제 브라우저 자동화는 주소 확인까지 수락된 컬리 상품에서만 시도한다.
+    should_run_real_browser = (
+        use_real_browser
+        and selected_platform == "kurly"
+        and pending_type == "address_confirm"
+        and intent == "confirm"
+        and stage not in ("cart_shopping", "payment_processing")
+    )
+    if should_run_real_browser:
         from src.tools.webview_tool import run_kurly_purchase
 
         stored_url = selected_product.get("product_url", "")
