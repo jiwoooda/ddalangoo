@@ -181,6 +181,15 @@ def platform_agent_node(state: ShoppingState) -> dict:
         "last_agent": "platform_agent",
         "target_platforms": [],
         "pending_action": None,
+        # 새 상품 탐색 시작 — 이전 상품 관련 필드 초기화
+        "selected_product": None,
+        "product_url": None,
+        "current_product_index": 0,
+        "explanation": None,
+        "highlight_specs": [],
+        "scored_products": [],
+        "recommended_products": [],
+        "reorder_resolution": None,
     }
 
     if not search_results:

@@ -46,11 +46,12 @@ def _save_purchase_history(
     selected_product: dict,
     price: int,
     quantity: int,
+    keywords: list | None = None,
 ) -> None:
     try:
         from app.repositories import purchase_history_repository
         user_id_raw = state.get("user_id", 0)
-        keywords = state.get("keywords") or []
+        kw_list = keywords if keywords is not None else (state.get("keywords") or [])
         purchase_history_repository.create_history({
             "user_id": int(user_id_raw),
             "conversation_id": state.get("conversation_id"),
@@ -66,7 +67,7 @@ def _save_purchase_history(
             "quantity": quantity,
             "total_price": price * quantity,
             "platform": selected_product.get("platform", ""),
-            "keyword": keywords[0] if keywords else None,
+            "keyword": kw_list[0] if kw_list else None,
             "satisfaction_score": None,
             "memo": None,
         })
@@ -144,6 +145,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # USE_REAL_BROWSER: 장바구니 담기 (cart_shopping/payment_processing 진입 전)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    intent = state.get("intent")
     use_real_browser = os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
     if use_real_browser and stage not in ("cart_shopping", "payment_processing"):
         from src.tools.webview_tool import run_kurly_purchase
@@ -151,13 +153,57 @@ def payment_agent_node(state: ShoppingState) -> dict:
         stored_url = selected_product.get("product_url", "")
         reorder_url = stored_url if "www.kurly.com/goods/" in stored_url else None
 
+        # ── 가격 변동 확인 수락/거절 처리 ──
+        if pending_type == "price_change_confirm":
+            if intent in ("deny", "cancel", "next"):
+                return {
+                    "stage": "idle",
+                    "error": None,
+                    "last_agent": "payment_agent",
+                    "pending_action": None,
+                }
+            # confirm → 새 가격으로 selected_product·price·total 갱신 + 가격 체크 스킵
+            current_price = (state.get("pending_action") or {}).get("payload", {}).get("current_price", price)
+            selected_product = {**selected_product, "price": current_price}
+            price = current_price
+            total = price * quantity
+            history_price_arg = None  # 사용자가 이미 확인 → 재체크 불필요
+        else:
+            # 재구매 URL 있을 때만 가격 체크 (일반 구매는 history_price 없음)
+            history_price_arg = price if reorder_url else None
+
         result = run_kurly_purchase(
             product_name=product_name,
             keywords=state.get("keywords"),
             quantity=quantity,
             storage_state_path=state.get("storage_state_path"),
             reorder_url=reorder_url,
+            history_price=history_price_arg,
         )
+
+        # ── 가격 변동 감지 → interrupt ──
+        if result.get("price_changed"):
+            current_price = result["current_price"]
+            history_price = result["history_price"]
+            direction = "올랐어요" if current_price > history_price else "내렸어요"
+            return {
+                "stage": "product_confirming",
+                "error": None,
+                "last_agent": "payment_agent",
+                "storage_state_path": result.get("storage_state_path"),
+                "pending_action": {
+                    "type": "price_change_confirm",
+                    "message": (
+                        f"'{product_name}'의 가격이 이전 {history_price:,}원에서 "
+                        f"현재 {current_price:,}원으로 {direction}. "
+                        "그래도 구매하실 건가요?"
+                    ),
+                    "payload": {
+                        "current_price": current_price,
+                        "history_price": history_price,
+                    },
+                },
+            }
 
         if result.get("cart_added"):
             # 웹뷰에서 추출한 배송 정보 및 실제 URL을 selected_product에 반영
@@ -176,7 +222,8 @@ def payment_agent_node(state: ShoppingState) -> dict:
                 "price": price,
                 "quantity": quantity,
                 "total": price * quantity,
-                "product": updated_product,  # 전체 상품 정보 보존
+                "product": updated_product,
+                "keywords": state.get("keywords") or [],  # 상품 탐색 시점의 키워드 보존
             }
             new_cart_items = existing_cart_items + [new_cart_item]
 
@@ -284,6 +331,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
                         item.get("product") or selected_product,
                         item.get("price", 0),
                         item.get("quantity", 1),
+                        keywords=item.get("keywords"),
                     )
             else:
                 _save_purchase_history(state, selected_product, price, quantity)

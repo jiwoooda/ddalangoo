@@ -49,6 +49,7 @@ def run_session(user_id: str = "user_test", thread_id: str = None, trace: bool =
 
     # 초기 state 설정 후 wait_for_input에서 interrupt 대기
     initial_state = get_default_shopping_state(user_id, session_id)
+    initial_state["conversation_id"] = abs(hash(thread_id)) % 1_000_000
     graph.invoke(initial_state, config)
 
     # 대화 루프 — interrupt_before=["wait_for_input"] 기반

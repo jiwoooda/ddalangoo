@@ -342,6 +342,13 @@ def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -
             "reorder_resolution": resolver_result,
             "search_results": search_results,
             "stage": "searching",
+            "selected_product": None,
+            "product_url": None,
+            "current_product_index": 0,
+            "explanation": None,
+            "highlight_specs": [],
+            "scored_products": [],
+            "recommended_products": [],
         }
 
     return base

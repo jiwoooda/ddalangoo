@@ -1,34 +1,22 @@
 import os
 import json
-from app.mock_data.purchase_histories import MOCK_PURCHASE_HISTORIES as _BASE_HISTORIES
 from typing import Optional, List
 from datetime import datetime
 
-_JSON_PATH = os.path.join(os.path.dirname(__file__), "..", "mock_data", "purchase_histories_extra.json")
-
-# 런타임 리스트: 기본 데이터 + 서버 실행 중 추가된 항목
-MOCK_PURCHASE_HISTORIES: List[dict] = list(_BASE_HISTORIES)
-_BASE_IDS: set = {h["id"] for h in _BASE_HISTORIES}
+_JSON_PATH = os.path.join(os.path.dirname(__file__), "..", "mock_data", "purchase_histories.json")
 
 
-def _load_extras() -> None:
-    if not os.path.exists(_JSON_PATH):
-        return
+def _load() -> List[dict]:
     with open(_JSON_PATH, encoding="utf-8") as f:
-        extras = json.load(f)
-    existing_ids = {h["id"] for h in MOCK_PURCHASE_HISTORIES}
-    for h in extras:
-        if h["id"] not in existing_ids:
-            MOCK_PURCHASE_HISTORIES.append(h)
+        return json.load(f)
 
 
-def _persist() -> None:
-    extras = [h for h in MOCK_PURCHASE_HISTORIES if h["id"] not in _BASE_IDS]
+def _save(data: List[dict]) -> None:
     with open(_JSON_PATH, "w", encoding="utf-8") as f:
-        json.dump(extras, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-_load_extras()
+MOCK_PURCHASE_HISTORIES: List[dict] = _load()
 
 
 def get_histories_by_user_id(user_id: int) -> List[dict]:
@@ -68,5 +56,5 @@ def create_history(data: dict) -> dict:
         **data,
     }
     MOCK_PURCHASE_HISTORIES.append(entry)
-    _persist()
+    _save(MOCK_PURCHASE_HISTORIES)
     return entry

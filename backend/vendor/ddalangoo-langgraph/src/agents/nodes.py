@@ -85,9 +85,16 @@ def ask_what_to_buy_node(state: ShoppingState) -> dict:
         "stage": "cart_shopping",
         "keywords": [],
         "search_results": [],
-        "selected_product": {},
+        "selected_product": None,
         "reorder_resolution": None,
         "error": None,
+        "quantity": None,
+        "product_url": None,
+        "current_product_index": 0,
+        "explanation": None,
+        "highlight_specs": [],
+        "scored_products": [],
+        "recommended_products": [],
     }
 
 
