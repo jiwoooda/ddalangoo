@@ -22,6 +22,11 @@ import re
 import threading
 from collections.abc import Callable
 from typing import Any
+
+# Railway 런타임에서 기본 캐시(/root/.cache)가 이미지에 남지 않을 수 있다.
+# 빌드 단계에서 설치한 브라우저를 패키지 경로에서 찾도록 Playwright import 전에 고정한다.
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+
 from playwright.sync_api import sync_playwright, Page
 
 try:
