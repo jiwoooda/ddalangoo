@@ -33,6 +33,7 @@ NAVER_API_SORT_MAP = {
 }
 
 KURLY_SHOP_KEYWORDS = ("컬리", "마켓컬리", "kurly", "컬리n마트", "컬리 n마트")
+KURLY_BASE_URL = "https://www.kurly.com"
 
 
 def _strip_html(value: str) -> str:
@@ -54,6 +55,17 @@ def _is_kurly_item(item: dict[str, Any]) -> bool:
     return any(keyword in mall_name or keyword in title for keyword in KURLY_SHOP_KEYWORDS)
 
 
+def _is_kurly_url(url: str) -> bool:
+    """실제 브라우저 자동화가 열 수 있는 컬리 도메인인지 확인한다."""
+    lowered = str(url or "").lower()
+    return "kurly.com" in lowered
+
+
+def _kurly_search_url(query: str) -> str:
+    """컬리 상품 상세 URL이 없을 때 Playwright가 검색부터 시작할 수 있는 URL을 만든다."""
+    return f"{KURLY_BASE_URL}/search?sword={quote(query)}"
+
+
 def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
     """Node MCP가 없는 배포 환경에서도 네이버 쇼핑 검색을 수행한다."""
     client_id = os.getenv("NAVER_CLIENT_ID")
@@ -64,8 +76,9 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
 
     products: list[dict[str, Any]] = []
     platforms = [p for p in params.get("platforms", []) if p in ("naver", "kurly")]
+    original_query = str(params.get("query") or "")
     for platform in platforms:
-        query = _naver_query(str(params.get("query") or ""), platform)
+        query = _naver_query(original_query, platform)
         display = int(params.get("limit") or 5)
         sort = NAVER_API_SORT_MAP.get(str(params.get("sort") or "price_low"), "sim")
         url = (
@@ -89,10 +102,14 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
         items = data.get("items") or []
         if platform == "kurly":
             filtered = [item for item in items if _is_kurly_item(item)]
-            items = filtered or items
+            items = filtered
 
         for item in items[:display]:
             price = int(item.get("lprice") or 0)
+            raw_url = item.get("link") or ""
+            product_url = raw_url
+            if platform == "kurly" and not _is_kurly_url(raw_url):
+                product_url = _kurly_search_url(original_query)
             products.append({
                 "name": _strip_html(item.get("title") or ""),
                 "price": price,
@@ -103,7 +120,8 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
                 ),
                 "platform": platform,
                 "image_url": item.get("image"),
-                "url": item.get("link") or "",
+                "url": product_url,
+                "source_url": raw_url,
                 "shop_name": item.get("mallName"),
             })
 

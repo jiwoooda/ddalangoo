@@ -1,6 +1,7 @@
 from app.agent.mapper import state_to_response
 from app.services import agent_service
 from app.services import webview_progress_service
+from src.agents import platform_agent
 
 
 def test_webview_status_default_matches_frontend_contract():
@@ -91,6 +92,41 @@ def test_real_browser_unsupported_platform_records_failed_progress(monkeypatch):
     assert status["meta"]["orderId"] == 77
     assert status["meta"]["paymentId"] == 88
     assert status["meta"]["error"] == "unsupported_real_browser_platform"
+
+
+def test_real_browser_kurly_product_records_searching_progress(monkeypatch):
+    """컬리 상품은 실제 브라우저 모드에서 검색 진행 상태로 시작한다."""
+    conversation_id = 999007
+    webview_progress_service.clear_progress(conversation_id)
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+
+    status = agent_service._emit_real_browser_progress(
+        conversation_id,
+        selected_product={
+            "platform": "kurly",
+            "product_url": "https://www.kurly.com/search?sword=아보카도",
+        },
+        order_bundle={"order": {"id": 79}},
+        payment_bundle={"payment": {"id": 90}},
+        assistant_message="주문 준비가 완료되었습니다.",
+    )
+
+    assert status["status"] == "running"
+    assert status["step"] == "searching_product"
+    assert status["message"] == "컬리에서 상품을 찾고 있어요."
+    assert status["meta"]["platform"] == "kurly"
+
+
+def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
+    """실제 브라우저 MVP에서는 아보카도 같은 신선식품을 컬리 후보로 검색한다."""
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+
+    platforms = platform_agent._select_platforms(
+        {"keywords": ["아보카도"]},
+        {},
+    )
+
+    assert platforms == ["kurly"]
 
 
 def test_product_pending_confirmation_uses_documented_actions():

@@ -224,6 +224,13 @@ def _real_browser_enabled() -> bool:
     return os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
 
 
+def _is_kurly_browser_product(selected_product: dict) -> bool:
+    """실제 브라우저 자동화가 처리할 수 있는 컬리 상품인지 확인한다."""
+    platform = (selected_product.get("platform") or "").lower()
+    product_url = (selected_product.get("product_url") or selected_product.get("url") or "").lower()
+    return platform == "kurly" and "kurly.com" in product_url
+
+
 def _emit_real_browser_progress(
     conversation_id: int,
     *,
@@ -255,15 +262,6 @@ def _emit_real_browser_progress(
             meta=base_meta,
         )
 
-    running = webview_progress_service.emit_progress(
-        conversation_id,
-        step="payment_starting",
-        message="결제 웹뷰를 준비하고 있어요.",
-        flow="payment",
-        status="running",
-        meta=base_meta,
-    )
-
     if platform and platform != "kurly":
         return webview_progress_service.emit_progress(
             conversation_id,
@@ -277,7 +275,59 @@ def _emit_real_browser_progress(
             },
         )
 
-    return running
+    return webview_progress_service.emit_progress(
+        conversation_id,
+        step="searching_product",
+        message="컬리에서 상품을 찾고 있어요.",
+        flow="payment",
+        status="running",
+        meta=base_meta,
+    )
+
+
+async def _block_real_browser_unsupported_order(
+    conversation_id: int,
+    *,
+    recommendation_item_id: int,
+    state: dict,
+) -> dict:
+    """실제 브라우저 모드에서 컬리가 아닌 상품을 조용히 주문 생성하지 않도록 막는다."""
+    selected_product = dict(state.get("selected_product") or {})
+    platform = (selected_product.get("platform") or "").lower() or None
+    product_url = selected_product.get("product_url") or selected_product.get("url")
+    message = "현재 실제 자동 주문은 마켓컬리 상품만 지원해요. 컬리 상품으로 다시 찾아볼까요?"
+    progress_payload = webview_progress_service.emit_progress(
+        conversation_id,
+        step="payment_automation_unsupported",
+        message=message,
+        flow="payment",
+        status="failed",
+        meta={
+            "platform": platform,
+            "productUrl": product_url,
+            "error": "unsupported_real_browser_platform",
+        },
+    )
+    selected_product["is_orderable"] = False
+    selected_product["order_block_reason"] = "real_browser_requires_kurly"
+    return await runtime.update_state(conversation_id, {
+        "stage": "product_confirming",
+        "selected_product": selected_product,
+        "webview_progress": progress_payload,
+        "pending_action": {
+            "type": "product_confirm",
+            "message": message,
+            "payload": {
+                "recommendationItemId": recommendation_item_id,
+                "actions": ["reject"],
+                "orderBlockReason": "real_browser_requires_kurly",
+            },
+        },
+        "messages": _assistant_message_patch(message),
+        "order": None,
+        "payment": None,
+    })
+
 
 
 async def _persist_external_search_log(
@@ -464,6 +514,18 @@ async def _persist_cart_order_payment_for_confirm(
     """
     if action not in {"add_to_cart", "order_now"}:
         return state
+
+    selected_product = state.get("selected_product") or {}
+    if (
+        action == "order_now"
+        and _real_browser_enabled()
+        and not _is_kurly_browser_product(selected_product if isinstance(selected_product, dict) else {})
+    ):
+        return await _block_real_browser_unsupported_order(
+            conversation_id,
+            recommendation_item_id=recommendation_item_id,
+            state=state,
+        )
 
     try:
         cart = await cart_repository.get_or_create_active_cart_db(
