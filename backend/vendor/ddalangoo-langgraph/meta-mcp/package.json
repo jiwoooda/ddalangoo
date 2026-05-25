@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
+    "start:sse": "node dist/http_server.js",
     "dev": "tsx src/server.ts"
   },
   "dependencies": {

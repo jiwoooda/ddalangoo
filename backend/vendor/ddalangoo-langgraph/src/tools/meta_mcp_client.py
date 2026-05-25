@@ -8,7 +8,7 @@ import json
 import os
 import subprocess
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode, urljoin
 from urllib.request import Request, urlopen
 
 META_MCP_DIR = os.path.abspath(
@@ -34,6 +34,7 @@ NAVER_API_SORT_MAP = {
 
 KURLY_SHOP_KEYWORDS = ("컬리", "마켓컬리", "kurly", "컬리n마트", "컬리 n마트")
 KURLY_BASE_URL = "https://www.kurly.com"
+META_MCP_SERVER_URL_ENV = "META_MCP_SERVER_URL"
 
 
 def _strip_html(value: str) -> str:
@@ -128,6 +129,66 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
 
     print(f"[meta_mcp_client] naver fallback products={len(products)}")
     return _normalize(products[: int(params.get("limit") or 5)])
+
+
+def _parse_sse_search_result(payload: str) -> list[dict[str, Any]]:
+    """meta-mcp /sse 응답에서 search_result 이벤트의 data JSON을 꺼낸다."""
+    current_event = "message"
+    data_lines: list[str] = []
+
+    for line in payload.splitlines():
+        if line.startswith("event:"):
+            current_event = line.removeprefix("event:").strip()
+            data_lines = []
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line.removeprefix("data:").strip())
+            continue
+        if line.strip():
+            continue
+
+        if current_event == "search_result" and data_lines:
+            data = json.loads("\n".join(data_lines))
+            return _normalize(data.get("products", []))
+        data_lines = []
+
+    if current_event == "search_result" and data_lines:
+        data = json.loads("\n".join(data_lines))
+        return _normalize(data.get("products", []))
+    return []
+
+
+def _call_remote_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
+    """별도 Railway Node 서비스로 분리된 meta-mcp /sse endpoint를 호출한다."""
+    base_url = os.getenv(META_MCP_SERVER_URL_ENV, "").strip()
+    if not base_url:
+        return []
+
+    query = urlencode({
+        "query": params.get("query") or "",
+        "platforms": ",".join(params.get("platforms") or []),
+        "sort": params.get("sort") or "price_low",
+        "limit": int(params.get("limit") or 5),
+        **({"min_price": params["min_price"]} if params.get("min_price") is not None else {}),
+        **({"max_price": params["max_price"]} if params.get("max_price") is not None else {}),
+    })
+    endpoint = f"{urljoin(base_url.rstrip('/') + '/', 'sse')}?{query}"
+
+    try:
+        print(
+            "[meta_mcp_client] remote sse search start",
+            f"url={base_url}",
+            f"platforms={params.get('platforms')}",
+            f"query={params.get('query')}",
+        )
+        with urlopen(endpoint, timeout=20) as response:
+            body = response.read().decode("utf-8")
+        products = _parse_sse_search_result(body)
+        print(f"[meta_mcp_client] remote sse products={len(products)}")
+        return products
+    except Exception as error:
+        print(f"[meta_mcp_client] remote sse failed: {error}")
+        return []
 
 
 def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -285,5 +346,9 @@ def search_products(
     }
     if budget_max is not None:
         params["max_price"] = budget_max
+
+    remote_results = _call_remote_meta_mcp(params)
+    if remote_results:
+        return remote_results
 
     return _call_meta_mcp(params)

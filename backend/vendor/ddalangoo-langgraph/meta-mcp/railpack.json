@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "packages": {
+    "node": "20"
+  },
+  "steps": {
+    "install": {
+      "commands": [
+        "npm ci",
+        "npm run build"
+      ]
+    }
+  },
+  "deploy": {
+    "startCommand": "npm run start:sse"
+  }
+}

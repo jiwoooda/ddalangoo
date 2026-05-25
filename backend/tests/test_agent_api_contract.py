@@ -2,6 +2,7 @@ from app.agent.mapper import state_to_response
 from app.services import agent_service
 from app.services import webview_progress_service
 from src.agents import platform_agent
+from src.tools import meta_mcp_client
 
 
 def test_webview_status_default_matches_frontend_contract():
@@ -127,6 +128,43 @@ def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
     )
 
     assert platforms == ["kurly"]
+
+
+def test_meta_mcp_sse_parser_reads_search_result_event():
+    """분리된 meta-mcp /sse 응답에서 search_result 이벤트를 상품 목록으로 변환한다."""
+    payload = "\n".join([
+        "event: progress",
+        'data: {"status":"running"}',
+        "",
+        "event: search_result",
+        'data: {"total":1,"products":[{"platform":"kurly","name":"모짜렐라","price":6780,"delivery_info":"","url":"https://www.kurly.com/search?sword=cheese","image_url":"https://example.com/image.jpg"}]}',
+        "",
+    ])
+
+    products = meta_mcp_client._parse_sse_search_result(payload)
+
+    assert products == [
+        {
+            "product_name": "모짜렐라",
+            "price": 6780,
+            "rating": None,
+            "review_count": None,
+            "delivery": "",
+            "delivery_fee": None,
+            "platform": "kurly",
+            "image_url": "https://example.com/image.jpg",
+            "product_url": "https://www.kurly.com/search?sword=cheese",
+            "is_sold_out": False,
+            "raw": {
+                "platform": "kurly",
+                "name": "모짜렐라",
+                "price": 6780,
+                "delivery_info": "",
+                "url": "https://www.kurly.com/search?sword=cheese",
+                "image_url": "https://example.com/image.jpg",
+            },
+        }
+    ]
 
 
 def test_product_pending_confirmation_uses_documented_actions():
