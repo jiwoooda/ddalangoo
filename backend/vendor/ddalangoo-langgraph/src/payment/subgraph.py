@@ -152,6 +152,24 @@ def payment_agent_node(state: ShoppingState) -> dict:
 
         stored_url = selected_product.get("product_url", "")
         reorder_url = stored_url if "www.kurly.com/goods/" in stored_url else None
+        progress_callback = None
+        progress_flow = "reorder" if (intent == "reorder" or reorder_url) else "new_purchase"
+        conversation_id = state.get("conversation_id")
+        if conversation_id:
+            try:
+                from app.services.webview_progress_service import emit_progress
+
+                def progress_callback(event: dict) -> None:
+                    emit_progress(
+                        int(conversation_id),
+                        step=event.get("step", "webview"),
+                        message=event.get("message", ""),
+                        flow=event.get("flow") or progress_flow,
+                        status=event.get("status", "running"),
+                        screenshot_bytes=event.get("screenshot_bytes"),
+                    )
+            except Exception as e:
+                print(f"[payment_agent] webview progress disabled: {e}")
 
         # ── 가격 변동 확인 수락/거절 처리 ──
         if pending_type == "price_change_confirm":
@@ -179,6 +197,8 @@ def payment_agent_node(state: ShoppingState) -> dict:
             storage_state_path=state.get("storage_state_path"),
             reorder_url=reorder_url,
             history_price=history_price_arg,
+            progress_callback=progress_callback,
+            progress_flow=progress_flow,
         )
 
         # ── 가격 변동 감지 → interrupt ──

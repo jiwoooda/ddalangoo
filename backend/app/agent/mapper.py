@@ -7,6 +7,7 @@ LangGraph ShoppingState의 내부 필드를 프론트 API 명세의 AgentRespons
 
 from typing import Any, Optional
 from app.schemas.agent import AgentResponse, RecommendationItemInAgent
+from app.services import webview_progress_service
 
 
 def _recommendation_item_id(product: dict) -> int | None:
@@ -247,6 +248,12 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
     ui_command = _map_ui_command(state)
     stage = _map_stage(state, ui_command)
     candidates = _candidate_products(state)
+    async_status = (
+        state.get("asyncStatus")
+        or state.get("async_status")
+        or state.get("webview_progress")
+        or webview_progress_service.get_latest_status(conversation_id)
+    )
 
     return AgentResponse(
         conversationId=conversation_id,
@@ -262,6 +269,6 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
         order=state.get("order"),
         payment=state.get("payment"),
         uiCommand=ui_command,
-        asyncStatus=None,
+        asyncStatus=async_status,
         error=state.get("error"),
     )

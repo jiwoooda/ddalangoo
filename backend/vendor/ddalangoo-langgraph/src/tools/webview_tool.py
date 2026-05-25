@@ -18,6 +18,8 @@ import base64
 import json
 import os
 import re
+from collections.abc import Callable
+from typing import Any
 from playwright.sync_api import sync_playwright, Page
 
 try:
@@ -37,6 +39,46 @@ USER_AGENT = (
     "AppleWebKit/605.1.15 (KHTML, like Gecko) "
     "Version/16.0 Mobile/15E148 Safari/604.1"
 )
+
+
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    *,
+    step: str,
+    message: str,
+    flow: str | None = None,
+    status: str = "running",
+    page: Page | None = None,
+) -> None:
+    if not progress_callback:
+        return
+    if step == "logging_in" and page is not None and "/member/login" not in page.url:
+        return
+
+    event: dict[str, Any] = {
+        "step": step,
+        "message": message,
+        "status": status,
+    }
+    if flow:
+        event["flow"] = flow
+    if page:
+        try:
+            event["screenshot_bytes"] = page.screenshot(
+                type="jpeg",
+                quality=60,
+                full_page=False,
+            )
+        except Exception as e:
+            event["screenshot_error"] = str(e)
+
+    try:
+        progress_callback(event)
+    except Exception as e:
+        print(f"[webview:progress] emit failed: {e}")
 
 
 # ══════════════════════════════════════════════
@@ -206,12 +248,23 @@ def _vlm_click_login_submit(page: Page) -> bool:
     return True
 
 
-def _login(page: Page) -> bool:
+def _login(
+    page: Page,
+    progress_callback: ProgressCallback | None = None,
+    flow: str | None = None,
+) -> bool:
     """컬리 로그인 수행. 성공 여부 반환."""
     print("[webview] 로그인 페이지 진입 중...")
     page.goto(f"{KURLY_BASE_URL}/member/login")
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(2000)
+    _emit_progress(
+        progress_callback,
+        flow=flow,
+        step="logging_in",
+        message="로그인하고 있어요.",
+        page=page,
+    )
 
     # SNS 선택 화면 → 컬리아이디 로그인으로 전환
     if not _dom_click_kurly_id_login(page):
@@ -709,6 +762,8 @@ def run_kurly_purchase(
     storage_state_path: str | None = None,
     reorder_url: str | None = None,
     history_price: int | None = None,
+    progress_callback: ProgressCallback | None = None,
+    progress_flow: str | None = None,
 ) -> dict:
     """
     컬리 모바일웹에서 장바구니 담기.
@@ -753,12 +808,19 @@ def run_kurly_purchase(
     page = context.new_page()
     page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
     stealth_sync(page)
+    flow = progress_flow or ("reorder" if reorder_url else "new_purchase")
 
     try:
         # ── 재구매: URL로 바로 진입 (검색/VLM 단계 스킵) ──
         if reorder_url:
             try:
                 print(f"[webview] 재구매 직접 진입: {reorder_url}")
+                _emit_progress(
+                    progress_callback,
+                    flow=flow,
+                    step="opening_product",
+                    message="이전에 구매한 상품 페이지로 이동하고 있어요.",
+                )
                 page.goto(reorder_url, timeout=10000)
                 page.wait_for_load_state("domcontentloaded")
                 page.wait_for_timeout(2000)
@@ -770,27 +832,68 @@ def run_kurly_purchase(
                     raise ValueError(f"비정상 페이지 감지: {current}")
 
                 product_url = current
+                _emit_progress(
+                    progress_callback,
+                    flow=flow,
+                    step="opening_product",
+                    message="이전에 구매한 상품 페이지로 이동하고 있어요.",
+                    page=page,
+                )
                 print(f"[webview] 상품 URL 확인: {product_url}")
 
             except Exception as e:
                 print(f"[webview] URL 직접 진입 실패 ({e}) → 검색 방식으로 fallback")
+                _emit_progress(
+                    progress_callback,
+                    flow=flow,
+                    step="fallback_searching",
+                    message="상품 페이지가 바뀌어서 다시 검색하고 있어요.",
+                    page=page,
+                )
                 reorder_url = None
 
         # ── 일반 구매 (또는 reorder fallback) ──
         if not reorder_url:
             print("[webview] 컬리 접속 중...")
+            _emit_progress(
+                progress_callback,
+                flow=flow,
+                step="opening_shop",
+                message="컬리에 접속하고 있어요.",
+            )
             page.goto(KURLY_BASE_URL)
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(2000)
+            _emit_progress(
+                progress_callback,
+                flow=flow,
+                step="opening_shop",
+                message="컬리에 접속하고 있어요.",
+                page=page,
+            )
 
             if not _is_logged_in(page):
                 print("[webview] 로그인 플로우 시작...")
-                if not _login(page):
+                _emit_progress(
+                    progress_callback,
+                    flow=flow,
+                    step="logging_in",
+                    message="로그인하고 있어요.",
+                    page=page,
+                )
+                if not _login(page, progress_callback=progress_callback, flow=flow):
                     return {"cart_added": False, "storage_state_path": None,
                             "delivery_info": "", "product_url": None, "error": "login_failed"}
 
             print(f"[webview] Step 2. 상품 검색: {product_name}")
             _search_product(page, product_name)
+            _emit_progress(
+                progress_callback,
+                flow=flow,
+                step="searching_product",
+                message="상품을 찾고 있어요.",
+                page=page,
+            )
 
             print(f"[webview] Step 3. 검색 결과에서 상품 선택: {product_name}")
             if not _select_product_from_results(page, product_name):
@@ -798,6 +901,13 @@ def run_kurly_purchase(
                         "delivery_info": "", "product_url": None, "error": "product_not_found_in_search"}
 
             product_url = page.url
+            _emit_progress(
+                progress_callback,
+                flow=flow,
+                step="searching_product",
+                message="상품을 찾고 있어요.",
+                page=page,
+            )
             print(f"[webview] 상품 URL: {product_url}")
 
         # ── Step 4. 배송 정보 추출 ──
@@ -835,6 +945,13 @@ def run_kurly_purchase(
 
         # ── Step 6. 수량 설정 ──
         print("[webview] Step 6. 장바구니 팝업 처리")
+        _emit_progress(
+            progress_callback,
+            flow=flow,
+            step="adding_to_cart",
+            message="장바구니에 담고 있어요.",
+            page=page,
+        )
         _confirm_cart(page, quantity=quantity)
 
         # ── Step 6b. 담기 버튼 클릭 ──
