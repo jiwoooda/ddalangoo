@@ -1,3 +1,5 @@
+import os
+
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -193,6 +195,19 @@ def _is_payment_method_accept(
     return pending_action_before == "payment_method_confirm" and state.get("intent") == "confirm"
 
 
+def _should_create_order_from_message(
+    state: dict,
+    pending_action_before: str | None,
+) -> bool:
+    """자연어 /messages 흐름에서 주문 생성 후처리를 연결해야 하는지 판단한다."""
+    return (
+        pending_action_before in {"payment_method_confirm", "address_confirm"}
+        and state.get("intent") == "confirm"
+        and not state.get("order")
+        and not state.get("payment")
+    )
+
+
 def _selected_recommendation_item_id(state: dict) -> int | None:
     """현재 선택된 상품에서 DB recommendation_item_id를 찾는다."""
     selected = state.get("selected_product") or {}
@@ -202,6 +217,67 @@ def _selected_recommendation_item_id(state: dict) -> int | None:
         selected.get("recommendation_item_id")
         or selected.get("recommendationItemId")
     )
+
+
+def _real_browser_enabled() -> bool:
+    """Railway/env에서 실제 브라우저 흐름이 켜져 있는지 확인한다."""
+    return os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
+
+
+def _emit_real_browser_progress(
+    conversation_id: int,
+    *,
+    selected_product: dict,
+    order_bundle: dict,
+    payment_bundle: dict,
+    assistant_message: str,
+) -> dict:
+    """
+    DB 주문 준비 직후 웹뷰 진행 상태를 남긴다.
+
+    현재 실제 브라우저 자동화는 컬리 모바일웹 도구만 있으므로,
+    네이버 상품은 조용히 idle로 남기지 않고 명시적인 failed progress로 기록한다.
+    """
+    platform = (selected_product.get("platform") or "").lower()
+    base_meta = {
+        "orderId": order_bundle["order"]["id"],
+        "paymentId": payment_bundle["payment"]["id"],
+        "platform": platform or None,
+    }
+
+    if not _real_browser_enabled():
+        return webview_progress_service.emit_progress(
+            conversation_id,
+            step="payment_ready",
+            message=assistant_message,
+            flow="payment",
+            status="waiting_user_action",
+            meta=base_meta,
+        )
+
+    running = webview_progress_service.emit_progress(
+        conversation_id,
+        step="payment_starting",
+        message="결제 웹뷰를 준비하고 있어요.",
+        flow="payment",
+        status="running",
+        meta=base_meta,
+    )
+
+    if platform and platform != "kurly":
+        return webview_progress_service.emit_progress(
+            conversation_id,
+            step="payment_automation_unsupported",
+            message="현재 이 플랫폼은 자동 웹뷰 결제를 아직 지원하지 않아요.",
+            flow="payment",
+            status="failed",
+            meta={
+                **base_meta,
+                "error": "unsupported_real_browser_platform",
+            },
+        )
+
+    return running
 
 
 async def _persist_external_search_log(
@@ -468,16 +544,13 @@ async def _persist_cart_order_payment_for_confirm(
         )
 
         assistant_message = _payment_ready_message(order_bundle)
-        progress_payload = webview_progress_service.emit_progress(
+        selected_product = state.get("selected_product") or {}
+        progress_payload = _emit_real_browser_progress(
             conversation_id,
-            step="payment_ready",
-            message=assistant_message,
-            flow="payment",
-            status="waiting_user_action",
-            meta={
-                "orderId": order_bundle["order"]["id"],
-                "paymentId": payment_bundle["payment"]["id"],
-            },
+            selected_product=selected_product if isinstance(selected_product, dict) else {},
+            order_bundle=order_bundle,
+            payment_bundle=payment_bundle,
+            assistant_message=assistant_message,
         )
 
         state_patch.update({
@@ -613,7 +686,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         stage_before=snapshot.values.get("stage"),
         pending_action_before=pending_action_before,
     )
-    if _is_payment_method_accept(state, pending_action_before):
+    if _should_create_order_from_message(state, pending_action_before):
         recommendation_item_id = _selected_recommendation_item_id(state)
         if recommendation_item_id is not None:
             state = await _persist_cart_order_payment_for_confirm(

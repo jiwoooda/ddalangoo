@@ -1,4 +1,5 @@
 from app.agent.mapper import state_to_response
+from app.services import agent_service
 from app.services import webview_progress_service
 
 
@@ -38,6 +39,38 @@ def test_webview_progress_emit_always_includes_screenshot_url():
         f"/api/agent/conversations/{conversation_id}/webview/screenshot"
     )
     assert webview_progress_service.get_latest_status(conversation_id) == status
+
+
+def test_messages_address_confirm_can_trigger_order_creation():
+    """주소 확인 수락도 /messages 자연어 흐름에서 주문 생성 후처리 대상이다."""
+    assert agent_service._should_create_order_from_message(
+        {"intent": "confirm"},
+        "address_confirm",
+    )
+
+
+def test_real_browser_unsupported_platform_records_failed_progress(monkeypatch):
+    """실제 브라우저 모드에서 지원하지 않는 플랫폼은 idle 대신 failed progress를 남긴다."""
+    conversation_id = 999005
+    webview_progress_service.clear_progress(conversation_id)
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+
+    status = agent_service._emit_real_browser_progress(
+        conversation_id,
+        selected_product={"platform": "naver"},
+        order_bundle={"order": {"id": 77}},
+        payment_bundle={"payment": {"id": 88}},
+        assistant_message="주문 준비가 완료되었습니다.",
+    )
+
+    assert status["status"] == "failed"
+    assert status["step"] == "payment_automation_unsupported"
+    assert status["screenshotUrl"] == (
+        f"/api/agent/conversations/{conversation_id}/webview/screenshot"
+    )
+    assert status["meta"]["orderId"] == 77
+    assert status["meta"]["paymentId"] == 88
+    assert status["meta"]["error"] == "unsupported_real_browser_platform"
 
 
 def test_product_pending_confirmation_uses_documented_actions():
