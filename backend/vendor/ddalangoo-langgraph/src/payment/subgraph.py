@@ -221,6 +221,32 @@ def payment_agent_node(state: ShoppingState) -> dict:
             progress_flow=progress_flow,
         )
 
+        # ── 취소 감지 ──
+        if result.get("cancelled"):
+            cart_items = state.get("cart_items") or []
+            if cart_items:
+                cancel_msg = "알겠어요~ 처음으로 돌아갈게요! 장바구니에 담아둔 건 그대로 있을 거에요 :)"
+            else:
+                cancel_msg = "알겠어요~ 필요하면 언제든 말씀해주세요!"
+            return {
+                "stage": "idle",
+                "intent": None,
+                "error": None,
+                "pending_action": {"type": "payment_confirm", "message": cancel_msg},
+                "last_agent": "payment_agent",
+                "keywords": [],
+                "search_results": [],
+                "scored_products": [],
+                "recommended_products": [],
+                "selected_product": None,
+                "product_url": None,
+                "explanation": None,
+                "highlight_specs": [],
+                "current_product_index": 0,
+                "quantity": None,
+                "reorder_resolution": None,
+            }
+
         # ── 가격 변동 감지 → interrupt ──
         if result.get("price_changed"):
             current_price = result["current_price"]

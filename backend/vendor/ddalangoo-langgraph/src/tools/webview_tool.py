@@ -19,6 +19,7 @@ import base64
 import json
 import os
 import re
+import threading
 from collections.abc import Callable
 from typing import Any
 from playwright.sync_api import sync_playwright, Page
@@ -27,6 +28,28 @@ try:
     from playwright_stealth import stealth_sync
 except ImportError:
     def stealth_sync(page): pass
+
+
+# ── 취소 메커니즘 ──────────────────────────────────────────
+class WebviewCancelledError(Exception):
+    pass
+
+_cancel_event = threading.Event()
+
+
+def request_cancel() -> None:
+    """진행 중인 Playwright 세션 취소 요청. API 레이어에서 호출."""
+    _cancel_event.set()
+
+
+def _clear_cancel() -> None:
+    _cancel_event.clear()
+
+
+def _check_cancel() -> None:
+    if _cancel_event.is_set():
+        raise WebviewCancelledError("사용자 취소 요청")
+# ──────────────────────────────────────────────────────────
 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -789,10 +812,12 @@ def run_kurly_purchase(
            "product_url": str|None, "error": str|None}
           가격 변동 시: {"cart_added": False, "price_changed": True,
                         "current_price": int, "history_price": int, ...}
+          취소 시: {"cart_added": False, "cancelled": True, ...}
     """
     if not storage_state_path:
         storage_state_path = "kurly_session.json"
 
+    _clear_cancel()
     playwright = sync_playwright().start()
     print("[webview] 브라우저(Webkit) 시작...")
     # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
@@ -817,6 +842,7 @@ def run_kurly_purchase(
     try:
         # ── 재구매: URL로 바로 진입 (검색/VLM 단계 스킵) ──
         if reorder_url:
+            _check_cancel()
             try:
                 print(f"[webview] 재구매 직접 진입: {reorder_url}")
                 _emit_progress(
@@ -858,6 +884,7 @@ def run_kurly_purchase(
 
         # ── 일반 구매 (또는 reorder fallback) ──
         if not reorder_url:
+            _check_cancel()
             print("[webview] 컬리 접속 중...")
             _emit_progress(
                 progress_callback,
@@ -876,6 +903,7 @@ def run_kurly_purchase(
                 page=page,
             )
 
+            _check_cancel()
             if not _is_logged_in(page):
                 print("[webview] 로그인 플로우 시작...")
                 _emit_progress(
@@ -889,6 +917,7 @@ def run_kurly_purchase(
                     return {"cart_added": False, "storage_state_path": None,
                             "delivery_info": "", "product_url": None, "error": "login_failed"}
 
+            _check_cancel()
             print(f"[webview] Step 2. 상품 검색: {product_name}")
             _search_product(page, product_name)
             _emit_progress(
@@ -899,6 +928,7 @@ def run_kurly_purchase(
                 page=page,
             )
 
+            _check_cancel()
             print(f"[webview] Step 3. 검색 결과에서 상품 선택: {product_name}")
             if not _select_product_from_results(page, product_name):
                 return {"cart_added": False, "storage_state_path": None,
@@ -915,10 +945,12 @@ def run_kurly_purchase(
             print(f"[webview] 상품 URL: {product_url}")
 
         # ── Step 4. 배송 정보 추출 ──
+        _check_cancel()
         print("[webview] Step 4. 배송 정보 확인")
         delivery_info = _extract_delivery_info(page)
 
         # ── Step 5. 구매하기 클릭 → 팝업 오픈 ──
+        _check_cancel()
         print("[webview] Step 5. 구매하기 버튼 클릭")
         if not _click_purchase_button(page):
             return {"cart_added": False, "storage_state_path": None,
@@ -948,6 +980,7 @@ def run_kurly_purchase(
                     }
 
         # ── Step 6. 수량 설정 ──
+        _check_cancel()
         print("[webview] Step 6. 장바구니 팝업 처리")
         _emit_progress(
             progress_callback,
@@ -973,6 +1006,11 @@ def run_kurly_purchase(
             "product_url": product_url,
             "error": None,
         }
+
+    except WebviewCancelledError:
+        print("[webview] 사용자 취소 요청으로 종료")
+        return {"cart_added": False, "cancelled": True, "storage_state_path": None,
+                "delivery_info": "", "product_url": None, "error": "user_cancelled"}
 
     except Exception as e:
         print(f"[webview] 오류: {e}")
