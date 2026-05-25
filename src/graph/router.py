@@ -11,7 +11,7 @@ RouteName = Literal[
     "quantity_check",
     "ask_what_to_buy",
     "respond",
-    "interrupt_payment",
+    "cancel",
     "end",
 ]
 
@@ -40,11 +40,9 @@ def route(state: ShoppingState) -> RouteName:
     if needs_clarification or confidence < 0.5 or intent == "unclear":
         return _decide("respond")
 
-    # ── 2. cancel은 어디서든 우선 처리 ──
+    # ── 2. cancel은 어디서든 cancel_node로 ──
     if intent == "cancel":
-        if stage == "payment_processing":
-            return _decide("interrupt_payment")
-        return _decide("end")
+        return _decide("cancel")
 
     # ── 3. 결제 진행 중이면 Payment Subgraph가 처리 ──
     if stage == "payment_processing":
