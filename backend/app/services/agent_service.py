@@ -1,4 +1,5 @@
 import os
+import threading
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -283,6 +284,118 @@ def _emit_real_browser_progress(
         status="running",
         meta=base_meta,
     )
+
+
+def _start_real_browser_purchase(
+    conversation_id: int,
+    *,
+    selected_product: dict,
+    order_bundle: dict,
+    payment_bundle: dict,
+) -> None:
+    """주문 확정 후 컬리 웹뷰 자동화를 백그라운드에서 시작한다."""
+    if not _real_browser_enabled() or not _is_kurly_browser_product(selected_product):
+        return
+
+    raw_product = selected_product.get("raw") if isinstance(selected_product.get("raw"), dict) else {}
+    product_name = (
+        selected_product.get("product_name")
+        or selected_product.get("name")
+        or raw_product.get("name")
+        or "상품"
+    )
+    order_items = order_bundle.get("order_items") or []
+    first_order_item = order_items[0] if order_items else {}
+    quantity = first_order_item.get("quantity") or 1
+    product_url = selected_product.get("product_url") or selected_product.get("url") or ""
+    reorder_url = product_url if "www.kurly.com/goods/" in product_url else None
+    progress_flow = "reorder" if reorder_url else "new_purchase"
+    base_meta = {
+        "orderId": order_bundle["order"]["id"],
+        "paymentId": payment_bundle["payment"]["id"],
+        "platform": "kurly",
+    }
+
+    def run_purchase_worker() -> None:
+        """Playwright 작업의 진행 상황을 프론트가 보는 webview progress로 전달한다."""
+        try:
+            from src.tools.webview_tool import run_kurly_purchase
+
+            def progress_callback(event: dict) -> None:
+                webview_progress_service.emit_progress(
+                    conversation_id,
+                    step=event.get("step", "webview"),
+                    message=event.get("message", ""),
+                    flow=event.get("flow") or progress_flow,
+                    status=event.get("status", "running"),
+                    screenshot_bytes=event.get("screenshot_bytes"),
+                    meta=base_meta,
+                )
+
+            history_price = selected_product.get("price") if reorder_url else None
+            if not isinstance(history_price, int) or history_price <= 0:
+                history_price = None
+
+            result = run_kurly_purchase(
+                product_name=product_name,
+                keywords=[product_name],
+                quantity=int(quantity),
+                storage_state_path=None,
+                reorder_url=reorder_url,
+                history_price=history_price,
+                progress_callback=progress_callback,
+                progress_flow=progress_flow,
+            )
+
+            if result.get("cart_added"):
+                webview_progress_service.emit_progress(
+                    conversation_id,
+                    step="cart_added",
+                    message="컬리 장바구니에 상품을 담았어요.",
+                    flow=progress_flow,
+                    status="completed",
+                    meta={**base_meta, "productUrl": result.get("product_url")},
+                )
+                return
+
+            if result.get("price_changed"):
+                webview_progress_service.emit_progress(
+                    conversation_id,
+                    step="price_changed",
+                    message="상품 가격이 달라져서 확인이 필요해요.",
+                    flow=progress_flow,
+                    status="waiting_user_confirmation",
+                    meta={
+                        **base_meta,
+                        "currentPrice": result.get("current_price"),
+                        "historyPrice": result.get("history_price"),
+                    },
+                )
+                return
+
+            webview_progress_service.emit_progress(
+                conversation_id,
+                step="webview_failed",
+                message="컬리 장바구니 담기에 실패했어요.",
+                flow=progress_flow,
+                status="failed",
+                meta={**base_meta, "error": result.get("error")},
+            )
+        except Exception as error:
+            webview_progress_service.emit_progress(
+                conversation_id,
+                step="webview_failed",
+                message="웹뷰 자동화 중 오류가 발생했어요.",
+                flow=progress_flow,
+                status="failed",
+                meta={**base_meta, "error": str(error)},
+            )
+
+    threading.Thread(
+        target=run_purchase_worker,
+        daemon=True,
+        name=f"kurly-webview-{conversation_id}",
+    ).start()
 
 
 async def _block_real_browser_unsupported_order(
@@ -631,6 +744,12 @@ async def _persist_cart_order_payment_for_confirm(
             order_bundle=order_bundle,
             payment_bundle=payment_bundle,
             assistant_message=assistant_message,
+        )
+        _start_real_browser_purchase(
+            conversation_id,
+            selected_product=selected_product if isinstance(selected_product, dict) else {},
+            order_bundle=order_bundle,
+            payment_bundle=payment_bundle,
         )
 
         state_patch.update({

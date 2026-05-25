@@ -118,6 +118,44 @@ def test_real_browser_kurly_product_records_searching_progress(monkeypatch):
     assert status["meta"]["platform"] == "kurly"
 
 
+def test_real_browser_kurly_order_starts_background_worker(monkeypatch):
+    """주문 확정 후에는 실제 Playwright 작업을 별도 스레드로 시작한다."""
+    started_thread = {}
+
+    class FakeThread:
+        """테스트에서는 브라우저를 띄우지 않고 스레드 시작 여부만 기록한다."""
+
+        def __init__(self, *, target, daemon, name):
+            started_thread["target"] = target
+            started_thread["daemon"] = daemon
+            started_thread["name"] = name
+
+        def start(self):
+            started_thread["started"] = True
+
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+    monkeypatch.setattr(agent_service.threading, "Thread", FakeThread)
+
+    agent_service._start_real_browser_purchase(
+        999008,
+        selected_product={
+            "platform": "kurly",
+            "product_name": "아보카도",
+            "product_url": "https://www.kurly.com/search?sword=아보카도",
+        },
+        order_bundle={
+            "order": {"id": 101},
+            "order_items": [{"quantity": 2}],
+        },
+        payment_bundle={"payment": {"id": 202}},
+    )
+
+    assert started_thread["started"] is True
+    assert started_thread["daemon"] is True
+    assert started_thread["name"] == "kurly-webview-999008"
+    assert callable(started_thread["target"])
+
+
 def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
     """실제 브라우저 MVP에서는 아보카도 같은 신선식품을 컬리 후보로 검색한다."""
     monkeypatch.setenv("USE_REAL_BROWSER", "true")
