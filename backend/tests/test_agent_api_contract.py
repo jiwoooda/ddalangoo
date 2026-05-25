@@ -167,6 +167,44 @@ def test_meta_mcp_sse_parser_reads_search_result_event():
     ]
 
 
+def test_kurly_mvp_fallback_does_not_require_naver_credentials(monkeypatch):
+    """실제 브라우저 MVP에서는 Naver 키가 없어도 컬리 검색 URL 후보를 만든다."""
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+    monkeypatch.delenv("NAVER_CLIENT_ID", raising=False)
+    monkeypatch.delenv("NAVER_CLIENT_SECRET", raising=False)
+
+    products = meta_mcp_client._call_naver_search_api({
+        "query": "아보카도",
+        "platforms": ["kurly"],
+        "sort": "price_low",
+        "limit": 5,
+    })
+
+    assert products == [
+        {
+            "product_name": "아보카도",
+            "price": 0,
+            "rating": None,
+            "review_count": None,
+            "delivery": "",
+            "delivery_fee": None,
+            "platform": "kurly",
+            "image_url": None,
+            "product_url": "https://www.kurly.com/search?sword=%EC%95%84%EB%B3%B4%EC%B9%B4%EB%8F%84",
+            "is_sold_out": False,
+            "raw": {
+                "name": "아보카도",
+                "price": 0,
+                "delivery_info": "",
+                "platform": "kurly",
+                "image_url": None,
+                "url": "https://www.kurly.com/search?sword=%EC%95%84%EB%B3%B4%EC%B9%B4%EB%8F%84",
+                "source": "kurly_search_url_fallback",
+            },
+        }
+    ]
+
+
 def test_product_pending_confirmation_uses_documented_actions():
     """내부 accept 액션은 API 명세의 order_now로 정규화한다."""
     response = state_to_response(

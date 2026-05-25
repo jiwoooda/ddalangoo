@@ -37,6 +37,16 @@ KURLY_BASE_URL = "https://www.kurly.com"
 META_MCP_SERVER_URL_ENV = "META_MCP_SERVER_URL"
 
 
+def _env_true(name: str) -> bool:
+    """환경변수 문자열을 boolean flag로 해석한다."""
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _kurly_mvp_mode() -> bool:
+    """실제 브라우저 MVP에서는 상품 추천도 컬리 검색 URL 중심으로 고정한다."""
+    return _env_true("USE_REAL_BROWSER") or os.getenv("MVP_MODE", "").strip().lower() == "kurly"
+
+
 def _strip_html(value: str) -> str:
     return value.replace("<b>", "").replace("</b>", "")
 
@@ -67,13 +77,45 @@ def _kurly_search_url(query: str) -> str:
     return f"{KURLY_BASE_URL}/search?sword={quote(query)}"
 
 
+def _call_kurly_search_url_fallback(params: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Naver/MCP 없이도 Kurly MVP 플로우를 시작할 수 있게 검색 URL 후보를 만든다.
+
+    실제 상품 선택, 가격, 배송 정보는 이후 webview_tool.py가 컬리 모바일웹에서
+    검색/상세 진입하면서 다시 확인한다.
+    """
+    platforms = params.get("platforms") or []
+    if "kurly" not in platforms:
+        return []
+
+    query = str(params.get("query") or "").strip()
+    if not query:
+        return []
+
+    product = {
+        "name": query,
+        "price": 0,
+        "delivery_info": "",
+        "platform": "kurly",
+        "image_url": None,
+        "url": _kurly_search_url(query),
+        "source": "kurly_search_url_fallback",
+    }
+    print("[meta_mcp_client] kurly search-url fallback products=1")
+    return _normalize([product])
+
+
 def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
     """Node MCP가 없는 배포 환경에서도 네이버 쇼핑 검색을 수행한다."""
+    if _kurly_mvp_mode() and "kurly" in (params.get("platforms") or []):
+        print("[meta_mcp_client] naver fallback skipped: kurly mvp mode")
+        return _call_kurly_search_url_fallback(params)
+
     client_id = os.getenv("NAVER_CLIENT_ID")
     client_secret = os.getenv("NAVER_CLIENT_SECRET")
     if not client_id or not client_secret:
         print("[meta_mcp_client] naver fallback disabled: missing credentials")
-        return []
+        return _call_kurly_search_url_fallback(params)
 
     products: list[dict[str, Any]] = []
     platforms = [p for p in params.get("platforms", []) if p in ("naver", "kurly")]
