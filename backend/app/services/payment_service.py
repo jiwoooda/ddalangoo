@@ -9,6 +9,7 @@ from app.repositories import (
     payment_repository,
     purchase_history_repository,
 )
+from app.agent import runtime
 from app.schemas.payment import PaymentDetailResponse, WebviewResultRequest, PaymentRetryRequest
 from fastapi import HTTPException
 
@@ -125,6 +126,23 @@ async def handle_webview_result_db(
             input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
             output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
         )
+        await runtime.update_state(conversation_id, {
+            "stage": "completed",
+            "pending_action": None,
+            "order": {
+                "orderId": updated_order["id"],
+                "status": updated_order["status"],
+                "totalPaymentAmount": updated_order["total_payment_amount"],
+            },
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "orderId": updated_payment["order_id"],
+                "paymentStatus": updated_payment["payment_status"],
+                "paymentProvider": updated_payment["payment_provider"],
+                "paymentAmount": updated_payment["payment_amount"],
+            },
+            "webview_progress": None,
+        })
         return {
             **base,
             "status": "order_completed",
@@ -175,6 +193,16 @@ async def handle_webview_result_db(
             input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
             output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
         )
+        await runtime.update_state(conversation_id, {
+            "stage": "cancelled",
+            "pending_action": None,
+            "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "paymentStatus": updated_payment["payment_status"],
+            },
+            "webview_progress": None,
+        })
         return {
             **base,
             "status": "cancelled",
@@ -218,6 +246,17 @@ async def handle_webview_result_db(
         input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
         output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
     )
+    await runtime.update_state(conversation_id, {
+        "stage": "failed",
+        "pending_action": None,
+        "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+        "payment": {
+            "paymentId": updated_payment["id"],
+            "paymentStatus": updated_payment["payment_status"],
+        },
+        "webview_progress": None,
+        "error": "webview_result_failed",
+    })
     return {
         **base,
         "status": "failed",
