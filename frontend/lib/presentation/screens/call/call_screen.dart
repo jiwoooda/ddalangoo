@@ -37,11 +37,16 @@ class _CallScreenState extends State<CallScreen> {
   bool _isMicHovered = false;
   bool _isEndCallHovered = false;
   bool _showTextInput = false;
+  bool _hasStartedVoiceInteraction = false;
   bool _isProductCardExpanded = true;
   int _lastMessageCount = 0;
   bool _isWebviewOpen = false;
   bool _isCheckingWebviewAvailability = false;
   String? _lastWebviewCommandKey;
+  Timer? _webviewRetryTimer;
+  DateTime? _lastWebviewStatusCheckAt;
+  String? _lastWebviewCheckSummary;
+  String? _lastWebviewIdleSummary;
 
   @override
   void initState() {
@@ -64,6 +69,7 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     _provider?.removeListener(_handleProviderChanged);
     _callTimer?.cancel();
+    _webviewRetryTimer?.cancel();
     _textController.dispose();
     _messageScrollController.dispose();
     super.dispose();
@@ -105,15 +111,27 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _handleWebviewCommand(CallProvider provider) {
+    if (!provider.canShowWebviewProgress) {
+      _webviewRetryTimer?.cancel();
+      _webviewRetryTimer = null;
+      _lastWebviewIdleSummary = null;
+      return;
+    }
     final streamUrl = provider.webviewStreamUrl;
-    debugPrint(
-      '🪟 [CallScreen WebView Check] '
-      'stage=${provider.stage.name}, '
-      'url=${provider.webviewUrl}, '
-      'streamUrl=$streamUrl, '
-      'orderId=${provider.currentOrderId}, '
-      'paymentId=${provider.currentPaymentId}',
-    );
+    final checkSummary =
+        'stage=${provider.stage.name}|streamUrl=$streamUrl|'
+        'orderId=${provider.currentOrderId}|paymentId=${provider.currentPaymentId}';
+    if (_lastWebviewCheckSummary != checkSummary) {
+      _lastWebviewCheckSummary = checkSummary;
+      debugPrint(
+        '🪟 [CallScreen WebView Check] '
+        'stage=${provider.stage.name}, '
+        'url=${provider.webviewUrl}, '
+        'streamUrl=$streamUrl, '
+        'orderId=${provider.currentOrderId}, '
+        'paymentId=${provider.currentPaymentId}',
+      );
+    }
     unawaited(_maybeOpenWebviewFromProgress(provider));
   }
 
@@ -121,6 +139,13 @@ class _CallScreenState extends State<CallScreen> {
     if (!provider.canShowWebviewProgress ||
         _isWebviewOpen ||
         _isCheckingWebviewAvailability) {
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastWebviewStatusCheckAt != null &&
+        now.difference(_lastWebviewStatusCheckAt!) <
+            const Duration(milliseconds: 900)) {
       return;
     }
 
@@ -135,6 +160,7 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     _isCheckingWebviewAvailability = true;
+    _lastWebviewStatusCheckAt = now;
     try {
       final status = await provider.getWebviewStatus();
       if (!mounted || status == null) return;
@@ -149,13 +175,21 @@ class _CallScreenState extends State<CallScreen> {
               (step != null && step.isNotEmpty) ||
               status['screenshotUrl'] != null);
       if (!hasProgress) {
-        debugPrint(
-          '🪟 [CallScreen WebView Check] no active backend progress. '
-          'status=$statusValue, step=$step, message=$message',
-        );
+        final idleSummary = 'status=$statusValue|step=$step|message=$message';
+        if (_lastWebviewIdleSummary != idleSummary) {
+          _lastWebviewIdleSummary = idleSummary;
+          debugPrint(
+            '🪟 [CallScreen WebView Check] no active backend progress. '
+            'status=$statusValue, step=$step, message=$message',
+          );
+        }
+        _scheduleWebviewRetry();
         return;
       }
 
+      _webviewRetryTimer?.cancel();
+      _webviewRetryTimer = null;
+      _lastWebviewIdleSummary = null;
       final commandKey =
           'progress|$conversationId|${status['updatedAt'] ?? statusValue ?? step ?? 'unknown'}';
       _openWebview(
@@ -169,6 +203,17 @@ class _CallScreenState extends State<CallScreen> {
     } finally {
       _isCheckingWebviewAvailability = false;
     }
+  }
+
+  void _scheduleWebviewRetry() {
+    if (_webviewRetryTimer?.isActive == true || !mounted) return;
+    _webviewRetryTimer = Timer(const Duration(seconds: 1), () {
+      _webviewRetryTimer = null;
+      if (!mounted || widget.previewMode) return;
+      final provider = _provider;
+      if (provider == null || !provider.canShowWebviewProgress) return;
+      _handleWebviewCommand(provider);
+    });
   }
 
   void _openWebview(
@@ -186,6 +231,9 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     _isWebviewOpen = true;
+    _webviewRetryTimer?.cancel();
+    _webviewRetryTimer = null;
+    _lastWebviewIdleSummary = null;
     _lastWebviewCommandKey = commandKey;
     debugPrint(
       '🪟 [CallScreen WebView Open] commandKey=$commandKey, '
@@ -304,6 +352,11 @@ class _CallScreenState extends State<CallScreen> {
 
   void _handleMicTap(CallProvider provider) {
     if (widget.previewMode) return;
+    if (!_hasStartedVoiceInteraction) {
+      setState(() {
+        _hasStartedVoiceInteraction = true;
+      });
+    }
     debugPrint(
       '🎤 [Mic Tap] canUseVoice=${provider.canUseVoice}, '
       'isListening=${provider.isListening}, '
@@ -378,47 +431,58 @@ class _CallScreenState extends State<CallScreen> {
   // 상단 헤더
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Column(
-        children: [
-          Image.asset(
-            'assets/images/ddalangoo_logo_text.png',
-            height: 60,
-            fit: BoxFit.contain,
-          ),
-          const SizedBox(height: 4),
-          Consumer<CallProvider>(
-            builder: (context, provider, _) {
-              final isConnected = provider.conversationId != null;
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      child: Consumer<CallProvider>(
+        builder: (context, provider, _) {
+          final isConnected = provider.conversationId != null;
+          return Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    isConnected ? '통화 중' : '연결 중...',
-                    style: TextStyle(
-                      fontSize: isConnected ? 14 : _supportFontSize,
-                      color: const Color(0xFF4CAF50),
-                      fontWeight: isConnected
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                    ),
+                  Image.asset(
+                    'assets/images/ddalangoo_logo_text.png',
+                    height: 28,
+                    fit: BoxFit.contain,
                   ),
-                  if (isConnected) ...[
-                    const SizedBox(width: 10),
-                    Text(
-                      _formattedCallDuration(),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF4CAF50),
-                        fontWeight: FontWeight.w600,
+                  const Spacer(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isConnected ? '통화 중' : '연결 중...',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: const Color(0xFF4CAF50),
+                          fontWeight: isConnected
+                              ? FontWeight.w800
+                              : FontWeight.w600,
+                        ),
                       ),
-                    ),
-                  ],
+                      if (isConnected) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          _formattedCallDuration(),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF4CAF50),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
-              );
-            },
-          ),
-        ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                height: 1,
+                color: const Color(0xFFEFD8DF),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1392,6 +1456,13 @@ class _CallScreenState extends State<CallScreen> {
       builder: (context, provider, _) {
         final canInteractWithMic =
             !widget.previewMode && (provider.canUseVoice || provider.isListening);
+        final shouldShowVoiceStatus =
+            !_hasStartedVoiceInteraction ||
+            provider.isListening ||
+            provider.isTranscribing ||
+            provider.isSpeaking ||
+            provider.isLoading ||
+            provider.errorMessage != null;
         return Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
           child: Column(
@@ -1424,85 +1495,97 @@ class _CallScreenState extends State<CallScreen> {
               // 말하기 버튼 (통화 중일 때만 표시)
               if (provider.stage != CallStage.loading &&
                   provider.stage != CallStage.completed) ...[
-                MouseRegion(
-                  cursor: canInteractWithMic
-                      ? SystemMouseCursors.click
-                      : SystemMouseCursors.basic,
-                  onEnter: (_) => _handleMicHover(true),
-                  onExit: (_) => _handleMicHover(false),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapDown: canInteractWithMic
-                        ? (_) => _handleMicTapDown(provider)
-                        : null,
-                    onTapCancel: _handleMicTapEnd,
-                    onTapUp: (_) => _handleMicTapEnd(),
-                    onTap: canInteractWithMic
-                        ? () => _handleMicTap(provider)
-                        : null,
-                    child: Container(
-                      width: 88,
-                      height: 88,
-                      decoration: BoxDecoration(
-                        color: _micButtonColor(provider),
-                        shape: BoxShape.circle,
-                        border: provider.isListening
-                            ? Border.all(
-                                color: _isMicPressed
-                                    ? const Color(0xFFE53935)
-                                    : const Color(0xFF4CAF50),
-                                width: 3,
-                              )
-                            : _isMicHovered && provider.canUseVoice
-                            ? Border.all(
-                                color: const Color(0xFF4CAF50),
-                                width: 2,
-                              )
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    MouseRegion(
+                      cursor: canInteractWithMic
+                          ? SystemMouseCursors.click
+                          : SystemMouseCursors.basic,
+                      onEnter: (_) => _handleMicHover(true),
+                      onExit: (_) => _handleMicHover(false),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: canInteractWithMic
+                            ? (_) => _handleMicTapDown(provider)
                             : null,
-                        boxShadow: provider.isListening
-                            ? [
-                                BoxShadow(
-                                  color: const Color(
-                                    0xFF4CAF50,
-                                  ).withValues(alpha: 0.28),
-                                  blurRadius: 16,
-                                  spreadRadius: 2,
-                                ),
-                              ]
-                            : _isMicHovered && provider.canUseVoice
-                            ? [
-                                BoxShadow(
-                                  color: const Color(
-                                    0xFF4CAF50,
-                                  ).withValues(alpha: 0.16),
-                                  blurRadius: 12,
-                                  spreadRadius: 1,
-                                ),
-                              ]
+                        onTapCancel: _handleMicTapEnd,
+                        onTapUp: (_) => _handleMicTapEnd(),
+                        onTap: canInteractWithMic
+                            ? () => _handleMicTap(provider)
                             : null,
-                      ),
-                      child: Icon(
-                        _micIcon(provider),
-                        color: _micIconColor(provider),
-                        size: 34,
+                        child: Container(
+                          width: 88,
+                          height: 88,
+                          decoration: BoxDecoration(
+                            color: _micButtonColor(provider),
+                            shape: BoxShape.circle,
+                            border: provider.isListening
+                                ? Border.all(
+                                    color: _isMicPressed
+                                        ? const Color(0xFFE53935)
+                                        : const Color(0xFF4CAF50),
+                                    width: 3,
+                                  )
+                                : _isMicHovered && provider.canUseVoice
+                                ? Border.all(
+                                    color: const Color(0xFF4CAF50),
+                                    width: 2,
+                                  )
+                                : null,
+                            boxShadow: provider.isListening
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF4CAF50,
+                                      ).withValues(alpha: 0.28),
+                                      blurRadius: 16,
+                                      spreadRadius: 2,
+                                    ),
+                                  ]
+                                : _isMicHovered && provider.canUseVoice
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF4CAF50,
+                                      ).withValues(alpha: 0.16),
+                                      blurRadius: 12,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Icon(
+                            _micIcon(provider),
+                            color: _micIconColor(provider),
+                            size: 34,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    if (!_isPasswordInputMode(provider) && !provider.isLoading) ...[
+                      const SizedBox(width: 14),
+                      Flexible(child: _buildTextInputToggle()),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 12),
-                const SizedBox(height: 8),
-                Text(
-                  provider.voiceStatusLabel,
-                  style: TextStyle(
-                    fontSize: _supportFontSize,
-                    color: provider.isListening
-                        ? const Color(0xFF4CAF50)
-                        : provider.canUseVoice
-                        ? const Color(0xFF888888)
-                        : const Color(0xFFE8325A),
+                if (shouldShowVoiceStatus) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    provider.voiceStatusLabel,
+                    style: TextStyle(
+                      fontSize: _supportFontSize,
+                      color: provider.isListening
+                          ? const Color(0xFF4CAF50)
+                          : provider.canUseVoice
+                          ? const Color(0xFF888888)
+                          : const Color(0xFFE8325A),
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
-                ),
+                ],
                 if (provider.errorMessage != null) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -1518,8 +1601,6 @@ class _CallScreenState extends State<CallScreen> {
                 if (!provider.isLoading) ...[
                   if (_isPasswordInputMode(provider)) ...[
                     _buildPinPad(),
-                  ] else ...[
-                    _buildTextInputToggle(),
                   ],
                   if (_showTextInput && !_isPasswordInputMode(provider)) ...[
                     const SizedBox(height: 12),
@@ -1530,6 +1611,12 @@ class _CallScreenState extends State<CallScreen> {
               ],
 
               // 전화 끊기 버튼
+              Container(
+                width: double.infinity,
+                height: 1,
+                margin: const EdgeInsets.only(bottom: 16),
+                color: const Color(0xFFEFD8DF),
+              ),
               MouseRegion(
                 cursor: SystemMouseCursors.click,
                 onEnter: (_) => _handleEndCallHover(true),

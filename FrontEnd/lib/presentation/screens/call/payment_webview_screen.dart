@@ -15,19 +15,35 @@ class PaymentWebViewScreen extends StatefulWidget {
     this.streamUrl,
     this.orderId,
     this.paymentId,
+    this.previewMode = false,
+    this.previewTitle,
+    this.previewStatusText,
+    this.previewHelperText,
+    this.previewStep,
+    this.previewMessage,
+    this.previewScreenshotUrl,
+    this.previewShowActionButtons = false,
   });
 
   final String url;
   final String? streamUrl;
   final int? orderId;
   final int? paymentId;
+  final bool previewMode;
+  final String? previewTitle;
+  final String? previewStatusText;
+  final String? previewHelperText;
+  final String? previewStep;
+  final String? previewMessage;
+  final String? previewScreenshotUrl;
+  final bool previewShowActionButtons;
 
   @override
   State<PaymentWebViewScreen> createState() => _PaymentWebViewScreenState();
 }
 
 class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
-  late final WebViewController _controller;
+  WebViewController? _controller;
   WebSocket? _socket;
   bool _isSubmitting = false;
   bool _pageLoaded = false;
@@ -42,6 +58,16 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.previewMode) {
+      _pageLoaded =
+          widget.previewScreenshotUrl != null &&
+          widget.previewScreenshotUrl!.isNotEmpty;
+      _loadingProgress = _pageLoaded ? 100 : 45;
+      _streamStep = widget.previewStep;
+      _streamMessage = widget.previewMessage;
+      _latestScreenshotUrl = widget.previewScreenshotUrl;
+      return;
+    }
     if (_usesStreamPreview) {
       _connectStream();
     } else {
@@ -231,6 +257,10 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   }
 
   Future<void> _submitResult(String result) async {
+    if (widget.previewMode) {
+      Navigator.of(context).pop();
+      return;
+    }
     final orderId = widget.orderId;
     final paymentId = widget.paymentId;
     if (orderId == null || paymentId == null) {
@@ -271,12 +301,17 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   @override
   Widget build(BuildContext context) {
     final canSubmitPaymentResult =
-        widget.orderId != null && widget.paymentId != null;
+        !widget.previewMode &&
+        widget.orderId != null &&
+        widget.paymentId != null;
 
     return Scaffold(
       appBar: AppBar(
-        title: Consumer<CallProvider>(
-          builder: (context, provider, _) => Text(provider.webviewTargetLabel),
+        title: Text(
+          widget.previewTitle ??
+              (widget.previewMode
+                  ? '웹 진행 상황'
+                  : context.read<CallProvider>().webviewTargetLabel),
         ),
         actions: [
           TextButton(
@@ -291,89 +326,20 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       ),
       body: Column(
         children: [
-          Consumer<CallProvider>(
-            builder: (context, provider, _) {
-              final statusText = provider.webviewStatusText;
-              final helperText = _isSubmitting
-                  ? '백엔드에 완료 여부를 전달하는 중이에요.'
-                  : _usesStreamPreview
-                  ? _helperTextForStep()
-                  : _pageLoaded
-                  ? '화면이 열렸어요. 진행 상황을 확인해주세요.'
-                  : '웹 화면을 불러오는 중이에요. 잠시만 기다려주세요.';
-
-              return Container(
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF6F8),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFF1C8D4)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      provider.webviewTargetLabel,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFFE8325A),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _streamMessage ?? statusText,
-                      style: const TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF333333),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      helperText,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF666666),
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        minHeight: 8,
-                        value: _pageLoaded
-                            ? 1
-                            : (_loadingProgress <= 0
-                                  ? null
-                                  : _loadingProgress / 100),
-                        backgroundColor: const Color(0xFFF8DCE5),
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Color(0xFFE8325A),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
+          _buildStatusCard(context),
           Expanded(
             child: Stack(
               children: [
-                if (_usesStreamPreview)
+                if (widget.previewMode || _usesStreamPreview)
                   _buildStreamPreview()
                 else
-                  WebViewWidget(controller: _controller),
+                  WebViewWidget(controller: _controller!),
                 if (!_pageLoaded && !_usesStreamPreview)
                   const Center(child: CircularProgressIndicator()),
               ],
             ),
           ),
-          if (canSubmitPaymentResult)
+          if (canSubmitPaymentResult || widget.previewShowActionButtons)
             SafeArea(
               top: false,
               child: Padding(
@@ -404,6 +370,98 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildStatusCard(BuildContext context) {
+    final targetLabel = widget.previewTitle ?? _resolveTargetLabel(context);
+    final statusText = widget.previewStatusText ?? _resolveStatusText(context);
+    final helperText = widget.previewHelperText ?? _resolveHelperText();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF6F8),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF1C8D4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            targetLabel,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFE8325A),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _streamMessage ?? statusText,
+            style: const TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF333333),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            helperText,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF666666),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 8,
+              value: _pageLoaded
+                  ? 1
+                  : (_loadingProgress <= 0 ? null : _loadingProgress / 100),
+              backgroundColor: const Color(0xFFF8DCE5),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFFE8325A),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _resolveTargetLabel(BuildContext context) {
+    if (widget.previewMode) {
+      return widget.previewTitle ?? '웹 진행 상황';
+    }
+    return context.read<CallProvider>().webviewTargetLabel;
+  }
+
+  String _resolveStatusText(BuildContext context) {
+    if (widget.previewMode) {
+      return widget.previewStatusText ?? '실시간 진행 상황을 보여드리고 있어요.';
+    }
+    return context.read<CallProvider>().webviewStatusText;
+  }
+
+  String _resolveHelperText() {
+    if (_isSubmitting) {
+      return '백엔드에 완료 여부를 전달하는 중이에요.';
+    }
+    if (widget.previewMode) {
+      return widget.previewHelperText ?? _helperTextForStep();
+    }
+    if (_usesStreamPreview) {
+      return _helperTextForStep();
+    }
+    if (_pageLoaded) {
+      return '화면이 열렸어요. 진행 상황을 확인해주세요.';
+    }
+    return '웹 화면을 불러오는 중이에요. 잠시만 기다려주세요.';
   }
 
   Widget _buildStreamPreview() {

@@ -67,9 +67,68 @@ class ApiClient {
   }
 
   static final Dio dio = createDio();
+  static String? _lastSuppressedWebviewStatusLogKey;
 
   static void _logNetwork(String phase, Map<String, dynamic> payload) {
+    final summarized = _summarizeNetworkLog(phase, payload);
+    if (summarized == null) return;
     const encoder = JsonEncoder.withIndent('  ');
-    debugPrint('🌐 [API $phase]\n${encoder.convert(payload)}');
+    debugPrint('🌐 [API $phase]\n${encoder.convert(summarized)}');
+  }
+
+  static Map<String, dynamic>? _summarizeNetworkLog(
+    String phase,
+    Map<String, dynamic> payload,
+  ) {
+    final url = payload['url']?.toString() ?? '';
+    if (!url.contains('/webview/status')) {
+      return payload;
+    }
+
+    if (phase == 'REQUEST') {
+      return {
+        'method': payload['method'],
+        'url': url,
+      };
+    }
+
+    if (phase == 'RESPONSE') {
+      final data = payload['data'];
+      final status = data is Map<String, dynamic> ? data['status']?.toString() : null;
+      final step = data is Map<String, dynamic> ? data['step']?.toString() : null;
+      final message = data is Map<String, dynamic> ? data['message']?.toString() : null;
+      final signature = '$url|$status|$step|$message';
+
+      if (status == 'idle') {
+        if (_lastSuppressedWebviewStatusLogKey == signature) {
+          return null;
+        }
+        _lastSuppressedWebviewStatusLogKey = signature;
+        return {
+          'statusCode': payload['statusCode'],
+          'url': url,
+          'data': {
+            'type': data is Map<String, dynamic> ? data['type'] : null,
+            'conversationId': data is Map<String, dynamic>
+                ? data['conversationId']
+                : null,
+            'status': status,
+          },
+        };
+      }
+
+      _lastSuppressedWebviewStatusLogKey = null;
+      return {
+        'statusCode': payload['statusCode'],
+        'url': url,
+        'data': data,
+      };
+    }
+
+    if (phase == 'ERROR') {
+      _lastSuppressedWebviewStatusLogKey = null;
+    }
+
+    return payload;
   }
 }

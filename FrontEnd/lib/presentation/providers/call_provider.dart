@@ -85,16 +85,24 @@ class CallProvider extends ChangeNotifier {
   String get webviewUrl => 'about:blank';
   bool get canShowWebviewProgress =>
       _conversationId != null &&
-      (_stage == CallStage.cart || _stage == CallStage.payment);
+      (_stage == CallStage.cart ||
+          _stage == CallStage.payment ||
+          (_stage == CallStage.productSelection && _isLoading));
   String get webviewStatusText {
     final asyncMessage = currentAsyncStatusMessage;
     if (asyncMessage != null) return asyncMessage;
     if (currentAssistantMessage.isNotEmpty) return currentAssistantMessage;
+    if (_stage == CallStage.productSelection && _isLoading) {
+      return '선택하신 상품을 장바구니에 담는 중이에요.';
+    }
     if (_stage == CallStage.cart) return '장바구니에 담는 중이에요.';
     if (_stage == CallStage.payment) return '결제 화면을 준비하고 있어요.';
     return '웹 화면을 준비하고 있어요.';
   }
   String get webviewTargetLabel {
+    if (_stage == CallStage.productSelection && _isLoading) {
+      return '장바구니 작업';
+    }
     if (_stage == CallStage.cart) return '장바구니 작업';
     if (_stage == CallStage.payment) return '결제 진행';
     return '웹 진행 상황';

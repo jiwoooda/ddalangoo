@@ -5,6 +5,7 @@ import '../../../data/models/agent_model.dart';
 import '../../providers/call_provider.dart';
 import '../auth/splash_screen.dart';
 import '../call/call_screen.dart';
+import '../call/payment_webview_screen.dart';
 import '../home/home_screen.dart';
 
 class UiPreviewScreen extends StatelessWidget {
@@ -39,6 +40,41 @@ class UiPreviewScreen extends StatelessWidget {
                 previewUserName: '김영희',
                 enableDataLoad: false,
                 enableVoiceIntro: false,
+              ),
+            ),
+          ),
+          _PreviewTile(
+            title: 'WebView Progress',
+            subtitle: '웹뷰 연결 중 상태와 진행 카드 레이아웃',
+            onTap: () => _openPage(
+              context,
+              const PaymentWebViewScreen(
+                url: 'about:blank',
+                previewMode: true,
+                previewTitle: '결제 진행',
+                previewStatusText: '컬리에 접속하고 있어요.',
+                previewHelperText: '웹뷰 화면을 연결하는 중이에요.',
+                previewStep: 'opening_shop',
+                previewMessage: '컬리에 접속하고 있어요.',
+              ),
+            ),
+          ),
+          _PreviewTile(
+            title: 'WebView Screenshot',
+            subtitle: '실시간 스크린샷이 보이는 웹뷰 레이아웃',
+            onTap: () => _openPage(
+              context,
+              const PaymentWebViewScreen(
+                url: 'about:blank',
+                previewMode: true,
+                previewTitle: '장바구니 작업',
+                previewStatusText: '장바구니에 담고 있어요.',
+                previewHelperText: '수량과 옵션을 확인한 뒤 장바구니에 담는 중이에요.',
+                previewStep: 'adding_to_cart',
+                previewMessage: '장바구니에 담고 있어요.',
+                previewScreenshotUrl:
+                    'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80',
+                previewShowActionButtons: true,
               ),
             ),
           ),
