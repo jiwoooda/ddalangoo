@@ -7,14 +7,15 @@
     "install": {
       "commands": [
         "...",
-        "python -m playwright install --with-deps webkit"
+        "PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install --with-deps webkit"
       ]
     }
   },
   "deploy": {
     "variables": {
       "USE_REAL_BROWSER": "true",
-      "WEBVIEW_HEADLESS": "true"
+      "WEBVIEW_HEADLESS": "true",
+      "PLAYWRIGHT_BROWSERS_PATH": "0"
     },
     "startCommand": "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
   }
