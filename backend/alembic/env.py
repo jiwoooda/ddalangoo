@@ -37,6 +37,10 @@ def _database_url() -> str:
             "DATABASE_URL 환경변수가 필요합니다. "
             "예: postgresql+asyncpg://user:password@localhost:5432/ddalangoo"
         )
+    # Railway는 기본적으로 postgresql:// URL을 제공한다.
+    # Alembic online migration은 async engine을 쓰므로 asyncpg 드라이버를 명시한다.
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     return database_url
 
 
