@@ -47,6 +47,7 @@ class GeminiVoiceService {
   StreamSubscription<Uint8List>? _recordingSubscription;
   StreamSubscription<void>? _playerCompleteSubscription;
   StreamSubscription<PlayerState>? _playerStateSubscription;
+  Timer? _playbackFallbackTimer;
   bool _isRecording = false;
   bool _isSpeaking = false;
   Completer<void>? _speakCompleter;
@@ -299,6 +300,7 @@ class GeminiVoiceService {
           _finishSpeaking();
         }
       });
+      _startPlaybackCompletionFallback(wavBytes);
 
       if (latencyContext != null) {
         FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
@@ -328,6 +330,7 @@ class GeminiVoiceService {
     await _recordingSubscription?.cancel();
     await _playerCompleteSubscription?.cancel();
     await _playerStateSubscription?.cancel();
+    _playbackFallbackTimer?.cancel();
     await _recorder.dispose();
     await _player.dispose();
     await _fallbackTts.stop();
@@ -593,6 +596,7 @@ class GeminiVoiceService {
   Future<void> _speakWithFallbackTts(String text) async {
     debugPrint('🟠 [Fallback TTS] Gemini TTS 대신 로컬 TTS를 사용합니다.');
     await _player.stop();
+    _playbackFallbackTimer?.cancel();
     final latencyContext = _activeSpeakLatencyContext;
     if (latencyContext != null) {
       FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
@@ -676,9 +680,43 @@ class GeminiVoiceService {
     );
   }
 
+  void _startPlaybackCompletionFallback(Uint8List wavBytes) {
+    _playbackFallbackTimer?.cancel();
+    final expectedDuration = _estimateWavDuration(wavBytes);
+    final fallbackDelay = expectedDuration + const Duration(milliseconds: 1800);
+    _playbackFallbackTimer = Timer(fallbackDelay, () {
+      if (!_isSpeaking) return;
+      debugPrint(
+        '⏱️ [Gemini TTS Playback Fallback] '
+        'completion event missing, finishing after '
+        '${fallbackDelay.inMilliseconds}ms',
+      );
+      _markAudioPlayEnd();
+      _finishSpeaking();
+    });
+  }
+
+  Duration _estimateWavDuration(Uint8List wavBytes) {
+    if (wavBytes.length <= 44) {
+      return const Duration(seconds: 2);
+    }
+
+    final pcmLength = wavBytes.length - 44;
+    const bytesPerSample = 2;
+    final bytesPerSecond = _ttsSampleRate * bytesPerSample;
+    if (bytesPerSecond <= 0) {
+      return const Duration(seconds: 2);
+    }
+
+    final durationMs = ((pcmLength * 1000) / bytesPerSecond).ceil();
+    return Duration(milliseconds: durationMs.clamp(1000, 30000));
+  }
+
   void _finishSpeaking() {
     unawaited(_playerCompleteSubscription?.cancel());
     unawaited(_playerStateSubscription?.cancel());
+    _playbackFallbackTimer?.cancel();
+    _playbackFallbackTimer = null;
     _playerCompleteSubscription = null;
     _playerStateSubscription = null;
     _isSpeaking = false;

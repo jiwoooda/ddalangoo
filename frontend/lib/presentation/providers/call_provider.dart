@@ -26,8 +26,8 @@ enum CallStage {
 
 class CallProvider extends ChangeNotifier {
   static const JsonEncoder _jsonEncoder = JsonEncoder.withIndent('  ');
-  static const Duration _minTtsTimeout = Duration(seconds: 8);
-  static const Duration _maxTtsTimeout = Duration(seconds: 20);
+  static const Duration _minTtsTimeout = Duration(seconds: 20);
+  static const Duration _maxTtsTimeout = Duration(seconds: 45);
   final AgentRepository _agentRepository = AgentRepository();
   final UserRepository _userRepository = UserRepository();
   final GptVoiceService _voiceService = GptVoiceService.instance;
@@ -518,7 +518,7 @@ class CallProvider extends ChangeNotifier {
           .timeout(_ttsTimeoutFor(response.assistantMessage));
     } on TimeoutException catch (e) {
       debugPrint(
-        '🔇 [TTS Fallback] 재생 완료 이벤트를 기다리다 타임아웃되었습니다. '
+        '🔇 [TTS Playback Timeout] TTS 전체 처리 대기 중 타임아웃되었습니다. '
         'messageLength=${response.assistantMessage.runes.length}, '
         'timeout=${_ttsTimeoutFor(response.assistantMessage).inSeconds}s, '
         '$e',
@@ -563,7 +563,7 @@ class CallProvider extends ChangeNotifier {
   }
 
   Duration _ttsTimeoutFor(String text) {
-    final estimatedSeconds = 8 + (text.runes.length ~/ 12);
+    final estimatedSeconds = 20 + (text.runes.length ~/ 10);
     final clampedSeconds = estimatedSeconds.clamp(
       _minTtsTimeout.inSeconds,
       _maxTtsTimeout.inSeconds,
