@@ -90,6 +90,7 @@ def _history_to_dict(history: PurchaseHistory) -> dict:
         "category": history.category_snapshot,
         "price_at_purchase": history.price_at_purchase,
         "product_url_snapshot": history.product_url_snapshot,
+        "product_url": history.product_url_snapshot,
         "selected_options": history.selected_options,
         "quantity": history.quantity,
         "total_price": history.total_price,
@@ -144,6 +145,40 @@ async def get_history_by_keyword_db(
     """재구매 요청에서 쓸 keyword 기반 구매 이력 조회다."""
     histories = await get_histories_by_user_id_db(db, user_id, keyword=keyword, limit=1)
     return histories[0] if histories else None
+
+
+async def save_purchase_history_from_state_db(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    product: dict,
+    quantity: int,
+    keyword: str | None = None,
+) -> dict:
+    """
+    LangGraph stage=completed 시 state에서 직접 구매이력을 저장한다.
+    order/payment 테이블 없이도 동작한다.
+    """
+    from datetime import UTC, datetime
+    history = PurchaseHistory(
+        user_id=user_id,
+        platform=product.get("platform"),
+        keyword=keyword,
+        product_name_snapshot=product.get("product_name") or product.get("product_name_snapshot") or "",
+        option_snapshot=product.get("option_text"),
+        brand_snapshot=product.get("brand"),
+        category_snapshot=product.get("category"),
+        price_at_purchase=int(product.get("price") or product.get("price_at_purchase") or 0),
+        product_url_snapshot=product.get("product_url"),
+        selected_options=product.get("selected_options") or {},
+        quantity=quantity,
+        total_price=int(product.get("price") or 0) * quantity,
+        purchased_at=datetime.now(UTC),
+    )
+    db.add(history)
+    await db.commit()
+    await db.refresh(history)
+    return _history_to_dict(history)
 
 
 async def create_histories_from_order_db(

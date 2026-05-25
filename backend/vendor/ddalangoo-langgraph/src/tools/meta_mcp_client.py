@@ -113,11 +113,7 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
             products.append({
                 "name": _strip_html(item.get("title") or ""),
                 "price": price,
-                "delivery_info": (
-                    "샛별배송 내일 아침 7시 전"
-                    if platform == "kurly"
-                    else "일반배송"
-                ),
+                "delivery_info": "",  # 실제 배송 정보는 webview에서 추출
                 "platform": platform,
                 "image_url": item.get("image"),
                 "url": product_url,

@@ -147,6 +147,52 @@ class AgentLogger:
                          "outputs_stage": outputs.get("stage"),
                          "outputs_pending": _ptype(outputs.get("pending_action"))})
 
+    def log(self, text: str) -> None:
+        """자유 형식 한 줄 로그."""
+        if not self._enabled:
+            return
+        self._append_txt(text + "\n")
+        self._log_jsonl({"event": "log", "turn": self._turn, "text": text})
+
+    def log_memory_agent(self, inputs: dict, outputs: dict) -> None:
+        if not self._enabled:
+            return
+        pref = outputs.get("preference_context") or {}
+        summary = pref.get("summary") or ""
+        kw_summary = pref.get("keyword_summary") or ""
+        brands = [b.get("brand") for b in (pref.get("preferred_brands") or [])[:3]]
+        price_avg = (pref.get("price_range") or {}).get("avg")
+        repurchase = (pref.get("repurchase_patterns") or [])[:2]
+        keyword_history_count = len(pref.get("keyword_history") or [])
+
+        lines = [
+            "[memory_agent]",
+            f"  입력  | stage={inputs.get('stage')}  intent={inputs.get('intent')}  "
+            f"user_id={inputs.get('user_id')}  keywords={inputs.get('keywords')}",
+            f"  DB    | 구매이력 {inputs.get('history_count', '?')}건  "
+            f"캐시={'HIT' if inputs.get('cache_hit') else 'MISS'}",
+            f"  선호도| 브랜드={brands}  평균가={price_avg:,}원" if price_avg else f"  선호도| 브랜드={brands}",
+        ]
+        if repurchase:
+            lines.append(f"        | 재구매패턴={repurchase}")
+        if summary:
+            snippet = summary[:120] + ("..." if len(summary) > 120 else "")
+            lines.append(f"  요약  | {snippet}")
+        if kw_summary:
+            kw_snippet = kw_summary[:120] + ("..." if len(kw_summary) > 120 else "")
+            lines.append(f"  키워드| ({keyword_history_count}건 이력) {kw_snippet}")
+        elif inputs.get('keywords'):
+            lines.append(f"  키워드| 이력 {keyword_history_count}건 (요약 없음)")
+        self._append_txt("\n".join(lines) + "\n")
+        self._log_jsonl({
+            "event": "memory_agent", "turn": self._turn,
+            **inputs,
+            "preference_summary": summary,
+            "keyword_summary": kw_summary,
+            "preferred_brands": brands,
+            "price_avg": price_avg,
+        })
+
     def log_respond(self, message: str, stage: str, pending_action: Any) -> None:
         if not self._enabled:
             return

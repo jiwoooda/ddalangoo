@@ -823,7 +823,7 @@ def run_kurly_purchase(
                     progress_callback,
                     flow=flow,
                     step="opening_product",
-                    message="이전에 구매한 상품 페이지로 이동하고 있어요.",
+                    message="이전 상품 페이지 열고 있어요.",
                 )
                 page.goto(reorder_url, timeout=10000)
                 page.wait_for_load_state("domcontentloaded")
@@ -840,7 +840,7 @@ def run_kurly_purchase(
                     progress_callback,
                     flow=flow,
                     step="opening_product",
-                    message="이전에 구매한 상품 페이지로 이동하고 있어요.",
+                    message="이전 상품 페이지 열고 있어요.",
                     page=page,
                 )
                 print(f"[webview] 상품 URL 확인: {product_url}")
@@ -851,7 +851,7 @@ def run_kurly_purchase(
                     progress_callback,
                     flow=flow,
                     step="fallback_searching",
-                    message="상품 페이지가 바뀌어서 다시 검색하고 있어요.",
+                    message="상품이 바뀌어서 다시 찾고 있어요.",
                     page=page,
                 )
                 reorder_url = None
