@@ -11,11 +11,9 @@ USE_REAL_BROWSER=true 시 webview_tool로 장바구니 담기 먼저 실행.
 """
 import os
 import re
-import json
 from src.state.schema import ShoppingState, bridge_shopping_to_payment, bridge_payment_to_shopping
 from src.payment.flow import payment_flow
 from src.tools.mock_tools import mock_get_default_address
-from app.services.playwright_stream_service import playwright_stream_service
 
 
 _KR_NUMBERS = {
@@ -41,6 +39,40 @@ _KR_NUMBERS = {
     "열": 10,
     "십": 10,
 }
+
+
+def _save_purchase_history(
+    state: ShoppingState,
+    selected_product: dict,
+    price: int,
+    quantity: int,
+    keywords: list | None = None,
+) -> None:
+    try:
+        from app.repositories import purchase_history_repository
+        user_id_raw = state.get("user_id", 0)
+        kw_list = keywords if keywords is not None else (state.get("keywords") or [])
+        purchase_history_repository.create_history({
+            "user_id": int(user_id_raw),
+            "conversation_id": state.get("conversation_id"),
+            "product_id": selected_product.get("product_id"),
+            "product_option_id": selected_product.get("product_option_id"),
+            "product_name": selected_product.get("product_name", ""),
+            "brand": selected_product.get("brand"),
+            "category": selected_product.get("category"),
+            "option_text": selected_product.get("option_text"),
+            "selected_options": selected_product.get("selected_options") or {},
+            "product_url": selected_product.get("product_url", ""),
+            "price_at_purchase": price,
+            "quantity": quantity,
+            "total_price": price * quantity,
+            "platform": selected_product.get("platform", ""),
+            "keyword": kw_list[0] if kw_list else None,
+            "satisfaction_score": None,
+            "memo": None,
+        })
+    except Exception as e:
+        print(f"[payment_agent] purchase history save failed: {e}")
 
 
 def _coerce_positive_int(value, default: int | None = None) -> int | None:
@@ -88,34 +120,15 @@ def _delivery_completion_msg(delivery_info: str) -> str:
     return ""
 
 
-def _log_payment_node(event: str, **payload) -> None:
-    log = {"event": event, **payload}
-    print(f"[payment_agent_node] {json.dumps(log, ensure_ascii=False, default=str)}")
-
-
 def payment_agent_node(state: ShoppingState) -> dict:
     stage = state.get("stage")
     pending_type = (state.get("pending_action") or {}).get("type")
-    conversation_id = state.get("conversation_id")
 
     selected_product = state.get("selected_product") or {}
     product_name = selected_product.get("product_name", "상품")
     price = _coerce_positive_int(selected_product.get("price"), default=0) or 0
     quantity = _coerce_positive_int(state.get("quantity"), default=None)
-    use_real_browser = os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
-
-    _log_payment_node(
-        "enter",
-        stage=stage,
-        pending_type=pending_type,
-        product_name=product_name,
-        quantity=quantity,
-        use_real_browser=use_real_browser,
-        has_storage_state=bool(state.get("storage_state_path")),
-    )
-
     if quantity is None:
-        _log_payment_node("quantity_missing", stage=stage, product_name=product_name)
         return {
             "stage": "product_confirming",
             "error": None,
@@ -132,55 +145,113 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # USE_REAL_BROWSER: 장바구니 담기 (cart_shopping/payment_processing 진입 전)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    intent = state.get("intent")
+    use_real_browser = os.environ.get("USE_REAL_BROWSER", "false").lower() == "true"
     if use_real_browser and stage not in ("cart_shopping", "payment_processing"):
-        _log_payment_node(
-            "real_browser_start",
-            product_name=product_name,
-            quantity=quantity,
-            keywords=state.get("keywords"),
-            storage_state_path=state.get("storage_state_path"),
-        )
         from src.tools.webview_tool import run_kurly_purchase
 
-        if conversation_id is not None:
-            playwright_stream_service.reset(int(conversation_id))
-            playwright_stream_service.publish(
-                int(conversation_id),
-                {
-                    "type": "status",
-                    "status": "queued",
-                    "message": "Playwright 스트림을 시작할게요.",
-                    "stage": "queued",
-                    "final": False,
-                    "imageBase64": None,
-                    "mimeType": None,
-                },
-            )
+        stored_url = selected_product.get("product_url", "")
+        reorder_url = stored_url if "www.kurly.com/goods/" in stored_url else None
+        progress_callback = None
+        progress_flow = "reorder" if (intent == "reorder" or reorder_url) else "new_purchase"
+        conversation_id = state.get("conversation_id")
+        if conversation_id:
+            try:
+                from app.services.webview_progress_service import emit_progress
 
-        payment_state = bridge_shopping_to_payment(state, _build_delivery_address(state))
+                def progress_callback(event: dict) -> None:
+                    emit_progress(
+                        int(conversation_id),
+                        step=event.get("step", "webview"),
+                        message=event.get("message", ""),
+                        flow=event.get("flow") or progress_flow,
+                        status=event.get("status", "running"),
+                        screenshot_bytes=event.get("screenshot_bytes"),
+                    )
+            except Exception as e:
+                print(f"[payment_agent] webview progress disabled: {e}")
+
+        # ── 가격 변동 확인 수락/거절 처리 ──
+        if pending_type == "price_change_confirm":
+            if intent in ("deny", "cancel", "next"):
+                return {
+                    "stage": "idle",
+                    "error": None,
+                    "last_agent": "payment_agent",
+                    "pending_action": None,
+                }
+            # confirm → 새 가격으로 selected_product·price·total 갱신 + 가격 체크 스킵
+            current_price = (state.get("pending_action") or {}).get("payload", {}).get("current_price", price)
+            selected_product = {**selected_product, "price": current_price}
+            price = current_price
+            total = price * quantity
+            history_price_arg = None  # 사용자가 이미 확인 → 재체크 불필요
+        else:
+            # 재구매 URL 있을 때만 가격 체크 (일반 구매는 history_price 없음)
+            history_price_arg = price if reorder_url else None
+
         result = run_kurly_purchase(
             product_name=product_name,
             keywords=state.get("keywords"),
             quantity=quantity,
             storage_state_path=state.get("storage_state_path"),
-            progress_callback=(
-                None if conversation_id is None
-                else lambda event: playwright_stream_service.publish(int(conversation_id), event)
-            ),
+            reorder_url=reorder_url,
+            history_price=history_price_arg,
+            progress_callback=progress_callback,
+            progress_flow=progress_flow,
         )
-        _log_payment_node("real_browser_result", result=result)
+
+        # ── 가격 변동 감지 → interrupt ──
+        if result.get("price_changed"):
+            current_price = result["current_price"]
+            history_price = result["history_price"]
+            direction = "올랐어요" if current_price > history_price else "내렸어요"
+            return {
+                "stage": "product_confirming",
+                "error": None,
+                "last_agent": "payment_agent",
+                "storage_state_path": result.get("storage_state_path"),
+                "pending_action": {
+                    "type": "price_change_confirm",
+                    "message": (
+                        f"'{product_name}'의 가격이 이전 {history_price:,}원에서 "
+                        f"현재 {current_price:,}원으로 {direction}. "
+                        "그래도 구매하실 건가요?"
+                    ),
+                    "payload": {
+                        "current_price": current_price,
+                        "history_price": history_price,
+                    },
+                },
+            }
 
         if result.get("cart_added"):
-            # 웹뷰에서 추출한 배송 정보를 selected_product에 반영
-            webview_delivery = result.get("delivery_info", "")
+            # 웹뷰에서 추출한 배송 정보 및 실제 URL을 selected_product에 반영
             updated_product = {**selected_product}
+            webview_delivery = result.get("delivery_info", "")
             if webview_delivery:
                 updated_product["delivery"] = webview_delivery
+            webview_url = result.get("product_url")
+            if webview_url:
+                updated_product["product_url"] = webview_url
 
-            next_state = {
+            # 장바구니 항목 누적 (구매이력 저장에 필요한 전체 상품 정보 포함)
+            existing_cart_items = state.get("cart_items") or []
+            new_cart_item = {
+                "product_name": product_name,
+                "price": price,
+                "quantity": quantity,
+                "total": price * quantity,
+                "product": updated_product,
+                "keywords": state.get("keywords") or [],  # 상품 탐색 시점의 키워드 보존
+            }
+            new_cart_items = existing_cart_items + [new_cart_item]
+
+            return {
                 "stage": "cart_shopping",
                 "storage_state_path": result["storage_state_path"],
                 "selected_product": updated_product,
+                "cart_items": new_cart_items,
                 "error": None,
                 "last_agent": "payment_agent",
                 "pending_action": {
@@ -191,52 +262,12 @@ def payment_agent_node(state: ShoppingState) -> dict:
                     ),
                     "payload": {"storage_state_path": result["storage_state_path"]},
                 },
-                "ui_command": {
-                    "type": "open_webview",
-                    "target": "cart",
-                    "url": "https://www.kurly.com/cart",
-                    "streamPath": f"/api/agent/conversations/{conversation_id}/playwright-stream" if conversation_id is not None else None,
-                    "viewer": "playwright_stream",
-                },
             }
-            _log_payment_node(
-                "return_cart_shopping",
-                stage=next_state["stage"],
-                pending_type=next_state["pending_action"]["type"],
-                ui_command=next_state["ui_command"],
-            )
 
-            return next_state
-
-        _log_payment_node(
-            "real_browser_failed",
-            error=result.get("error") or "webview_cart_failed",
-        )
-        if conversation_id is not None:
-            playwright_stream_service.publish(
-                int(conversation_id),
-                {
-                    "type": "status",
-                    "status": "failed",
-                    "message": result.get("error") or "webview_cart_failed",
-                    "stage": "failed",
-                    "final": True,
-                    "isError": True,
-                    "imageBase64": None,
-                    "mimeType": None,
-                },
-            )
         return {
             "stage": "failed",
             "error": result.get("error") or "webview_cart_failed",
             "last_agent": "payment_agent",
-            "ui_command": {
-                "type": "open_webview",
-                "target": "cart",
-                "url": "https://www.kurly.com",
-                "streamPath": f"/api/agent/conversations/{conversation_id}/playwright-stream" if conversation_id is not None else None,
-                "viewer": "playwright_stream",
-            } if conversation_id is not None else None,
         }
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -244,25 +275,24 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # cart_shopping에서 첫 진입 또는 payment_processing인데 pending 없는 경우
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if stage == "cart_shopping" or pending_type is None:
-        next_state = {
+        cart_items = state.get("cart_items") or []
+        if len(cart_items) > 1:
+            items_text = ", ".join(
+                f"'{item['product_name']}' {item['quantity']}개" for item in cart_items
+            )
+            cart_total = sum(item["total"] for item in cart_items)
+            payment_msg = f"{items_text}, 총 {cart_total:,}원입니다! 네이버 페이로 결제하실래요?"
+        else:
+            payment_msg = f"'{product_name}' {quantity}개, 총 {total:,}원입니다! 네이버 페이로 결제하실래요?"
+        return {
             "stage": "payment_processing",
             "error": None,
             "last_agent": "payment_agent",
             "pending_action": {
                 "type": "payment_method_confirm",
-                "message": (
-                    f"'{product_name}' {quantity}개, 총 {total:,}원입니다! "
-                    "네이버 페이로 결제하실래요?"
-                ),
+                "message": payment_msg,
             },
         }
-        _log_payment_node(
-            "return_payment_method_confirm",
-            stage=next_state["stage"],
-            pending_type=next_state["pending_action"]["type"],
-            total=total,
-        )
-        return next_state
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 2: 결제수단 확인 → 배송지 안내
@@ -272,7 +302,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
         addr1 = address.get("address_line1", "")
         addr2 = address.get("address_line2", "")
         address_display = f"{addr1} {addr2}".strip() if addr2 else addr1
-        next_state = {
+        return {
             "stage": "payment_processing",
             "error": None,
             "last_agent": "payment_agent",
@@ -281,19 +311,12 @@ def payment_agent_node(state: ShoppingState) -> dict:
                 "message": f"배송지 '{address_display}'로 보낼게요! 맞으시죠?",
             },
         }
-        _log_payment_node(
-            "return_address_confirm",
-            stage=next_state["stage"],
-            pending_type=next_state["pending_action"]["type"],
-            address=address_display,
-        )
-        return next_state
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 3: 배송지 확인 → 비밀번호 요청
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if pending_type == "address_confirm":
-        next_state = {
+        return {
             "stage": "payment_processing",
             "error": None,
             "last_agent": "payment_agent",
@@ -302,12 +325,6 @@ def payment_agent_node(state: ShoppingState) -> dict:
                 "message": "비밀번호를 입력해주세요!",
             },
         }
-        _log_payment_node(
-            "return_payment_password",
-            stage=next_state["stage"],
-            pending_type=next_state["pending_action"]["type"],
-        )
-        return next_state
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 4: 비밀번호 입력 → 가짜 결제 완료
@@ -325,17 +342,25 @@ def payment_agent_node(state: ShoppingState) -> dict:
                 "type": "payment_confirm",
                 "message": f"구매 완료되었습니다!{arrival_msg}",
             }
+            result["storage_state_path"] = None
+            cart_items = state.get("cart_items") or []
+            if cart_items:
+                for item in cart_items:
+                    _save_purchase_history(
+                        state,
+                        item.get("product") or selected_product,
+                        item.get("price", 0),
+                        item.get("quantity", 1),
+                        keywords=item.get("keywords"),
+                    )
+            else:
+                _save_purchase_history(state, selected_product, price, quantity)
+            result["cart_items"] = []
 
-        _log_payment_node(
-            "return_payment_flow_result",
-            result_stage=result.get("stage"),
-            pending_type=(result.get("pending_action") or {}).get("type"),
-            has_ui_command=bool(result.get("ui_command") or result.get("uiCommand")),
-        )
         return result
 
     # fallback: 알 수 없는 pending 상태 → Step 1부터 재시작 (Step 4 이후 완료 포함)
-    next_state = {
+    return {
         "stage": "payment_processing",
         "error": None,
         "last_agent": "payment_agent",
@@ -347,10 +372,3 @@ def payment_agent_node(state: ShoppingState) -> dict:
             ),
         },
     }
-    _log_payment_node(
-        "fallback_payment_method_confirm",
-        stage=next_state["stage"],
-        pending_type=next_state["pending_action"]["type"],
-        original_pending_type=pending_type,
-    )
-    return next_state

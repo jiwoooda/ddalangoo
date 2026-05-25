@@ -1,10 +1,15 @@
 """
 Memory Agent Node.
 
-역할: 사용자 프로필/구매 이력/선호 조회 → recommendation_context 생성 → store 저장.
-ShoppingState에 과도한 context를 직접 주입하지 않는다.
-bridge_memory_to_shopping()이 반환하는 최소값만 ShoppingState에 반영한다.
+역할:
+  [Context Loading]  사용자 프로필/구매 이력/선호 조회 → recommendation_context 생성 → store 저장.
+  [Tool Dispatch]    tool_calls를 State에 올려 backend가 실행하도록 위임.
+
+호출 시점:
+  - router → memory_agent (reorder intent)          : context loading + search tool
+  - payment_agent → memory_agent (결제 완료 후)     : conversation summary tool only
 """
+import re
 from typing import Any, Optional
 from langgraph.store.base import BaseStore
 
@@ -12,7 +17,6 @@ from src.state.schema import ShoppingState, MemoryState, bridge_memory_to_shoppi
 from src.tools.mock_tools import (
     mock_get_user,
     mock_get_default_address,
-    mock_get_purchase_history,
     mock_get_preference_memory,
     mock_count_purchases,
     mock_keyword_search_history,
@@ -21,6 +25,115 @@ from src.tools.mock_tools import (
 )
 
 PERSONAL_VECTOR_THRESHOLD = 20
+
+
+def _get_latest_user_text(state: ShoppingState) -> str:
+    messages = state.get("messages") or []
+    for msg in reversed(messages):
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            role = msg.get("role") or msg.get("type")
+            if content and role in (None, "user", "human"):
+                return str(content)
+        else:
+            content = getattr(msg, "content", None)
+            msg_type = getattr(msg, "type", None) or getattr(msg, "role", None)
+            if content and msg_type in (None, "human", "user"):
+                return str(content)
+    return ""
+
+
+def _candidate_to_search_result(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "product_name": candidate.get("product_name", ""),
+        "price": candidate.get("price_at_purchase", 0),
+        "rating": None,
+        "review_count": None,
+        "delivery": None,
+        "delivery_fee": None,
+        "platform": candidate.get("platform", ""),
+        "image_url": None,
+        "product_url": candidate.get("product_url", ""),
+        "option_text": candidate.get("option_text"),
+        "selected_options": candidate.get("selected_options") or {},
+        "product_id": candidate.get("product_id"),
+        "product_option_id": candidate.get("product_option_id"),
+        "purchase_history_id": candidate.get("purchase_history_id"),
+        "score": candidate.get("score"),
+        "is_sold_out": False,
+        "raw": candidate,
+    }
+
+
+def _fallback_resolve_reorder_memory(
+    user_id: str,
+    query: str,
+    keywords: list[str],
+    top_k: int = 5,
+) -> dict[str, Any]:
+    history = mock_keyword_search_history(user_id, keywords or [query], limit=top_k)
+    candidates = []
+    for item in history:
+        candidates.append({
+            "purchase_history_id": item.get("id"),
+            "product_id": item.get("product_id"),
+            "product_option_id": item.get("product_option_id"),
+            "product_name": item.get("product_name"),
+            "product_url": item.get("product_url"),
+            "option_text": item.get("option_text"),
+            "selected_options": item.get("selected_options") or {},
+            "price_at_purchase": item.get("price_at_purchase", 0),
+            "platform": item.get("platform"),
+            "purchased_at": item.get("purchased_at"),
+            "score": 0.8,
+            "reason": "mock keyword match",
+        })
+
+    if not candidates:
+        return {
+            "resolution_type": "no_match",
+            "resolved": False,
+            "needs_user_selection": False,
+            "selected_candidate": None,
+            "candidates": [],
+        }
+
+    if len(candidates) == 1:
+        return {
+            "resolution_type": "resolved",
+            "resolved": True,
+            "needs_user_selection": False,
+            "selected_candidate": candidates[0],
+            "candidates": candidates,
+        }
+
+    return {
+        "resolution_type": "ambiguous",
+        "resolved": False,
+        "needs_user_selection": True,
+        "selected_candidate": None,
+        "candidates": candidates[:3],
+        "question": "이전에 구매한 상품이 여러 개 있어요. 어떤 상품으로 다시 주문할까요?",
+    }
+
+
+def _resolve_reorder_memory(
+    user_id: str,
+    query: str,
+    keywords: list[str],
+    top_k: int = 5,
+) -> dict[str, Any]:
+    try:
+        from app.services.memory_tools import resolve_reorder_memory
+
+        return resolve_reorder_memory(
+            user_id=int(user_id),
+            query=query,
+            keywords=keywords,
+            top_k=top_k,
+        )
+    except Exception:
+        return _fallback_resolve_reorder_memory(user_id, query, keywords, top_k)
 
 
 def _merge_recommendation_results(
@@ -49,7 +162,6 @@ def _merge_recommendation_results(
         for item in results:
             key = (
                 item.get("product_url")
-                or item.get("product_name_snapshot")
                 or item.get("product_name")
                 or item.get("id")
             )
@@ -123,27 +235,82 @@ def get_recommendation_context(
     }
 
 
+def _summarize_messages(messages: list) -> str:
+    """메시지 요약 (임시: 최근 5개 단순 연결 / TODO: Claude API로 교체)."""
+    recent = messages[-5:] if len(messages) > 5 else messages
+    parts = []
+    for msg in recent:
+        if isinstance(msg, dict):
+            role, content = msg.get("role", ""), str(msg.get("content", ""))[:50]
+        else:
+            role = getattr(msg, "type", "") or getattr(msg, "role", "")
+            content = str(getattr(msg, "content", ""))[:50]
+        parts.append(f"[{role}] {content}")
+    return " | ".join(parts)
+
+
+def _extract_reorder_keyword(user_input: str, keywords: list[str]) -> str:
+    """재구매 키워드 추출: state keywords 우선, 없으면 간단 패턴 매칭."""
+    if keywords:
+        return " ".join(keywords)
+    for pattern in [r"저번에\s*산\s*(\S+)", r"(\S+)\s*다시", r"(\S+)\s*또"]:
+        m = re.search(pattern, user_input)
+        if m:
+            return m.group(1)
+    return user_input
+
+
+def _build_tool_calls(state: ShoppingState) -> list[dict[str, Any]]:
+    """State를 보고 필요한 tool_calls 목록을 생성한다."""
+    calls: list[dict[str, Any]] = []
+    intent = state.get("intent")
+    messages = state.get("messages") or []
+
+    # 1. 메시지 수 초과 → 대화 요약 저장
+    if len(messages) > 10:
+        summary = _summarize_messages(messages)
+        calls.append({
+            "tool": "save_conversation_summary",
+            "args": {
+                "conversation_id": state.get("conversation_id"),
+                "summary": summary,
+                "message_count": len(messages),
+            },
+        })
+
+    return calls
+
+
 def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -> dict:
     """
     Memory Agent.
-    역할:
-    - reorder intent 처리 → 구매 이력 조회
-    - 추천 retrieval context 생성
-    - store에 recommendation_context 저장 (ShoppingState에 직접 주입하지 않음)
 
-    반환: bridge_memory_to_shopping() 결과만 (last_agent만 설정)
+    [결제 완료 후] stage=="completed": tool_calls만 방출하고 종료.
+    [reorder 탐색] intent=="reorder":  context loading + tool_calls 방출.
     """
+    stage = state.get("stage")
+    intent = state.get("intent")
     user_id = state.get("user_id", "")
     keywords = state.get("keywords") or []
-    intent = state.get("intent")
 
+    tool_calls = _build_tool_calls(state)
+    updates: dict[str, Any] = {"last_agent": "memory_agent", "tool_calls": tool_calls or None}
+
+    # 메시지 요약이 생성됐다면 state에도 기록
+    if len(state.get("messages") or []) > 10:
+        updates["conversation_summary"] = _summarize_messages(state.get("messages") or [])
+
+    # ── 결제 완료 후 호출: context loading 불필요 ──
+    if stage == "completed":
+        return updates
+
+    # ── Context Loading (reorder / 기타) ──
     recommendation_context = get_recommendation_context(
         user_id=user_id,
         keywords=keywords,
         intent=intent,
     )
 
-    # Store에 recommendation_context 저장 (platform/product agent가 조회)
     if store is not None:
         store.put(
             ("recommendation_context", user_id),
@@ -154,29 +321,35 @@ def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -
     base = {
         **bridge_memory_to_shopping({}),
         "recommendation_context": recommendation_context,
+        **updates,
     }
 
-    # reorder: 구매 이력에서 상품 후보를 만들어 search_results에 제공
+    # reorder: resolve only top-k purchase history candidates.
     if intent == "reorder":
-        history = mock_keyword_search_history(user_id, keywords, limit=5)
-        if history:
-            search_results = [
-                {
-                    "product_name": item.get("product_name_snapshot", ""),
-                    "price": item.get("price_at_purchase", 0),
-                    "rating": None,
-                    "review_count": None,
-                    "delivery": None,
-                    "delivery_fee": None,
-                    "platform": item.get("platform", ""),
-                    "image_url": None,
-                    "product_url": item.get("product_url", ""),
-                    "is_sold_out": False,
-                    "raw": item,
-                }
-                for item in history
-            ]
-            return {**base, "search_results": search_results, "stage": "searching"}
+        query = _get_latest_user_text(state) or _extract_reorder_keyword("", keywords)
+        resolver_result = _resolve_reorder_memory(
+            user_id=user_id,
+            query=query,
+            keywords=keywords,
+            top_k=5,
+        )
+        search_results = [
+            _candidate_to_search_result(candidate)
+            for candidate in (resolver_result.get("candidates") or [])
+        ]
+        return {
+            **base,
+            "reorder_resolution": resolver_result,
+            "search_results": search_results,
+            "stage": "searching",
+            "selected_product": None,
+            "product_url": None,
+            "current_product_index": 0,
+            "explanation": None,
+            "highlight_specs": [],
+            "scored_products": [],
+            "recommended_products": [],
+        }
 
     return base
 

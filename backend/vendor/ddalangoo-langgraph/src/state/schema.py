@@ -120,14 +120,20 @@ class ShoppingState(TypedDict):
 
     # ── 브라우저 세션 (장바구니 storageState 유지) ──
     storage_state_path: Optional[str]
+    cart_items: list[dict[str, Any]]
 
     # ── Memory Agent → Platform/Product 전달 context ──
     recommendation_context: Optional[dict[str, Any]]
+    reorder_resolution: Optional[dict[str, Any]]
 
     # ── Intent Agent 슬롯 (bridge 없이 payment agent로 전달) ──
     # spec의 intent_agent_node 반환값에 명시되어 있으나 ShoppingState에 누락된 필드
     current_option_value: Optional[str]
     address_text: Optional[str]
+    tool_calls: Optional[list[dict[str, Any]]]
+    tool_results: Optional[dict[str, Any]]
+    conversation_summary: Optional[str]
+    order_id: Optional[str]
 
 # ══════════════════════════════════════════════
 # 2. PaymentState — Payment Subgraph 전용
@@ -344,9 +350,15 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "conversation_id": None,
         "user_id": user_id,
         "recommendation_context": None,
+        "reorder_resolution": None,
         "storage_state_path": None,
+        "cart_items": [],
         "current_option_value": None,
         "address_text": None,
+        "tool_calls": None,
+        "tool_results": None,
+        "conversation_summary": None,
+        "order_id": None,
         "cart": None,
         "order": None,
         "payment": None,

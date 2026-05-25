@@ -4,10 +4,12 @@ from src.utils.agent_logger import agent_logger, _ptype
 
 RouteName = Literal[
     "memory_agent",
+    "reorder_node",
     "platform_agent",
     "product_agent",
     "payment_agent",
     "quantity_check",
+    "ask_what_to_buy",
     "respond",
     "interrupt_payment",
     "end",
@@ -52,7 +54,20 @@ def route(state: ShoppingState) -> RouteName:
     if stage == "cart_shopping":
         if intent == "confirm":
             return _decide("payment_agent")
-        if intent in ("deny", "next", "buy", "refine", "compare_platforms"):
+        # 사용자가 무엇을 살지 이미 지정한 경우 → 바로 검색/재구매 흐름
+        if pending_type == "what_to_buy":
+            if intent == "reorder":
+                return _decide("memory_agent")
+            if intent in ("buy", "refine", "compare_platforms"):
+                return _decide("platform_agent")
+            return _decide("respond")
+        # '다른것도 살래' 등 상품 미지정 → 무엇을 살지 먼저 질문
+        if intent in ("deny", "next"):
+            return _decide("ask_what_to_buy")
+        # 상품명을 직접 말한 경우 (예: "우유 살래") → 바로 검색
+        if intent in ("buy", "reorder", "refine", "compare_platforms"):
+            if intent == "reorder":
+                return _decide("memory_agent")
             return _decide("platform_agent")
         return _decide("respond")
 
@@ -66,9 +81,19 @@ def route(state: ShoppingState) -> RouteName:
             if intent in ("confirm", "quantity_change"):
                 return _decide("quantity_check")
 
+        if pa_type == "product_select":
+            if intent in ("confirm", "option_select"):
+                return _decide("reorder_node")
+            return _decide("respond")
+
         if pa_type == "platform_suggest":
             if intent in ("confirm", "deny", "next"):
                 return _decide("platform_agent")
+
+        if pa_type == "price_change_confirm":
+            if intent in ("confirm", "deny", "cancel", "next"):
+                return _decide("payment_agent")
+            return _decide("respond")
 
         if intent == "confirm":
             if not state.get("quantity"):
@@ -120,8 +145,15 @@ def after_platform_agent(state: ShoppingState) -> Literal["product_agent", "resp
 
 def after_reorder(state: ShoppingState) -> Literal["respond", "platform_agent"]:
     """reorder_node 이후 분기: URL 실패 시 platform_agent fallback."""
-    if state.get("error") == "reorder_url_failed":
+    if state.get("error") in ("reorder_url_failed", "reorder_no_match"):
         return "platform_agent"
+    return "respond"
+
+
+def after_memory_agent(state: ShoppingState) -> Literal["reorder_node", "respond"]:
+    """memory_agent 이후 분기: reorder면 reorder_node, 그 외(결제 완료 등)는 respond."""
+    if state.get("intent") == "reorder":
+        return "reorder_node"
     return "respond"
 
 

@@ -13,13 +13,13 @@ from langgraph.store.memory import InMemoryStore
 from langgraph.store.base import BaseStore
 
 from src.state.schema import ShoppingState
-from src.graph.router import route, after_respond, after_reorder, after_platform_agent
+from src.graph.router import route, after_respond, after_reorder, after_platform_agent, after_memory_agent
 from src.agents.intent_agent import intent_agent_node
 from src.agents.memory_agent import memory_agent_node
 from src.agents.platform_agent import platform_agent_node
 from src.agents.product_agent import product_agent_node
 from src.agents.reorder_node import reorder_node
-from src.agents.nodes import wait_for_input_node, respond_node, interrupt_payment_node, quantity_check_node
+from src.agents.nodes import wait_for_input_node, respond_node, interrupt_payment_node, quantity_check_node, ask_what_to_buy_node
 from src.payment.subgraph import payment_agent_node
 
 
@@ -61,6 +61,7 @@ def build_graph(
     builder.add_node("payment_agent", payment_agent_node)
     builder.add_node("respond", respond_node)
     builder.add_node("quantity_check", quantity_check_node)
+    builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
     builder.add_node("interrupt_payment", interrupt_payment_node)
 
     # ── 진입점 ──
@@ -75,18 +76,27 @@ def build_graph(
         route,
         {
             "memory_agent": "memory_agent",
+            "reorder_node": "reorder_node",
             "platform_agent": "platform_agent",
             "product_agent": "product_agent",
             "payment_agent": "payment_agent",
             "quantity_check": "quantity_check",
+            "ask_what_to_buy": "ask_what_to_buy",
             "respond": "respond",
             "interrupt_payment": "interrupt_payment",
             "end": END,
         },
     )
 
-    # ── memory_agent → reorder_node (항상) ──
-    builder.add_edge("memory_agent", "reorder_node")
+    # ── memory_agent → reorder_node (reorder) / respond (결제 완료 등) ──
+    builder.add_conditional_edges(
+        "memory_agent",
+        after_memory_agent,
+        {
+            "reorder_node": "reorder_node",
+            "respond": "respond",
+        },
+    )
 
     # ── reorder_node → respond (URL 유효) / platform_agent (URL 실패 fallback) ──
     builder.add_conditional_edges(
@@ -100,6 +110,7 @@ def build_graph(
 
     # ── quantity_check → respond (수량 질문) ──
     builder.add_edge("quantity_check", "respond")
+    builder.add_edge("ask_what_to_buy", "respond")
 
     # ── platform_agent → product_agent (랭킹/추천) 또는 respond (platform_suggest) ──
     builder.add_conditional_edges(
@@ -111,7 +122,7 @@ def build_graph(
         },
     )
     builder.add_edge("product_agent", "respond")
-    builder.add_edge("payment_agent", "respond")
+    builder.add_edge("payment_agent", "memory_agent")
     builder.add_edge("interrupt_payment", "respond")
 
     # ── respond 이후 계속 진행 여부 판단 ──

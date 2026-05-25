@@ -72,6 +72,32 @@ def quantity_check_node(state: ShoppingState) -> dict:
     }
 
 
+def ask_what_to_buy_node(state: ShoppingState) -> dict:
+    """
+    장바구니 담은 후 '다른것도 살래' 등 추가 쇼핑 의사 표현 시 호출.
+    cart session(storage_state_path)은 보존하고 새 상품 입력을 기다린다.
+    """
+    return {
+        "pending_action": {
+            "type": "what_to_buy",
+            "message": "무엇을 구매하실까요?",
+        },
+        "stage": "cart_shopping",
+        "keywords": [],
+        "search_results": [],
+        "selected_product": None,
+        "reorder_resolution": None,
+        "error": None,
+        "quantity": None,
+        "product_url": None,
+        "current_product_index": 0,
+        "explanation": None,
+        "highlight_specs": [],
+        "scored_products": [],
+        "recommended_products": [],
+    }
+
+
 def interrupt_payment_node(state: ShoppingState) -> dict:
     """
     결제 중 cancel 처리.
