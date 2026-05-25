@@ -63,6 +63,28 @@ def test_webview_progress_emit_always_includes_screenshot_url():
     assert webview_progress_service.get_latest_status(conversation_id) == status
 
 
+def test_webview_progress_recovers_status_and_screenshot_from_disk(monkeypatch, tmp_path):
+    """프로세스 메모리가 비어도 디스크에 저장된 마지막 progress를 복원한다."""
+    conversation_id = 999009
+    monkeypatch.setattr(webview_progress_service, "_SCREENSHOT_DIR", tmp_path)
+    webview_progress_service.clear_progress(conversation_id)
+
+    status = webview_progress_service.emit_progress(
+        conversation_id,
+        step="opening_shop",
+        message="컬리에 접속하고 있어요.",
+        flow="new_purchase",
+        status="running",
+        screenshot_bytes=b"fake-jpeg-bytes",
+    )
+
+    webview_progress_service._latest_status.pop(conversation_id, None)
+    webview_progress_service._latest_screenshot.pop(conversation_id, None)
+
+    assert webview_progress_service.get_status_or_default(conversation_id) == status
+    assert webview_progress_service.get_latest_screenshot(conversation_id) == b"fake-jpeg-bytes"
+
+
 def test_messages_address_confirm_can_trigger_order_creation():
     """주소 확인 수락도 /messages 자연어 흐름에서 주문 생성 후처리 대상이다."""
     assert agent_service._should_create_order_from_message(

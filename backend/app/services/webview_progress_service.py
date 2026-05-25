@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,9 +29,42 @@ def _safe_name(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]+", "_", value).strip("_") or "webview"
 
 
+def _conversation_dir(conversation_id: int) -> Path:
+    return _SCREENSHOT_DIR / str(conversation_id)
+
+
+def _status_path(conversation_id: int) -> Path:
+    return _conversation_dir(conversation_id) / "latest_status.json"
+
+
+def _save_debug_status(conversation_id: int, payload: dict[str, Any]) -> None:
+    """프로세스 메모리가 비어도 status endpoint가 마지막 상태를 읽을 수 있게 저장한다."""
+    try:
+        directory = _conversation_dir(conversation_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        _status_path(conversation_id).write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception as error:
+        print(f"[webview_progress] status save failed: {error}")
+
+
+def _load_debug_status(conversation_id: int) -> dict[str, Any] | None:
+    """메모리에 progress가 없을 때 디스크에 남긴 마지막 상태를 복원한다."""
+    try:
+        path = _status_path(conversation_id)
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as error:
+        print(f"[webview_progress] status load failed: {error}")
+        return None
+
+
 def _save_debug_screenshot(conversation_id: int, step: str, screenshot_bytes: bytes) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    directory = _SCREENSHOT_DIR / str(conversation_id)
+    directory = _conversation_dir(conversation_id)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{timestamp}_{_safe_name(step)}.jpg"
     path.write_bytes(screenshot_bytes)
@@ -38,7 +72,7 @@ def _save_debug_screenshot(conversation_id: int, step: str, screenshot_bytes: by
 
 
 def get_latest_status(conversation_id: int) -> dict[str, Any] | None:
-    return _latest_status.get(conversation_id)
+    return _latest_status.get(conversation_id) or _load_debug_status(conversation_id)
 
 
 def _default_status(conversation_id: int) -> dict[str, Any]:
@@ -85,7 +119,21 @@ def get_status_or_default(conversation_id: int) -> dict[str, Any]:
 
 
 def get_latest_screenshot(conversation_id: int) -> bytes | None:
-    return _latest_screenshot.get(conversation_id)
+    screenshot = _latest_screenshot.get(conversation_id)
+    if screenshot:
+        return screenshot
+
+    try:
+        candidates = sorted(
+            _conversation_dir(conversation_id).glob("*.jpg"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if candidates:
+            return candidates[0].read_bytes()
+    except Exception as error:
+        print(f"[webview_progress] screenshot load failed: {error}")
+    return None
 
 
 async def connect(conversation_id: int, websocket: WebSocket) -> None:
@@ -152,6 +200,7 @@ def emit_progress(
         payload["meta"] = meta
 
     _latest_status[conversation_id] = payload
+    _save_debug_status(conversation_id, payload)
 
     stale: list[WebSocket] = []
     for websocket, loop in list(_connections.get(conversation_id, [])):
