@@ -8,6 +8,8 @@ import json
 import os
 import subprocess
 from typing import Any
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 META_MCP_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "meta-mcp")
@@ -23,6 +25,95 @@ SORT_MAP = {
     "free_shipping": "price_low",
     "value": "price_low",
 }
+
+NAVER_API_SORT_MAP = {
+    "price_low": "sim",
+    "price_high": "sim",
+    "recent": "date",
+}
+
+KURLY_SHOP_KEYWORDS = ("컬리", "마켓컬리", "kurly", "컬리n마트", "컬리 n마트")
+
+
+def _strip_html(value: str) -> str:
+    return value.replace("<b>", "").replace("</b>", "")
+
+
+def _naver_query(query: str, platform: str) -> str:
+    if platform != "kurly":
+        return query
+    lower_query = query.lower()
+    if "컬리" in lower_query or "kurly" in lower_query:
+        return query
+    return f"{query} 컬리N마트"
+
+
+def _is_kurly_item(item: dict[str, Any]) -> bool:
+    mall_name = str(item.get("mallName") or "").lower()
+    title = str(item.get("title") or "").lower()
+    return any(keyword in mall_name or keyword in title for keyword in KURLY_SHOP_KEYWORDS)
+
+
+def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Node MCP가 없는 배포 환경에서도 네이버 쇼핑 검색을 수행한다."""
+    client_id = os.getenv("NAVER_CLIENT_ID")
+    client_secret = os.getenv("NAVER_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        print("[meta_mcp_client] naver fallback disabled: missing credentials")
+        return []
+
+    products: list[dict[str, Any]] = []
+    platforms = [p for p in params.get("platforms", []) if p in ("naver", "kurly")]
+    for platform in platforms:
+        query = _naver_query(str(params.get("query") or ""), platform)
+        display = int(params.get("limit") or 5)
+        sort = NAVER_API_SORT_MAP.get(str(params.get("sort") or "price_low"), "sim")
+        url = (
+            "https://openapi.naver.com/v1/search/shop.json"
+            f"?query={quote(query)}&display={display * 3 if platform == 'kurly' else display}&sort={sort}"
+        )
+        request = Request(
+            url,
+            headers={
+                "X-Naver-Client-Id": client_id,
+                "X-Naver-Client-Secret": client_secret,
+            },
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            print(f"[meta_mcp_client] naver fallback failed platform={platform}: {e}")
+            continue
+
+        items = data.get("items") or []
+        if platform == "kurly":
+            filtered = [item for item in items if _is_kurly_item(item)]
+            items = filtered or items
+
+        for item in items[:display]:
+            price = int(item.get("lprice") or 0)
+            products.append({
+                "name": _strip_html(item.get("title") or ""),
+                "price": price,
+                "delivery_info": (
+                    "샛별배송 내일 아침 7시 전"
+                    if platform == "kurly"
+                    else "일반배송"
+                ),
+                "platform": platform,
+                "image_url": item.get("image"),
+                "url": item.get("link") or "",
+                "shop_name": item.get("mallName"),
+            })
+
+    if params.get("sort") == "price_low":
+        products.sort(key=lambda product: product.get("price") or 0)
+    elif params.get("sort") == "price_high":
+        products.sort(key=lambda product: product.get("price") or 0, reverse=True)
+
+    print(f"[meta_mcp_client] naver fallback products={len(products)}")
+    return _normalize(products[: int(params.get("limit") or 5)])
 
 
 def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -132,7 +223,7 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
     except Exception as e:
         print(f"[meta_mcp_client] error: {e}")
 
-    return []
+    return _call_naver_search_api(params)
 
 
 def _normalize(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
