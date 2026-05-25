@@ -27,6 +27,6 @@
       "USE_REAL_BROWSER": "true",
       "WEBVIEW_HEADLESS": "true"
     },
-    "startCommand": "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
+    "startCommand": "([ -d vendor/ddalangoo-langgraph/meta-mcp/node_modules/@modelcontextprotocol/sdk ] || npm --prefix vendor/ddalangoo-langgraph/meta-mcp ci) && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
   }
 }
