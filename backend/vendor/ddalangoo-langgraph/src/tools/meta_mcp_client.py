@@ -80,6 +80,13 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
     npx_cmd = next((c for c in _NPX_CANDIDATES if os.path.isfile(c)), "npx")
 
     try:
+        print(
+            "[meta_mcp_client] search start",
+            f"platforms={params.get('platforms')}",
+            f"query={params.get('query')}",
+            f"naver_id_set={bool(proc_env.get('NAVER_CLIENT_ID'))}",
+            f"naver_secret_set={bool(proc_env.get('NAVER_CLIENT_SECRET'))}",
+        )
         proc = subprocess.run(
             [npx_cmd, "tsx", "src/server.ts"],
             input=messages,
@@ -93,6 +100,13 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
 
         if proc.returncode != 0 and proc.stderr:
             print(f"[meta_mcp_client] stderr: {proc.stderr[:500]}")
+        else:
+            print(
+                "[meta_mcp_client] process done",
+                f"returncode={proc.returncode}",
+                f"stdout_lines={len(proc.stdout.splitlines())}",
+                f"stderr={proc.stderr[:300] if proc.stderr else ''}",
+            )
 
         for line in proc.stdout.splitlines():
             line = line.strip()
@@ -105,7 +119,9 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
                     content = response.get("result", {}).get("content", [])
                     if content:
                         data = json.loads(content[0]["text"])
-                        return _normalize(data.get("products", []))
+                        products = _normalize(data.get("products", []))
+                        print(f"[meta_mcp_client] products={len(products)}")
+                        return products
             except (json.JSONDecodeError, KeyError):
                 continue
 
