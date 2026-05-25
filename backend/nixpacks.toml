@@ -1,2 +1,11 @@
+[phases.setup]
+nixPkgs = ["python313", "nodejs_20", "npm"]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "cd vendor/ddalangoo-langgraph/meta-mcp && npm ci"
+]
+
 [start]
 cmd = "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
