@@ -14,6 +14,8 @@ VLM이 필수인 단계: _select_product_from_results (검색 결과는 매번 �
   KURLY_PASSWORD    : 컬리 로그인 비밀번호
   WEBVIEW_HEADLESS  : true면 서버 환경에서 headless 브라우저로 실행
   WEBVIEW_SCREENSHOT_ENABLED : false면 progress/VLM screenshot 캡처를 모두 건너뜀
+  WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS : 로그인 submit 후 networkidle 대기 시간
+  WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS    : 로그인 submit 후 /member/login 이탈 대기 시간
 """
 import anthropic
 import base64
@@ -66,6 +68,8 @@ WEBVIEW_HEADLESS = os.environ.get("WEBVIEW_HEADLESS", "true").lower() != "false"
 WEBVIEW_BROWSER = os.environ.get("WEBVIEW_BROWSER", "chromium").lower()
 WEBVIEW_IGNORE_SESSION = os.environ.get("WEBVIEW_IGNORE_SESSION", "false").lower() == "true"
 WEBVIEW_SCREENSHOT_ENABLED = os.environ.get("WEBVIEW_SCREENSHOT_ENABLED", "true").lower() != "false"
+WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS = int(os.environ.get("WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS", "10000"))
+WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS = int(os.environ.get("WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS", "20000"))
 
 VIEWPORT = {"width": 390, "height": 844}
 USER_AGENT = (
@@ -139,6 +143,8 @@ def _log_webview_runtime_config(
         f"browser={WEBVIEW_BROWSER} "
         f"headless={WEBVIEW_HEADLESS} "
         f"screenshot_enabled={WEBVIEW_SCREENSHOT_ENABLED} "
+        f"login_networkidle_timeout_ms={WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS} "
+        f"login_redirect_timeout_ms={WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS} "
         f"launch_args={launch_options.get('args', [])} "
         f"execution_url={execution_url} "
         f"canonical_product_url={canonical_product_url} "
@@ -302,22 +308,29 @@ def _collect_login_error_texts(page: Page) -> list[str]:
         return []
 
 
-def _wait_for_login_navigation(page: Page, *, timeout_ms: int = 9000) -> None:
+def _wait_for_login_navigation(page: Page, *, timeout_ms: int | None = None) -> None:
     """submit 이후 networkidle과 URL 이탈을 순서대로 기다리되 실패를 fatal로 만들지 않는다."""
+    redirect_timeout_ms = timeout_ms or WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS
     try:
-        page.wait_for_load_state("networkidle", timeout=3000)
-        print("[webview:login] networkidle 도달")
+        page.wait_for_load_state("networkidle", timeout=WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS)
+        print(f"[webview:login] networkidle 도달 timeout_ms={WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS}")
     except Exception as e:
-        print(f"[webview:login] networkidle 대기 실패/타임아웃: {e}")
+        print(
+            "[webview:login] networkidle 대기 실패/타임아웃: "
+            f"timeout_ms={WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS} error={e}"
+        )
 
     try:
         page.wait_for_function(
             "() => !location.pathname.includes('/member/login')",
-            timeout=timeout_ms,
+            timeout=redirect_timeout_ms,
         )
-        print(f"[webview:login] 로그인 URL 이탈 감지: {page.url}")
+        print(f"[webview:login] 로그인 URL 이탈 감지: {page.url} timeout_ms={redirect_timeout_ms}")
     except Exception as e:
-        print(f"[webview:login] 로그인 URL 이탈 대기 실패/타임아웃: {e} current_url={page.url}")
+        print(
+            "[webview:login] 로그인 URL 이탈 대기 실패/타임아웃: "
+            f"timeout_ms={redirect_timeout_ms} error={e} current_url={page.url}"
+        )
 
 
 def _login_failure_reason(page: Page, *, dialog_messages: list[str], fallback: str = "login_failed") -> str:
