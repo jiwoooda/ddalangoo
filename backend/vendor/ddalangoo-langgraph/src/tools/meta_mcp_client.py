@@ -173,7 +173,44 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
     return _normalize(products[: int(params.get("limit") or 5)])
 
 
-def _parse_sse_search_result(payload: str) -> list[dict[str, Any]]:
+def _normalize_product_execution_urls(
+    products: list[dict[str, Any]],
+    *,
+    query: str = "",
+) -> list[dict[str, Any]]:
+    """
+    외부 검색 결과 URL과 실제 WebView 실행 URL의 의미를 분리한다.
+
+    Kurly MVP는 네이버에서 컬리N마트 상품을 찾지만, 구매 자동화는 컬리
+    모바일웹에서 다시 검색해 진행한다. 따라서 smartstore 원본 URL은
+    source_url로 보존하고, 후속 Agent가 보는 product_url/url은
+    kurly.com 검색 URL로 맞춘다.
+    """
+    normalized_products: list[dict[str, Any]] = []
+    for product in products:
+        normalized_product = dict(product)
+        platform = str(normalized_product.get("platform") or "").lower()
+        raw_url = (
+            normalized_product.get("url")
+            or normalized_product.get("product_url")
+            or normalized_product.get("execution_url")
+            or ""
+        )
+
+        if platform == "kurly" and raw_url and not _is_kurly_url(raw_url):
+            search_query = query or str(normalized_product.get("name") or "").strip()
+            execution_url = _kurly_search_url(search_query)
+            normalized_product.setdefault("source_url", raw_url)
+            normalized_product["url"] = execution_url
+            normalized_product["product_url"] = execution_url
+            normalized_product["execution_url"] = execution_url
+
+        normalized_products.append(normalized_product)
+
+    return normalized_products
+
+
+def _parse_sse_search_result(payload: str, query: str = "") -> list[dict[str, Any]]:
     """meta-mcp /sse 응답에서 search_result 이벤트의 data JSON을 꺼낸다."""
     current_event = "message"
     data_lines: list[str] = []
@@ -191,12 +228,14 @@ def _parse_sse_search_result(payload: str) -> list[dict[str, Any]]:
 
         if current_event == "search_result" and data_lines:
             data = json.loads("\n".join(data_lines))
-            return _normalize(data.get("products", []))
+            products = _normalize_product_execution_urls(data.get("products", []), query=query)
+            return _normalize(products)
         data_lines = []
 
     if current_event == "search_result" and data_lines:
         data = json.loads("\n".join(data_lines))
-        return _normalize(data.get("products", []))
+        products = _normalize_product_execution_urls(data.get("products", []), query=query)
+        return _normalize(products)
     return []
 
 
@@ -225,7 +264,7 @@ def _call_remote_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
         )
         with urlopen(endpoint, timeout=20) as response:
             body = response.read().decode("utf-8")
-        products = _parse_sse_search_result(body)
+        products = _parse_sse_search_result(body, query=str(params.get("query") or ""))
         print(f"[meta_mcp_client] remote sse products={len(products)}")
         return products
     except Exception as error:
@@ -332,7 +371,11 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
                     content = response.get("result", {}).get("content", [])
                     if content:
                         data = json.loads(content[0]["text"])
-                        products = _normalize(data.get("products", []))
+                        products = _normalize_product_execution_urls(
+                            data.get("products", []),
+                            query=str(params.get("query") or ""),
+                        )
+                        products = _normalize(products)
                         print(f"[meta_mcp_client] products={len(products)}")
                         return products
             except (json.JSONDecodeError, KeyError):
@@ -362,7 +405,9 @@ def _normalize(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "delivery_fee": 0 if any(k in delivery_info for k in ("로켓", "무료")) else None,
             "platform": p.get("platform", ""),
             "image_url": p.get("image_url"),
-            "product_url": p.get("url", ""),
+            "product_url": p.get("product_url") or p.get("execution_url") or p.get("url", ""),
+            "execution_url": p.get("execution_url") or p.get("product_url") or p.get("url", ""),
+            "source_url": p.get("source_url"),
             "is_sold_out": False,
             "raw": p,
         })

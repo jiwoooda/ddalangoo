@@ -254,6 +254,8 @@ def test_meta_mcp_sse_parser_reads_search_result_event():
             "platform": "kurly",
             "image_url": "https://example.com/image.jpg",
             "product_url": "https://www.kurly.com/search?sword=cheese",
+            "execution_url": "https://www.kurly.com/search?sword=cheese",
+            "source_url": None,
             "is_sold_out": False,
             "raw": {
                 "platform": "kurly",
@@ -265,6 +267,37 @@ def test_meta_mcp_sse_parser_reads_search_result_event():
             },
         }
     ]
+
+
+def test_meta_mcp_sse_parser_rewrites_kurly_smartstore_url():
+    """remote meta-mcp가 smartstore URL을 줘도 컬리 WebView 실행 URL로 분리한다."""
+    smartstore_url = "https://smartstore.naver.com/main/products/12924602621"
+    payload = "\n".join([
+        "event: search_result",
+        (
+            'data: {"total":1,"products":[{"platform":"kurly","name":"유기농 조각 양배추 300g",'
+            f'"price":2750,"delivery_info":"","url":"{smartstore_url}",'
+            '"image_url":"https://example.com/cabbage.jpg"}]}'
+        ),
+        "",
+    ])
+
+    products = meta_mcp_client._parse_sse_search_result(payload, query="양배추")
+
+    assert len(products) == 1
+    product = products[0]
+    expected_execution_url = "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+
+    assert product["platform"] == "kurly"
+    assert product["product_name"] == "유기농 조각 양배추 300g"
+    assert product["price"] == 2750
+    assert product["image_url"] == "https://example.com/cabbage.jpg"
+    assert product["source_url"] == smartstore_url
+    assert product["product_url"] == expected_execution_url
+    assert product["execution_url"] == expected_execution_url
+    assert product["raw"]["source_url"] == smartstore_url
+    assert product["raw"]["url"] == expected_execution_url
+    assert product["raw"]["execution_url"] == expected_execution_url
 
 
 def test_kurly_mvp_fallback_does_not_require_naver_credentials(monkeypatch):
@@ -291,6 +324,8 @@ def test_kurly_mvp_fallback_does_not_require_naver_credentials(monkeypatch):
             "platform": "kurly",
             "image_url": None,
             "product_url": "https://www.kurly.com/search?sword=%EC%95%84%EB%B3%B4%EC%B9%B4%EB%8F%84",
+            "execution_url": "https://www.kurly.com/search?sword=%EC%95%84%EB%B3%B4%EC%B9%B4%EB%8F%84",
+            "source_url": None,
             "is_sold_out": False,
             "raw": {
                 "name": "아보카도",
