@@ -335,6 +335,39 @@ def test_webview_order_input_uses_recommendation_item_snapshot():
     assert webview_input.quantity == 3
 
 
+def test_webview_chromium_launch_options_include_railway_args():
+    """Railway Chromium 실행에는 sandbox/dev-shm 회피 옵션이 포함되어야 한다."""
+    from src.tools import webview_tool
+
+    original_browser = webview_tool.WEBVIEW_BROWSER
+    try:
+        webview_tool.WEBVIEW_BROWSER = "chromium"
+        launch_options = webview_tool._browser_launch_options()
+    finally:
+        webview_tool.WEBVIEW_BROWSER = original_browser
+
+    assert launch_options["headless"] is True
+    assert "--no-sandbox" in launch_options["args"]
+    assert "--disable-setuid-sandbox" in launch_options["args"]
+    assert "--disable-dev-shm-usage" in launch_options["args"]
+    assert "--disable-gpu" in launch_options["args"]
+    assert "--single-process" in launch_options["args"]
+    assert "--no-zygote" in launch_options["args"]
+
+
+def test_webview_screenshot_disabled_skips_page_call(monkeypatch):
+    """WEBVIEW_SCREENSHOT_ENABLED=false면 page.screenshot 자체를 호출하지 않는다."""
+    from src.tools import webview_tool
+
+    class CrashIfCalledPage:
+        def screenshot(self, **kwargs):
+            raise AssertionError("screenshot should not be called")
+
+    monkeypatch.setattr(webview_tool, "WEBVIEW_SCREENSHOT_ENABLED", False)
+
+    assert webview_tool._safe_screenshot(CrashIfCalledPage()) is None
+
+
 def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
     """실제 브라우저 MVP에서는 아보카도 같은 신선식품을 컬리 후보로 검색한다."""
     monkeypatch.setenv("USE_REAL_BROWSER", "true")

@@ -7,7 +7,7 @@
     "install": {
       "commands": [
         "...",
-        "PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install --with-deps webkit"
+        "PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install --with-deps chromium"
       ]
     }
   },
@@ -81,8 +81,9 @@
     "variables": {
       "USE_REAL_BROWSER": "true",
       "WEBVIEW_HEADLESS": "true",
-      "WEBVIEW_BROWSER": "webkit",
-      "WEBVIEW_IGNORE_SESSION": "false",
+      "WEBVIEW_BROWSER": "chromium",
+      "WEBVIEW_IGNORE_SESSION": "true",
+      "WEBVIEW_SCREENSHOT_ENABLED": "false",
       "PLAYWRIGHT_BROWSERS_PATH": "0"
     },
     "startCommand": "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"

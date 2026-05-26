@@ -13,6 +13,7 @@ VLM이 필수인 단계: _select_product_from_results (검색 결과는 매번 �
   KURLY_EMAIL       : 컬리 로그인 이메일
   KURLY_PASSWORD    : 컬리 로그인 비밀번호
   WEBVIEW_HEADLESS  : true면 서버 환경에서 headless 브라우저로 실행
+  WEBVIEW_SCREENSHOT_ENABLED : false면 progress/VLM screenshot 캡처를 모두 건너뜀
 """
 import anthropic
 import base64
@@ -64,6 +65,7 @@ KURLY_BASE_URL = "https://www.kurly.com"
 WEBVIEW_HEADLESS = os.environ.get("WEBVIEW_HEADLESS", "true").lower() != "false"
 WEBVIEW_BROWSER = os.environ.get("WEBVIEW_BROWSER", "chromium").lower()
 WEBVIEW_IGNORE_SESSION = os.environ.get("WEBVIEW_IGNORE_SESSION", "false").lower() == "true"
+WEBVIEW_SCREENSHOT_ENABLED = os.environ.get("WEBVIEW_SCREENSHOT_ENABLED", "true").lower() != "false"
 
 VIEWPORT = {"width": 390, "height": 844}
 USER_AGENT = (
@@ -83,6 +85,9 @@ def _safe_screenshot(
     quality: int | None = None,
 ) -> bytes | None:
     """Playwright screenshot crash가 전체 WebView 흐름을 깨지 않도록 감싼다."""
+    if not WEBVIEW_SCREENSHOT_ENABLED:
+        print("[webview:screenshot] skipped: WEBVIEW_SCREENSHOT_ENABLED=false")
+        return None
     try:
         options: dict[str, Any] = {"type": type, "full_page": False}
         if quality is not None:
@@ -99,6 +104,46 @@ def _should_restore_session(storage_state_path: str | None) -> bool:
         print("[webview] 세션 복원 건너뜀: WEBVIEW_IGNORE_SESSION=true")
         return False
     return bool(storage_state_path and os.path.exists(storage_state_path))
+
+
+def _chromium_launch_args() -> list[str]:
+    """Railway Chromium 실행에 필요한 sandbox/dev-shm 회피 옵션."""
+    return [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--single-process",
+        "--no-zygote",
+    ]
+
+
+def _browser_launch_options() -> dict[str, Any]:
+    """환경변수 기반 Playwright launch options를 한곳에서 만든다."""
+    launch_options: dict[str, Any] = {"headless": WEBVIEW_HEADLESS}
+    if WEBVIEW_BROWSER == "chromium":
+        launch_options["args"] = _chromium_launch_args()
+    return launch_options
+
+
+def _log_webview_runtime_config(
+    *,
+    launch_options: dict[str, Any],
+    execution_url: str | None = None,
+    canonical_product_url: str | None = None,
+    target_product_name: str | None = None,
+) -> None:
+    """Railway 로그에서 브라우저 런타임/입력 계약을 바로 확인할 수 있게 출력한다."""
+    print(
+        "[webview:runtime] "
+        f"browser={WEBVIEW_BROWSER} "
+        f"headless={WEBVIEW_HEADLESS} "
+        f"screenshot_enabled={WEBVIEW_SCREENSHOT_ENABLED} "
+        f"launch_args={launch_options.get('args', [])} "
+        f"execution_url={execution_url} "
+        f"canonical_product_url={canonical_product_url} "
+        f"target_product_name={target_product_name}"
+    )
 
 
 def _emit_progress(
@@ -777,7 +822,15 @@ def check_product_price(
 
     playwright = sync_playwright().start()
     # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
-    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
+    browser_type = getattr(playwright, WEBVIEW_BROWSER, playwright.chromium)
+    launch_options = _browser_launch_options()
+    _log_webview_runtime_config(
+        launch_options=launch_options,
+        execution_url=product_url,
+        canonical_product_url=product_url if "/goods/" in product_url else None,
+        target_product_name=None,
+    )
+    browser = browser_type.launch(**launch_options)
 
     context_kwargs = {
         "viewport": VIEWPORT,
@@ -855,20 +908,14 @@ def run_kurly_purchase(
     _clear_cancel()
     playwright = sync_playwright().start()
     browser_type = getattr(playwright, WEBVIEW_BROWSER, playwright.chromium)
+    launch_options = _browser_launch_options()
+    _log_webview_runtime_config(
+        launch_options=launch_options,
+        execution_url=execution_url,
+        canonical_product_url=reorder_url,
+        target_product_name=product_name,
+    )
     print(f"[webview] 브라우저({WEBVIEW_BROWSER}) 시작...")
-    # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
-    launch_options: dict[str, Any] = {"headless": WEBVIEW_HEADLESS}
-    if WEBVIEW_BROWSER == "chromium":
-        # Railway의 작은 컨테이너에서는 sandbox/dev-shm 제약 때문에 기본 Chromium이
-        # 페이지 로딩이나 스크린샷 시점에 종료될 수 있어 서버용 옵션을 명시한다.
-        launch_options["args"] = [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            "--no-zygote",
-            "--single-process",
-        ]
     browser = browser_type.launch(**launch_options)
 
     context_kwargs = {
