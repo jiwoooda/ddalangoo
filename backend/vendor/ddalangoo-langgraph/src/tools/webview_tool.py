@@ -256,6 +256,90 @@ def _is_logged_in(page: Page) -> bool:
     return result if result is not None else _vlm_is_logged_in(page)
 
 
+def _credential_debug_summary() -> dict[str, Any]:
+    """로그에는 credential 원문 대신 존재 여부와 길이만 남긴다."""
+    return {
+        "email_present": bool(KURLY_EMAIL),
+        "email_length": len(KURLY_EMAIL),
+        "password_present": bool(KURLY_PASSWORD),
+        "password_length": len(KURLY_PASSWORD),
+    }
+
+
+def _collect_login_error_texts(page: Page) -> list[str]:
+    """로그인 페이지에서 오류로 보이는 visible text를 최대한 안전하게 수집한다."""
+    try:
+        texts = page.evaluate("""() => {
+            const keywords = [
+                '오류', '에러', '실패', '확인', '일치', '입력', '필수',
+                '잘못', '존재하지', '비밀번호', '아이디', '이메일',
+                '인증', '잠시 후', '차단'
+            ];
+            const nodes = Array.from(document.querySelectorAll('body *'));
+            const results = [];
+            for (const node of nodes) {
+                const style = window.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                if (
+                    style.visibility === 'hidden' ||
+                    style.display === 'none' ||
+                    rect.width === 0 ||
+                    rect.height === 0
+                ) continue;
+                const text = (node.innerText || node.textContent || '').trim();
+                if (!text || text.length > 180) continue;
+                if (keywords.some(keyword => text.includes(keyword))) {
+                    results.push(text.replace(/\\s+/g, ' '));
+                }
+                if (results.length >= 8) break;
+            }
+            return Array.from(new Set(results));
+        }""")
+        return [str(text) for text in texts if text]
+    except Exception as e:
+        print(f"[webview:login] 오류 문구 수집 실패: {e}")
+        return []
+
+
+def _wait_for_login_navigation(page: Page, *, timeout_ms: int = 9000) -> None:
+    """submit 이후 networkidle과 URL 이탈을 순서대로 기다리되 실패를 fatal로 만들지 않는다."""
+    try:
+        page.wait_for_load_state("networkidle", timeout=3000)
+        print("[webview:login] networkidle 도달")
+    except Exception as e:
+        print(f"[webview:login] networkidle 대기 실패/타임아웃: {e}")
+
+    try:
+        page.wait_for_function(
+            "() => !location.pathname.includes('/member/login')",
+            timeout=timeout_ms,
+        )
+        print(f"[webview:login] 로그인 URL 이탈 감지: {page.url}")
+    except Exception as e:
+        print(f"[webview:login] 로그인 URL 이탈 대기 실패/타임아웃: {e} current_url={page.url}")
+
+
+def _login_failure_reason(page: Page, *, dialog_messages: list[str], fallback: str = "login_failed") -> str:
+    """로그인 실패 reason을 URL/dialog/화면 오류 문구 기반으로 만든다."""
+    current_url = ""
+    try:
+        current_url = page.url
+    except Exception:
+        current_url = "unavailable"
+    error_texts = _collect_login_error_texts(page)
+    print(f"[webview:login] submit 이후 URL: {current_url}")
+    print(f"[webview:login] dialog_messages={dialog_messages}")
+    print(f"[webview:login] error_texts={error_texts}")
+
+    if dialog_messages:
+        return f"dialog: {dialog_messages[-1]}"
+    if error_texts:
+        return " | ".join(error_texts[:3])
+    if current_url and "/member/login" in current_url:
+        return "still_on_login_page"
+    return fallback
+
+
 # ══════════════════════════════════════════════
 # 로그인
 # ══════════════════════════════════════════════
@@ -354,8 +438,21 @@ def _login(
     page: Page,
     progress_callback: ProgressCallback | None = None,
     flow: str | None = None,
-) -> bool:
-    """컬리 로그인 수행. 성공 여부 반환."""
+) -> dict:
+    """컬리 로그인 수행. 성공 여부와 실패 reason을 반환한다."""
+    dialog_messages: list[str] = []
+
+    def on_dialog(dialog) -> None:
+        message = dialog.message
+        dialog_messages.append(message)
+        print(f"[webview:login] dialog message={message}")
+        try:
+            dialog.dismiss()
+        except Exception as e:
+            print(f"[webview:login] dialog dismiss 실패: {e}")
+
+    page.on("dialog", on_dialog)
+    print(f"[webview:login] credential_summary={_credential_debug_summary()}")
     print("[webview] 로그인 페이지 진입 중...")
     page.goto(f"{KURLY_BASE_URL}/member/login")
     page.wait_for_load_state("domcontentloaded")
@@ -382,17 +479,28 @@ def _login(
         page.wait_for_timeout(300)
     except Exception as e:
         print(f"[webview] 입력 필드 오류: {e}")
-        return False
+        return {
+            "logged_in": False,
+            "reason": f"input_field_error: {e}",
+            "dialog_messages": dialog_messages,
+            "url": page.url,
+        }
 
     # 로그인 제출
     if not _dom_click_login_submit(page):
         _vlm_click_login_submit(page)
 
     print("[webview] 로그인 처리 대기 중...")
-    page.wait_for_timeout(3000)
+    _wait_for_login_navigation(page)
     logged = _is_logged_in(page)
-    print(f"[webview] 로그인 {'성공' if logged else '실패'} — URL: {page.url}")
-    return logged
+    reason = None if logged else _login_failure_reason(page, dialog_messages=dialog_messages)
+    print(f"[webview] 로그인 {'성공' if logged else '실패'} — URL: {page.url} reason={reason}")
+    return {
+        "logged_in": logged,
+        "reason": reason,
+        "dialog_messages": dialog_messages,
+        "url": page.url,
+    }
 
 
 # ══════════════════════════════════════════════
@@ -1008,9 +1116,13 @@ def run_kurly_purchase(
                     message="로그인하고 있어요.",
                     page=page,
                 )
-                if not _login(page, progress_callback=progress_callback, flow=flow):
+                login_result = _login(page, progress_callback=progress_callback, flow=flow)
+                if not login_result.get("logged_in"):
+                    login_failure_reason = login_result.get("reason") or "login_failed"
                     return {"cart_added": False, "storage_state_path": None,
-                            "delivery_info": "", "product_url": None, "error": "login_failed"}
+                            "delivery_info": "", "product_url": None,
+                            "login_failure_reason": login_failure_reason,
+                            "error": f"login_failed: {login_failure_reason}"}
 
             _check_cancel()
             if execution_url and "kurly.com/search" in execution_url:

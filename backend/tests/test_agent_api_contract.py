@@ -368,6 +368,25 @@ def test_webview_screenshot_disabled_skips_page_call(monkeypatch):
     assert webview_tool._safe_screenshot(CrashIfCalledPage()) is None
 
 
+def test_webview_credential_debug_summary_hides_secret_values(monkeypatch):
+    """로그인 진단 로그는 credential 원문 대신 존재 여부와 길이만 남긴다."""
+    from src.tools import webview_tool
+
+    monkeypatch.setattr(webview_tool, "KURLY_EMAIL", "user@example.com")
+    monkeypatch.setattr(webview_tool, "KURLY_PASSWORD", "secret-password")
+
+    summary = webview_tool._credential_debug_summary()
+
+    assert summary == {
+        "email_present": True,
+        "email_length": len("user@example.com"),
+        "password_present": True,
+        "password_length": len("secret-password"),
+    }
+    assert "user@example.com" not in str(summary)
+    assert "secret-password" not in str(summary)
+
+
 def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
     """실제 브라우저 MVP에서는 아보카도 같은 신선식품을 컬리 후보로 검색한다."""
     monkeypatch.setenv("USE_REAL_BROWSER", "true")

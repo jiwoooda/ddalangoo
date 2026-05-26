@@ -527,7 +527,11 @@ def _start_real_browser_purchase(
                 message="컬리 장바구니 담기에 실패했어요.",
                 flow=progress_flow,
                 status="failed",
-                meta={**base_meta, "error": result.get("error")},
+                meta={
+                    **base_meta,
+                    "error": result.get("error"),
+                    "loginFailureReason": result.get("login_failure_reason"),
+                },
             )
         except Exception as error:
             webview_progress_service.emit_progress(
