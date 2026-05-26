@@ -88,9 +88,16 @@ class AgentRepository {
     String label, {
     required String endpoint,
     required Map<String, dynamic> payload,
+    bool redactMessage = false,
   }) {
+    final sanitizedPayload = redactMessage
+        ? {
+            ...payload,
+            if (payload.containsKey('message')) 'message': '******',
+          }
+        : payload;
     debugPrint(
-      '📤 [$label]\n${_jsonEncoder.convert({'endpoint': endpoint, 'payload': payload})}',
+      '📤 [$label]\n${_jsonEncoder.convert({'endpoint': endpoint, 'payload': sanitizedPayload})}',
     );
   }
 
@@ -180,11 +187,31 @@ class AgentRepository {
     return AgentResponse.fromJson(response.data);
   }
 
+  Future<Map<String, dynamic>?> getWebviewStatus(int conversationId) async {
+    final response = await _dio.get(
+      '/api/agent/conversations/$conversationId/webview/status',
+    );
+    final data = response.data;
+    if (data is! Map<String, dynamic>) return null;
+    return data;
+  }
+
+  Future<void> cancelConversation(int conversationId) async {
+    debugPrint(
+      '📤 [Conversation Cancel Request]\n${_jsonEncoder.convert({'endpoint': '/api/agent/conversations/$conversationId/cancel'})}',
+    );
+    await _dio.post('/api/agent/conversations/$conversationId/cancel');
+    debugPrint(
+      '📥 [Conversation Cancel Response]\n${_jsonEncoder.convert({'conversationId': conversationId, 'status': 'requested'})}',
+    );
+  }
+
   // 메시지 보내기 (STT 결과 전송)
   Future<AgentResponse> sendMessage({
     required int conversationId,
     required String message,
     LatencyRequestContext? latencyContext,
+    bool redactMessageForLogs = false,
   }) async {
     if (useMock) {
       debugPrint(
@@ -274,6 +301,7 @@ class AgentRepository {
       'Conversation Message Request',
       endpoint: '/api/agent/conversations/$conversationId/messages',
       payload: payload,
+      redactMessage: redactMessageForLogs,
     );
     if (latencyContext != null) {
       FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_request_sent');
@@ -334,20 +362,28 @@ class AgentRepository {
   }
 
   // 결제 웹뷰 결과 전송
-  Future<void> sendWebviewResult({
+  Future<AgentResponse> sendWebviewResult({
     required int conversationId,
     required int orderId,
     required int paymentId,
-    required String result, // "success" or "fail"
+    required String result, // "completed" or "cancelled"
   }) async {
     if (useMock) {
       await Future.delayed(const Duration(milliseconds: 500));
-      return;
+      return _mockResponse(
+        result,
+        result == 'completed' ? 'completed' : 'payment',
+        convId: conversationId,
+        customAssistantMessage: result == 'completed'
+            ? '결제가 완료되었습니다.'
+            : '결제가 취소되었습니다.',
+      );
     }
-    await _dio.post(
+    final response = await _dio.post(
       '/api/agent/conversations/$conversationId/payments/webview-result',
       data: {'orderId': orderId, 'paymentId': paymentId, 'result': result},
     );
+    return _parseAgentResponse(response.data, label: 'Webview Result Response');
   }
 }
 

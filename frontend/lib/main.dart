@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -8,18 +10,31 @@ import 'presentation/screens/auth/login_screen.dart';
 import 'presentation/screens/auth/register_screen.dart';
 import 'presentation/screens/home/home_screen.dart';
 import 'presentation/screens/call/call_screen.dart';
+import 'presentation/screens/preview/ui_preview_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'core/services/gemini_voice_service.dart';
+import 'core/services/gpt_voice_service.dart';
+import 'core/services/gpt_realtime_voice_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
   debugPrint(
-    '🚀 [App Start] .env loaded, GEMINI_API_KEY='
-    '${dotenv.env['GEMINI_API_KEY']?.isNotEmpty == true ? 'configured' : 'missing'}',
+    '🚀 [App Start] .env loaded, OPENAI_API_KEY='
+    '${dotenv.env['OPENAI_API_KEY']?.isNotEmpty == true ? 'configured' : 'missing'}',
   );
-  await GeminiVoiceService.instance.init(); // TTS 초기화
+  await GptVoiceService.instance.init();
+  await GptRealtimeVoiceService.instance.init();
+  _warmCommonTtsPhrases();
   runApp(const DdalangooApp());
+}
+
+void _warmCommonTtsPhrases() {
+  final commonPhrases = <String>[
+    '딸랑구를 연결하고 있어요. 잠시만 기다려주세요.',
+    '무엇을 구매하고 싶으신가요?',
+    '구매 완료되었습니다!',
+  ];
+  unawaited(GptVoiceService.instance.prefetchMultiple(commonPhrases));
 }
 
 class DdalangooApp extends StatelessWidget {
@@ -48,85 +63,84 @@ class DdalangooApp extends StatelessWidget {
       fontFamily: fontFamily,
     );
 
-    final cuteTextTheme = GoogleFonts.nanumGothicTextTheme(
-      baseTheme.textTheme,
-    ).copyWith(
-      displayLarge: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.displayLarge,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w800,
-      ),
-      displayMedium: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.displayMedium,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w800,
-      ),
-      displaySmall: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.displaySmall,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w700,
-      ),
-      headlineLarge: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.headlineLarge,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w800,
-      ),
-      headlineMedium: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.headlineMedium,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w700,
-      ),
-      headlineSmall: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.headlineSmall,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w700,
-      ),
-      titleLarge: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.titleLarge,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w800,
-      ),
-      titleMedium: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.titleMedium,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w700,
-      ),
-      titleSmall: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.titleSmall,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w700,
-      ),
-      bodyLarge: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.bodyLarge,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w600,
-      ),
-      bodyMedium: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.bodyMedium,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w500,
-      ),
-      bodySmall: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.bodySmall,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w500,
-      ),
-      labelLarge: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.labelLarge,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w700,
-      ),
-      labelMedium: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.labelMedium,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w600,
-      ),
-      labelSmall: GoogleFonts.nanumGothic(
-        textStyle: baseTheme.textTheme.labelSmall,
-        color: const Color(0xFF333333),
-        fontWeight: FontWeight.w600,
-      ),
-    );
+    final cuteTextTheme = GoogleFonts.nanumGothicTextTheme(baseTheme.textTheme)
+        .copyWith(
+          displayLarge: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.displayLarge,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w800,
+          ),
+          displayMedium: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.displayMedium,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w800,
+          ),
+          displaySmall: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.displaySmall,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w700,
+          ),
+          headlineLarge: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.headlineLarge,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w800,
+          ),
+          headlineMedium: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.headlineMedium,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w700,
+          ),
+          headlineSmall: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.headlineSmall,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w700,
+          ),
+          titleLarge: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.titleLarge,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w800,
+          ),
+          titleMedium: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.titleMedium,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w700,
+          ),
+          titleSmall: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.titleSmall,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w700,
+          ),
+          bodyLarge: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.bodyLarge,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w600,
+          ),
+          bodyMedium: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.bodyMedium,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w500,
+          ),
+          bodySmall: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.bodySmall,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w500,
+          ),
+          labelLarge: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.labelLarge,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w700,
+          ),
+          labelMedium: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.labelMedium,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w600,
+          ),
+          labelSmall: GoogleFonts.nanumGothic(
+            textStyle: baseTheme.textTheme.labelSmall,
+            color: const Color(0xFF333333),
+            fontWeight: FontWeight.w600,
+          ),
+        );
 
     return baseTheme.copyWith(
       textTheme: cuteTextTheme,
@@ -178,6 +192,7 @@ class DdalangooApp extends StatelessWidget {
 
 final GoRouter _router = GoRouter(
   initialLocation: '/splash',
+  //initialLocation: '/ui-preview',
   debugLogDiagnostics: true,
   observers: [_RouteLoggingObserver()],
   routes: [
@@ -205,6 +220,11 @@ final GoRouter _router = GoRouter(
       name: 'call',
       path: '/call',
       builder: (context, state) => const CallScreen(),
+    ),
+    GoRoute(
+      name: 'ui-preview',
+      path: '/ui-preview',
+      builder: (context, state) => const UiPreviewScreen(),
     ),
   ],
 );

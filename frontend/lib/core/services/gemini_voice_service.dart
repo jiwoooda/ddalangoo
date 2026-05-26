@@ -27,6 +27,7 @@ class GeminiVoiceService {
   static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
   static const String _ttsVoiceName = 'Zephyr';
   static const String _useGeminiTtsEnvKey = 'USE_GEMINI_TTS';
+  static const double _ttsSpeedMultiplier = 1.2;
   static const int _sampleRate = 44100;
   static const int _numChannels = 1;
   static const int _ttsSampleRate = 24000;
@@ -47,6 +48,7 @@ class GeminiVoiceService {
   StreamSubscription<Uint8List>? _recordingSubscription;
   StreamSubscription<void>? _playerCompleteSubscription;
   StreamSubscription<PlayerState>? _playerStateSubscription;
+  Timer? _playbackFallbackTimer;
   bool _isRecording = false;
   bool _isSpeaking = false;
   Completer<void>? _speakCompleter;
@@ -228,7 +230,57 @@ class GeminiVoiceService {
     }
   }
 
-  Future<void> speak(String text, {LatencyRequestContext? latencyContext}) async {
+  Future<Uint8List> synthesizeSpeechToBytes(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      throw Exception('TTS 입력 텍스트가 비어 있습니다.');
+    }
+    return _getOrCreateSpeech(normalized);
+  }
+
+  Future<String> synthesizeSpeechToFile(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      throw Exception('TTS 입력 텍스트가 비어 있습니다.');
+    }
+
+    final wavBytes = await _getOrCreateSpeech(normalized);
+    final source = await _createSpeechPlaybackSource(normalized, wavBytes);
+    if (source is DeviceFileSource) {
+      return source.path;
+    }
+
+    final directory = await getTemporaryDirectory();
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}'
+      'ddalangoo_tts_${DateTime.now().microsecondsSinceEpoch}.wav',
+    );
+    await file.writeAsBytes(wavBytes, flush: true);
+    return file.path;
+  }
+
+  Future<void> prefetchSpeech(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) return;
+
+    try {
+      await _getOrCreateSpeech(normalized);
+    } catch (e) {
+      debugPrint('⚠️ [Gemini TTS Prefetch Error] "$normalized" $e');
+    }
+  }
+
+  Future<void> prefetchMultiple(Iterable<String> texts) async {
+    for (final text in texts) {
+      await prefetchSpeech(text);
+    }
+  }
+
+  Future<void> speak(
+    String text, {
+    LatencyRequestContext? latencyContext,
+    VoidCallback? onPlaybackStart,
+  }) async {
     if (_isSpeaking) await stopSpeaking();
     _isSpeaking = true;
     _speakCompleter = Completer<void>();
@@ -246,7 +298,7 @@ class GeminiVoiceService {
             'frontend_tts_ready',
           );
         }
-        await _speakWithFallbackTts(text);
+        await _speakWithFallbackTts(text, onPlaybackStart: onPlaybackStart);
         _markAudioPlayEnd();
         _finishSpeaking();
         return;
@@ -270,17 +322,19 @@ class GeminiVoiceService {
           _finishSpeaking();
         }
       });
+      _startPlaybackCompletionFallback(wavBytes);
 
       if (latencyContext != null) {
         FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
       }
+      onPlaybackStart?.call();
       await _player.play(speechSource);
       await _speakCompleter!.future;
     } catch (e) {
       debugPrint('❌ [Gemini TTS Error] $e');
 
       try {
-        await _speakWithFallbackTts(text);
+        await _speakWithFallbackTts(text, onPlaybackStart: onPlaybackStart);
       } finally {
         _markAudioPlayEnd();
         _finishSpeaking();
@@ -299,6 +353,7 @@ class GeminiVoiceService {
     await _recordingSubscription?.cancel();
     await _playerCompleteSubscription?.cancel();
     await _playerStateSubscription?.cancel();
+    _playbackFallbackTimer?.cancel();
     await _recorder.dispose();
     await _player.dispose();
     await _fallbackTts.stop();
@@ -430,7 +485,7 @@ class GeminiVoiceService {
   }
 
   String _buildTtsCacheKey(String text) =>
-      '$_ttsModelName|$_ttsVoiceName|1.2|$text';
+      '$_ttsModelName|$_ttsVoiceName|$_ttsSpeedMultiplier|$text';
 
   void _rememberTtsCache(String cacheKey, Uint8List wavBytes) {
     _ttsCache.remove(cacheKey);
@@ -524,7 +579,7 @@ class GeminiVoiceService {
       await _fallbackTts.awaitSpeakCompletion(true);
       await _fallbackTts.setLanguage('ko-KR');
       await _fallbackTts.setPitch(1.15);
-      await _fallbackTts.setSpeechRate(0.52);
+      await _fallbackTts.setSpeechRate(0.62);
     } catch (e) {
       debugPrint('⚠️ [Fallback TTS Config Error] $e');
     }
@@ -561,13 +616,18 @@ class GeminiVoiceService {
     return statusCode == 429 || statusCode == 503;
   }
 
-  Future<void> _speakWithFallbackTts(String text) async {
+  Future<void> _speakWithFallbackTts(
+    String text, {
+    VoidCallback? onPlaybackStart,
+  }) async {
     debugPrint('🟠 [Fallback TTS] Gemini TTS 대신 로컬 TTS를 사용합니다.');
     await _player.stop();
+    _playbackFallbackTimer?.cancel();
     final latencyContext = _activeSpeakLatencyContext;
     if (latencyContext != null) {
       FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
     }
+    onPlaybackStart?.call();
     await _fallbackTts.speak(text);
   }
 
@@ -587,10 +647,15 @@ class GeminiVoiceService {
             'parts': [
               {
                 'text':
-                    'Read the exact following Korean text in a bright, cheerful, '
-                    'friendly, and kind feminine voice at about 1.2x speed. '
-                    'Sound lively and encouraging, but still clear and easy for '
-                    'older adults to understand. Do not add or change any words.\n$text',
+                    'Read the exact following Korean text in Korean. '
+                    'Speak like a warm, affectionate daughter helping an older parent shop. '
+                    'Use a bright, reassuring, and very kind tone. '
+                    'Keep the voice gentle, patient, and easy for older adults to understand. '
+                    'Speak about 1.2x faster than a neutral default pace without sounding rushed. '
+                    'Pause naturally between sentences. '
+                    'Pronounce prices, quantities, dates, addresses, and payment-related words very clearly. '
+                    'Sound friendly and comforting, never cold or robotic. '
+                    'Do not add, remove, or change any words.\n$text',
               },
             ],
           },
@@ -643,9 +708,43 @@ class GeminiVoiceService {
     );
   }
 
+  void _startPlaybackCompletionFallback(Uint8List wavBytes) {
+    _playbackFallbackTimer?.cancel();
+    final expectedDuration = _estimateWavDuration(wavBytes);
+    final fallbackDelay = expectedDuration + const Duration(milliseconds: 1800);
+    _playbackFallbackTimer = Timer(fallbackDelay, () {
+      if (!_isSpeaking) return;
+      debugPrint(
+        '⏱️ [Gemini TTS Playback Fallback] '
+        'completion event missing, finishing after '
+        '${fallbackDelay.inMilliseconds}ms',
+      );
+      _markAudioPlayEnd();
+      _finishSpeaking();
+    });
+  }
+
+  Duration _estimateWavDuration(Uint8List wavBytes) {
+    if (wavBytes.length <= 44) {
+      return const Duration(seconds: 2);
+    }
+
+    final pcmLength = wavBytes.length - 44;
+    const bytesPerSample = 2;
+    final bytesPerSecond = _ttsSampleRate * bytesPerSample;
+    if (bytesPerSecond <= 0) {
+      return const Duration(seconds: 2);
+    }
+
+    final durationMs = ((pcmLength * 1000) / bytesPerSecond).ceil();
+    return Duration(milliseconds: durationMs.clamp(1000, 30000));
+  }
+
   void _finishSpeaking() {
     unawaited(_playerCompleteSubscription?.cancel());
     unawaited(_playerStateSubscription?.cancel());
+    _playbackFallbackTimer?.cancel();
+    _playbackFallbackTimer = null;
     _playerCompleteSubscription = null;
     _playerStateSubscription = null;
     _isSpeaking = false;

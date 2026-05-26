@@ -5,20 +5,36 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../../data/models/agent_model.dart';
 import '../../../presentation/providers/call_provider.dart';
+import 'payment_webview_screen.dart';
 
 class CallScreen extends StatefulWidget {
-  const CallScreen({super.key});
+  const CallScreen({
+    super.key,
+    this.previewMode = false,
+    this.autoStart = true,
+  });
+
+  final bool previewMode;
+  final bool autoStart;
 
   @override
   State<CallScreen> createState() => _CallScreenState();
 }
 
 class _CallScreenState extends State<CallScreen> {
-  static const double _titleFontSize = 18;
-  static const double _bodyFontSize = 19;
+  static const double _bodyFontSize = 22;
   static const double _supportFontSize = 15;
   static const double _buttonFontSize = 18;
+  static const Set<String> _activeWebviewSteps = {
+    'opening_shop',
+    'logging_in',
+    'searching_product',
+    'opening_product',
+    'fallback_searching',
+    'adding_to_cart',
+  };
 
   final TextEditingController _textController = TextEditingController();
   final ScrollController _messageScrollController = ScrollController();
@@ -30,7 +46,16 @@ class _CallScreenState extends State<CallScreen> {
   bool _isMicHovered = false;
   bool _isEndCallHovered = false;
   bool _showTextInput = false;
+  bool _hasStartedVoiceInteraction = false;
+  bool _isProductCardExpanded = true;
   int _lastMessageCount = 0;
+  bool _isWebviewOpen = false;
+  bool _isCheckingWebviewAvailability = false;
+  String? _lastWebviewCommandKey;
+  Timer? _webviewRetryTimer;
+  DateTime? _lastWebviewStatusCheckAt;
+  String? _lastWebviewCheckSummary;
+  String? _lastWebviewIdleSummary;
 
   @override
   void initState() {
@@ -44,6 +69,7 @@ class _CallScreenState extends State<CallScreen> {
 
     // 전화 시작 시 첫 메시지 전송
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!widget.autoStart) return;
       context.read<CallProvider>().startCall();
     });
   }
@@ -52,6 +78,7 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     _provider?.removeListener(_handleProviderChanged);
     _callTimer?.cancel();
+    _webviewRetryTimer?.cancel();
     _textController.dispose();
     _messageScrollController.dispose();
     super.dispose();
@@ -81,11 +108,175 @@ class _CallScreenState extends State<CallScreen> {
       });
     }
 
+    if (!widget.previewMode) {
+      _handleWebviewCommand(provider);
+    }
+
     final messageCount = provider.messages.length;
     if (messageCount <= _lastMessageCount) return;
 
     _lastMessageCount = messageCount;
     _scrollMessagesToBottom();
+  }
+
+  void _handleWebviewCommand(CallProvider provider) {
+    if (!provider.canShowWebviewProgress) {
+      _webviewRetryTimer?.cancel();
+      _webviewRetryTimer = null;
+      _lastWebviewIdleSummary = null;
+      return;
+    }
+    final streamUrl = provider.webviewStreamUrl;
+    final checkSummary =
+        'stage=${provider.stage.name}|streamUrl=$streamUrl|'
+        'orderId=${provider.currentOrderId}|paymentId=${provider.currentPaymentId}';
+    if (_lastWebviewCheckSummary != checkSummary) {
+      _lastWebviewCheckSummary = checkSummary;
+      debugPrint(
+        '🪟 [CallScreen WebView Check] '
+        'stage=${provider.stage.name}, '
+        'url=${provider.webviewUrl}, '
+        'streamUrl=$streamUrl, '
+        'orderId=${provider.currentOrderId}, '
+        'paymentId=${provider.currentPaymentId}',
+      );
+    }
+    unawaited(_maybeOpenWebviewFromProgress(provider));
+  }
+
+  Future<void> _maybeOpenWebviewFromProgress(CallProvider provider) async {
+    if (!provider.canShowWebviewProgress ||
+        _isWebviewOpen ||
+        _isCheckingWebviewAvailability) {
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastWebviewStatusCheckAt != null &&
+        now.difference(_lastWebviewStatusCheckAt!) <
+            const Duration(milliseconds: 900)) {
+      return;
+    }
+
+    final conversationId = provider.conversationId;
+    final streamUrl = provider.webviewStreamUrl;
+    if (conversationId == null || streamUrl == null) {
+      debugPrint(
+        '🪟 [CallScreen WebView Check] progress fallback unavailable. '
+        'conversationId=$conversationId, streamUrl=$streamUrl',
+      );
+      return;
+    }
+
+    _isCheckingWebviewAvailability = true;
+    _lastWebviewStatusCheckAt = now;
+    try {
+      final status = await provider.getWebviewStatus();
+      if (!mounted || status == null) return;
+
+      final statusValue = status['status'] as String?;
+      final message = status['message'] as String?;
+      final step = status['step'] as String?;
+      final normalizedStatus = statusValue?.trim().toLowerCase();
+      final normalizedStep = step?.trim().toLowerCase();
+      final hasActiveStep =
+          normalizedStep != null &&
+          _activeWebviewSteps.contains(normalizedStep);
+      final hasProgress =
+          normalizedStatus != null &&
+          normalizedStatus != 'idle' &&
+          normalizedStatus != 'waiting' &&
+          normalizedStep != 'not_started' &&
+          (hasActiveStep || status['screenshotUrl'] != null) &&
+          ((message != null && message.isNotEmpty) ||
+              (step != null && step.isNotEmpty) ||
+              status['screenshotUrl'] != null);
+      if (!hasProgress) {
+        final idleSummary = 'status=$statusValue|step=$step|message=$message';
+        if (_lastWebviewIdleSummary != idleSummary) {
+          _lastWebviewIdleSummary = idleSummary;
+          debugPrint(
+            '🪟 [CallScreen WebView Check] no active backend progress. '
+            'status=$statusValue, step=$step, message=$message',
+          );
+        }
+        _scheduleWebviewRetry();
+        return;
+      }
+
+      _webviewRetryTimer?.cancel();
+      _webviewRetryTimer = null;
+      _lastWebviewIdleSummary = null;
+      final commandKey =
+          'progress|$conversationId|${status['updatedAt'] ?? statusValue ?? step ?? 'unknown'}';
+      _openWebview(
+        provider,
+        commandKey: commandKey,
+        url: provider.webviewUrl,
+        streamUrl: streamUrl,
+      );
+    } catch (error) {
+      debugPrint(
+        '🪟 [CallScreen WebView Check] progress fallback error: $error',
+      );
+    } finally {
+      _isCheckingWebviewAvailability = false;
+    }
+  }
+
+  void _scheduleWebviewRetry() {
+    if (_webviewRetryTimer?.isActive == true || !mounted) return;
+    _webviewRetryTimer = Timer(const Duration(seconds: 1), () {
+      _webviewRetryTimer = null;
+      if (!mounted || widget.previewMode) return;
+      final provider = _provider;
+      if (provider == null || !provider.canShowWebviewProgress) return;
+      _handleWebviewCommand(provider);
+    });
+  }
+
+  void _openWebview(
+    CallProvider provider, {
+    required String commandKey,
+    required String url,
+    required String? streamUrl,
+  }) {
+    if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) {
+      debugPrint(
+        '🪟 [CallScreen WebView Check] already handled. '
+        '_isWebviewOpen=$_isWebviewOpen, commandKey=$commandKey',
+      );
+      return;
+    }
+
+    _isWebviewOpen = true;
+    _webviewRetryTimer?.cancel();
+    _webviewRetryTimer = null;
+    _lastWebviewIdleSummary = null;
+    _lastWebviewCommandKey = commandKey;
+    debugPrint(
+      '🪟 [CallScreen WebView Open] commandKey=$commandKey, '
+      'url=$url, streamUrl=$streamUrl',
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PaymentWebViewScreen(
+            url: url,
+            streamUrl: streamUrl,
+            orderId: provider.currentOrderId,
+            paymentId: provider.currentPaymentId,
+          ),
+        ),
+      );
+      debugPrint('🪟 [CallScreen WebView Close] commandKey=$commandKey');
+      _isWebviewOpen = false;
+      if (mounted && _lastWebviewCommandKey == commandKey) {
+        _lastWebviewCommandKey = null;
+      }
+    });
   }
 
   void _scrollMessagesToBottom() {
@@ -136,11 +327,15 @@ class _CallScreenState extends State<CallScreen> {
 
   void _endCall() {
     context.read<CallProvider>().endCall();
+    if (widget.previewMode) {
+      Navigator.of(context).maybePop();
+      return;
+    }
     context.go('/home');
   }
 
   void _handleTextSubmit() {
-    if (_textController.text.isEmpty) return;
+    if (widget.previewMode || _textController.text.isEmpty) return;
     context.read<CallProvider>().sendTextMessage(_textController.text);
     _textController.clear();
     setState(() {
@@ -167,14 +362,20 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _submitPin() {
-    if (_pinInput.length != 6) return;
-    context.read<CallProvider>().sendTextMessage(_pinInput);
+    if (widget.previewMode || _pinInput.length != 6) return;
+    context.read<CallProvider>().submitPaymentPassword(_pinInput);
     setState(() {
       _pinInput = '';
     });
   }
 
   void _handleMicTap(CallProvider provider) {
+    if (widget.previewMode) return;
+    if (!_hasStartedVoiceInteraction) {
+      setState(() {
+        _hasStartedVoiceInteraction = true;
+      });
+    }
     debugPrint(
       '🎤 [Mic Tap] canUseVoice=${provider.canUseVoice}, '
       'isListening=${provider.isListening}, '
@@ -249,140 +450,238 @@ class _CallScreenState extends State<CallScreen> {
   // 상단 헤더
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Column(
-        children: [
-          Image.asset(
-            'assets/images/ddalangoo_logo_text.png',
-            height: 60,
-            fit: BoxFit.contain,
-          ),
-          const SizedBox(height: 4),
-          Consumer<CallProvider>(
-            builder: (context, provider, _) {
-              final isConnected = provider.conversationId != null;
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+      child: Consumer<CallProvider>(
+        builder: (context, provider, _) {
+          final isConnected = provider.conversationId != null;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    isConnected ? '통화 중' : '연결 중...',
-                    style: TextStyle(
-                      fontSize: isConnected ? 14 : _supportFontSize,
-                      color: const Color(0xFF4CAF50),
-                      fontWeight: isConnected
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                    ),
-                  ),
-                  if (isConnected) ...[
-                    const SizedBox(width: 10),
-                    Text(
-                      _formattedCallDuration(),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF4CAF50),
-                        fontWeight: FontWeight.w600,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 50,
+                        height: 50,
+                        child: Image.asset(
+                          'assets/images/ddalangoo_logo_image.png',
+                          fit: BoxFit.contain,
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 1),
+                      Image.asset(
+                        'assets/images/ddalangoo_logo_text.png',
+                        height: 28,
+                        fit: BoxFit.contain,
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isConnected ? '통화 중' : '연결 중...',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: const Color(0xFF4CAF50),
+                          fontWeight: isConnected
+                              ? FontWeight.w800
+                              : FontWeight.w600,
+                        ),
+                      ),
+                      if (isConnected) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          _formattedCallDuration(),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF4CAF50),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
-              );
-            },
-          ),
-        ],
+              ),
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                height: 1,
+                color: const Color(0xFFEFD8DF),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
   // stage에 따라 콘텐츠 변경
   Widget _buildContent(CallProvider provider) {
-    switch (provider.stage) {
-      case CallStage.loading:
-        return _buildLoadingContent(provider);
-      default:
-        return _buildChatContent(provider);
-    }
+    return _buildChatContent(provider);
   }
 
   // 채팅 말풍선 화면 (의도파악, 플랫폼선택, 상품선택, 결제 등)
   Widget _buildChatContent(CallProvider provider) {
-    return Column(
-      children: [
-        // 말풍선 목록
-        Expanded(
-          child: ListView.builder(
-            controller: _messageScrollController,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: provider.messages.length,
-            itemBuilder: (context, index) {
-              final message = provider.messages[index];
-              return _buildMessageBubble(
-                text: message['text'],
-                isUser: message['isUser'],
-              );
-            },
-          ),
-        ),
+    final hasAddressCard =
+        provider.stage == CallStage.payment &&
+        provider.lastResponse?.deliveryAddress != null;
+    final hasCartSummary = provider.stage == CallStage.cart;
+    final shouldShowAssistantLoadingBubble =
+        provider.isAwaitingAssistantPresentation ||
+        (provider.isLoading &&
+            provider.messages.isNotEmpty &&
+            provider.messages.last['isUser'] == true);
 
-        // 상품 추천 카드 (상품 선택 단계)
-        if (provider.stage == CallStage.productSelection &&
-            provider.lastResponse?.recommendations.isNotEmpty == true)
-          _buildProductCard(provider),
-
-        // 주소 확인 (결제 단계에서 deliveryAddress가 있을 때)
-        if (provider.stage == CallStage.payment &&
-            provider.lastResponse?.deliveryAddress != null)
-          _buildAddressConfirmation(provider),
-
-        // 장바구니 (장바구니 단계)
-        if (provider.stage == CallStage.cart) _buildCartSummary(provider),
-
-        // 로딩 인디케이터
-        if (provider.isLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: CircularProgressIndicator(color: Color(0xFFE8325A)),
-          ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Column(
+          children: [
+            // 말풍선 목록
+            Expanded(
+              child: ListView(
+                controller: _messageScrollController,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                children: [
+                  for (var index = 0; index < provider.messages.length; index++)
+                    _buildConversationItem(provider.messages[index], index),
+                  if (shouldShowAssistantLoadingBubble)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 8),
+                      child: _buildAssistantLoadingBubble(provider),
+                    ),
+                  if (hasAddressCard)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 8),
+                      child: _buildAddressConfirmation(provider),
+                    ),
+                  if (hasCartSummary)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 8),
+                      child: _buildCartSummary(provider),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  // 비동기 로딩 화면
-  Widget _buildLoadingContent(CallProvider provider) {
-    // asyncStatus에서 메시지 파싱
-    final asyncStatus = provider.lastResponse?.asyncStatus;
-    String loadingText = '잠시 기다려주세요';
-    if (asyncStatus is Map && asyncStatus['message'] != null) {
-      loadingText = asyncStatus['message'];
+  Widget _buildConversationItem(Map<String, dynamic> message, int index) {
+    final type = message['type'] as String?;
+    if (type == 'product_card') {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 8),
+        child: _buildProductCardFromMessage(
+          recommendation: message['recommendation'] as RecommendationItemInAgent,
+          selectedProduct: message['selectedProduct'],
+        ),
+      );
     }
 
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const CircularProgressIndicator(
-            color: Color(0xFFE8325A),
-            strokeWidth: 3,
-          ),
-          const SizedBox(height: 24),
-          Text(
-            loadingText,
-            style: const TextStyle(
-              fontSize: _titleFontSize,
-              color: Color(0xFFE8325A),
-              fontWeight: FontWeight.w500,
+    final isUser = message['isUser'] as bool? ?? false;
+    return _buildMessageBubble(
+      text: message['text'],
+      isUser: isUser,
+      showHeroAvatar: !isUser && index == 0,
+    );
+  }
+
+  Widget _buildAssistantLoadingBubble(CallProvider provider) {
+    final loadingText = provider.assistantLoadingMessage;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFFFF),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+                bottomLeft: Radius.circular(4),
+                bottomRight: Radius.circular(16),
+              ),
+              border: Border.all(color: const Color(0xFFE8325A), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFEEF3),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Image.asset(
+                        'assets/images/ddalangoo_logo_image.png',
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFE8325A),
+                        strokeWidth: 2.4,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        loadingText,
+                        style: const TextStyle(
+                          fontSize: _bodyFontSize,
+                          color: Color(0xFF333333),
+                          height: 1.45,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Padding(
+                  padding: EdgeInsets.only(left: 48),
+                  child: Text(
+                    '딸랑구가 음성으로 차근차근 설명드릴게요.',
+                    style: TextStyle(
+                      fontSize: _supportFontSize,
+                      color: Color(0xFF888888),
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            '잠시 기다려주세요',
-            style: TextStyle(
-              fontSize: _supportFontSize,
-              color: Color(0xFF888888),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -567,32 +866,38 @@ class _CallScreenState extends State<CallScreen> {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: const Color(0xFFFCE4EA),
-        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFFFFF1F4),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF6C9D6)),
       ),
       child: const Icon(
         Icons.image_outlined,
         color: Color(0xFFE8325A),
-        size: 28,
+        size: 32,
       ),
     );
 
     if (imageUrl == null || imageUrl.isEmpty) return placeholder;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Image.network(
-        imageUrl,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => placeholder,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFF3CBD7)),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Image.network(
+          imageUrl,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => placeholder,
+        ),
       ),
     );
   }
 
-  String? _resolveProductImageUrl(CallProvider provider) {
-    final selectedProduct = provider.lastResponse?.selectedProduct;
+  String? _resolveProductImageUrl(dynamic selectedProduct) {
     if (selectedProduct is! Map) return null;
 
     // 백엔드는 추천 목록에는 imageUrl=null, 선택 상품에는 image_url을 내려줄 수 있다.
@@ -607,23 +912,28 @@ class _CallScreenState extends State<CallScreen> {
   Widget _buildTextInputToggle() {
     return OutlinedButton.icon(
       onPressed: _toggleTextInput,
-      icon: Icon(_showTextInput ? Icons.keyboard_hide : Icons.keyboard),
-      label: Text(_showTextInput ? '텍스트 입력 닫기' : '텍스트 입력하기'),
+      icon: Icon(_showTextInput ? Icons.keyboard_hide : Icons.keyboard, size: 18),
+      label: Text(_showTextInput ? '텍스트 닫기' : '텍스트 입력'),
       style: OutlinedButton.styleFrom(
         foregroundColor: const Color(0xFFE8325A),
         side: const BorderSide(color: Color(0xFFE8325A)),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         textStyle: const TextStyle(
-          fontSize: _supportFontSize,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        minimumSize: const Size(0, 44),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
 
   // 말풍선
-  Widget _buildMessageBubble({required String text, required bool isUser}) {
+  Widget _buildMessageBubble({
+    required String text,
+    required bool isUser,
+    bool showHeroAvatar = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -639,18 +949,19 @@ class _CallScreenState extends State<CallScreen> {
                   : CrossAxisAlignment.start,
               children: [
                 if (!isUser)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6, bottom: 8),
-                    child: Image.asset(
-                      'assets/images/ddalangoo_logo_image.png',
-                      height: 150,
-                      fit: BoxFit.contain,
+                  if (showHeroAvatar)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6, bottom: 8),
+                      child: Image.asset(
+                        'assets/images/ddalangoo_logo_image.png',
+                        height: 150,
+                        fit: BoxFit.contain,
+                      ),
                     ),
-                  ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
+                    horizontal: 18,
+                    vertical: 14,
                   ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFFFFF),
@@ -672,14 +983,40 @@ class _CallScreenState extends State<CallScreen> {
                       ),
                     ],
                   ),
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      fontSize: _bodyFontSize,
-                      color: const Color(0xFF333333),
-                      height: 1.4,
-                      fontWeight: isUser ? FontWeight.w500 : FontWeight.w700,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!isUser && !showHeroAvatar) ...[
+                        Container(
+                          width: 24,
+                          height: 24,
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFEEF3),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Image.asset(
+                            'assets/images/ddalangoo_logo_image.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      Flexible(
+                        child: Text(
+                          text,
+                          style: TextStyle(
+                            fontSize: _bodyFontSize,
+                            color: const Color(0xFF333333),
+                            height: 1.5,
+                            fontWeight: isUser
+                                ? FontWeight.w500
+                                : FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -690,143 +1027,342 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
+  Widget _buildCollapsedProductSummary({
+    required String title,
+    required String priceText,
+    required String? imageUrl,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildProductImage(imageUrl, size: 96),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF222222),
+                  height: 1.35,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '$priceText원',
+                style: const TextStyle(
+                  fontSize: 27,
+                  color: Color(0xFFE8325A),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   // 상품 추천 카드
-  Widget _buildProductCard(CallProvider provider) {
-    final item = provider.lastResponse!.recommendations.first;
-    final imageUrl = item.imageUrl ?? _resolveProductImageUrl(provider);
+  Widget _buildProductCardFromMessage({
+    required RecommendationItemInAgent recommendation,
+    required dynamic selectedProduct,
+  }) {
+    final item = recommendation;
+    final imageUrl = item.imageUrl ?? _resolveProductImageUrl(selectedProduct);
+    final formattedPrice = _formatPrice(item.price);
+    final hasBrand = item.brand != null && item.brand!.trim().isNotEmpty;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFF4CFD9)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: const Color(0xFFE8325A).withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 플랫폼 뱃지
-          if (item.platform != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF4CAF50),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                item.platform!,
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-              ),
-            ),
-          const SizedBox(height: 8),
-
-          // 상품명
-          Text(
-            item.productName,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-
-          // 추천 사유 (과거 이력 등)
-          if (item.reason != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                '💡 ${item.reason!}',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.blueGrey[700],
-                  fontStyle: FontStyle.italic,
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEEF3),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  '딸랑구 추천',
+                  style: TextStyle(
+                    color: Color(0xFFE8325A),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-            ),
-
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildProductImage(imageUrl),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (item.brand != null)
-                      Text(
-                        item.brand!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    Text(
-                      item.productName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+              const Spacer(),
+              if (item.platform != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEDF8F0),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    item.platform!,
+                    style: const TextStyle(
+                      color: Color(0xFF2E7D32),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                     ),
-                    const SizedBox(height: 4),
-                    if (item.rating != null)
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.star,
-                            size: 14,
-                            color: Colors.orange,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () {
+              setState(() {
+                _isProductCardExpanded = !_isProductCardExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _isProductCardExpanded
+                        ? Text(
+                            item.productName,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF222222),
+                              height: 1.35,
+                            ),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        : _buildCollapsedProductSummary(
+                            title: item.productName,
+                            priceText: formattedPrice,
+                            imageUrl: imageUrl,
                           ),
-                          Text(
-                            ' ${item.rating} (${item.reviewCount ?? 0})',
-                            style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFEEF3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      _isProductCardExpanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      color: const Color(0xFFE8325A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          if (_isProductCardExpanded) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildProductImage(imageUrl, size: 124),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (hasBrand)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: RichText(
+                            text: TextSpan(
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF666666),
+                                height: 1.4,
+                              ),
+                              children: [
+                                const TextSpan(
+                                  text: '브랜드 ',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                TextSpan(
+                                  text: item.brand!,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF333333),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (item.reason != null)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF5DA),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            item.reason!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF6E5A11),
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                            ),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      if (item.reason != null) const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (item.rating != null)
+                            _buildInfoChip(
+                              icon: Icons.star_rounded,
+                              iconColor: const Color(0xFFFF9800),
+                              label:
+                                  '${item.rating} · 후기 ${item.reviewCount ?? 0}',
+                            ),
+                          if (item.deliveryInfo != null)
+                            _buildInfoChip(
+                              icon: Icons.local_shipping_outlined,
+                              iconColor: const Color(0xFF2E7D32),
+                              label: item.deliveryInfo!,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3F6),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Expanded(
+                    child: Text(
+                      '가격',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF7A7A7A),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Flexible(
+                    child: RichText(
+                      textAlign: TextAlign.right,
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: formattedPrice,
+                            style: const TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFFE8325A),
+                              height: 1.0,
+                            ),
+                          ),
+                          const TextSpan(
+                            text: '원',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFFE8325A),
+                            ),
                           ),
                         ],
                       ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // 가격
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  '${item.price.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}원',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFE8325A),
-                  ),
-                ),
-              ),
-              if (item.deliveryInfo != null) const SizedBox(width: 12),
-              if (item.deliveryInfo != null)
-                Flexible(
-                  child: Text(
-                    item.deliveryInfo!,
-                    textAlign: TextAlign.right,
-                    softWrap: true,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.green,
-                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-            ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoChip({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F8F8),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFECECEC)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: iconColor),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF555555),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  String _formatPrice(int price) {
+    return price.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (m) => '${m[1]},',
     );
   }
 
@@ -1016,92 +1552,151 @@ class _CallScreenState extends State<CallScreen> {
   Widget _buildEndCallButton() {
     return Consumer<CallProvider>(
       builder: (context, provider, _) {
+        final canInteractWithMic =
+            !widget.previewMode &&
+            (provider.canUseVoice || provider.isListening);
+        final isCompactBottomBar =
+            provider.isLoading ||
+            provider.isSpeaking ||
+            provider.stage == CallStage.productSelection ||
+            provider.stage == CallStage.cart ||
+            provider.stage == CallStage.payment;
+        final shouldShowVoiceStatus =
+            !_hasStartedVoiceInteraction ||
+            provider.isListening ||
+            provider.isTranscribing ||
+            provider.isSpeaking ||
+            provider.isLoading ||
+            provider.errorMessage != null;
         return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            isCompactBottomBar ? 10 : 20,
+          ),
           child: Column(
             children: [
-              // 말하기 버튼 (통화 중일 때만 표시)
-              if (provider.stage != CallStage.loading &&
-                  provider.stage != CallStage.completed) ...[
-                MouseRegion(
-                  cursor: (provider.canUseVoice || provider.isListening)
-                      ? SystemMouseCursors.click
-                      : SystemMouseCursors.basic,
-                  onEnter: (_) => _handleMicHover(true),
-                  onExit: (_) => _handleMicHover(false),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapDown: (provider.canUseVoice || provider.isListening)
-                        ? (_) => _handleMicTapDown(provider)
-                        : null,
-                    onTapCancel: _handleMicTapEnd,
-                    onTapUp: (_) => _handleMicTapEnd(),
-                    onTap: (provider.canUseVoice || provider.isListening)
-                        ? () => _handleMicTap(provider)
-                        : null,
-                    child: Container(
-                      width: 88,
-                      height: 88,
-                      decoration: BoxDecoration(
-                        color: _micButtonColor(provider),
-                        shape: BoxShape.circle,
-                        border: provider.isListening
-                            ? Border.all(
-                                color: _isMicPressed
-                                    ? const Color(0xFFE53935)
-                                    : const Color(0xFF4CAF50),
-                                width: 3,
-                              )
-                            : _isMicHovered && provider.canUseVoice
-                            ? Border.all(
-                                color: const Color(0xFF4CAF50),
-                                width: 2,
-                              )
-                            : null,
-                        boxShadow: provider.isListening
-                            ? [
-                                BoxShadow(
-                                  color: const Color(
-                                    0xFF4CAF50,
-                                  ).withValues(alpha: 0.28),
-                                  blurRadius: 16,
-                                  spreadRadius: 2,
-                                ),
-                              ]
-                            : _isMicHovered && provider.canUseVoice
-                            ? [
-                                BoxShadow(
-                                  color: const Color(
-                                    0xFF4CAF50,
-                                  ).withValues(alpha: 0.16),
-                                  blurRadius: 12,
-                                  spreadRadius: 1,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Icon(
-                        _micIcon(provider),
-                        color: _micIconColor(provider),
-                        size: 34,
-                      ),
+              if (widget.previewMode) ...[
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFEEF3),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFF4CFD9)),
+                  ),
+                  child: const Text(
+                    '미리보기 모드예요. 이 화면에서는 백엔드 호출과 음성 입출력이 실행되지 않아요.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: _supportFontSize,
+                      color: Color(0xFF9C3D57),
+                      fontWeight: FontWeight.w700,
+                      height: 1.4,
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                const SizedBox(height: 8),
-                Text(
-                  provider.voiceStatusLabel,
-                  style: TextStyle(
-                    fontSize: _supportFontSize,
-                    color: provider.isListening
-                        ? const Color(0xFF4CAF50)
-                        : provider.canUseVoice
-                        ? const Color(0xFF888888)
-                        : const Color(0xFFE8325A),
-                  ),
-                  textAlign: TextAlign.center,
+              ],
+              // 말하기 버튼 (통화 중일 때만 표시)
+              if (provider.stage != CallStage.loading &&
+                  provider.stage != CallStage.completed) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    MouseRegion(
+                      cursor: canInteractWithMic
+                          ? SystemMouseCursors.click
+                          : SystemMouseCursors.basic,
+                      onEnter: (_) => _handleMicHover(true),
+                      onExit: (_) => _handleMicHover(false),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: canInteractWithMic
+                            ? (_) => _handleMicTapDown(provider)
+                            : null,
+                        onTapCancel: _handleMicTapEnd,
+                        onTapUp: (_) => _handleMicTapEnd(),
+                        onTap: canInteractWithMic
+                            ? () => _handleMicTap(provider)
+                            : null,
+                        child: Container(
+                          width: isCompactBottomBar ? 64 : 82,
+                          height: isCompactBottomBar ? 64 : 82,
+                          decoration: BoxDecoration(
+                            color: _micButtonColor(provider),
+                            shape: BoxShape.circle,
+                            border: provider.isListening
+                                ? Border.all(
+                                    color: _isMicPressed
+                                        ? const Color(0xFFE53935)
+                                        : const Color(0xFF4CAF50),
+                                    width: 3,
+                                  )
+                                : _isMicHovered && provider.canUseVoice
+                                ? Border.all(
+                                    color: const Color(0xFF4CAF50),
+                                    width: 2,
+                                  )
+                                : null,
+                            boxShadow: provider.isListening
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF4CAF50,
+                                      ).withValues(alpha: 0.28),
+                                      blurRadius: 16,
+                                      spreadRadius: 2,
+                                    ),
+                                  ]
+                                : _isMicHovered && provider.canUseVoice
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF4CAF50,
+                                      ).withValues(alpha: 0.16),
+                                      blurRadius: 12,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Icon(
+                            _micIcon(provider),
+                            color: _micIconColor(provider),
+                            size: isCompactBottomBar ? 28 : 32,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (!_isPasswordInputMode(provider) &&
+                        !provider.isLoading) ...[
+                      SizedBox(width: isCompactBottomBar ? 10 : 14),
+                      Flexible(child: _buildTextInputToggle()),
+                    ],
+                  ],
                 ),
+                SizedBox(height: isCompactBottomBar ? 4 : 10),
+                if (shouldShowVoiceStatus) ...[
+                  SizedBox(height: isCompactBottomBar ? 2 : 6),
+                  Text(
+                    provider.voiceStatusLabel,
+                    style: TextStyle(
+                      fontSize: isCompactBottomBar ? 13 : _supportFontSize,
+                      color: provider.isListening
+                          ? const Color(0xFF4CAF50)
+                          : provider.canUseVoice
+                          ? const Color(0xFF888888)
+                          : const Color(0xFFE8325A),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
                 if (provider.errorMessage != null) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -1113,22 +1708,24 @@ class _CallScreenState extends State<CallScreen> {
                     textAlign: TextAlign.center,
                   ),
                 ],
-                const SizedBox(height: 18),
+                SizedBox(height: isCompactBottomBar ? 6 : 14),
                 if (!provider.isLoading) ...[
-                  if (_isPasswordInputMode(provider)) ...[
-                    _buildPinPad(),
-                  ] else ...[
-                    _buildTextInputToggle(),
-                  ],
+                  if (_isPasswordInputMode(provider)) ...[_buildPinPad()],
                   if (_showTextInput && !_isPasswordInputMode(provider)) ...[
-                    const SizedBox(height: 12),
+                    SizedBox(height: isCompactBottomBar ? 8 : 12),
                     _buildDemoTextInput(),
                   ],
-                  const SizedBox(height: 24),
+                  SizedBox(height: isCompactBottomBar ? 6 : 16),
                 ],
               ],
 
               // 전화 끊기 버튼
+              Container(
+                width: double.infinity,
+                height: 1,
+                margin: EdgeInsets.only(bottom: isCompactBottomBar ? 8 : 12),
+                color: const Color(0xFFEFD8DF),
+              ),
               MouseRegion(
                 cursor: SystemMouseCursors.click,
                 onEnter: (_) => _handleEndCallHover(true),
@@ -1137,7 +1734,7 @@ class _CallScreenState extends State<CallScreen> {
                   onTap: _endCall,
                   child: Container(
                     width: double.infinity,
-                    height: 64,
+                    height: isCompactBottomBar ? 50 : 60,
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     decoration: BoxDecoration(
                       color: _isEndCallHovered
@@ -1164,13 +1761,13 @@ class _CallScreenState extends State<CallScreen> {
                           color: _isEndCallHovered
                               ? Colors.white
                               : const Color(0xFF666666),
-                          size: 24,
+                          size: isCompactBottomBar ? 21 : 24,
                         ),
-                        const SizedBox(width: 10),
+                        SizedBox(width: isCompactBottomBar ? 8 : 10),
                         Text(
                           '전화 끊기',
                           style: TextStyle(
-                            fontSize: _buttonFontSize,
+                            fontSize: isCompactBottomBar ? 16 : _buttonFontSize,
                             color: _isEndCallHovered
                                 ? Colors.white
                                 : const Color(0xFF666666),

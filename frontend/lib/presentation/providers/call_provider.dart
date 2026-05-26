@@ -4,10 +4,13 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../core/network/api_client.dart';
 import '../../data/models/agent_model.dart';
 import '../../data/repositories/agent_repository.dart';
 import '../../core/storage/local_storage.dart';
-import '../../core/services/gemini_voice_service.dart';
+import '../../core/services/gpt_voice_service.dart';
+import '../../core/services/gpt_realtime_voice_service.dart';
 import '../../core/utils/latency_logger.dart';
 
 enum CallStage {
@@ -23,10 +26,13 @@ enum CallStage {
 
 class CallProvider extends ChangeNotifier {
   static const JsonEncoder _jsonEncoder = JsonEncoder.withIndent('  ');
-  static const Duration _minTtsTimeout = Duration(seconds: 8);
-  static const Duration _maxTtsTimeout = Duration(seconds: 20);
+  static const Duration _minTtsTimeout = Duration(seconds: 20);
+  static const Duration _maxTtsTimeout = Duration(seconds: 45);
   final AgentRepository _agentRepository = AgentRepository();
-  final GeminiVoiceService _voiceService = GeminiVoiceService.instance;
+  final UserRepository _userRepository = UserRepository();
+  final GptVoiceService _voiceService = GptVoiceService.instance;
+  final GptRealtimeVoiceService _realtimeVoiceService =
+      GptRealtimeVoiceService.instance;
 
   CallStage _stage = CallStage.idle;
   AgentResponse? _lastResponse;
@@ -35,7 +41,11 @@ class CallProvider extends ChangeNotifier {
   bool _isListening = false; // STT 녹음 중
   bool _isTranscribing = false; // STT 전사/전송 중
   bool _isSpeaking = false; // TTS 재생 중
+  bool _isAwaitingAssistantPresentation = false;
   String? _errorMessage;
+  String _userDisplayName = '';
+  String? _assistantPresentationMessage;
+  bool _isAwaitingCartWebviewProgress = false;
   final List<Map<String, dynamic>> _messages = [];
   LatencyRequestContext? _activeLatencyContext;
 
@@ -46,13 +56,148 @@ class CallProvider extends ChangeNotifier {
   bool get isListening => _isListening;
   bool get isTranscribing => _isTranscribing;
   bool get isSpeaking => _isSpeaking;
+  bool get isAwaitingAssistantPresentation => _isAwaitingAssistantPresentation;
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get messages => _messages;
+  String? get assistantPresentationMessage => _assistantPresentationMessage;
+  String get assistantLoadingMessage {
+    if (_isAwaitingAssistantPresentation &&
+        _assistantPresentationMessage != null &&
+        _assistantPresentationMessage!.trim().isNotEmpty) {
+      return _assistantPresentationMessage!.trim();
+    }
+
+    final asyncMessage = currentAsyncStatusMessage;
+    if (asyncMessage != null) return asyncMessage;
+
+    if (_isLoading) {
+      final prefix = _userDisplayName.isEmpty ? '' : '$_userDisplayName님을 위한 ';
+      final pending = _lastResponse?.pendingConfirmation;
+      final pendingType = pending is Map ? pending['type'] : null;
+
+      if (_conversationId == null) {
+        return '$prefix상품을 검색 중입니다.';
+      }
+      if (_stage == CallStage.productSelection &&
+          _isAwaitingCartWebviewProgress) {
+        return '선택하신 상품을 장바구니에 담는 중입니다.';
+      }
+      if (_stage == CallStage.productSelection && pendingType == 'quantity') {
+        return '수량에 맞춰 상품 정보를 정리하고 있습니다.';
+      }
+      if (_stage == CallStage.productSelection) {
+        return '$prefix상품을 검색 중입니다.';
+      }
+      if (_stage == CallStage.cart) {
+        return '장바구니 내용을 확인하고 있습니다.';
+      }
+      if (_stage == CallStage.payment) {
+        return '결제에 필요한 내용을 준비하고 있습니다.';
+      }
+      return '$prefix요청을 확인하고 있습니다.';
+    }
+
+    return '안내 내용을 음성으로 준비하고 있어요.';
+  }
+  String get currentAssistantMessage =>
+      (_lastResponse?.assistantMessage ?? '').trim();
+  String? get currentAsyncStatusMessage {
+    final asyncStatus = _lastResponse?.asyncStatus;
+    if (asyncStatus is Map && asyncStatus['message'] is String) {
+      final message = (asyncStatus['message'] as String).trim();
+      return message.isEmpty ? null : message;
+    }
+    return null;
+  }
+  String? get webviewStreamUrl {
+    final conversationId = _conversationId;
+    if (conversationId == null) return null;
+
+    final baseUri = Uri.parse(ApiClient.baseUrl);
+    final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
+    return baseUri.replace(
+      scheme: wsScheme,
+      path: '/api/agent/conversations/$conversationId/webview',
+      query: null,
+      fragment: null,
+    ).toString();
+  }
+  String get webviewUrl => 'about:blank';
+  bool get canShowWebviewProgress =>
+      _conversationId != null &&
+      (_stage == CallStage.cart ||
+          _stage == CallStage.payment ||
+          (_stage == CallStage.productSelection &&
+              _isLoading &&
+              _isAwaitingCartWebviewProgress));
+  String get webviewStatusText {
+    final asyncMessage = currentAsyncStatusMessage;
+    if (asyncMessage != null) return asyncMessage;
+    if (currentAssistantMessage.isNotEmpty) return currentAssistantMessage;
+    if (_stage == CallStage.productSelection && _isLoading) {
+      return '선택하신 상품을 장바구니에 담는 중이에요.';
+    }
+    if (_stage == CallStage.cart) return '장바구니에 담는 중이에요.';
+    if (_stage == CallStage.payment) return '결제 화면을 준비하고 있어요.';
+    return '웹 화면을 준비하고 있어요.';
+  }
+  String get webviewTargetLabel {
+    if (_stage == CallStage.productSelection && _isLoading) {
+      return '장바구니 작업';
+    }
+    if (_stage == CallStage.cart) return '장바구니 작업';
+    if (_stage == CallStage.payment) return '결제 진행';
+    return '웹 진행 상황';
+  }
+  int? get currentOrderId {
+    final order = _lastResponse?.order;
+    if (order is Map && order['orderId'] is int) return order['orderId'] as int;
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is Map &&
+        pending['payload'] is Map &&
+        pending['payload']['orderId'] is int) {
+      return pending['payload']['orderId'] as int;
+    }
+    return null;
+  }
+  int? get currentPaymentId {
+    final payment = _lastResponse?.payment;
+    if (payment is Map && payment['paymentId'] is int) {
+      return payment['paymentId'] as int;
+    }
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is Map &&
+        pending['payload'] is Map &&
+        pending['payload']['paymentId'] is int) {
+      return pending['payload']['paymentId'] as int;
+    }
+    return null;
+  }
+  Future<Map<String, dynamic>?> getWebviewStatus() async {
+    final conversationId = _conversationId;
+    if (conversationId == null) return null;
+    return _agentRepository.getWebviewStatus(conversationId);
+  }
+
+  Future<void> interruptWebviewProgress() async {
+    final conversationId = _conversationId;
+    if (conversationId == null) return;
+
+    try {
+      await _agentRepository.cancelConversation(conversationId);
+    } catch (e) {
+      _errorMessage = '웹 진행을 중단하지 못했습니다: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
   bool get canUseVoice =>
       _stage != CallStage.loading &&
       _stage != CallStage.completed &&
       !_isLoading &&
       !_isTranscribing;
+  bool get _useRealtimeVoice =>
+      (dotenv.env['USE_OPENAI_REALTIME_VOICE'] ?? '').toLowerCase() == 'true';
 
   String get voiceStatusLabel {
     if (_isListening) return '말씀이 끝났으면 버튼을 다시 눌러주세요';
@@ -69,12 +214,51 @@ class CallProvider extends ChangeNotifier {
       final userId = await LocalStorage.getUserId();
       if (userId == null) throw Exception('로그인이 필요합니다');
 
+      String greetingName = '';
+      try {
+        final user = await _userRepository.getUser(userId);
+        greetingName = user.name.trim();
+        _userDisplayName = greetingName;
+      } catch (e) {
+        debugPrint('⚠️ [Call Start User Load Error] $e');
+      }
+
       _conversationId = null;
       _lastResponse = null;
       _stage = CallStage.idle;
       _errorMessage = null;
+      _assistantPresentationMessage = null;
+      _isAwaitingAssistantPresentation = false;
       _messages.clear();
+      final greetingText = greetingName.isEmpty
+          ? '무엇을 구매하고 싶으신가요?'
+          : '$greetingName님, 무엇을 구매하고 싶으신가요?';
+      unawaited(_voiceService.prefetchSpeech(greetingText));
+      var greetingPresented = false;
+      _isSpeaking = true;
       notifyListeners();
+      try {
+        await _voiceService.speak(
+          greetingText,
+          onPlaybackStart: () {
+            if (greetingPresented) return;
+            greetingPresented = true;
+            _addMessage(
+              text: greetingText,
+              isUser: false,
+            );
+          },
+        );
+      } finally {
+        if (!greetingPresented) {
+          _addMessage(
+            text: greetingText,
+            isUser: false,
+          );
+        }
+        _isSpeaking = false;
+        notifyListeners();
+      }
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -96,13 +280,21 @@ class CallProvider extends ChangeNotifier {
     try {
       _errorMessage = null;
       if (_isSpeaking) {
-        await _voiceService.stopSpeaking();
+        if (_useRealtimeVoice) {
+          await _realtimeVoiceService.stopSpeaking();
+        } else {
+          await _voiceService.stopSpeaking();
+        }
         _isSpeaking = false;
       }
       final latencyContext = FrontendLatencyLogger.instance.beginTurn();
       _activeLatencyContext = latencyContext;
       FrontendLatencyLogger.instance.mark(latencyContext, 'user_speech_start');
-      await _voiceService.startRecording();
+      if (_useRealtimeVoice) {
+        await _realtimeVoiceService.startStreamingConversation();
+      } else {
+        await _voiceService.startRecording();
+      }
       _isListening = true;
       notifyListeners();
     } catch (e) {
@@ -127,40 +319,64 @@ class CallProvider extends ChangeNotifier {
         FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_start');
       }
 
-      // Gemini STT로 텍스트 변환
-      final transcript = await _voiceService.stopRecordingAndTranscribe();
-      if (latencyContext != null) {
-        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
-      }
+      if (_useRealtimeVoice) {
+        _isSpeaking = true;
+        notifyListeners();
+        await _realtimeVoiceService.stopStreamingConversation();
+        final snapshot = await _realtimeVoiceService.waitForAssistantTurn();
+        if (latencyContext != null) {
+          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
+        }
+        if (snapshot.userTranscript.isEmpty) {
+          _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
+          _activeLatencyContext = null;
+          return;
+        }
 
-      if (transcript == null || transcript.isEmpty) {
-        _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
-        _activeLatencyContext = null;
-        return;
-      }
-
-      _setLoading(true);
-      _errorMessage = null;
-      // 사용자 말풍선 추가
-      _addMessage(text: transcript, isUser: true);
-
-      // 백엔드 전송
-      if (_conversationId == null) {
-        final userId = await LocalStorage.getUserId();
-        if (userId == null) return;
-        final response = await _agentRepository.startShopping(
-          userId: userId,
-          message: transcript,
-          latencyContext: latencyContext,
-        );
-        await _handleResponse(response, latencyContext: latencyContext);
+        _errorMessage = null;
+        _addMessage(text: snapshot.userTranscript, isUser: true);
+        if (snapshot.assistantTranscript.isNotEmpty) {
+          _addMessage(text: snapshot.assistantTranscript, isUser: false);
+        }
+        _stage = CallStage.clarification;
+        notifyListeners();
       } else {
-        final response = await _agentRepository.sendMessage(
-          conversationId: _conversationId!,
-          message: transcript,
-          latencyContext: latencyContext,
-        );
-        await _handleResponse(response, latencyContext: latencyContext);
+        // OpenAI STT로 텍스트 변환
+        final transcript = await _voiceService.stopRecordingAndTranscribe();
+        if (latencyContext != null) {
+          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
+        }
+
+        if (transcript.isEmpty) {
+          _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
+          _activeLatencyContext = null;
+          return;
+        }
+
+        _prepareWebviewProgressTrackingForOutgoingMessage(transcript);
+        _setLoading(true);
+        _errorMessage = null;
+        // 사용자 말풍선 추가
+        _addMessage(text: transcript, isUser: true);
+
+        // 백엔드 전송
+        if (_conversationId == null) {
+          final userId = await LocalStorage.getUserId();
+          if (userId == null) return;
+          final response = await _agentRepository.startShopping(
+            userId: userId,
+            message: transcript,
+            latencyContext: latencyContext,
+          );
+          await _handleResponse(response, latencyContext: latencyContext);
+        } else {
+          final response = await _agentRepository.sendMessage(
+            conversationId: _conversationId!,
+            message: transcript,
+            latencyContext: latencyContext,
+          );
+          await _handleResponse(response, latencyContext: latencyContext);
+        }
       }
     } catch (e) {
       _errorMessage = e.toString();
@@ -168,6 +384,7 @@ class CallProvider extends ChangeNotifier {
     } finally {
       _activeLatencyContext = null;
       _isTranscribing = false;
+      _isSpeaking = false;
       _setLoading(false);
     }
   }
@@ -176,6 +393,7 @@ class CallProvider extends ChangeNotifier {
   Future<void> sendTextMessage(String text) async {
     if (text.isEmpty) return;
 
+    _prepareWebviewProgressTrackingForOutgoingMessage(text);
     _setLoading(true);
     _addMessage(text: text, isUser: true);
 
@@ -203,12 +421,35 @@ class CallProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> submitPaymentPassword(String password) async {
+    if (password.length != 6 || _conversationId == null) return;
+
+    _isAwaitingCartWebviewProgress = false;
+    _setLoading(true);
+    _addMessage(text: '●●●●●●', isUser: true, isSensitive: true);
+
+    try {
+      final response = await _agentRepository.sendMessage(
+        conversationId: _conversationId!,
+        message: password,
+        redactMessageForLogs: true,
+      );
+      await _handleResponse(response);
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   // 확인/거부
   Future<void> confirmAction({
     required int recommendationItemId,
     required String action,
   }) async {
     if (_conversationId == null) return;
+    _isAwaitingCartWebviewProgress = false;
     _setLoading(true);
     try {
       _addMessage(
@@ -237,16 +478,16 @@ class CallProvider extends ChangeNotifier {
     required String result,
   }) async {
     if (_conversationId == null) return;
+    _isAwaitingCartWebviewProgress = false;
     _setLoading(true);
     try {
-      await _agentRepository.sendWebviewResult(
+      final response = await _agentRepository.sendWebviewResult(
         conversationId: _conversationId!,
         orderId: orderId,
         paymentId: paymentId,
         result: result,
       );
-      _stage = result == 'success' ? CallStage.completed : CallStage.payment;
-      notifyListeners();
+      await _handleResponse(response);
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -257,8 +498,13 @@ class CallProvider extends ChangeNotifier {
 
   // 전화 끊기
   void endCall() {
-    _voiceService.stopSpeaking();
-    _voiceService.cancelRecording();
+    if (_useRealtimeVoice) {
+      _realtimeVoiceService.stopSpeaking();
+      _realtimeVoiceService.disconnect();
+    } else {
+      _voiceService.stopSpeaking();
+      _voiceService.cancelRecording();
+    }
     FrontendLatencyLogger.instance.endSession();
     _conversationId = null;
     _lastResponse = null;
@@ -268,6 +514,9 @@ class CallProvider extends ChangeNotifier {
     _isListening = false;
     _isTranscribing = false;
     _isSpeaking = false;
+    _isAwaitingAssistantPresentation = false;
+    _assistantPresentationMessage = null;
+    _isAwaitingCartWebviewProgress = false;
     _activeLatencyContext = null;
     notifyListeners();
   }
@@ -278,44 +527,19 @@ class CallProvider extends ChangeNotifier {
     LatencyRequestContext? latencyContext,
   }) async {
     final oldStage = _stage;
-    _lastResponse = response;
+    final nextStage = _mapResponseStage(response);
+    _isAwaitingCartWebviewProgress = false;
     _conversationId = response.conversationId;
-
-    // 딸랑구 말풍선 추가
-    _addMessage(text: response.assistantMessage, isUser: false);
+    _assistantPresentationMessage = _buildAssistantPresentationMessage(
+      response,
+      nextStage,
+    );
+    _isAwaitingAssistantPresentation = true;
+    var responsePresented = false;
 
     // stage 결정
     if (response.asyncStatus != null) {
       _stage = CallStage.loading;
-    } else {
-      switch (response.stage) {
-        case 'clarification':
-          _stage = CallStage.clarification;
-          break;
-        case 'platform_selection':
-          _stage = CallStage.platformSelection;
-          break;
-        case 'product_selection':
-        case 'product_confirming':
-          _stage = CallStage.productSelection;
-          break;
-        case 'cart':
-        case 'cart_shopping':
-          _stage = CallStage.cart;
-          break;
-        case 'payment':
-        case 'address_confirming':
-        case 'payment_precheck':
-        case 'payment_password_required':
-        case 'payment_processing':
-          _stage = CallStage.payment;
-          break;
-        case 'completed':
-          _stage = CallStage.completed;
-          break;
-        default:
-          _stage = CallStage.clarification;
-      }
     }
 
     debugPrint(
@@ -323,7 +547,7 @@ class CallProvider extends ChangeNotifier {
         'conversationId': response.conversationId,
         'backendStatus': response.status,
         'backendStage': response.stage,
-        'mappedUiStage': _stage.name,
+        'mappedUiStage': nextStage.name,
         'pendingConfirmation': response.pendingConfirmation,
         'recommendationCount': response.recommendations.length,
         'assistantMessage': response.assistantMessage,
@@ -339,7 +563,7 @@ class CallProvider extends ChangeNotifier {
     }
 
     debugPrint(
-      '🔄 [Provider State Change] $oldStage -> $_stage (ConvID: $_conversationId)',
+      '🔄 [Provider State Change] $oldStage -> ${nextStage.name} (ConvID: $_conversationId)',
     );
     notifyListeners();
 
@@ -349,11 +573,19 @@ class CallProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _voiceService
-          .speak(response.assistantMessage, latencyContext: latencyContext)
+          .speak(
+            response.assistantMessage,
+            latencyContext: latencyContext,
+            onPlaybackStart: () {
+              if (responsePresented) return;
+              responsePresented = true;
+              _presentAssistantResponse(response, nextStage);
+            },
+          )
           .timeout(_ttsTimeoutFor(response.assistantMessage));
     } on TimeoutException catch (e) {
       debugPrint(
-        '🔇 [TTS Fallback] 재생 완료 이벤트를 기다리다 타임아웃되었습니다. '
+        '🔇 [TTS Playback Timeout] TTS 전체 처리 대기 중 타임아웃되었습니다. '
         'messageLength=${response.assistantMessage.runes.length}, '
         'timeout=${_ttsTimeoutFor(response.assistantMessage).inSeconds}s, '
         '$e',
@@ -362,7 +594,12 @@ class CallProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('🔇 [TTS Fallback] $e');
     } finally {
+      if (!responsePresented) {
+        _presentAssistantResponse(response, nextStage);
+      }
       _isSpeaking = false;
+      _isAwaitingAssistantPresentation = false;
+      _assistantPresentationMessage = null;
       notifyListeners();
     }
 
@@ -376,9 +613,39 @@ class CallProvider extends ChangeNotifier {
     // 대신 DEMO: TT 방식 — 자동 녹음 없음, 사용자가 버튼 눌러서 말함
   }
 
-  void _addMessage({required String text, required bool isUser}) {
-    debugPrint('💬 [Message Log] ${isUser ? "USER" : "AI"}: $text');
-    _messages.add({'text': text, 'isUser': isUser, 'time': DateTime.now()});
+  void _addMessage({
+    required String text,
+    required bool isUser,
+    bool isSensitive = false,
+  }) {
+    final logText = isSensitive ? '******' : text;
+    debugPrint('💬 [Message Log] ${isUser ? "USER" : "AI"}: $logText');
+    _messages.add({
+      'text': text,
+      'isUser': isUser,
+      'isSensitive': isSensitive,
+      'time': DateTime.now(),
+    });
+    notifyListeners();
+  }
+
+  void _addProductCardMessage(AgentResponse response) {
+    if (response.recommendations.isEmpty) return;
+    final recommendation = response.recommendations.first;
+    final lastMessage = _messages.isNotEmpty ? _messages.last : null;
+    final alreadyAddedCard =
+        lastMessage != null &&
+        lastMessage['type'] == 'product_card' &&
+        lastMessage['recommendationItemId'] == recommendation.recommendationItemId;
+    if (alreadyAddedCard) return;
+
+    _messages.add({
+      'type': 'product_card',
+      'recommendation': recommendation,
+      'selectedProduct': response.selectedProduct,
+      'recommendationItemId': recommendation.recommendationItemId,
+      'time': DateTime.now(),
+    });
     notifyListeners();
   }
 
@@ -387,12 +654,161 @@ class CallProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _presentAssistantResponse(AgentResponse response, CallStage nextStage) {
+    final lastMessage = _messages.isNotEmpty ? _messages.last : null;
+    final alreadyAddedAssistant =
+        lastMessage != null &&
+        lastMessage['isUser'] == false &&
+        lastMessage['text'] == response.assistantMessage;
+    _lastResponse = response;
+    _stage = nextStage;
+    _isAwaitingAssistantPresentation = false;
+    _assistantPresentationMessage = null;
+    if (!alreadyAddedAssistant) {
+      _addMessage(text: response.assistantMessage, isUser: false);
+      if (_shouldAddProductCard(response, nextStage)) {
+        _addProductCardMessage(response);
+      }
+      return;
+    }
+    if (_shouldAddProductCard(response, nextStage)) {
+      _addProductCardMessage(response);
+      return;
+    }
+    notifyListeners();
+  }
+
+  bool _shouldAddProductCard(AgentResponse response, CallStage nextStage) {
+    if (nextStage != CallStage.productSelection ||
+        response.recommendations.isEmpty) {
+      return false;
+    }
+
+    final pending = response.pendingConfirmation;
+    if (pending is! Map) return false;
+
+    return pending['type'] == 'product';
+  }
+
+  CallStage _mapResponseStage(AgentResponse response) {
+    if (response.asyncStatus != null) {
+      return CallStage.loading;
+    }
+
+    switch (response.stage) {
+      case 'clarification':
+        return CallStage.clarification;
+      case 'platform_selection':
+        return CallStage.platformSelection;
+      case 'product_selection':
+      case 'product_confirming':
+        return CallStage.productSelection;
+      case 'cart':
+      case 'cart_shopping':
+        return CallStage.cart;
+      case 'payment':
+      case 'address_confirming':
+      case 'payment_precheck':
+      case 'payment_password_required':
+      case 'payment_processing':
+        return CallStage.payment;
+      case 'completed':
+        return CallStage.completed;
+      default:
+        return CallStage.clarification;
+    }
+  }
+
+  String _buildAssistantPresentationMessage(
+    AgentResponse response,
+    CallStage nextStage,
+  ) {
+    final prefix = _userDisplayName.isEmpty ? '' : '$_userDisplayName님을 위한 ';
+    if (response.asyncStatus is Map && response.asyncStatus['message'] is String) {
+      final asyncMessage = (response.asyncStatus['message'] as String).trim();
+      if (asyncMessage.isNotEmpty) return asyncMessage;
+    }
+
+    switch (nextStage) {
+      case CallStage.productSelection:
+        return '$prefix맞춤 상품을 정리하고 있어요.';
+      case CallStage.cart:
+        return '장바구니 진행 상황을 차분히 안내하고 있어요.';
+      case CallStage.payment:
+        return '결제에 필요한 내용을 천천히 안내하고 있어요.';
+      case CallStage.completed:
+        return '주문 결과를 정리해서 안내하고 있어요.';
+      case CallStage.platformSelection:
+        return '$prefix쇼핑 플랫폼을 살펴보고 있어요.';
+      case CallStage.clarification:
+        return '말씀하신 내용을 이해해서 안내를 준비하고 있어요.';
+      case CallStage.loading:
+        return '처리 결과를 정리하고 있어요.';
+      case CallStage.idle:
+        return '답변을 준비하고 있어요.';
+    }
+  }
+
   Duration _ttsTimeoutFor(String text) {
-    final estimatedSeconds = 8 + (text.runes.length ~/ 12);
+    final estimatedSeconds = 20 + (text.runes.length ~/ 10);
     final clampedSeconds = estimatedSeconds.clamp(
       _minTtsTimeout.inSeconds,
       _maxTtsTimeout.inSeconds,
     );
     return Duration(seconds: clampedSeconds);
+  }
+
+  void _prepareWebviewProgressTrackingForOutgoingMessage(String text) {
+    _isAwaitingCartWebviewProgress =
+        _isWaitingForQuantityConfirmation && _looksLikeQuantityResponse(text);
+  }
+
+  bool get _isWaitingForQuantityConfirmation {
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is! Map) return false;
+    return pending['type'] == 'quantity';
+  }
+
+  bool _looksLikeQuantityResponse(String text) {
+    final normalized = text.trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+
+    final quantityPattern = RegExp(
+      r'(^|\s)(\d+|[일이삼사오육칠팔구십한두세네])\s*(개|박스|봉지|팩|통|세트)\b',
+    );
+    if (quantityPattern.hasMatch(normalized)) return true;
+
+    return RegExp(r'^\d+$').hasMatch(normalized);
+  }
+
+  void loadPreviewState({
+    required CallStage stage,
+    AgentResponse? response,
+    List<Map<String, dynamic>> messages = const [],
+    int? conversationId,
+    String userDisplayName = '김영희',
+    bool isLoading = false,
+    bool isListening = false,
+    bool isTranscribing = false,
+    bool isSpeaking = false,
+    bool isAwaitingAssistantPresentation = false,
+    String? assistantPresentationMessage,
+    String? errorMessage,
+  }) {
+    _stage = stage;
+    _lastResponse = response;
+    _conversationId = conversationId;
+    _userDisplayName = userDisplayName;
+    _isLoading = isLoading;
+    _isListening = isListening;
+    _isTranscribing = isTranscribing;
+    _isSpeaking = isSpeaking;
+    _isAwaitingAssistantPresentation = isAwaitingAssistantPresentation;
+    _assistantPresentationMessage = assistantPresentationMessage;
+    _errorMessage = errorMessage;
+    _messages
+      ..clear()
+      ..addAll(messages);
+    notifyListeners();
   }
 }
