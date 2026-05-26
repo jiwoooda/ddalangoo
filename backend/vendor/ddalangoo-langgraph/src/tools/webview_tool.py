@@ -63,6 +63,7 @@ KURLY_PASSWORD = os.environ.get("KURLY_PASSWORD", "")
 KURLY_BASE_URL = "https://www.kurly.com"
 WEBVIEW_HEADLESS = os.environ.get("WEBVIEW_HEADLESS", "true").lower() != "false"
 WEBVIEW_BROWSER = os.environ.get("WEBVIEW_BROWSER", "chromium").lower()
+WEBVIEW_IGNORE_SESSION = os.environ.get("WEBVIEW_IGNORE_SESSION", "false").lower() == "true"
 
 VIEWPORT = {"width": 390, "height": 844}
 USER_AGENT = (
@@ -73,6 +74,14 @@ USER_AGENT = (
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _should_restore_session(storage_state_path: str | None) -> bool:
+    """로그인 재테스트 모드가 아니고 세션 파일이 있을 때만 기존 세션을 복원한다."""
+    if WEBVIEW_IGNORE_SESSION:
+        print("[webview] 세션 복원 건너뜀: WEBVIEW_IGNORE_SESSION=true")
+        return False
+    return bool(storage_state_path and os.path.exists(storage_state_path))
 
 
 def _emit_progress(
@@ -759,7 +768,7 @@ def check_product_price(
         "locale": "ko-KR",
         "has_touch": True,
     }
-    if storage_state_path and os.path.exists(storage_state_path):
+    if _should_restore_session(storage_state_path):
         context_kwargs["storage_state"] = storage_state_path
 
     context = browser.new_context(**context_kwargs)
@@ -848,7 +857,7 @@ def run_kurly_purchase(
         "locale": "ko-KR",
         "has_touch": True,  # 모바일 터치 이벤트 활성화 (page.tap() 필수)
     }
-    if storage_state_path and os.path.exists(storage_state_path):
+    if _should_restore_session(storage_state_path):
         context_kwargs["storage_state"] = storage_state_path
         print(f"[webview] 세션 복원: {storage_state_path}")
 
