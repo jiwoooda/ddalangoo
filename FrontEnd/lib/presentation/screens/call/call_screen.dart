@@ -27,6 +27,14 @@ class _CallScreenState extends State<CallScreen> {
   static const double _bodyFontSize = 22;
   static const double _supportFontSize = 15;
   static const double _buttonFontSize = 18;
+  static const Set<String> _activeWebviewSteps = {
+    'opening_shop',
+    'logging_in',
+    'searching_product',
+    'opening_product',
+    'fallback_searching',
+    'adding_to_cart',
+  };
 
   final TextEditingController _textController = TextEditingController();
   final ScrollController _messageScrollController = ScrollController();
@@ -169,9 +177,17 @@ class _CallScreenState extends State<CallScreen> {
       final statusValue = status['status'] as String?;
       final message = status['message'] as String?;
       final step = status['step'] as String?;
+      final normalizedStatus = statusValue?.trim().toLowerCase();
+      final normalizedStep = step?.trim().toLowerCase();
+      final hasActiveStep =
+          normalizedStep != null &&
+          _activeWebviewSteps.contains(normalizedStep);
       final hasProgress =
-          statusValue != null &&
-          statusValue != 'idle' &&
+          normalizedStatus != null &&
+          normalizedStatus != 'idle' &&
+          normalizedStatus != 'waiting' &&
+          normalizedStep != 'not_started' &&
+          (hasActiveStep || status['screenshotUrl'] != null) &&
           ((message != null && message.isNotEmpty) ||
               (step != null && step.isNotEmpty) ||
               status['screenshotUrl'] != null);

@@ -196,6 +196,16 @@ class AgentRepository {
     return data;
   }
 
+  Future<void> cancelConversation(int conversationId) async {
+    debugPrint(
+      '📤 [Conversation Cancel Request]\n${_jsonEncoder.convert({'endpoint': '/api/agent/conversations/$conversationId/cancel'})}',
+    );
+    await _dio.post('/api/agent/conversations/$conversationId/cancel');
+    debugPrint(
+      '📥 [Conversation Cancel Response]\n${_jsonEncoder.convert({'conversationId': conversationId, 'status': 'requested'})}',
+    );
+  }
+
   // 메시지 보내기 (STT 결과 전송)
   Future<AgentResponse> sendMessage({
     required int conversationId,

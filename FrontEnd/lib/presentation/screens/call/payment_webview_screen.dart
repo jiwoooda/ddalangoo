@@ -46,6 +46,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   WebViewController? _controller;
   WebSocket? _socket;
   bool _isSubmitting = false;
+  bool _isInterrupting = false;
   bool _pageLoaded = false;
   int _loadingProgress = 0;
   bool _isConnectingStream = false;
@@ -291,6 +292,32 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     }
   }
 
+  Future<void> _interruptWebviewProgress() async {
+    if (widget.previewMode || _isInterrupting) return;
+
+    setState(() {
+      _isInterrupting = true;
+    });
+
+    try {
+      await context.read<CallProvider>().interruptWebviewProgress();
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('웹 진행 중단 요청에 실패했어요. 다시 시도해주세요.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInterrupting = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     debugPrint('🖥️ [WebView Stream] dispose');
@@ -304,6 +331,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         !widget.previewMode &&
         widget.orderId != null &&
         widget.paymentId != null;
+    final showInterruptButton = !widget.previewMode && _usesStreamPreview;
 
     return Scaffold(
       appBar: AppBar(
@@ -339,32 +367,50 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
               ],
             ),
           ),
-          if (canSubmitPaymentResult || widget.previewShowActionButtons)
+          if (showInterruptButton ||
+              canSubmitPaymentResult ||
+              widget.previewShowActionButtons)
             SafeArea(
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _isSubmitting
-                            ? null
-                            : () => _submitResult('cancelled'),
-                        child: const Text('취소'),
+                child: showInterruptButton
+                    ? SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.tonal(
+                          onPressed: _isSubmitting || _isInterrupting
+                              ? null
+                              : _interruptWebviewProgress,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(54),
+                            foregroundColor: const Color(0xFFE8325A),
+                          ),
+                          child: Text(
+                            _isInterrupting ? '중단 요청 중...' : '중단하기',
+                          ),
+                        ),
+                      )
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isSubmitting
+                                  ? null
+                                  : () => _submitResult('cancelled'),
+                              child: const Text('취소'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: _isSubmitting
+                                  ? null
+                                  : () => _submitResult('completed'),
+                              child: Text(_isSubmitting ? '처리 중...' : '완료했어요'),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _isSubmitting
-                            ? null
-                            : () => _submitResult('completed'),
-                        child: Text(_isSubmitting ? '처리 중...' : '완료했어요'),
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ),
         ],
@@ -477,6 +523,15 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
             fit: BoxFit.contain,
             gaplessPlayback: true,
             errorBuilder: (context, error, stackTrace) {
+              final isNoScreenshotYet =
+                  error is NetworkImageLoadException &&
+                  error.statusCode == 204;
+              if (isNoScreenshotYet) {
+                debugPrint('🖥️ [WebView Stream] screenshot not ready yet');
+                return _buildPreviewPlaceholder(
+                  '아직 보여드릴 웹 화면이 준비되지 않았어요. 다음 업데이트를 기다리는 중이에요.',
+                );
+              }
               debugPrint('🖥️ [WebView Stream] image load error: $error');
               return _buildPreviewPlaceholder(
                 '화면 이미지를 불러오지 못했어요. 다음 업데이트를 기다리는 중이에요.',

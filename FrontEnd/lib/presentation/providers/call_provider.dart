@@ -178,6 +178,19 @@ class CallProvider extends ChangeNotifier {
     if (conversationId == null) return null;
     return _agentRepository.getWebviewStatus(conversationId);
   }
+
+  Future<void> interruptWebviewProgress() async {
+    final conversationId = _conversationId;
+    if (conversationId == null) return;
+
+    try {
+      await _agentRepository.cancelConversation(conversationId);
+    } catch (e) {
+      _errorMessage = '웹 진행을 중단하지 못했습니다: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
   bool get canUseVoice =>
       _stage != CallStage.loading &&
       _stage != CallStage.completed &&
