@@ -20,6 +20,7 @@ from app.models.product import (
 from app.models.purchase_history import PurchaseHistory
 from app.models.recommendation import Recommendation, RecommendationItem
 from app.models.user import User, UserNaverAccount
+from app.models.user_preference import UserPreferenceCache
 
 __all__ = [
     "Base",
@@ -45,4 +46,5 @@ __all__ = [
     "User",
     "UserAddress",
     "UserNaverAccount",
+    "UserPreferenceCache",
 ]

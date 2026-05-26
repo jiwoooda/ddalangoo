@@ -371,16 +371,40 @@ def build_preference_context(
     keyword_history: list = []
     keyword_summary: str = ""
     if keywords:
-        keyword_history = [
-            {
-                "product_name": h.get("product_name"),
-                "brand": h.get("brand"),
-                "price": h.get("price_at_purchase"),
-                "platform": h.get("platform"),
-            }
-            for h in histories
-            if any(kw.lower() in (h.get("product_name") or "").lower() for kw in keywords)
-        ][:5]
+        try:
+            from app.repositories import user_preference_repository
+            cached_keyword_history = user_preference_repository.get_keyword_preference(
+                int(user_id),
+                keywords,
+            )
+        except Exception as e:
+            agent_logger.log(f"[memory_agent] 키워드 선호도 캐시 예외 → 직접 계산: {e}")
+            cached_keyword_history = None
+
+        if cached_keyword_history is not None:
+            keyword_history = cached_keyword_history
+            agent_logger.log(f"[memory_agent] 키워드 선호도 캐시 HIT (user_id={user_id}, keywords={keywords})")
+        else:
+            keyword_history = [
+                {
+                    "product_name": h.get("product_name"),
+                    "brand": h.get("brand"),
+                    "price": h.get("price_at_purchase"),
+                    "platform": h.get("platform"),
+                }
+                for h in histories
+                if any(kw.lower() in (h.get("product_name") or "").lower() for kw in keywords)
+            ][:5]
+            try:
+                from app.repositories import user_preference_repository
+                user_preference_repository.save_keyword_preference(
+                    int(user_id),
+                    keywords,
+                    keyword_history,
+                )
+            except Exception as e:
+                agent_logger.log(f"[memory_agent] 키워드 선호도 캐시 저장 실패: {e}")
+
         agent_logger.log(
             f"[memory_agent] 키워드 '{keywords}' 매칭 이력: {len(keyword_history)}건"
             + (f" → {[h['product_name'] for h in keyword_history]}" if keyword_history else "")
