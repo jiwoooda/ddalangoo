@@ -272,9 +272,9 @@ def _collect_login_error_texts(page: Page) -> list[str]:
         texts = page.evaluate("""() => {
             const keywords = [
                 '오류', '에러', '실패', '확인', '일치', '입력', '필수',
-                '잘못', '존재하지', '비밀번호', '아이디', '이메일',
-                '인증', '잠시 후', '차단'
+                '잘못', '존재하지', '인증', '잠시 후', '차단'
             ];
+            const ignored = ['네이버로 계속하기', '카카오로 계속하기', '회원가입'];
             const nodes = Array.from(document.querySelectorAll('body *'));
             const results = [];
             for (const node of nodes) {
@@ -287,7 +287,8 @@ def _collect_login_error_texts(page: Page) -> list[str]:
                     rect.height === 0
                 ) continue;
                 const text = (node.innerText || node.textContent || '').trim();
-                if (!text || text.length > 180) continue;
+                if (!text || text.length > 90) continue;
+                if (ignored.some(keyword => text.includes(keyword))) continue;
                 if (keywords.some(keyword => text.includes(keyword))) {
                     results.push(text.replace(/\\s+/g, ' '));
                 }
@@ -344,18 +345,65 @@ def _login_failure_reason(page: Page, *, dialog_messages: list[str], fallback: s
 # 로그인
 # ══════════════════════════════════════════════
 
+def _has_visible_login_form(page: Page) -> bool:
+    """컬리 아이디 로그인 입력 폼이 실제로 보이는지 확인한다."""
+    try:
+        has_id_input = page.locator(
+            "input[name='id']:visible, input[type='email']:visible, input[placeholder*='아이디']:visible"
+        ).count() > 0
+        has_password_input = page.locator("input[type='password']:visible").count() > 0
+        return has_id_input and has_password_input
+    except Exception as e:
+        print(f"[webview:login] visible form 확인 실패: {e}")
+        return False
+
+
+def _wait_for_visible_login_form(page: Page, *, timeout_ms: int = 5000) -> bool:
+    """컬리 아이디 로그인 클릭 후 입력 폼이 열릴 때까지 기다린다."""
+    try:
+        page.wait_for_function("""() => {
+            const isVisible = (el) => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.visibility !== 'hidden' &&
+                    style.display !== 'none' &&
+                    rect.width > 0 &&
+                    rect.height > 0;
+            };
+            const idInput = document.querySelector(
+                "input[name='id'], input[type='email'], input[placeholder*='아이디']"
+            );
+            const passwordInput = document.querySelector("input[type='password']");
+            return isVisible(idInput) && isVisible(passwordInput);
+        }""", timeout=timeout_ms)
+        print("[webview:login] 컬리 아이디 로그인 입력 폼 확인")
+        return True
+    except Exception as e:
+        print(f"[webview:login] 컬리 아이디 로그인 입력 폼 대기 실패: {e}")
+        return False
+
+
+def _fill_visible_input(page: Page, selector: str, value: str, label: str) -> None:
+    """숨겨진 input 대신 실제 visible input에만 값을 채운다."""
+    loc = page.locator(selector).first
+    if loc.count() <= 0:
+        raise ValueError(f"{label} visible input not found")
+    loc.fill(value, timeout=3000)
+
+
 def _dom_click_kurly_id_login(page: Page) -> bool:
     """'컬리아이디로 로그인' 버튼 DOM 클릭. 이미 이메일 입력 폼이면 True 반환."""
     # 이미 이메일 입력 폼이 보이면 클릭 불필요
-    try:
-        if page.locator("input[type='email'], input[name='id']").count() > 0:
-            return True
-    except Exception:
-        pass
+    if _has_visible_login_form(page):
+        return True
 
     selectors = [
+        "text=컬리 아이디로 로그인",
         "text=컬리아이디로 로그인",
         "text=이메일로 로그인",
+        "a:has-text('컬리 아이디로 로그인')",
+        "button:has-text('컬리 아이디로 로그인')",
         "a:has-text('컬리아이디')",
         "button:has-text('컬리아이디')",
     ]
@@ -364,7 +412,8 @@ def _dom_click_kurly_id_login(page: Page) -> bool:
             loc = page.locator(sel).first
             if loc.count() > 0:
                 loc.click(timeout=2000)
-                page.wait_for_timeout(1500)
+                if not _wait_for_visible_login_form(page):
+                    continue
                 print(f"[webview:DOM] 컬리아이디 로그인 버튼 클릭: {sel}")
                 return True
         except Exception:
@@ -377,19 +426,19 @@ def _vlm_click_kurly_id_login(page: Page) -> bool:
     print("[webview:VLM] '컬리아이디로 로그인' 버튼 탐색 중...")
     result = _screenshot_and_ask(
         page,
-        '화면에서 "컬리아이디로 로그인" 또는 "이메일로 로그인" 텍스트/버튼의 중앙 좌표를 찾아줘. '
+        '화면에서 "컬리 아이디로 로그인", "컬리아이디로 로그인", "이메일로 로그인" 텍스트/버튼의 중앙 좌표를 찾아줘. '
         '{"x": 195, "y": 700, "found": true} 또는 {"x":0,"y":0,"found":false}',
     )
     if result.get("found"):
         page.mouse.click(result["x"], result["y"])
-        page.wait_for_timeout(1500)
+        if not _wait_for_visible_login_form(page):
+            return False
         print(f"[webview:VLM] 클릭 완료 ({result['x']}, {result['y']})")
         return True
     # 마지막 수단: 텍스트 기반 locator
     try:
-        page.locator("text=/.*컬리.*로그인.*/").first.click(timeout=2000)
-        page.wait_for_timeout(1500)
-        return True
+        page.locator("text=컬리 아이디로 로그인").first.click(timeout=2000)
+        return _wait_for_visible_login_form(page)
     except Exception:
         return False
 
@@ -397,9 +446,9 @@ def _vlm_click_kurly_id_login(page: Page) -> bool:
 def _dom_click_login_submit(page: Page) -> bool:
     """로그인 제출 버튼 DOM 클릭."""
     selectors = [
-        "button[type='submit']",
-        "button:has-text('로그인')",
-        "input[type='submit']",
+        "button[type='submit']:visible",
+        "button:has-text('로그인'):visible",
+        "input[type='submit']:visible",
     ]
     for sel in selectors:
         try:
@@ -467,15 +516,26 @@ def _login(
 
     # SNS 선택 화면 → 컬리아이디 로그인으로 전환
     if not _dom_click_kurly_id_login(page):
-        _vlm_click_kurly_id_login(page)
+        if not _vlm_click_kurly_id_login(page):
+            return {
+                "logged_in": False,
+                "reason": "login_form_not_visible_after_kurly_id_click",
+                "dialog_messages": dialog_messages,
+                "url": page.url,
+            }
 
     # 이메일 / 비밀번호 입력
     try:
         print("[webview] 아이디(이메일) 입력 중...")
-        page.fill("input[name='id'], input[type='email'], input[placeholder*='아이디']", KURLY_EMAIL)
+        _fill_visible_input(
+            page,
+            "input[name='id']:visible, input[type='email']:visible, input[placeholder*='아이디']:visible",
+            KURLY_EMAIL,
+            "email",
+        )
         page.wait_for_timeout(300)
         print("[webview] 비밀번호 입력 중...")
-        page.fill("input[type='password']", KURLY_PASSWORD)
+        _fill_visible_input(page, "input[type='password']:visible", KURLY_PASSWORD, "password")
         page.wait_for_timeout(300)
     except Exception as e:
         print(f"[webview] 입력 필드 오류: {e}")
