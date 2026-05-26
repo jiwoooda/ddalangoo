@@ -122,12 +122,36 @@ def _chromium_launch_args() -> list[str]:
     ]
 
 
-def _browser_launch_options() -> dict[str, Any]:
+def _browser_launch_options(browser_name: str | None = None) -> dict[str, Any]:
     """환경변수 기반 Playwright launch options를 한곳에서 만든다."""
+    browser_name = browser_name or WEBVIEW_BROWSER
     launch_options: dict[str, Any] = {"headless": WEBVIEW_HEADLESS}
-    if WEBVIEW_BROWSER == "chromium":
+    if browser_name == "chromium":
         launch_options["args"] = _chromium_launch_args()
     return launch_options
+
+
+def _launch_browser_with_fallback(playwright: Any, launch_options: dict[str, Any]):
+    """
+    환경변수 브라우저로 먼저 실행하고, Railway 이미지에 해당 브라우저가 없으면 Chromium으로 재시도한다.
+
+    Railway 변수는 대시보드 값이 코드 기본값보다 우선하기 때문에, WEBVIEW_BROWSER=webkit이
+    남아 있어도 chromium만 설치된 이미지에서 자동화가 바로 죽지 않도록 한다.
+    """
+    browser_type = getattr(playwright, WEBVIEW_BROWSER, playwright.chromium)
+    try:
+        return browser_type.launch(**launch_options)
+    except Exception as exc:
+        if WEBVIEW_BROWSER == "chromium" or "Executable doesn't exist" not in str(exc):
+            raise
+
+        fallback_options = _browser_launch_options("chromium")
+        print(
+            "[webview:runtime] configured browser launch failed; "
+            f"browser={WEBVIEW_BROWSER} error={exc} "
+            f"fallback_browser=chromium fallback_launch_args={fallback_options.get('args', [])}"
+        )
+        return playwright.chromium.launch(**fallback_options)
 
 
 def _log_webview_runtime_config(
@@ -1003,7 +1027,6 @@ def check_product_price(
 
     playwright = sync_playwright().start()
     # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
-    browser_type = getattr(playwright, WEBVIEW_BROWSER, playwright.chromium)
     launch_options = _browser_launch_options()
     _log_webview_runtime_config(
         launch_options=launch_options,
@@ -1011,7 +1034,7 @@ def check_product_price(
         canonical_product_url=product_url if "/goods/" in product_url else None,
         target_product_name=None,
     )
-    browser = browser_type.launch(**launch_options)
+    browser = _launch_browser_with_fallback(playwright, launch_options)
 
     context_kwargs = {
         "viewport": VIEWPORT,
@@ -1088,7 +1111,6 @@ def run_kurly_purchase(
 
     _clear_cancel()
     playwright = sync_playwright().start()
-    browser_type = getattr(playwright, WEBVIEW_BROWSER, playwright.chromium)
     launch_options = _browser_launch_options()
     _log_webview_runtime_config(
         launch_options=launch_options,
@@ -1097,7 +1119,7 @@ def run_kurly_purchase(
         target_product_name=product_name,
     )
     print(f"[webview] 브라우저({WEBVIEW_BROWSER}) 시작...")
-    browser = browser_type.launch(**launch_options)
+    browser = _launch_browser_with_fallback(playwright, launch_options)
 
     context_kwargs = {
         "viewport": VIEWPORT,
