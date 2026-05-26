@@ -2,10 +2,16 @@ import asyncio
 import json
 
 from app.agent.mapper import state_to_response
-from app.repositories import user_preference_repository
+from app.repositories import product_repository, user_preference_repository
 from app.routers import agent as agent_router
+from app.agent import recommendation_sync
 from app.services import agent_service
 from app.services import webview_progress_service
+from app.utils.product_url_contract import (
+    canonical_product_url_for_platform,
+    fallback_product_fingerprint,
+    is_kurly_goods_url,
+)
 from src.agents import platform_agent
 from src.tools import meta_mcp_client
 
@@ -216,6 +222,117 @@ def test_real_browser_kurly_order_starts_background_worker(monkeypatch):
     assert started_thread["daemon"] is True
     assert started_thread["name"] == "kurly-webview-999008"
     assert callable(started_thread["target"])
+
+
+def test_product_url_contract_does_not_treat_kurly_search_as_canonical():
+    """컬리 검색 URL은 WebView 진입용일 뿐 상품 dedup canonical URL이 아니다."""
+    search_url = "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+    goods_url = "https://www.kurly.com/goods/123456"
+
+    assert canonical_product_url_for_platform("kurly", search_url) is None
+    assert canonical_product_url_for_platform("kurly", goods_url) == goods_url
+    assert is_kurly_goods_url(goods_url) is True
+
+
+def test_fallback_fingerprint_keeps_distinct_kurly_search_candidates_apart():
+    """같은 검색 URL에서 온 서로 다른 후보는 상품명/가격/이미지 fingerprint로 분리된다."""
+    first = fallback_product_fingerprint(
+        platform="kurly",
+        product_name="유기농 조각 양배추 300g",
+        price=2750,
+        image_url="https://image.example/cabbage-300.jpg",
+    )
+    second = fallback_product_fingerprint(
+        platform="kurly",
+        product_name="한통 양배추 900g",
+        price=3490,
+        image_url="https://image.example/cabbage-900.jpg",
+    )
+
+    assert first
+    assert second
+    assert first != second
+
+
+def test_product_repository_identity_uses_fingerprint_for_kurly_search_url():
+    """repository 식별키도 검색 URL hash가 아니라 후보 fingerprint를 사용한다."""
+    search_url = "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+    identity = product_repository._candidate_identity_contract(
+        {
+            "platform": "kurly",
+            "product_url": search_url,
+            "price": 2750,
+            "image_url": "https://image.example/cabbage.jpg",
+        },
+        "유기농 조각 양배추 300g",
+    )
+
+    assert identity["execution_url"] == search_url
+    assert identity["canonical_product_url"] is None
+    assert identity["identity_strategy"] == "fallback_fingerprint"
+    assert identity["identity_hash"] != product_repository.external_product_url_hash(search_url)
+
+
+def test_product_repository_marks_legacy_kurly_search_mapping_as_ignored():
+    """기존 DB에 남은 컬리 검색 URL mapping은 product_id 재사용 근거로 쓰지 않는다."""
+    mapping = product_repository.ExternalProductMapping(
+        platform="kurly",
+        external_product_url="https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94",
+        external_product_url_hash="legacy-search-hash",
+    )
+
+    assert product_repository._is_legacy_search_url_mapping(mapping) is True
+
+
+def test_recommendation_sync_ignores_shared_kurly_search_url_when_matching():
+    """동일한 검색 URL만 같고 상품명이 다르면 같은 추천 후보로 보지 않는다."""
+    search_url = "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+
+    assert recommendation_sync._same_product(
+        {
+            "platform": "kurly",
+            "product_name": "유기농 조각 양배추 300g",
+            "product_url": search_url,
+        },
+        {
+            "platform": "kurly",
+            "product_name": "한통 양배추 900g",
+            "product_url": search_url,
+        },
+    ) is False
+
+
+def test_webview_order_input_uses_recommendation_item_snapshot():
+    """WebView 실행 입력은 product_id가 아니라 recommendation_item_id snapshot에서 만든다."""
+    webview_input = agent_service._webview_input_from_recommendation_item(
+        user_id=1,
+        conversation_id=999009,
+        recommendation_item_id=321,
+        recommendation_item={
+            "recommendation_item_id": 321,
+            "platform": "kurly",
+            "product_name": "유기농 조각 양배추 300g",
+            "product_url": "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94",
+            "price": 2750,
+        },
+        selected_product={
+            "platform": "kurly",
+            "product_name": "다른 state 상품명",
+            "product_url": "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94",
+        },
+        order_bundle={
+            "order_items": [
+                {"recommendation_item_id": 321, "quantity": 3},
+            ],
+        },
+    )
+
+    assert webview_input.recommendation_item_id == 321
+    assert webview_input.execution_url == "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+    assert webview_input.canonical_product_url is None
+    assert webview_input.target_product_name == "유기농 조각 양배추 300g"
+    assert webview_input.expected_price == 2750
+    assert webview_input.quantity == 3
 
 
 def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):

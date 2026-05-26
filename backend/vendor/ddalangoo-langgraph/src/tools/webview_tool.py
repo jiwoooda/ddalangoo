@@ -76,6 +76,23 @@ USER_AGENT = (
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 
+def _safe_screenshot(
+    page: Page,
+    *,
+    type: str = "png",
+    quality: int | None = None,
+) -> bytes | None:
+    """Playwright screenshot crash가 전체 WebView 흐름을 깨지 않도록 감싼다."""
+    try:
+        options: dict[str, Any] = {"type": type, "full_page": False}
+        if quality is not None:
+            options["quality"] = quality
+        return page.screenshot(**options)
+    except Exception as e:
+        print(f"[webview:screenshot] capture failed: {e}")
+        return None
+
+
 def _should_restore_session(storage_state_path: str | None) -> bool:
     """로그인 재테스트 모드가 아니고 세션 파일이 있을 때만 기존 세션을 복원한다."""
     if WEBVIEW_IGNORE_SESSION:
@@ -106,14 +123,11 @@ def _emit_progress(
     if flow:
         event["flow"] = flow
     if page:
-        try:
-            event["screenshot_bytes"] = page.screenshot(
-                type="jpeg",
-                quality=60,
-                full_page=False,
-            )
-        except Exception as e:
-            event["screenshot_error"] = str(e)
+        screenshot_bytes = _safe_screenshot(page, type="jpeg", quality=60)
+        if screenshot_bytes:
+            event["screenshot_bytes"] = screenshot_bytes
+        else:
+            event["screenshot_error"] = "screenshot_unavailable"
 
     try:
         progress_callback(event)
@@ -149,7 +163,10 @@ def _ask_vlm(screenshot_bytes: bytes, question: str) -> dict:
 
 
 def _screenshot_and_ask(page: Page, question: str) -> dict:
-    return _ask_vlm(page.screenshot(), question)
+    screenshot_bytes = _safe_screenshot(page)
+    if not screenshot_bytes:
+        return {"found": False, "screenshot_error": "screenshot_unavailable"}
+    return _ask_vlm(screenshot_bytes, question)
 
 
 # ══════════════════════════════════════════════
@@ -445,8 +462,8 @@ def _dom_close_popup(page: Page) -> bool:
 def _vlm_close_popup(page: Page) -> bool:
     """VLM으로 팝업 닫기(X) 버튼 탐색 후 클릭."""
     print("[webview:VLM] 팝업 닫기 버튼 탐색 중...")
-    close = _ask_vlm(
-        page.screenshot(),
+    close = _screenshot_and_ask(
+        page,
         '팝업 닫기(X) 버튼이 보이면 좌표. {"x":350,"y":200,"found":true} 또는 {"x":0,"y":0,"found":false}',
     )
     if close.get("found"):
@@ -591,8 +608,8 @@ def _click_cart_add_button(page: Page) -> bool:
         print(f"[webview:DOM] 담기 버튼 tap ({coords['x']:.0f}, {coords['y']:.0f}) 성공")
     else:
         print("[webview:DOM] 담기 버튼 미발견 → VLM 폴백")
-        result = _ask_vlm(
-            page.screenshot(),
+        result = _screenshot_and_ask(
+            page,
             '"장바구니 담기", "담기", "확인" 등 최종 확인 버튼이 보이면 좌표 반환. '
             '{"x": 195, "y": 750, "found": true, "button_text": "..."} 또는 {"x":0,"y":0,"found":false,"button_text":""}',
         )
@@ -802,6 +819,7 @@ def run_kurly_purchase(
     quantity: int = 1,
     storage_state_path: str | None = None,
     reorder_url: str | None = None,
+    execution_url: str | None = None,
     history_price: int | None = None,
     progress_callback: ProgressCallback | None = None,
     progress_flow: str | None = None,
@@ -815,6 +833,8 @@ def run_kurly_purchase(
     keywords           : 검색 키워드 (없으면 product_name 사용)
     quantity           : 장바구니에 담을 수량
     storage_state_path : 이전 세션 파일 경로 (로그인 상태 유지용)
+    execution_url      : WebView 첫 진입용 URL. 검색 URL이면 로그인 후 해당 URL로 열고
+                         product_name 기준으로 상품 카드를 찾는다.
     reorder_url        : 재구매 시 바로 진입할 상품 URL.
                          제공되면 검색/VLM 단계를 건너뜀.
                          로그인 리다이렉트 등 실패 시 검색 방식으로 자동 fallback.
@@ -946,8 +966,14 @@ def run_kurly_purchase(
                             "delivery_info": "", "product_url": None, "error": "login_failed"}
 
             _check_cancel()
-            print(f"[webview] Step 2. 상품 검색: {product_name}")
-            _search_product(page, product_name)
+            if execution_url and "kurly.com/search" in execution_url:
+                print(f"[webview] Step 2. 검색 URL 진입: {execution_url}")
+                page.goto(execution_url, timeout=10000)
+                page.wait_for_load_state("domcontentloaded")
+                page.wait_for_timeout(2500)
+            else:
+                print(f"[webview] Step 2. 상품 검색: {product_name}")
+                _search_product(page, product_name)
             _emit_progress(
                 progress_callback,
                 flow=flow,

@@ -16,6 +16,7 @@ from app.repositories import (
     recommendation_repository,
 )
 from app.services import recommendation_scoring_service
+from app.utils.product_url_contract import canonical_product_url_for_platform
 
 
 def _candidate_products(state: dict) -> list[dict[str, Any]]:
@@ -164,15 +165,32 @@ def _attach_pending_action(state: dict, selected_product: dict | None) -> dict |
 
 
 def _same_product(left: dict, right: dict) -> bool:
-    """URL 또는 상품명 기준으로 같은 추천 후보인지 판단한다."""
-    left_url = left.get("product_url") or left.get("url")
-    right_url = right.get("product_url") or right.get("url")
-    if left_url and right_url and left_url == right_url:
-        return True
+    """추천 후보 동일성 판단에서 검색 URL은 상품 식별값으로 쓰지 않는다."""
+    left_id = _recommendation_item_id(left)
+    right_id = _recommendation_item_id(right)
+    if left_id and right_id:
+        return left_id == right_id
 
     left_name = left.get("product_name") or left.get("name")
     right_name = right.get("product_name") or right.get("name")
-    return bool(left_name and right_name and left_name == right_name)
+    if left_name and right_name and left_name == right_name:
+        return True
+
+    left_platform = left.get("platform") or right.get("platform")
+    right_platform = right.get("platform") or left.get("platform")
+    left_url = canonical_product_url_for_platform(
+        left_platform,
+        left.get("canonical_product_url"),
+        left.get("product_url"),
+        left.get("url"),
+    )
+    right_url = canonical_product_url_for_platform(
+        right_platform,
+        right.get("canonical_product_url"),
+        right.get("product_url"),
+        right.get("url"),
+    )
+    return bool(left_url and right_url and left_url == right_url)
 
 
 def _presented_product_from_state(state: dict, candidates: list[dict]) -> dict | None:
