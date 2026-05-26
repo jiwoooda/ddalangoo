@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -17,15 +18,25 @@ import 'core/services/gpt_realtime_voice_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: '.env');
+  await dotenv.load(fileName: '.env', isOptional: true);
   debugPrint(
-    '🚀 [App Start] .env loaded, OPENAI_API_KEY='
-    '${dotenv.env['OPENAI_API_KEY']?.isNotEmpty == true ? 'configured' : 'missing'}',
+    '🚀 [App Start] env loaded, API_BASE_URL='
+    '${const String.fromEnvironment('API_BASE_URL').isNotEmpty ? 'defined' : 'runtime/default'}',
   );
+  await _initVoiceServicesIfAvailable();
+  runApp(const DdalangooApp());
+}
+
+Future<void> _initVoiceServicesIfAvailable() async {
+  // Web 배포에는 클라이언트 secret을 넣지 않는다. 네이티브/로컬에서 키가 있을 때만 초기화한다.
+  final hasOpenAiKey = dotenv.env['OPENAI_API_KEY']?.trim().isNotEmpty == true;
+  if (!hasOpenAiKey || kIsWeb) {
+    debugPrint('🔇 [Voice Init] skipped: key missing or web runtime');
+    return;
+  }
   await GptVoiceService.instance.init();
   await GptRealtimeVoiceService.instance.init();
   _warmCommonTtsPhrases();
-  runApp(const DdalangooApp());
 }
 
 void _warmCommonTtsPhrases() {

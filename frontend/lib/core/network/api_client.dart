@@ -18,7 +18,7 @@ class ApiClient {
     if (dotenv.env['API_BASE_URL']?.trim().isNotEmpty == true) {
       return dotenv.env['API_BASE_URL']!.trim();
     }
-    return 'https://ddalangoo-production.up.railway.app';
+    return '';
   }
 
   static Dio createDio() {

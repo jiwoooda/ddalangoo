@@ -1,18 +1,15 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../network/api_client.dart';
 import '../storage/local_storage.dart';
 
 /// API 연결 확인 및 가상 로그인을 담당하는 테스트 서비스
 class ApiTestService {
   final Dio _dio = Dio(
     BaseOptions(
-      baseUrl:
-          dotenv.env['API_BASE_URL']?.trim().isNotEmpty == true
-          ? dotenv.env['API_BASE_URL']!.trim()
-          : 'https://ddalangoo-production.up.railway.app',
+      baseUrl: ApiClient.baseUrl,
       connectTimeout: const Duration(seconds: 5),
       receiveTimeout: const Duration(seconds: 3),
       // 404나 405 상태 코드도 에러로 던지지 않고 로그를 확인하기 위해 설정
