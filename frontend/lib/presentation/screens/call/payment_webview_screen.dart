@@ -9,8 +9,8 @@ class PaymentWebViewScreen extends StatefulWidget {
   const PaymentWebViewScreen({
     super.key,
     required this.url,
-    required this.orderId,
-    required this.paymentId,
+    this.orderId,
+    this.paymentId,
     this.productName,
     this.quantity = 1,
     this.canonicalProductUrl,
