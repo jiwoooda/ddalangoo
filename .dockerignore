@@ -1,0 +1,17 @@
+.git/
+.DS_Store
+
+# 로컬 개발용 비밀값은 루트 Docker 빌드 컨텍스트에 넣지 않는다.
+frontend/.env
+
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.pub-cache/
+frontend/.pub/
+frontend/build/
+frontend/coverage/
+
+frontend/android/.gradle/
+frontend/ios/Pods/
+frontend/macos/Pods/
