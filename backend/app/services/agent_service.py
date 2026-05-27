@@ -80,7 +80,7 @@ async def _sync_recommendations(
         orig_name = (state.get("selected_product") or {}).get("product_name")
         new_product = synced.get("selected_product") or {}
         new_name = new_product.get("product_name")
-        if new_name and new_name != orig_name:
+        if orig_name and new_name and new_name != orig_name:
             new_price = new_product.get("price", 0)
             new_msg = f"{new_name} {new_price:,}원이에요. 주문할까요?"
             patch["messages"] = [{"role": "assistant", "content": new_msg}]
