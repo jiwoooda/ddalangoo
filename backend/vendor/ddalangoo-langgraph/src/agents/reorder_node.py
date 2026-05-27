@@ -84,12 +84,13 @@ def _confirm_candidate(candidate: dict, price_key: str = "price_at_purchase") ->
     raw_url = candidate.get("product_url", "")
     product_url = raw_url if mock_validate_product_url(raw_url) else ""
     price = candidate.get(price_key, candidate.get("price", 0))
+    product_name = candidate.get("product_name", "상품")
     return {
         "selected_product": {
             "product_id": candidate.get("product_id"),
             "product_option_id": candidate.get("product_option_id"),
             "purchase_history_id": candidate.get("purchase_history_id"),
-            "product_name": candidate.get("product_name", ""),
+            "product_name": product_name,
             "brand": candidate.get("brand"),
             "category": candidate.get("category"),
             "price": price,
@@ -101,10 +102,7 @@ def _confirm_candidate(candidate: dict, price_key: str = "price_at_purchase") ->
         "product_url": product_url,
         "pending_action": {
             "type": "product_confirm",
-            "message": (
-                f"이전에 구매하셨던 '{candidate.get('product_name', '상품')}'을 "
-                f"다시 주문할까요? ({price:,}원)"
-            ),
+            "message": f"{product_name}, {price:,}원이에요. 다시 주문할까요?",
             "payload": {
                 "purchase_history_id": candidate.get("purchase_history_id"),
                 "product_url": product_url,
@@ -141,7 +139,7 @@ def reorder_node(state: ShoppingState) -> dict:
         return {
             "pending_action": {
                 **pending,
-                "message": "어떤 상품인지 정확히 고르지 못했어요. 번호나 상품명으로 다시 선택해 주세요.",
+                "message": "어떤 상품인지 모르겠어요. 번호로 다시 말씀해 주세요.",
             },
             "stage": "product_confirming",
             "error": None,
@@ -170,10 +168,7 @@ def reorder_node(state: ShoppingState) -> dict:
             }
             pending_action = {
                 "type": "product_confirm",
-                "message": (
-                    f"이전에 구매하셨던 '{candidate.get('product_name', '상품')}'을 "
-                    f"다시 주문할까요? ({candidate.get('price_at_purchase', 0):,}원)"
-                ),
+                "message": f"{candidate.get('product_name', '상품')}, {candidate.get('price_at_purchase', 0):,}원이에요. 다시 주문할까요?",
                 "payload": {
                     "purchase_history_id": candidate.get("purchase_history_id"),
                     "product_url": product_url,
@@ -195,7 +190,7 @@ def reorder_node(state: ShoppingState) -> dict:
                 "pending_action": {
                     "type": "product_select",
                     "message": resolution.get("question")
-                    or "이전에 구매한 상품이 여러 개 있어요. 어떤 상품으로 다시 주문할까요?",
+                    or "이전에 사신 상품이 여러 개예요. 어떤 걸로 할까요?",
                     "payload": {"candidates": candidates[:3]},
                 },
                 "search_results": state.get("search_results") or [],
@@ -238,10 +233,7 @@ def reorder_node(state: ShoppingState) -> dict:
 
     pending_action = {
         "type": "product_confirm",
-        "message": (
-            f"이전에 구매하셨던 '{candidate.get('product_name', '상품')}'을(를) "
-            f"다시 주문할까요? ({candidate.get('price', 0):,}원)"
-        ),
+        "message": f"{candidate.get('product_name', '상품')}, {candidate.get('price', 0):,}원이에요. 다시 주문할까요?",
         "payload": {
             "product_url": product_url,
             "selected_options": candidate.get("selected_options") or {},

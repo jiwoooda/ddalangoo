@@ -11,7 +11,7 @@ RouteName = Literal[
     "quantity_check",
     "ask_what_to_buy",
     "respond",
-    "interrupt_payment",
+    "cancel",
     "end",
 ]
 
@@ -40,11 +40,9 @@ def route(state: ShoppingState) -> RouteName:
     if needs_clarification or confidence < 0.5 or intent == "unclear":
         return _decide("respond")
 
-    # ── 2. cancel은 어디서든 우선 처리 ──
+    # ── 2. cancel은 어디서든 cancel_node로 ──
     if intent == "cancel":
-        if stage == "payment_processing":
-            return _decide("interrupt_payment")
-        return _decide("end")
+        return _decide("cancel")
 
     # ── 3. 결제 진행 중이면 Payment Subgraph가 처리 ──
     if stage == "payment_processing":
@@ -116,7 +114,7 @@ def route(state: ShoppingState) -> RouteName:
 
     # ── 7. idle / 기본 Intent 기반 라우팅 ──
     routing_map: dict[str, RouteName] = {
-        "buy": "platform_agent",
+        "buy": "memory_agent",
         "reorder": "memory_agent",
         "compare_platforms": "platform_agent",
         "refine": "platform_agent",
@@ -150,11 +148,45 @@ def after_reorder(state: ShoppingState) -> Literal["respond", "platform_agent"]:
     return "respond"
 
 
-def after_memory_agent(state: ShoppingState) -> Literal["reorder_node", "respond"]:
-    """memory_agent 이후 분기: reorder면 reorder_node, 그 외(결제 완료 등)는 respond."""
-    if state.get("intent") == "reorder":
-        return "reorder_node"
-    return "respond"
+def after_memory_agent(state: ShoppingState) -> Literal["reorder_node", "platform_agent", "respond"]:
+    """
+    memory_agent 이후 분기.
+    - reorder  → reorder_node (과거 구매 상품 직접 재주문)
+    - buy      → platform_agent (선호도 로드 후 상품 검색)
+    - 그 외    → respond (결제 완료 등)
+    """
+    intent = state.get("intent")
+    stage = state.get("stage", "idle")
+    pending_type = _ptype(state.get("pending_action"))
+
+    def _decide(dest):
+        agent_logger.log_router("memory_agent", dest, intent or "-", stage, pending_type)
+        return dest
+
+    if intent == "reorder":
+        return _decide("reorder_node")
+    if intent in ("buy", "refine", "compare_platforms"):
+        return _decide("platform_agent")
+    return _decide("respond")
+
+
+def after_payment_agent(state: ShoppingState) -> Literal["memory_agent", "respond"]:
+    """
+    payment_agent 이후 분기.
+    - stage=completed: memory_agent (구매이력 저장)
+    - 그 외 (cart_shopping, payment_processing 등): respond로 바로
+    """
+    stage = state.get("stage", "idle")
+    pending_type = _ptype(state.get("pending_action"))
+    intent = state.get("intent") or "-"
+
+    def _decide(dest):
+        agent_logger.log_router("payment_agent", dest, intent, stage, pending_type)
+        return dest
+
+    if stage == "completed":
+        return _decide("memory_agent")
+    return _decide("respond")
 
 
 def after_respond(state: ShoppingState) -> Literal["wait_for_input", "end"]:

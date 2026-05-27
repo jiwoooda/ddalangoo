@@ -63,11 +63,12 @@ def quantity_check_node(state: ShoppingState) -> dict:
     상품 확인 후 수량이 없을 때 호출.
     pending_action으로 수량 질문을 설정하고 respond로 넘긴다.
     """
-    product_name = (state.get("selected_product") or {}).get("product_name", "해당 상품")
+    keywords = state.get("keywords") or []
+    short_name = keywords[0] if keywords else (state.get("selected_product") or {}).get("product_name", "상품")
     return {
         "pending_action": {
             "type": "quantity_confirm",
-            "message": f"네, {product_name}으로 구매하겠습니다. 몇 개 살까요?",
+            "message": f"{short_name} 몇 개 사실래요?",
         }
     }
 
@@ -98,20 +99,34 @@ def ask_what_to_buy_node(state: ShoppingState) -> dict:
     }
 
 
-def interrupt_payment_node(state: ShoppingState) -> dict:
+def cancel_node(state: ShoppingState) -> dict:
     """
-    결제 중 cancel 처리.
-    실제 checkout/order/payment rollback은 Payment Subgraph 또는 service layer에서 처리해야 한다.
+    모든 stage에서의 cancel 처리.
+    - 장바구니 항목 있으면: 담아둔 것 유지 안내
+    - 없으면: 단순 취소 안내
+    state 완전 리셋 (cart_items·storage_state_path 제외).
     """
+    cart_items = state.get("cart_items") or []
+    if cart_items:
+        msg = "알겠어요~ 처음으로 돌아갈게요! 장바구니에 담아둔 건 그대로 있을 거에요 :)"
+    else:
+        msg = "알겠어요~ 필요하면 언제든 말씀해주세요!"
+
     return {
         "stage": "idle",
+        "intent": None,
         "error": None,
-        "pending_action": None,
-        "last_agent": "interrupt_payment",
-        "messages": [
-            {
-                "role": "assistant",
-                "content": "결제를 취소했습니다.",
-            }
-        ],
+        "pending_action": {"type": "payment_confirm", "message": msg},
+        "last_agent": "cancel",
+        "keywords": [],
+        "search_results": [],
+        "scored_products": [],
+        "recommended_products": [],
+        "selected_product": None,
+        "product_url": None,
+        "explanation": None,
+        "highlight_specs": [],
+        "current_product_index": 0,
+        "quantity": None,
+        "reorder_resolution": None,
     }

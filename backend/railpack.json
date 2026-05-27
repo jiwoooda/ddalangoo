@@ -1,22 +1,90 @@
 {
   "$schema": "https://schema.railpack.com",
   "packages": {
-    "python": "3.13",
-    "node": "20"
+    "python": "3.13"
   },
   "steps": {
     "install": {
       "commands": [
         "...",
-        "python -m playwright install --with-deps webkit",
-        "[ -d vendor/ddalangoo-langgraph/meta-mcp ] && cd vendor/ddalangoo-langgraph/meta-mcp && npm ci || echo 'meta-mcp install skipped'"
+        "PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install --with-deps chromium"
       ]
     }
   },
   "deploy": {
+    "aptPackages": [
+      "libsoup-3.0-0",
+      "gstreamer1.0-libav",
+      "gstreamer1.0-plugins-bad",
+      "gstreamer1.0-plugins-base",
+      "gstreamer1.0-plugins-good",
+      "libasound2",
+      "libatk-bridge2.0-0",
+      "libatk1.0-0",
+      "libatspi2.0-0",
+      "libcairo2",
+      "libcups2",
+      "libdbus-1-3",
+      "libdrm2",
+      "libegl1",
+      "libenchant-2-2",
+      "libepoxy0",
+      "libevdev2",
+      "libfontconfig1",
+      "libfreetype6",
+      "libgbm1",
+      "libgdk-pixbuf-2.0-0",
+      "libgles2",
+      "libglib2.0-0",
+      "libglx0",
+      "libgstreamer-gl1.0-0",
+      "libgstreamer-plugins-base1.0-0",
+      "libgstreamer1.0-0",
+      "libgtk-4-1",
+      "libgudev-1.0-0",
+      "libharfbuzz-icu0",
+      "libharfbuzz0b",
+      "libhyphen0",
+      "libicu72",
+      "libjpeg62-turbo",
+      "liblcms2-2",
+      "libmanette-0.2-0",
+      "libnotify4",
+      "libnspr4",
+      "libnss3",
+      "libopengl0",
+      "libopenjp2-7",
+      "libopus0",
+      "libpango-1.0-0",
+      "libpng16-16",
+      "libproxy1v5",
+      "libsecret-1-0",
+      "libwayland-client0",
+      "libwayland-egl1",
+      "libwayland-server0",
+      "libwebp7",
+      "libwebpdemux2",
+      "libwoff1",
+      "libx11-6",
+      "libxcomposite1",
+      "libxdamage1",
+      "libxext6",
+      "libxfixes3",
+      "libxkbcommon0",
+      "libxrandr2",
+      "libxml2",
+      "libxslt1.1",
+      "libatomic1",
+      "libevent-2.1-7",
+      "libavif15"
+    ],
     "variables": {
       "USE_REAL_BROWSER": "true",
-      "WEBVIEW_HEADLESS": "true"
+      "WEBVIEW_HEADLESS": "true",
+      "WEBVIEW_BROWSER": "chromium",
+      "WEBVIEW_IGNORE_SESSION": "true",
+      "WEBVIEW_SCREENSHOT_ENABLED": "false",
+      "PLAYWRIGHT_BROWSERS_PATH": "0"
     },
     "startCommand": "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
   }

@@ -76,11 +76,11 @@ export class NaverAdapter {
     const filtered = filterKurlyProducts(raw);
     // 필터 후 결과가 없으면 원본 결과를 플랫폼만 바꿔 반환 (fallback)
     const results = filtered.length > 0 ? filtered : raw;
-    // Kurly는 샛별배송 고정 (Naver API는 배송 정보를 별도 제공하지 않음)
+    // 배송 정보는 실제 상품 페이지(webview)에서 추출 — 여기서는 빈 값
     return results.slice(0, limit).map((p) => ({
       ...p,
       platform: "kurly" as const,
-      delivery_info: "샛별배송 내일 아침 7시 전",
+      delivery_info: "",
     }));
   }
 

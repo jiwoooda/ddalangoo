@@ -38,7 +38,7 @@ def test_route_unclear_intent():
 
 def test_route_cancel_idle():
     state = make_state(intent="cancel", stage="idle", confidence=0.9, needs_clarification=False)
-    assert route(state) == "end"
+    assert route(state) == "cancel"
 
 
 def test_route_cancel_payment_processing():
@@ -48,7 +48,7 @@ def test_route_cancel_payment_processing():
         confidence=0.9,
         needs_clarification=False,
     )
-    assert route(state) == "interrupt_payment"
+    assert route(state) == "cancel"
 
 
 # ══════════════════════════════════════════════
@@ -156,7 +156,7 @@ def test_route_product_confirming_compare_platforms():
 
 def test_route_idle_buy():
     state = make_state(intent="buy", stage="idle", confidence=0.9, needs_clarification=False)
-    assert route(state) == "platform_agent"
+    assert route(state) == "memory_agent"
 
 
 def test_route_idle_reorder():

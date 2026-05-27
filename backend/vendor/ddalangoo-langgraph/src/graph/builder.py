@@ -13,13 +13,13 @@ from langgraph.store.memory import InMemoryStore
 from langgraph.store.base import BaseStore
 
 from src.state.schema import ShoppingState
-from src.graph.router import route, after_respond, after_reorder, after_platform_agent, after_memory_agent
+from src.graph.router import route, after_respond, after_reorder, after_platform_agent, after_memory_agent, after_payment_agent
 from src.agents.intent_agent import intent_agent_node
 from src.agents.memory_agent import memory_agent_node
 from src.agents.platform_agent import platform_agent_node
 from src.agents.product_agent import product_agent_node
 from src.agents.reorder_node import reorder_node
-from src.agents.nodes import wait_for_input_node, respond_node, interrupt_payment_node, quantity_check_node, ask_what_to_buy_node
+from src.agents.nodes import wait_for_input_node, respond_node, cancel_node, quantity_check_node, ask_what_to_buy_node
 from src.payment.subgraph import payment_agent_node
 
 
@@ -62,7 +62,7 @@ def build_graph(
     builder.add_node("respond", respond_node)
     builder.add_node("quantity_check", quantity_check_node)
     builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
-    builder.add_node("interrupt_payment", interrupt_payment_node)
+    builder.add_node("cancel", cancel_node)
 
     # ── 진입점 ──
     builder.set_entry_point("wait_for_input")
@@ -83,17 +83,18 @@ def build_graph(
             "quantity_check": "quantity_check",
             "ask_what_to_buy": "ask_what_to_buy",
             "respond": "respond",
-            "interrupt_payment": "interrupt_payment",
+            "cancel": "cancel",
             "end": END,
         },
     )
 
-    # ── memory_agent → reorder_node (reorder) / respond (결제 완료 등) ──
+    # ── memory_agent → reorder_node (reorder) / platform_agent (buy) / respond (결제 완료 등) ──
     builder.add_conditional_edges(
         "memory_agent",
         after_memory_agent,
         {
             "reorder_node": "reorder_node",
+            "platform_agent": "platform_agent",
             "respond": "respond",
         },
     )
@@ -122,8 +123,16 @@ def build_graph(
         },
     )
     builder.add_edge("product_agent", "respond")
-    builder.add_edge("payment_agent", "memory_agent")
-    builder.add_edge("interrupt_payment", "respond")
+    # payment_agent → memory_agent (결제 완료 시 구매이력 저장) / respond (그 외)
+    builder.add_conditional_edges(
+        "payment_agent",
+        after_payment_agent,
+        {
+            "memory_agent": "memory_agent",
+            "respond": "respond",
+        },
+    )
+    builder.add_edge("cancel", "respond")
 
     # ── respond 이후 계속 진행 여부 판단 ──
     builder.add_conditional_edges(

@@ -5,6 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.product import CrawledProductSnapshot
+from app.utils.product_url_contract import (
+    canonical_product_url_for_platform,
+    is_kurly_goods_url,
+    is_search_like_url,
+)
 
 
 def _snapshot_to_dict(snapshot: CrawledProductSnapshot) -> dict:
@@ -71,6 +76,24 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _raw_payload_with_url_contract(
+    data: dict,
+    *,
+    execution_url: str | None,
+    canonical_product_url: str | None,
+) -> Any:
+    """raw_payload에 원본 응답과 WebView/식별 URL 의미를 함께 남긴다."""
+    raw_payload = data.get("raw_payload") or data.get("raw") or data
+    if isinstance(raw_payload, dict):
+        return _json_safe({
+            **raw_payload,
+            "source_url": raw_payload.get("source_url") or data.get("source_url"),
+            "execution_url": execution_url,
+            "canonical_product_url": canonical_product_url,
+        })
+    return _json_safe(raw_payload)
+
+
 async def create_crawled_product_snapshot_db(
     db: AsyncSession,
     data: dict,
@@ -89,10 +112,33 @@ async def create_crawled_product_snapshot_db(
     if not raw_product_name:
         raise ValueError("raw_product_name 또는 product_name이 필요합니다.")
 
+    execution_url = data.get("execution_url") or data.get("product_url") or data.get("url")
+    raw_url = data.get("external_product_url") or data.get("product_url") or data.get("url")
+    canonical_product_url = (
+        data.get("canonical_product_url")
+        or canonical_product_url_for_platform(
+            data.get("platform"),
+            data.get("external_product_url"),
+            data.get("product_url"),
+            data.get("url"),
+        )
+    )
+    if (data.get("platform") or "").lower() == "kurly" and not is_kurly_goods_url(canonical_product_url):
+        canonical_product_url = None
+
+    print(
+        "[product_url_contract:snapshot] "
+        f"platform={data.get('platform')} "
+        f"raw_url={raw_url} "
+        f"execution_url={execution_url} "
+        f"canonical_product_url={canonical_product_url} "
+        f"is_search_url={is_search_like_url(raw_url)}"
+    )
+
     snapshot = CrawledProductSnapshot(
         platform=data["platform"],
         external_product_id=data.get("external_product_id"),
-        external_product_url=data.get("external_product_url") or data.get("product_url") or data.get("url"),
+        external_product_url=canonical_product_url,
         crawl_keyword=data.get("crawl_keyword") or data.get("keyword"),
         crawl_source=data.get("crawl_source") or "search",
         raw_product_name=str(raw_product_name),
@@ -106,7 +152,11 @@ async def create_crawled_product_snapshot_db(
         raw_review_count=_string_or_none(data.get("raw_review_count") or data.get("review_count")),
         raw_image_url=data.get("raw_image_url") or data.get("image_url"),
         raw_is_sold_out=_string_or_none(data.get("raw_is_sold_out") or data.get("is_sold_out")),
-        raw_payload=_json_safe(data.get("raw_payload") or data.get("raw") or data),
+        raw_payload=_raw_payload_with_url_contract(
+            data,
+            execution_url=execution_url,
+            canonical_product_url=canonical_product_url,
+        ),
         normalization_status=data.get("normalization_status") or "pending",
         crawled_at=data.get("crawled_at") or datetime.now(UTC),
     )

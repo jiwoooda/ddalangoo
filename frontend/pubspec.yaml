@@ -84,6 +84,5 @@ flutter:
   uses-material-design: true
   
   assets:
-    - .env
     - assets/images/ddalangoo_logo_text.png
     - assets/images/

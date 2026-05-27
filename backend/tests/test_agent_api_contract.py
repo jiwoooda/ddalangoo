@@ -1,7 +1,19 @@
+import asyncio
+import json
+
 from app.agent.mapper import state_to_response
+from app.repositories import product_repository, user_preference_repository
+from app.routers import agent as agent_router
+from app.agent import recommendation_sync
 from app.services import agent_service
 from app.services import webview_progress_service
+from app.utils.product_url_contract import (
+    canonical_product_url_for_platform,
+    fallback_product_fingerprint,
+    is_kurly_goods_url,
+)
 from src.agents import platform_agent
+from src.tools import meta_mcp_client
 
 
 def test_webview_status_default_matches_frontend_contract():
@@ -62,6 +74,63 @@ def test_webview_progress_emit_always_includes_screenshot_url():
     assert webview_progress_service.get_latest_status(conversation_id) == status
 
 
+def test_webview_progress_recovers_status_and_screenshot_from_disk(monkeypatch, tmp_path):
+    """프로세스 메모리가 비어도 디스크에 저장된 마지막 progress를 복원한다."""
+    conversation_id = 999009
+    monkeypatch.setattr(webview_progress_service, "_SCREENSHOT_DIR", tmp_path)
+    webview_progress_service.clear_progress(conversation_id)
+
+    status = webview_progress_service.emit_progress(
+        conversation_id,
+        step="opening_shop",
+        message="컬리에 접속하고 있어요.",
+        flow="new_purchase",
+        status="running",
+        screenshot_bytes=b"fake-jpeg-bytes",
+    )
+
+    webview_progress_service._latest_status.pop(conversation_id, None)
+    webview_progress_service._latest_screenshot.pop(conversation_id, None)
+
+    assert webview_progress_service.get_status_or_default(conversation_id) == status
+    assert webview_progress_service.get_latest_screenshot(conversation_id) == b"fake-jpeg-bytes"
+
+
+def test_user_preference_repository_json_fallback_when_database_url_missing(monkeypatch, tmp_path):
+    """DB URL이 없는 로컬 테스트에서는 기존 함수 시그니처가 JSON fallback으로 동작한다."""
+    cache_path = tmp_path / "user_preferences.json"
+    cache_path.write_text("{}", encoding="utf-8")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(user_preference_repository, "_JSON_PATH", str(cache_path))
+
+    user_preference_repository.save_general_preference(1, {"summary": "healthy"})
+    user_preference_repository.save_keyword_preference(1, ["치즈", "모짜렐라"], [{"product_name": "치즈"}])
+
+    assert user_preference_repository.get_general_preference(1)["summary"] == "healthy"
+    assert user_preference_repository.get_keyword_preference(1, ["모짜렐라", "치즈"]) == [
+        {"product_name": "치즈"}
+    ]
+
+    stored = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert "1:general" in stored
+    assert "1:kw_모짜렐라_치즈" in stored
+
+
+def test_cancel_conversation_endpoint_requests_webview_cancel(monkeypatch):
+    """cancel endpoint는 Playwright cancel event를 세팅하는 함수만 호출하면 된다."""
+    called = {}
+
+    def fake_request_cancel():
+        called["request_cancel"] = True
+
+    monkeypatch.setattr("src.tools.webview_tool.request_cancel", fake_request_cancel)
+
+    response = asyncio.run(agent_router.cancel_conversation(123))
+
+    assert response == {"ok": True}
+    assert called["request_cancel"] is True
+
+
 def test_messages_address_confirm_can_trigger_order_creation():
     """주소 확인 수락도 /messages 자연어 흐름에서 주문 생성 후처리 대상이다."""
     assert agent_service._should_create_order_from_message(
@@ -117,6 +186,207 @@ def test_real_browser_kurly_product_records_searching_progress(monkeypatch):
     assert status["meta"]["platform"] == "kurly"
 
 
+def test_real_browser_kurly_order_starts_background_worker(monkeypatch):
+    """주문 확정 후에는 실제 Playwright 작업을 별도 스레드로 시작한다."""
+    started_thread = {}
+
+    class FakeThread:
+        """테스트에서는 브라우저를 띄우지 않고 스레드 시작 여부만 기록한다."""
+
+        def __init__(self, *, target, daemon, name):
+            started_thread["target"] = target
+            started_thread["daemon"] = daemon
+            started_thread["name"] = name
+
+        def start(self):
+            started_thread["started"] = True
+
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+    monkeypatch.setattr(agent_service.threading, "Thread", FakeThread)
+
+    agent_service._start_real_browser_purchase(
+        999008,
+        selected_product={
+            "platform": "kurly",
+            "product_name": "아보카도",
+            "product_url": "https://www.kurly.com/search?sword=아보카도",
+        },
+        order_bundle={
+            "order": {"id": 101},
+            "order_items": [{"quantity": 2}],
+        },
+        payment_bundle={"payment": {"id": 202}},
+    )
+
+    assert started_thread["started"] is True
+    assert started_thread["daemon"] is True
+    assert started_thread["name"] == "kurly-webview-999008"
+    assert callable(started_thread["target"])
+
+
+def test_product_url_contract_does_not_treat_kurly_search_as_canonical():
+    """컬리 검색 URL은 WebView 진입용일 뿐 상품 dedup canonical URL이 아니다."""
+    search_url = "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+    goods_url = "https://www.kurly.com/goods/123456"
+
+    assert canonical_product_url_for_platform("kurly", search_url) is None
+    assert canonical_product_url_for_platform("kurly", goods_url) == goods_url
+    assert is_kurly_goods_url(goods_url) is True
+
+
+def test_fallback_fingerprint_keeps_distinct_kurly_search_candidates_apart():
+    """같은 검색 URL에서 온 서로 다른 후보는 상품명/가격/이미지 fingerprint로 분리된다."""
+    first = fallback_product_fingerprint(
+        platform="kurly",
+        product_name="유기농 조각 양배추 300g",
+        price=2750,
+        image_url="https://image.example/cabbage-300.jpg",
+    )
+    second = fallback_product_fingerprint(
+        platform="kurly",
+        product_name="한통 양배추 900g",
+        price=3490,
+        image_url="https://image.example/cabbage-900.jpg",
+    )
+
+    assert first
+    assert second
+    assert first != second
+
+
+def test_product_repository_identity_uses_fingerprint_for_kurly_search_url():
+    """repository 식별키도 검색 URL hash가 아니라 후보 fingerprint를 사용한다."""
+    search_url = "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+    identity = product_repository._candidate_identity_contract(
+        {
+            "platform": "kurly",
+            "product_url": search_url,
+            "price": 2750,
+            "image_url": "https://image.example/cabbage.jpg",
+        },
+        "유기농 조각 양배추 300g",
+    )
+
+    assert identity["execution_url"] == search_url
+    assert identity["canonical_product_url"] is None
+    assert identity["identity_strategy"] == "fallback_fingerprint"
+    assert identity["identity_hash"] != product_repository.external_product_url_hash(search_url)
+
+
+def test_product_repository_marks_legacy_kurly_search_mapping_as_ignored():
+    """기존 DB에 남은 컬리 검색 URL mapping은 product_id 재사용 근거로 쓰지 않는다."""
+    mapping = product_repository.ExternalProductMapping(
+        platform="kurly",
+        external_product_url="https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94",
+        external_product_url_hash="legacy-search-hash",
+    )
+
+    assert product_repository._is_legacy_search_url_mapping(mapping) is True
+
+
+def test_recommendation_sync_ignores_shared_kurly_search_url_when_matching():
+    """동일한 검색 URL만 같고 상품명이 다르면 같은 추천 후보로 보지 않는다."""
+    search_url = "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+
+    assert recommendation_sync._same_product(
+        {
+            "platform": "kurly",
+            "product_name": "유기농 조각 양배추 300g",
+            "product_url": search_url,
+        },
+        {
+            "platform": "kurly",
+            "product_name": "한통 양배추 900g",
+            "product_url": search_url,
+        },
+    ) is False
+
+
+def test_webview_order_input_uses_recommendation_item_snapshot():
+    """WebView 실행 입력은 product_id가 아니라 recommendation_item_id snapshot에서 만든다."""
+    webview_input = agent_service._webview_input_from_recommendation_item(
+        user_id=1,
+        conversation_id=999009,
+        recommendation_item_id=321,
+        recommendation_item={
+            "recommendation_item_id": 321,
+            "platform": "kurly",
+            "product_name": "유기농 조각 양배추 300g",
+            "product_url": "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94",
+            "price": 2750,
+        },
+        selected_product={
+            "platform": "kurly",
+            "product_name": "다른 state 상품명",
+            "product_url": "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94",
+        },
+        order_bundle={
+            "order_items": [
+                {"recommendation_item_id": 321, "quantity": 3},
+            ],
+        },
+    )
+
+    assert webview_input.recommendation_item_id == 321
+    assert webview_input.execution_url == "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+    assert webview_input.canonical_product_url is None
+    assert webview_input.target_product_name == "유기농 조각 양배추 300g"
+    assert webview_input.expected_price == 2750
+    assert webview_input.quantity == 3
+
+
+def test_webview_chromium_launch_options_include_railway_args():
+    """Railway Chromium 실행에는 sandbox/dev-shm 회피 옵션이 포함되어야 한다."""
+    from src.tools import webview_tool
+
+    original_browser = webview_tool.WEBVIEW_BROWSER
+    try:
+        webview_tool.WEBVIEW_BROWSER = "chromium"
+        launch_options = webview_tool._browser_launch_options()
+    finally:
+        webview_tool.WEBVIEW_BROWSER = original_browser
+
+    assert launch_options["headless"] is True
+    assert "--no-sandbox" in launch_options["args"]
+    assert "--disable-setuid-sandbox" in launch_options["args"]
+    assert "--disable-dev-shm-usage" in launch_options["args"]
+    assert "--disable-gpu" in launch_options["args"]
+    assert "--single-process" in launch_options["args"]
+    assert "--no-zygote" in launch_options["args"]
+
+
+def test_webview_screenshot_disabled_skips_page_call(monkeypatch):
+    """WEBVIEW_SCREENSHOT_ENABLED=false면 page.screenshot 자체를 호출하지 않는다."""
+    from src.tools import webview_tool
+
+    class CrashIfCalledPage:
+        def screenshot(self, **kwargs):
+            raise AssertionError("screenshot should not be called")
+
+    monkeypatch.setattr(webview_tool, "WEBVIEW_SCREENSHOT_ENABLED", False)
+
+    assert webview_tool._safe_screenshot(CrashIfCalledPage()) is None
+
+
+def test_webview_credential_debug_summary_hides_secret_values(monkeypatch):
+    """로그인 진단 로그는 credential 원문 대신 존재 여부와 길이만 남긴다."""
+    from src.tools import webview_tool
+
+    monkeypatch.setattr(webview_tool, "KURLY_EMAIL", "user@example.com")
+    monkeypatch.setattr(webview_tool, "KURLY_PASSWORD", "secret-password")
+
+    summary = webview_tool._credential_debug_summary()
+
+    assert summary == {
+        "email_present": True,
+        "email_length": len("user@example.com"),
+        "password_present": True,
+        "password_length": len("secret-password"),
+    }
+    assert "user@example.com" not in str(summary)
+    assert "secret-password" not in str(summary)
+
+
 def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
     """실제 브라우저 MVP에서는 아보카도 같은 신선식품을 컬리 후보로 검색한다."""
     monkeypatch.setenv("USE_REAL_BROWSER", "true")
@@ -127,6 +397,116 @@ def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
     )
 
     assert platforms == ["kurly"]
+
+
+def test_meta_mcp_sse_parser_reads_search_result_event():
+    """분리된 meta-mcp /sse 응답에서 search_result 이벤트를 상품 목록으로 변환한다."""
+    payload = "\n".join([
+        "event: progress",
+        'data: {"status":"running"}',
+        "",
+        "event: search_result",
+        'data: {"total":1,"products":[{"platform":"kurly","name":"모짜렐라","price":6780,"delivery_info":"","url":"https://www.kurly.com/search?sword=cheese","image_url":"https://example.com/image.jpg"}]}',
+        "",
+    ])
+
+    products = meta_mcp_client._parse_sse_search_result(payload)
+
+    assert products == [
+        {
+            "product_name": "모짜렐라",
+            "price": 6780,
+            "rating": None,
+            "review_count": None,
+            "delivery": "",
+            "delivery_fee": None,
+            "platform": "kurly",
+            "image_url": "https://example.com/image.jpg",
+            "product_url": "https://www.kurly.com/search?sword=cheese",
+            "execution_url": "https://www.kurly.com/search?sword=cheese",
+            "source_url": None,
+            "is_sold_out": False,
+            "raw": {
+                "platform": "kurly",
+                "name": "모짜렐라",
+                "price": 6780,
+                "delivery_info": "",
+                "url": "https://www.kurly.com/search?sword=cheese",
+                "image_url": "https://example.com/image.jpg",
+            },
+        }
+    ]
+
+
+def test_meta_mcp_sse_parser_rewrites_kurly_smartstore_url():
+    """remote meta-mcp가 smartstore URL을 줘도 컬리 WebView 실행 URL로 분리한다."""
+    smartstore_url = "https://smartstore.naver.com/main/products/12924602621"
+    payload = "\n".join([
+        "event: search_result",
+        (
+            'data: {"total":1,"products":[{"platform":"kurly","name":"유기농 조각 양배추 300g",'
+            f'"price":2750,"delivery_info":"","url":"{smartstore_url}",'
+            '"image_url":"https://example.com/cabbage.jpg"}]}'
+        ),
+        "",
+    ])
+
+    products = meta_mcp_client._parse_sse_search_result(payload, query="양배추")
+
+    assert len(products) == 1
+    product = products[0]
+    expected_execution_url = "https://www.kurly.com/search?sword=%EC%96%91%EB%B0%B0%EC%B6%94"
+
+    assert product["platform"] == "kurly"
+    assert product["product_name"] == "유기농 조각 양배추 300g"
+    assert product["price"] == 2750
+    assert product["image_url"] == "https://example.com/cabbage.jpg"
+    assert product["source_url"] == smartstore_url
+    assert product["product_url"] == expected_execution_url
+    assert product["execution_url"] == expected_execution_url
+    assert product["raw"]["source_url"] == smartstore_url
+    assert product["raw"]["url"] == expected_execution_url
+    assert product["raw"]["execution_url"] == expected_execution_url
+
+
+def test_kurly_mvp_fallback_does_not_require_naver_credentials(monkeypatch):
+    """실제 브라우저 MVP에서는 Naver 키가 없어도 컬리 검색 URL 후보를 만든다."""
+    monkeypatch.setenv("USE_REAL_BROWSER", "true")
+    monkeypatch.delenv("NAVER_CLIENT_ID", raising=False)
+    monkeypatch.delenv("NAVER_CLIENT_SECRET", raising=False)
+
+    products = meta_mcp_client._call_naver_search_api({
+        "query": "아보카도",
+        "platforms": ["kurly"],
+        "sort": "price_low",
+        "limit": 5,
+    })
+
+    assert products == [
+        {
+            "product_name": "아보카도",
+            "price": 0,
+            "rating": None,
+            "review_count": None,
+            "delivery": "",
+            "delivery_fee": None,
+            "platform": "kurly",
+            "image_url": None,
+            "product_url": "https://www.kurly.com/search?sword=%EC%95%84%EB%B3%B4%EC%B9%B4%EB%8F%84",
+            "execution_url": "https://www.kurly.com/search?sword=%EC%95%84%EB%B3%B4%EC%B9%B4%EB%8F%84",
+            "source_url": None,
+            "is_sold_out": False,
+            "raw": {
+                "name": "아보카도",
+                "price": 0,
+                "delivery_info": "",
+                "platform": "kurly",
+                "image_url": None,
+                "url": "https://www.kurly.com/search?sword=%EC%95%84%EB%B3%B4%EC%B9%B4%EB%8F%84",
+                "source": "kurly_search_url_fallback",
+            },
+        }
+    ]
 
 
 def test_product_pending_confirmation_uses_documented_actions():

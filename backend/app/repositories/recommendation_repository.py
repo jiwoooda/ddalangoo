@@ -165,6 +165,17 @@ async def create_recommendation_item_db(
     return _recommendation_item_to_dict(item)
 
 
+async def get_recommendation_item_by_id_db(
+    db: AsyncSession,
+    recommendation_item_id: int,
+) -> Optional[dict]:
+    """WebView 실행 입력을 recommendation_items snapshot 기준으로 만들기 위해 단건 조회한다."""
+    item = await db.get(RecommendationItem, recommendation_item_id)
+    if not item:
+        return None
+    return _recommendation_item_to_dict(item)
+
+
 async def mark_recommendation_item_presented_db(
     db: AsyncSession,
     recommendation_item_id: int,

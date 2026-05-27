@@ -41,6 +41,15 @@ async def webview_result(
     return await payment_service.handle_webview_result_db(db, conversationId, req)
 
 
+@router.post("/conversations/{conversationId}/cancel")
+async def cancel_conversation(conversationId: int):
+    """실행 중인 Playwright 웹뷰 작업에 취소 신호를 보낸다."""
+    from src.tools.webview_tool import request_cancel
+
+    request_cancel()
+    return {"ok": True}
+
+
 @router.websocket("/conversations/{conversationId}/webview")
 async def webview_progress(conversationId: int, websocket: WebSocket):
     await webview_progress_service.connect(conversationId, websocket)

@@ -9,10 +9,20 @@ Kurly 제안 로직:
   product_agent를 건너뛰고 바로 "마켓컬리에서도 찾아볼까요?" 제안.
 """
 import os
+import anthropic
 from typing import Any
 from src.state.schema import ShoppingState
 from src.tools.meta_mcp_client import search_products as meta_search
 from src.utils.agent_logger import agent_logger
+
+_haiku_client: anthropic.Anthropic | None = None
+
+
+def _get_haiku_client() -> anthropic.Anthropic:
+    global _haiku_client
+    if _haiku_client is None:
+        _haiku_client = anthropic.Anthropic()
+    return _haiku_client
 
 CONDITION_MAP = {
     "최저가": "price_asc",
@@ -39,9 +49,10 @@ PLATFORM_DEFAULTS_BY_KEYWORD = {
 
 # naver/coupang 검색 후 kurly를 제안할 신선식품/육류 키워드
 _KURLY_SUGGEST_KEYWORDS = {
-    "삼겹", "우삼겹", "소고기", "돼지", "닭", "계란", "생선", "해산물",
+    "삼겹", "우삼겹", "소고기", "돼지", "닭", "계란", "달걀", "생선", "해산물",
     "갈비", "등심", "안심", "차돌", "불고기", "수육", "삼겹살", "육류",
     "두부", "버섯", "콩나물", "시금치", "신선", "식재료", "고기",
+    "채소", "과일", "야채", "우유", "치즈", "요거트", "생크림",
 }
 
 
@@ -96,13 +107,8 @@ def _select_platforms(state: ShoppingState, recommendation_context: dict) -> lis
 
 
 def _should_suggest_kurly_early(keywords: list[str], tried_platforms: list[str]) -> bool:
-    """검색 전, 키워드만 보고 컬리 제안 여부 판단."""
-    if "kurly" in tried_platforms:
-        return False
-    return any(
-        any(food_kw in kw.lower() for food_kw in _KURLY_SUGGEST_KEYWORDS)
-        for kw in keywords
-    )
+    """컬리를 아직 시도하지 않은 경우 항상 컬리 먼저 제안한다."""
+    return "kurly" not in tried_platforms
 
 
 def _filter_results(
@@ -154,7 +160,7 @@ def platform_agent_node(state: ShoppingState) -> dict:
         and _should_suggest_kurly_early(keywords, tried_platforms)
     ):
         result = {
-            "tried_platforms": list(set(tried_platforms + ["kurly"])),
+            "tried_platforms": tried_platforms,
             "target_platforms": [],
             "search_results": [],
             "stage": "product_confirming",
@@ -162,12 +168,12 @@ def platform_agent_node(state: ShoppingState) -> dict:
             "last_agent": "platform_agent",
             "pending_action": {
                 "type": "platform_suggest",
-                "message": "컬리에서 찾아볼까요?",
+                "message": "컬리 쇼핑몰에서 주문할까요?",
                 "payload": {"target_platform": "kurly"},
             },
         }
         agent_logger.log_platform_agent(
-            {"keywords": keywords, "intent": intent, "tried_platforms": tried_platforms, "trigger": "kurly_early_suggest"},
+            {"keywords": keywords, "intent": intent, "tried_platforms": tried_platforms, "trigger": "kurly_suggest"},
             result,
         )
         return result
@@ -177,7 +183,6 @@ def platform_agent_node(state: ShoppingState) -> dict:
         target = pending_action.get("payload", {}).get("target_platform", "kurly")
         selected_platforms = [target]
     elif pending_action.get("type") == "platform_suggest" and intent in ("deny", "next"):
-        # 컬리 거절 → 네이버/쿠팡 검색
         selected_platforms = [p for p in ["naver", "coupang"] if p not in tried_platforms] or ["naver"]
     else:
         selected_platforms = _select_platforms(state, recommendation_context)

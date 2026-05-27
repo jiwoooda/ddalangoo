@@ -139,7 +139,7 @@ def payment_flow(payment: PaymentState) -> PaymentState:
         "checkout_session_id": checkout.id,
         "pending_action": {
             "type": "payment_confirm",
-            "message": f"'{product_name}' {quantity}개, {price * quantity:,}원 결제가 완료되었습니다.",
+            "message": f"{product_name} {quantity}개, {price * quantity:,}원이에요. 결제됐어요!",
             "payload": {"order_id": order.id},
         },
     }

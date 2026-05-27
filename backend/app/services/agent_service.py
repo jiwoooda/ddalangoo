@@ -1,4 +1,6 @@
 import os
+import threading
+from dataclasses import dataclass
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,15 +14,39 @@ from app.repositories import (
     external_api_log_repository,
     order_repository,
     payment_repository,
+    recommendation_repository,
     user_repository,
 )
 from app.agent import runtime, mapper, actions, product_data_layer, recommendation_sync
 from app.services import webview_progress_service
+from app.utils.product_url_contract import is_kurly_goods_url
 
 try:
     from langchain_core.messages import AIMessage
 except ImportError:  # pragma: no cover - langchain_core는 앱 런타임 의존성이다.
     AIMessage = None
+
+
+@dataclass(frozen=True)
+class WebViewOrderInput:
+    """
+    WebView 자동화 실행 계약.
+
+    상품 식별은 product_id가 아니라 recommendation_item_id snapshot에서 만든다.
+    execution_url은 첫 진입용이라 검색 URL일 수 있고, canonical_product_url은 /goods/
+    상세 URL일 때만 직접 진입 및 상품 식별에 사용한다.
+    """
+
+    user_id: int
+    conversation_id: int
+    recommendation_item_id: int
+    platform: str
+    execution_url: str | None
+    canonical_product_url: str | None
+    target_product_name: str
+    expected_price: int | None
+    selected_options: dict
+    quantity: int
 
 
 async def _sync_recommendations(
@@ -231,10 +257,106 @@ def _is_kurly_browser_product(selected_product: dict) -> bool:
     return platform == "kurly" and "kurly.com" in product_url
 
 
+def _is_kurly_webview_input(webview_input: WebViewOrderInput) -> bool:
+    """WebViewOrderInput 기준으로 컬리 자동화 가능 여부를 확인한다."""
+    execution_url = (webview_input.execution_url or "").lower()
+    canonical_url = (webview_input.canonical_product_url or "").lower()
+    return (
+        webview_input.platform == "kurly"
+        and ("kurly.com" in execution_url or "kurly.com" in canonical_url)
+    )
+
+
+def _quantity_from_order_bundle(order_bundle: dict, recommendation_item_id: int) -> int:
+    """주문 item 중 실행 대상 recommendation item의 수량을 찾는다."""
+    for order_item in order_bundle.get("order_items") or []:
+        if order_item.get("recommendation_item_id") == recommendation_item_id:
+            return int(order_item.get("quantity") or 1)
+    first_order_item = (order_bundle.get("order_items") or [{}])[0]
+    return int(first_order_item.get("quantity") or 1)
+
+
+def _webview_input_from_recommendation_item(
+    *,
+    user_id: int,
+    conversation_id: int,
+    recommendation_item_id: int,
+    recommendation_item: dict,
+    selected_product: dict,
+    order_bundle: dict,
+) -> WebViewOrderInput:
+    """recommendation_items snapshot을 WebView 자동화 입력으로 변환한다."""
+    raw_product = selected_product.get("raw") if isinstance(selected_product.get("raw"), dict) else {}
+    platform = (
+        recommendation_item.get("platform")
+        or selected_product.get("platform")
+        or ""
+    ).lower()
+    execution_url = (
+        recommendation_item.get("product_url")
+        or selected_product.get("execution_url")
+        or selected_product.get("product_url")
+        or selected_product.get("url")
+    )
+    canonical_product_url = (
+        selected_product.get("canonical_product_url")
+        if is_kurly_goods_url(selected_product.get("canonical_product_url"))
+        else None
+    )
+    if not canonical_product_url and is_kurly_goods_url(execution_url):
+        canonical_product_url = execution_url
+
+    return WebViewOrderInput(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        recommendation_item_id=recommendation_item_id,
+        platform=platform,
+        execution_url=execution_url,
+        canonical_product_url=canonical_product_url,
+        target_product_name=(
+            recommendation_item.get("product_name")
+            or selected_product.get("product_name")
+            or selected_product.get("name")
+            or raw_product.get("name")
+            or "상품"
+        ),
+        expected_price=recommendation_item.get("price") or selected_product.get("price"),
+        selected_options={},
+        quantity=_quantity_from_order_bundle(order_bundle, recommendation_item_id),
+    )
+
+
+async def _build_webview_order_input(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    conversation_id: int,
+    recommendation_item_id: int,
+    selected_product: dict,
+    order_bundle: dict,
+) -> WebViewOrderInput | None:
+    """DB snapshot을 조회해서 실제 WebView 실행 입력을 만든다."""
+    recommendation_item = await recommendation_repository.get_recommendation_item_by_id_db(
+        db,
+        recommendation_item_id,
+    )
+    if not recommendation_item:
+        return None
+    return _webview_input_from_recommendation_item(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        recommendation_item_id=recommendation_item_id,
+        recommendation_item=recommendation_item,
+        selected_product=selected_product,
+        order_bundle=order_bundle,
+    )
+
+
 def _emit_real_browser_progress(
     conversation_id: int,
     *,
-    selected_product: dict,
+    selected_product: dict | None = None,
+    webview_input: WebViewOrderInput | None = None,
     order_bundle: dict,
     payment_bundle: dict,
     assistant_message: str,
@@ -245,7 +367,12 @@ def _emit_real_browser_progress(
     현재 실제 브라우저 자동화는 컬리 모바일웹 도구만 있으므로,
     네이버 상품은 조용히 idle로 남기지 않고 명시적인 failed progress로 기록한다.
     """
-    platform = (selected_product.get("platform") or "").lower()
+    selected_product = selected_product or {}
+    platform = (
+        webview_input.platform
+        if webview_input
+        else (selected_product.get("platform") or "").lower()
+    )
     base_meta = {
         "orderId": order_bundle["order"]["id"],
         "paymentId": payment_bundle["payment"]["id"],
@@ -283,6 +410,144 @@ def _emit_real_browser_progress(
         status="running",
         meta=base_meta,
     )
+
+
+def _start_real_browser_purchase(
+    conversation_id: int,
+    *,
+    selected_product: dict | None = None,
+    webview_input: WebViewOrderInput | None = None,
+    order_bundle: dict,
+    payment_bundle: dict,
+) -> None:
+    """주문 확정 후 컬리 웹뷰 자동화를 백그라운드에서 시작한다."""
+    selected_product = selected_product or {}
+    if webview_input is None:
+        raw_product = selected_product.get("raw") if isinstance(selected_product.get("raw"), dict) else {}
+        fallback_url = selected_product.get("product_url") or selected_product.get("url")
+        webview_input = WebViewOrderInput(
+            user_id=0,
+            conversation_id=conversation_id,
+            recommendation_item_id=0,
+            platform=(selected_product.get("platform") or "").lower(),
+            execution_url=fallback_url,
+            canonical_product_url=fallback_url if is_kurly_goods_url(fallback_url) else None,
+            target_product_name=(
+                selected_product.get("product_name")
+                or selected_product.get("name")
+                or raw_product.get("name")
+                or "상품"
+            ),
+            expected_price=selected_product.get("price"),
+            selected_options={},
+            quantity=1,
+        )
+    if not _real_browser_enabled() or not _is_kurly_webview_input(webview_input):
+        return
+
+    product_name = webview_input.target_product_name
+    quantity = webview_input.quantity
+    reorder_url = (
+        webview_input.canonical_product_url
+        if is_kurly_goods_url(webview_input.canonical_product_url)
+        else None
+    )
+    progress_flow = "reorder" if reorder_url else "new_purchase"
+    base_meta = {
+        "orderId": order_bundle["order"]["id"],
+        "paymentId": payment_bundle["payment"]["id"],
+        "platform": "kurly",
+        "recommendationItemId": webview_input.recommendation_item_id,
+        "executionUrl": webview_input.execution_url,
+        "canonicalProductUrl": webview_input.canonical_product_url,
+        "targetProductName": webview_input.target_product_name,
+    }
+
+    def run_purchase_worker() -> None:
+        """Playwright 작업의 진행 상황을 프론트가 보는 webview progress로 전달한다."""
+        try:
+            from src.tools.webview_tool import run_kurly_purchase
+
+            def progress_callback(event: dict) -> None:
+                webview_progress_service.emit_progress(
+                    conversation_id,
+                    step=event.get("step", "webview"),
+                    message=event.get("message", ""),
+                    flow=event.get("flow") or progress_flow,
+                    status=event.get("status", "running"),
+                    screenshot_bytes=event.get("screenshot_bytes"),
+                    meta=base_meta,
+                )
+
+            history_price = webview_input.expected_price if reorder_url else None
+            if not isinstance(history_price, int) or history_price <= 0:
+                history_price = None
+
+            result = run_kurly_purchase(
+                product_name=product_name,
+                keywords=[product_name],
+                quantity=int(quantity),
+                storage_state_path=None,
+                reorder_url=reorder_url,
+                execution_url=webview_input.execution_url,
+                history_price=history_price,
+                progress_callback=progress_callback,
+                progress_flow=progress_flow,
+            )
+
+            if result.get("cart_added"):
+                webview_progress_service.emit_progress(
+                    conversation_id,
+                    step="cart_added",
+                    message="컬리 장바구니에 상품을 담았어요.",
+                    flow=progress_flow,
+                    status="completed",
+                    meta={**base_meta, "productUrl": result.get("product_url")},
+                )
+                return
+
+            if result.get("price_changed"):
+                webview_progress_service.emit_progress(
+                    conversation_id,
+                    step="price_changed",
+                    message="상품 가격이 달라져서 확인이 필요해요.",
+                    flow=progress_flow,
+                    status="waiting_user_confirmation",
+                    meta={
+                        **base_meta,
+                        "currentPrice": result.get("current_price"),
+                        "historyPrice": result.get("history_price"),
+                    },
+                )
+                return
+
+            webview_progress_service.emit_progress(
+                conversation_id,
+                step="webview_failed",
+                message="컬리 장바구니 담기에 실패했어요.",
+                flow=progress_flow,
+                status="failed",
+                meta={
+                    **base_meta,
+                    "error": result.get("error"),
+                    "loginFailureReason": result.get("login_failure_reason"),
+                },
+            )
+        except Exception as error:
+            webview_progress_service.emit_progress(
+                conversation_id,
+                step="webview_failed",
+                message="웹뷰 자동화 중 오류가 발생했어요.",
+                flow=progress_flow,
+                status="failed",
+                meta={**base_meta, "error": str(error)},
+            )
+
+    threading.Thread(
+        target=run_purchase_worker,
+        daemon=True,
+        name=f"kurly-webview-{conversation_id}",
+    ).start()
 
 
 async def _block_real_browser_unsupported_order(
@@ -534,10 +799,15 @@ async def _persist_cart_order_payment_for_confirm(
         return state
 
     selected_product = state.get("selected_product") or {}
+    recommendation_item = await recommendation_repository.get_recommendation_item_by_id_db(
+        db,
+        recommendation_item_id,
+    )
+    precheck_product = recommendation_item or selected_product
     if (
         action == "order_now"
         and _real_browser_enabled()
-        and not _is_kurly_browser_product(selected_product if isinstance(selected_product, dict) else {})
+        and not _is_kurly_browser_product(precheck_product if isinstance(precheck_product, dict) else {})
     ):
         return await _block_real_browser_unsupported_order(
             conversation_id,
@@ -625,25 +895,29 @@ async def _persist_cart_order_payment_for_confirm(
 
         assistant_message = _payment_ready_message(order_bundle)
         selected_product = state.get("selected_product") or {}
-        progress_payload = _emit_real_browser_progress(
-            conversation_id,
+        webview_input = await _build_webview_order_input(
+            db,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            recommendation_item_id=recommendation_item_id,
             selected_product=selected_product if isinstance(selected_product, dict) else {},
             order_bundle=order_bundle,
-            payment_bundle=payment_bundle,
-            assistant_message=assistant_message,
         )
 
         state_patch.update({
-            "stage": "payment_password_required",
+            "stage": "payment_processing",
             "messages": _assistant_message_patch(assistant_message),
-            "webview_progress": progress_payload,
             "pending_action": {
-                "type": "payment_confirm",
+                "type": "webview_task",
                 "message": assistant_message,
                 "payload": {
                     "orderId": order_bundle["order"]["id"],
                     "paymentId": payment_bundle["payment"]["id"],
-                    "paymentStatus": payment_bundle["payment"]["payment_status"],
+                    "platform": webview_input.platform if webview_input else "kurly",
+                    "executionUrl": webview_input.execution_url if webview_input else None,
+                    "canonicalProductUrl": webview_input.canonical_product_url if webview_input else None,
+                    "targetProductName": webview_input.target_product_name if webview_input else None,
+                    "quantity": webview_input.quantity if webview_input else (state.get("quantity") or 1),
                 },
             },
             "checkout_session": order_bundle["checkout_session"],
