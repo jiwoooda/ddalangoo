@@ -106,7 +106,7 @@ async def handle_webview_result_db(
     }
 
     result = req.result.lower()
-    if result in {"success", "completed", "paid"}:
+    if result in {"success", "completed", "paid", "cart_added"}:
         webview_progress_service.clear_progress(conversation_id)
         # 장바구니 담기 완료 → LangGraph cart_shopping 단계로 재개하여 address_confirm → payment_password 흐름을 탄다
         state = await runtime.inject_and_resume(conversation_id, {

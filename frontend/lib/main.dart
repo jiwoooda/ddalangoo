@@ -19,7 +19,7 @@ import 'core/services/gpt_realtime_voice_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogService.instance.init();
-  await dotenv.load(fileName: '.env');
+  await dotenv.load(fileName: '.env', isOptional: true);
   debugPrint(
     '🚀 [App Start] .env loaded, OPENAI_API_KEY='
     '${dotenv.env['OPENAI_API_KEY']?.isNotEmpty == true ? 'configured' : 'missing'}',
