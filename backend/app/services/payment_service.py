@@ -108,9 +108,10 @@ async def handle_webview_result_db(
     result = req.result.lower()
     if result in {"success", "completed", "paid", "cart_added"}:
         webview_progress_service.clear_progress(conversation_id)
-        # 장바구니 담기 완료 → LangGraph cart_shopping 단계로 재개하여 address_confirm → payment_password 흐름을 탄다
+        # payment_processing으로 재개해야 라우터가 intent 무관하게 payment_agent로 직행한다.
+        # cart_shopping을 쓰면 intent_agent가 stale 메시지를 분석해 엉뚱한 intent를 내놓을 수 있다.
         state = await runtime.inject_and_resume(conversation_id, {
-            "stage": "cart_shopping",
+            "stage": "payment_processing",
             "pending_action": None,
             "webview_progress": None,
         })
