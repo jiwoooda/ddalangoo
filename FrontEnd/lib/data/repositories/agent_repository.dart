@@ -357,17 +357,21 @@ class AgentRepository {
     required int conversationId,
     required int orderId,
     required int paymentId,
-    required String result, // "completed" or "cancelled"
+    required String result, // e.g. "cart_added", "completed", "cancelled"
   }) async {
     if (useMock) {
       await Future.delayed(const Duration(milliseconds: 500));
       return _mockResponse(
         result,
-        result == 'completed' ? 'completed' : 'payment',
+        result == 'completed'
+            ? 'completed'
+            : (result == 'cart_added' ? 'payment_password_required' : 'payment'),
         convId: conversationId,
         customAssistantMessage: result == 'completed'
             ? '결제가 완료되었습니다.'
-            : '결제가 취소되었습니다.',
+            : (result == 'cart_added'
+                  ? '장바구니에 상품을 담았어요. 다음 단계를 진행할게요.'
+                  : '결제가 취소되었습니다.'),
       );
     }
     final response = await _dio.post(

@@ -45,6 +45,7 @@ class CallProvider extends ChangeNotifier {
   String _userDisplayName = '';
   String? _assistantPresentationMessage;
   bool _isAwaitingCartWebviewProgress = false;
+  bool _isAutoConfirmingPaymentMethod = false;
   final List<Map<String, dynamic>> _messages = [];
   LatencyRequestContext? _activeLatencyContext;
 
@@ -226,16 +227,22 @@ class CallProvider extends ChangeNotifier {
     final payload = webviewTaskPayload;
     final canonicalProductUrl = payload?['canonicalProductUrl'];
     if (canonicalProductUrl is String &&
-        canonicalProductUrl.trim().isNotEmpty) {
+        canonicalProductUrl.trim().isNotEmpty &&
+        canonicalProductUrl.contains('kurly.com/goods/')) {
       return canonicalProductUrl.trim();
     }
 
     final selectedProduct = _lastResponse?.selectedProduct;
     if (selectedProduct is Map) {
-      final sourceUrl =
-          selectedProduct['source_url'] ?? selectedProduct['sourceUrl'];
-      if (sourceUrl is String && sourceUrl.trim().isNotEmpty) {
-        return sourceUrl.trim();
+      final productUrl =
+          selectedProduct['product_url'] ??
+          selectedProduct['productUrl'] ??
+          selectedProduct['execution_url'] ??
+          selectedProduct['executionUrl'];
+      if (productUrl is String &&
+          productUrl.trim().isNotEmpty &&
+          productUrl.contains('kurly.com/goods/')) {
+        return productUrl.trim();
       }
     }
 
@@ -248,6 +255,21 @@ class CallProvider extends ChangeNotifier {
 
     try {
       await _agentRepository.cancelConversation(conversationId);
+      _lastResponse = null;
+      _conversationId = null;
+      _stage = CallStage.idle;
+      _isLoading = false;
+      _isListening = false;
+      _isTranscribing = false;
+      _isSpeaking = false;
+      _isAwaitingAssistantPresentation = false;
+      _assistantPresentationMessage = null;
+      _isAwaitingCartWebviewProgress = false;
+      _activeLatencyContext = null;
+      _messages.clear();
+      _errorMessage = null;
+      notifyListeners();
+      await startCall();
     } catch (e) {
       _errorMessage = '웹 진행을 중단하지 못했습니다: $e';
       notifyListeners();
@@ -628,7 +650,25 @@ class CallProvider extends ChangeNotifier {
     debugPrint(
       '🔄 [Provider State Change] $oldStage -> ${nextStage.name} (ConvID: $_conversationId)',
     );
+
+    if (_shouldExposeWebviewImmediately(response)) {
+      _lastResponse = response;
+      _stage = nextStage;
+    }
     notifyListeners();
+
+    if (_shouldAutoConfirmPaymentMethod(response)) {
+      debugPrint(
+        '🤖 [Auto Payment Confirm] payment_method_confirm 을 자동 승인하고 웹뷰 단계로 진행합니다.',
+      );
+      _lastResponse = response;
+      _stage = nextStage;
+      _isAwaitingAssistantPresentation = false;
+      _assistantPresentationMessage = null;
+      notifyListeners();
+      await _autoConfirmPaymentMethod();
+      return;
+    }
 
     // TTS로 딸랑구 응답 읽어주기
     // TTS 재생 중엔 STT 비활성화 (echo 방지)
@@ -752,6 +792,43 @@ class CallProvider extends ChangeNotifier {
     if (pending is! Map) return false;
 
     return pending['type'] == 'product';
+  }
+
+  bool _shouldExposeWebviewImmediately(AgentResponse response) {
+    final pending = response.pendingConfirmation;
+    if (pending is! Map) return false;
+    return pending['type'] == 'webview_task';
+  }
+
+  bool _shouldAutoConfirmPaymentMethod(AgentResponse response) {
+    if (_isAutoConfirmingPaymentMethod) return false;
+    final pending = response.pendingConfirmation;
+    if (pending is! Map) return false;
+    if (pending['type'] != 'payment') return false;
+    final payload = pending['payload'];
+    if (payload is! Map) return false;
+    return payload['subType'] == 'payment_method_confirm';
+  }
+
+  Future<void> _autoConfirmPaymentMethod() async {
+    final conversationId = _conversationId;
+    if (conversationId == null || _isAutoConfirmingPaymentMethod) return;
+
+    _isAutoConfirmingPaymentMethod = true;
+    _setLoading(true);
+    try {
+      final response = await _agentRepository.sendMessage(
+        conversationId: conversationId,
+        message: '응',
+      );
+      await _handleResponse(response);
+    } catch (e) {
+      _errorMessage = '결제 방식 확인을 자동으로 진행하지 못했습니다: $e';
+      notifyListeners();
+    } finally {
+      _isAutoConfirmingPaymentMethod = false;
+      _setLoading(false);
+    }
   }
 
   CallStage _mapResponseStage(AgentResponse response) {

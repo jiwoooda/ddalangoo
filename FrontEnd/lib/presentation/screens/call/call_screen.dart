@@ -145,7 +145,8 @@ class _CallScreenState extends State<CallScreen> {
     _lastWebviewCommandKey = commandKey;
     debugPrint(
       '🪟 [CallScreen WebView Open] commandKey=$commandKey, '
-      'url=$url',
+      'url=$url, '
+      'canonicalProductUrl=${provider.currentCanonicalProductUrl}',
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
