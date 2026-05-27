@@ -27,9 +27,7 @@ class KurlyWebviewAutomation {
   }) async {
     _report('opening_shop', '컬리 페이지를 열고 있어요.');
 
-    final targetUrl = canonicalProductUrl ?? executionUrl ?? 'https://www.kurly.com';
-    await controller.loadRequest(Uri.parse(targetUrl));
-
+    await controller.loadRequest(Uri.parse('https://www.kurly.com'));
     await _waitForPageLoad();
 
     final isLoggedIn = await _checkLoginState();
@@ -46,16 +44,6 @@ class KurlyWebviewAutomation {
     if (canonicalProductUrl != null && canonicalProductUrl.contains('/goods/')) {
       _report('opening_product', '상품 페이지로 이동하고 있어요.');
       await controller.loadRequest(Uri.parse(canonicalProductUrl));
-      await _waitForPageLoad();
-    } else if (executionUrl != null && executionUrl.contains('/search')) {
-      _report('searching_product', '검색 결과에서 상품을 찾고 있어요.');
-      await Future.delayed(const Duration(milliseconds: 500));
-      await controller.runJavaScript('''
-        (function() {
-          var productLinks = document.querySelectorAll('a[href*="/goods/"]');
-          if (productLinks.length > 0) productLinks[0].click();
-        })()
-      ''');
       await _waitForPageLoad();
     } else {
       _report('searching_product', '상품을 검색하고 있어요.');
