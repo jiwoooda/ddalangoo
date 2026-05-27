@@ -283,7 +283,8 @@ class GeminiVoiceService {
   }) async {
     if (_isSpeaking) await stopSpeaking();
     _isSpeaking = true;
-    _speakCompleter = Completer<void>();
+    final speakCompleter = Completer<void>();
+    _speakCompleter = speakCompleter;
     _activeSpeakLatencyContext = latencyContext;
     _audioPlayEndLogged = false;
     if (latencyContext != null) {
@@ -329,7 +330,7 @@ class GeminiVoiceService {
       }
       onPlaybackStart?.call();
       await _player.play(speechSource);
-      await _speakCompleter!.future;
+      await speakCompleter.future;
     } catch (e) {
       debugPrint('❌ [Gemini TTS Error] $e');
 

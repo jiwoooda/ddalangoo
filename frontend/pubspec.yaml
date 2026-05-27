@@ -69,6 +69,7 @@ dependencies:
   google_fonts: ^8.1.0
   crypto: ^3.0.6
   webview_flutter: ^4.13.1
+  flutter_secure_storage: ^9.2.2
 
 dev_dependencies:
   flutter_test:
@@ -84,5 +85,6 @@ flutter:
   uses-material-design: true
   
   assets:
+    - .env
     - assets/images/ddalangoo_logo_text.png
     - assets/images/

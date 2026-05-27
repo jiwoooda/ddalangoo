@@ -65,6 +65,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   }
 
   void _initWebView() {
+    final initialUrl = _initialWebviewUrl();
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
@@ -88,7 +89,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
           },
         ),
       )
-      ..loadRequest(Uri.parse(widget.url));
+      ..loadRequest(Uri.parse(initialUrl));
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _runAutomation());
   }
@@ -102,22 +103,15 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
 
-    final credentials = await KurlyCredentialStore.ensureCredentials(context);
-    if (!mounted || credentials == null) {
-      setState(() {
-        _automationStep = 'login_required';
-        _automationMessage = '컬리 로그인 정보가 필요해요. 다시 시도해주세요.';
-        _automationDone = true;
-      });
-      return;
-    }
+    final credentials = await KurlyCredentialStore.read();
+    if (!mounted) return;
 
     await _runAutomationWithCredentials(controller, credentials);
   }
 
   Future<void> _runAutomationWithCredentials(
     WebViewController controller,
-    KurlyCredentials credentials,
+    KurlyCredentials? credentials,
   ) async {
     if (!mounted) return;
 
@@ -131,7 +125,8 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
           _automationMessage = message;
           if (step == 'cart_added' ||
               step == 'cart_failed' ||
-              step == 'login_failed') {
+              step == 'login_failed' ||
+              step == 'login_required') {
             _automationDone = true;
           }
         });
@@ -146,12 +141,24 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     );
     if (!mounted) return;
 
-    if (result == 'login_failed' && !_didRetryCredentialLogin) {
+    if (result == 'cart_added') {
+      await _submitResult('cart_added');
+      return;
+    }
+
+    if ((result == 'login_required' || result == 'login_failed') &&
+        !_didRetryCredentialLogin) {
       _didRetryCredentialLogin = true;
-      await KurlyCredentialStore.clear();
+      if (result == 'login_failed') {
+        await KurlyCredentialStore.clear();
+      }
       setState(() {
-        _automationStep = 'login_retry_required';
-        _automationMessage = '저장된 로그인 정보가 맞지 않아 다시 입력이 필요해요.';
+        _automationStep = result == 'login_failed'
+            ? 'login_retry_required'
+            : 'login_required';
+        _automationMessage = result == 'login_failed'
+            ? '저장된 로그인 정보가 맞지 않아 다시 입력이 필요해요.'
+            : '로그인이 필요해요. 로그인 정보를 입력받고 있어요.';
         _automationDone = false;
       });
 
@@ -171,6 +178,26 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
 
       await _runAutomationWithCredentials(controller, refreshedCredentials);
     }
+  }
+
+  bool get _canRetryAutomation =>
+      _automationStep == 'login_failed' ||
+      _automationStep == 'login_required' ||
+      _automationStep == 'login_retry_required' ||
+      _automationStep == 'cart_failed';
+
+  Future<void> _retryAutomation() async {
+    if (_isSubmitting || _isInterrupting) return;
+    setState(() {
+      _automationStarted = false;
+      _automationDone = false;
+      _automationStep = 'opening_shop';
+      _automationMessage = '컬리 페이지를 다시 준비하고 있어요.';
+      _didRetryCredentialLogin = false;
+      _pageLoaded = false;
+      _loadingProgress = 0;
+    });
+    await _runAutomation();
   }
 
   Future<void> _submitResult(String result) async {
@@ -196,6 +223,21 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  String _initialWebviewUrl() {
+    final canonicalUrl = widget.canonicalProductUrl?.trim();
+    if (canonicalUrl != null && canonicalUrl.contains('kurly.com/goods/')) {
+      return canonicalUrl;
+    }
+
+    final productName = widget.productName?.trim();
+    if (productName != null && productName.isNotEmpty) {
+      final safeQuery = Uri.encodeQueryComponent(productName);
+      return 'https://www.kurly.com/search?sword=$safeQuery';
+    }
+
+    return widget.url;
   }
 
   Future<void> _interruptWebviewProgress() async {
@@ -227,7 +269,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       case 'adding_to_cart':
         return '수량과 옵션을 확인한 뒤 장바구니에 담는 중이에요.';
       case 'cart_added':
-        return '장바구니에 담았어요! 아래 버튼으로 완료 또는 취소해주세요.';
+        return '장바구니에 담았어요. 다음 단계를 요청하고 있어요.';
       case 'cart_failed':
         return '장바구니 담기에 실패했어요. 직접 화면에서 확인해주세요.';
       case 'login_failed':
@@ -283,24 +325,30 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: _automationDone
+                child: _automationDone && _canRetryAutomation
                     ? Row(
                         children: [
                           Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isSubmitting
+                            child: FilledButton.tonal(
+                              onPressed: _isSubmitting || _isInterrupting
                                   ? null
-                                  : () => _submitResult('cancelled'),
-                              child: const Text('취소'),
+                                  : _interruptWebviewProgress,
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size.fromHeight(54),
+                                foregroundColor: const Color(0xFFE8325A),
+                              ),
+                              child: Text(
+                                _isInterrupting ? '중단 요청 중...' : '중단하기',
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: FilledButton(
-                              onPressed: _isSubmitting
-                                  ? null
-                                  : () => _submitResult('completed'),
-                              child: Text(_isSubmitting ? '처리 중...' : '완료했어요'),
+                            child: FilledButton.tonal(
+                              onPressed: _canRetryAutomation
+                                  ? _retryAutomation
+                                  : null,
+                              child: const Text('다시 시도'),
                             ),
                           ),
                         ],
