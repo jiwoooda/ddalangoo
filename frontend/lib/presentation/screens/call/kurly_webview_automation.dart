@@ -191,6 +191,7 @@ class KurlyWebviewAutomation {
   final WebViewController controller;
   final KurlyCredentials? credentials;
   final AutomationProgressCallback? onProgress;
+  String? _lastCartFailureReason;
 
   KurlyWebviewAutomation({
     required this.controller,
@@ -274,7 +275,8 @@ class KurlyWebviewAutomation {
       quantity: quantity,
       productName: productName,
     );
-    if (!cartSuccess) {
+    final shouldRetryCart = !_isUnsafeCartRetryReason(_lastCartFailureReason);
+    if (!cartSuccess && shouldRetryCart) {
       final retryRecoveryResult = await _ensureLoggedInForShoppingFlow(
         fallbackUrl: targetUrl,
       );
@@ -287,7 +289,10 @@ class KurlyWebviewAutomation {
         return retryRecoveryResult;
       }
     }
-    _debug('add to cart result=$cartSuccess');
+    if (!cartSuccess && !shouldRetryCart) {
+      _debug('skip cart retry due to reason=$_lastCartFailureReason');
+    }
+    _debug('add to cart result=$cartSuccess reason=$_lastCartFailureReason');
     if (cartSuccess) {
       _report('cart_added', '장바구니에 담았어요!');
       return 'cart_added';
@@ -722,12 +727,16 @@ class KurlyWebviewAutomation {
     required int quantity,
     required String productName,
   }) async {
+    _lastCartFailureReason = null;
     final searchPageCartAdded = await _addToCartFromSearchResults(
       quantity: quantity,
       productName: productName,
     );
     if (searchPageCartAdded) {
       return true;
+    }
+    if (_isUnsafeCartRetryReason(_lastCartFailureReason)) {
+      return false;
     }
 
     try {
@@ -839,6 +848,10 @@ class KurlyWebviewAutomation {
             })()
           ''');
           _debug('quantity increment attempt=${i + 1} result=$quantityResult');
+          if (quantityResult.toString().contains('missing_plus')) {
+            _lastCartFailureReason = 'product_quantity_adjust_failed';
+            return false;
+          }
           await Future.delayed(const Duration(milliseconds: 300));
         }
       }
@@ -986,11 +999,13 @@ class KurlyWebviewAutomation {
 
       final success = result.toString() == 'true';
       if (!success) {
+        _lastCartFailureReason = 'product_cart_verification_inconclusive';
         final snapshot = await _cartDebugSnapshot();
         _debug('cart verification failed snapshot=$snapshot');
       }
       return success;
     } catch (_) {
+      _lastCartFailureReason = 'product_add_exception';
       return false;
     }
   }
@@ -1009,6 +1024,7 @@ class KurlyWebviewAutomation {
       interval: const Duration(milliseconds: 200),
     );
     if (!onSearchPage) return false;
+    final initialCartCount = await _readCartBadgeCount();
 
     final openSheetResult = await controller.runJavaScriptReturningResult('''
       (function() {
@@ -1082,6 +1098,15 @@ class KurlyWebviewAutomation {
       })()
     ''');
     _debug('search card click attempt=1 result=$openSheetResult');
+    final openSheetResultText = _normalizeJavaScriptString(openSheetResult);
+    if (openSheetResultText.contains('missing_search_product')) {
+      _lastCartFailureReason = 'search_product_missing';
+      return false;
+    }
+    if (openSheetResultText.contains('missing_search_card_button')) {
+      _lastCartFailureReason = 'search_card_button_missing';
+      return false;
+    }
 
     final sheetReady = await _waitForJavaScriptCondition(
       '''
@@ -1115,6 +1140,16 @@ class KurlyWebviewAutomation {
       interval: const Duration(milliseconds: 250),
     );
     if (!sheetReady) {
+      final handledByDirectAdd = await _handleDirectSearchAddFlow(
+        productName: productName,
+        quantity: quantity,
+        initialCartCount: initialCartCount,
+      );
+      if (handledByDirectAdd) {
+        _lastCartFailureReason = null;
+        return true;
+      }
+      _lastCartFailureReason = 'search_sheet_not_ready_after_add';
       final snapshot = await _cartDebugSnapshot();
       _debug('search bottom sheet not ready snapshot=$snapshot');
       return false;
@@ -1227,6 +1262,12 @@ class KurlyWebviewAutomation {
           })()
         ''');
         _debug('search sheet quantity increment attempt=${i + 1} result=$quantityResult');
+        final quantityResultText = _normalizeJavaScriptString(quantityResult);
+        if (quantityResultText.contains('missing_plus') ||
+            quantityResultText.contains('missing_sheet')) {
+          _lastCartFailureReason = 'search_quantity_adjust_failed';
+          return false;
+        }
         await Future.delayed(const Duration(milliseconds: 300));
       }
     }
@@ -1287,6 +1328,12 @@ class KurlyWebviewAutomation {
       })()
     ''');
     _debug('search sheet confirm result=$confirmResult');
+    final confirmResultText = _normalizeJavaScriptString(confirmResult);
+    if (confirmResultText.contains('missing_sheet') ||
+        confirmResultText.contains('missing_confirm_button')) {
+      _lastCartFailureReason = 'search_confirm_button_missing';
+      return false;
+    }
 
     await Future.delayed(const Duration(seconds: 2));
 
@@ -1326,10 +1373,197 @@ class KurlyWebviewAutomation {
 
     final success = result.toString() == 'true';
     if (!success) {
+      _lastCartFailureReason = 'search_cart_verification_inconclusive';
       final snapshot = await _cartDebugSnapshot();
       _debug('search page cart verification failed snapshot=$snapshot');
     }
     return success;
+  }
+
+  Future<bool> _handleDirectSearchAddFlow({
+    required String productName,
+    required int quantity,
+    required int? initialCartCount,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 900));
+
+    final currentCartCount = await _readCartBadgeCount();
+    final directAddConfirmed =
+        initialCartCount != null &&
+        currentCartCount != null &&
+        currentCartCount > initialCartCount;
+
+    if (!directAddConfirmed) {
+      return false;
+    }
+
+    _debug(
+      'search direct add confirmed initialCartCount=$initialCartCount currentCartCount=$currentCartCount',
+    );
+
+    if (quantity <= 1) {
+      return true;
+    }
+
+    var expectedCartCount = currentCartCount;
+    for (var i = 1; i < quantity; i++) {
+      final clicked = await _clickSearchResultAddButton(productName);
+      if (!clicked) {
+        _lastCartFailureReason = 'search_direct_add_repeat_click_failed';
+        return false;
+      }
+      await Future.delayed(const Duration(milliseconds: 900));
+      final nextCartCount = await _readCartBadgeCount();
+      _debug(
+        'search direct add repeat attempt=${i + 1} nextCartCount=$nextCartCount expected>$expectedCartCount',
+      );
+      if (nextCartCount == null || nextCartCount <= expectedCartCount) {
+        _lastCartFailureReason = 'search_direct_add_repeat_unverified';
+        return false;
+      }
+      expectedCartCount = nextCartCount;
+    }
+
+    return true;
+  }
+
+  Future<bool> _clickSearchResultAddButton(String productName) async {
+    try {
+      final result = await controller.runJavaScriptReturningResult('''
+        (function() {
+          function isVisible(element) {
+            if (!element) return false;
+            var style = window.getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            var rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          }
+
+          function normalize(value) {
+            return (value || '')
+              .replace(/\\s+/g, ' ')
+              .replace(/[\\[\\]']/g, '')
+              .trim()
+              .toLowerCase();
+          }
+
+          function clickElement(element) {
+            element.focus();
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function(type) {
+              element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+            });
+            if (typeof element.click === 'function') {
+              element.click();
+            }
+          }
+
+          var targetName = normalize(${jsonEncode(productName)});
+          var productLinks = Array.from(document.querySelectorAll('a[href*="/goods/"]'))
+            .filter(function(link) { return isVisible(link); });
+          var matchedLink = productLinks.find(function(link) {
+            var text = normalize(link.textContent || '');
+            return text.includes(targetName) || targetName.includes(text);
+          });
+          if (!matchedLink) return 'missing_search_product';
+
+          var card = matchedLink.closest('li, article, section, div') || matchedLink.parentElement;
+          var depth = 0;
+          while (card && depth < 6) {
+            var buttons = Array.from(card.querySelectorAll('button, a, [role="button"]')).filter(function(element) {
+              if (!isVisible(element)) return false;
+              var text = normalize((element.textContent || '') + ' ' + (element.getAttribute('aria-label') || ''));
+              return text === '담기' || text.includes('장바구니');
+            });
+            if (buttons.length > 0) {
+              clickElement(buttons[0]);
+              return 'clicked';
+            }
+            card = card.parentElement;
+            depth += 1;
+          }
+          return 'missing_search_card_button';
+        })()
+      ''');
+      return _normalizeJavaScriptString(result).contains('clicked');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<int?> _readCartBadgeCount() async {
+    try {
+      final result = await controller.runJavaScriptReturningResult('''
+        (function() {
+          function isVisible(element) {
+            if (!element) return false;
+            var style = window.getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            var rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          }
+
+          function extractCount(text) {
+            var matches = (text || '').match(/\\d+/g);
+            if (!matches || matches.length === 0) return null;
+            var values = matches
+              .map(function(value) { return parseInt(value, 10); })
+              .filter(function(value) { return !isNaN(value) && value >= 0 && value < 1000; });
+            if (values.length === 0) return null;
+            return Math.max.apply(null, values);
+          }
+
+          var selectors = [
+            'a[href*="/cart"]',
+            'a[href*="cart"]',
+            'button[aria-label*="장바구니"]',
+            'a[aria-label*="장바구니"]',
+            '[data-testid*="cart"]',
+            '[class*="cart"]'
+          ];
+
+          var candidates = Array.from(document.querySelectorAll(selectors.join(','))).filter(isVisible);
+          for (var i = 0; i < candidates.length; i++) {
+            var element = candidates[i];
+            var texts = [
+              element.textContent || '',
+              element.getAttribute('aria-label') || '',
+              element.getAttribute('title') || ''
+            ];
+            var count = extractCount(texts.join(' '));
+            if (count != null) return String(count);
+
+            var descendants = Array.from(element.querySelectorAll('*')).slice(0, 12);
+            for (var j = 0; j < descendants.length; j++) {
+              var childCount = extractCount(
+                (descendants[j].textContent || '') + ' ' + (descendants[j].getAttribute('aria-label') || ''),
+              );
+              if (childCount != null) return String(childCount);
+            }
+          }
+
+          return 'null';
+        })()
+      ''');
+      final text = _normalizeJavaScriptString(result).trim();
+      return int.tryParse(text);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _isUnsafeCartRetryReason(String? reason) {
+    switch (reason) {
+      case 'search_sheet_not_ready_after_add':
+      case 'search_quantity_adjust_failed':
+      case 'search_confirm_button_missing':
+      case 'search_cart_verification_inconclusive':
+      case 'search_direct_add_repeat_unverified':
+      case 'product_quantity_adjust_failed':
+      case 'product_cart_verification_inconclusive':
+        return true;
+      default:
+        return false;
+    }
   }
 
   String _normalizeJavaScriptString(Object? value) {

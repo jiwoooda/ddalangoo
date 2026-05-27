@@ -14,12 +14,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   String? _selectedAgeGroup;
+  String? _selectedGender;
   bool _isLoading = false;
   String? _errorMessage;
 
   final UserRepository _userRepository = UserRepository();
 
   final List<String> _ageGroups = ['50대', '60대', '70대', '80대 이상'];
+  final List<String> _genders = ['여성', '남성'];
 
   @override
   void dispose() {
@@ -29,7 +31,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
-    if (_nameController.text.isEmpty) {
+    if (_nameController.text.trim().isEmpty) {
       setState(() => _errorMessage = '이름을 입력해주세요');
       return;
     }
@@ -42,7 +44,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       final user = await _userRepository.createUser(
         name: _nameController.text,
-        phoneNumber: _phoneController.text.isEmpty
+        phoneNumber: _phoneController.text.trim().isEmpty
             ? null
             : _phoneController.text,
         ageGroup: _selectedAgeGroup,
@@ -157,6 +159,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                       .toList(),
                                   onChanged: (value) {
                                     setState(() => _selectedAgeGroup = value);
+                                  },
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF9F4F6),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  isExpanded: true,
+                                  hint: const Text('성별 선택 (선택)'),
+                                  value: _selectedGender,
+                                  items: _genders
+                                      .map(
+                                        (gender) => DropdownMenuItem(
+                                          value: gender,
+                                          child: Text(gender),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (value) {
+                                    setState(() => _selectedGender = value);
                                   },
                                 ),
                               ),

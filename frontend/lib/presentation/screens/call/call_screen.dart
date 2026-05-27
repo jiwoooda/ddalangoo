@@ -826,6 +826,13 @@ class _CallScreenState extends State<CallScreen> {
     required bool isUser,
     bool showHeroAvatar = false,
   }) {
+    final messageTextStyle = TextStyle(
+      fontSize: _bodyFontSize,
+      color: const Color(0xFF333333),
+      height: 1.5,
+      fontWeight: isUser ? FontWeight.w500 : FontWeight.w700,
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -896,17 +903,17 @@ class _CallScreenState extends State<CallScreen> {
                         const SizedBox(width: 10),
                       ],
                       Flexible(
-                        child: Text(
-                          text,
-                          style: TextStyle(
-                            fontSize: _bodyFontSize,
-                            color: const Color(0xFF333333),
-                            height: 1.5,
-                            fontWeight: isUser
-                                ? FontWeight.w500
-                                : FontWeight.w700,
-                          ),
-                        ),
+                        child: isUser
+                            ? Text(text, style: messageTextStyle)
+                            : RichText(
+                                text: TextSpan(
+                                  style: messageTextStyle,
+                                  children: _buildAssistantMessageSpans(
+                                    text,
+                                    messageTextStyle,
+                                  ),
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -958,6 +965,86 @@ class _CallScreenState extends State<CallScreen> {
         ),
       ],
     );
+  }
+
+  List<TextSpan> _buildAssistantMessageSpans(
+    String text,
+    TextStyle baseStyle,
+  ) {
+    final sentences = _splitAssistantMessage(text);
+    final spans = <TextSpan>[];
+
+    for (var i = 0; i < sentences.length; i++) {
+      spans.addAll(_buildSentenceHighlightSpans(sentences[i], baseStyle));
+      if (i < sentences.length - 1) {
+        spans.add(const TextSpan(text: '\n'));
+      }
+    }
+
+    return spans;
+  }
+
+  List<String> _splitAssistantMessage(String text) {
+    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) return const [''];
+
+    final matches = RegExp(r'[^.!?]+[.!?]?').allMatches(normalized);
+    final sentences = matches
+        .map((match) => match.group(0)?.trim() ?? '')
+        .where((sentence) => sentence.isNotEmpty)
+        .toList();
+
+    return sentences.isEmpty ? [normalized] : sentences;
+  }
+
+  List<TextSpan> _buildSentenceHighlightSpans(
+    String sentence,
+    TextStyle baseStyle,
+  ) {
+    final productQuestionMatch = RegExp(r'^(.*?)(\s*어떠세요\?)$').firstMatch(sentence);
+    if (productQuestionMatch != null) {
+      final productText = productQuestionMatch.group(1)?.trim() ?? '';
+      final suffix = productQuestionMatch.group(2) ?? '';
+      if (productText.isNotEmpty) {
+        return [
+          TextSpan(
+            text: productText,
+            style: baseStyle.copyWith(fontWeight: FontWeight.w900),
+          ),
+          TextSpan(text: suffix, style: baseStyle),
+        ];
+      }
+    }
+
+    final pattern = RegExp(
+      r'''('[^']+'|"[^"]+"|\[[^\]]+\][^\n.!?]*?(?=(?:\s\d+개|\s가격은|이에요|입니다|어떠세요|\?|\.|,|$))|\d{1,3}(?:,\d{3})*원)''',
+    );
+    final spans = <TextSpan>[];
+    var lastIndex = 0;
+
+    for (final match in pattern.allMatches(sentence)) {
+      if (match.start > lastIndex) {
+        spans.add(TextSpan(text: sentence.substring(lastIndex, match.start)));
+      }
+
+      final matchedText = match.group(0) ?? '';
+      final highlightWeight = matchedText.endsWith('원')
+          ? FontWeight.w900
+          : FontWeight.w800;
+      spans.add(
+        TextSpan(
+          text: matchedText,
+          style: baseStyle.copyWith(fontWeight: highlightWeight),
+        ),
+      );
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < sentence.length) {
+      spans.add(TextSpan(text: sentence.substring(lastIndex)));
+    }
+
+    return spans.isEmpty ? [TextSpan(text: sentence, style: baseStyle)] : spans;
   }
 
   // 상품 추천 카드

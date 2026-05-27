@@ -392,12 +392,25 @@ class UserRepository {
     3: {'name': '박순자', 'phoneNumber': '010-3456-7890'},
   };
 
+  String _normalizeName(String name) {
+    return name.trim();
+  }
+
+  String? _normalizePhoneNumber(String? phoneNumber) {
+    if (phoneNumber == null) return null;
+    final digitsOnly = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
+    return digitsOnly.isEmpty ? null : digitsOnly;
+  }
+
   // 회원가입
   Future<UserResponse> createUser({
     required String name,
     String? phoneNumber,
     String? ageGroup,
   }) async {
+    final normalizedName = _normalizeName(name);
+    final normalizedPhoneNumber = _normalizePhoneNumber(phoneNumber);
+
     if (AgentRepository.useMock) {
       await Future.delayed(const Duration(milliseconds: 800));
       // Mock 회원가입 시 새로운 userId를 부여하거나, 임의의 userId를 반환
@@ -405,16 +418,16 @@ class UserRepository {
       // 또는, RegisterScreen에서 생성된 유저를 _mockUsersById에 추가하는 로직이 필요합니다.
       return UserResponse(
         userId: _mockUsersById.length + 1, // 새로운 Mock User ID 부여
-        name: name,
-        phoneNumber: phoneNumber ?? '010-0000-0000',
+        name: normalizedName,
+        phoneNumber: normalizedPhoneNumber ?? '01000000000',
       );
     }
 
     final response = await _dio.post(
       '/api/users',
       data: UserCreateRequest(
-        name: name,
-        phoneNumber: phoneNumber,
+        name: normalizedName,
+        phoneNumber: normalizedPhoneNumber,
         ageGroup: ageGroup,
       ).toJson(),
     );
@@ -426,9 +439,12 @@ class UserRepository {
     required String name,
     required String phoneNumber,
   }) async {
+    final normalizedName = _normalizeName(name);
+    final normalizedPhoneNumber = _normalizePhoneNumber(phoneNumber) ?? '';
+
     final response = await _dio.post(
       '/api/users/login',
-      data: {'name': name, 'phone_number': phoneNumber},
+      data: {'name': normalizedName, 'phone_number': normalizedPhoneNumber},
     );
     return UserResponse.fromJson(response.data);
   }
