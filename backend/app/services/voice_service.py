@@ -2,18 +2,22 @@
 
 업로드된 오디오 파일을 Gemini API로 전사해 텍스트를 반환한다.
 API Key는 환경변수 GEMINI_API_KEY에서만 읽는다.
+
+SDK: google-genai (google.generativeai는 deprecated)
 """
 
 import os
 import re
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from fastapi import HTTPException
 
 # ── 모델 / 프롬프트 ─────────────────────────────────────────────────────────
 
-# 기존 프론트 Gemini STT 모델과 동일. Railway 환경변수 GEMINI_STT_MODEL로 재정의 가능.
-_STT_MODEL = os.getenv("GEMINI_STT_MODEL", "models/gemini-2.5-flash-preview-05-20")
+# gemini-2.5-flash (stable). Railway 환경변수 GEMINI_STT_MODEL로 재정의 가능.
+# 구 모델명 gemini-2.5-flash-preview-05-20은 2026-05 기준 404 → gemini-2.5-flash로 통합됨.
+_STT_MODEL = os.getenv("GEMINI_STT_MODEL", "models/gemini-2.5-flash")
 
 # 기존 프론트 gemini_voice_service.dart STT 프롬프트 기준 + 쇼핑 도메인 표현 정확도 추가.
 _STT_PROMPT = (
@@ -30,7 +34,7 @@ _MIN_AUDIO_BYTES = 1000  # 너무 작은 파일은 무음으로 간주
 _MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
-def _get_model() -> genai.GenerativeModel:
+def _get_client() -> genai.Client:
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
         raise HTTPException(
@@ -42,8 +46,7 @@ def _get_model() -> genai.GenerativeModel:
                 }
             },
         )
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(_STT_MODEL)
+    return genai.Client(api_key=api_key)
 
 
 async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
@@ -70,17 +73,13 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
     safe_mime = _normalize_mime(mime_type)
 
     try:
-        model = _get_model()
-        response = model.generate_content(
-            [
-                {
-                    "inline_data": {
-                        "mime_type": safe_mime,
-                        "data": audio_bytes,
-                    }
-                },
+        client = _get_client()
+        response = await client.aio.models.generate_content(
+            model=_STT_MODEL,
+            contents=[
+                types.Part.from_bytes(data=audio_bytes, mime_type=safe_mime),
                 _STT_PROMPT,
-            ]
+            ],
         )
         raw = (response.text or "").strip()
         return _normalize_transcript(raw)
