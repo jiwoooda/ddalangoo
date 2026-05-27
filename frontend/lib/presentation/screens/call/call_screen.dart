@@ -106,46 +106,59 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _handleWebviewCommand(CallProvider provider) {
-    if (!provider.canShowWebviewProgress || _isWebviewOpen) return;
-
     final payload = provider.webviewTaskPayload;
-    if (payload == null) return;
-
-    final orderId = payload['orderId'];
-    final commandKey = 'webview_task|${provider.conversationId}|$orderId';
-    _openWebview(provider, commandKey: commandKey, payload: payload);
+    if (payload == null) {
+      return;
+    }
+    debugPrint(
+      '🪟 [CallScreen WebView Check] '
+      'stage=${provider.stage.name}, '
+      'url=${provider.webviewUrl}, '
+      'orderId=${provider.currentOrderId}, '
+      'paymentId=${provider.currentPaymentId}, '
+      'productName=${provider.currentWebviewProductName}, '
+      'quantity=${provider.currentWebviewQuantity}',
+    );
+    final commandKey =
+        'pending|${provider.conversationId}|${provider.currentOrderId}|${provider.currentPaymentId}';
+    _openWebview(
+      provider,
+      commandKey: commandKey,
+      url: provider.webviewUrl,
+    );
   }
 
   void _openWebview(
     CallProvider provider, {
     required String commandKey,
-    required Map<String, dynamic> payload,
+    required String url,
   }) {
-    if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) return;
+    if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) {
+      debugPrint(
+        '🪟 [CallScreen WebView Check] already handled. '
+        '_isWebviewOpen=$_isWebviewOpen, commandKey=$commandKey',
+      );
+      return;
+    }
 
     _isWebviewOpen = true;
     _lastWebviewCommandKey = commandKey;
-
-    final executionUrl = (payload['executionUrl'] as String?) ?? 'https://www.kurly.com';
-    final canonicalUrl = payload['canonicalProductUrl'] as String?;
-    final productName = payload['targetProductName'] as String?;
-    final quantity = (payload['quantity'] as num?)?.toInt() ?? 1;
-    final orderId = (payload['orderId'] as num?)?.toInt();
-    final paymentId = (payload['paymentId'] as num?)?.toInt();
-
-    debugPrint('🪟 [CallScreen WebView Open] commandKey=$commandKey, url=$executionUrl');
+    debugPrint(
+      '🪟 [CallScreen WebView Open] commandKey=$commandKey, '
+      'url=$url',
+    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => PaymentWebViewScreen(
-            url: executionUrl,
-            canonicalProductUrl: canonicalUrl,
-            productName: productName,
-            quantity: quantity,
-            orderId: orderId,
-            paymentId: paymentId,
+            url: url,
+            orderId: provider.currentOrderId,
+            paymentId: provider.currentPaymentId,
+            productName: provider.currentWebviewProductName,
+            quantity: provider.currentWebviewQuantity,
+            canonicalProductUrl: provider.currentCanonicalProductUrl,
           ),
         ),
       );

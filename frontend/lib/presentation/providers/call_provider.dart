@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import '../../core/network/api_client.dart';
 import '../../data/models/agent_model.dart';
 import '../../data/repositories/agent_repository.dart';
 import '../../core/storage/local_storage.dart';
@@ -113,15 +112,45 @@ class CallProvider extends ChangeNotifier {
     final pending = _lastResponse?.pendingConfirmation;
     if (pending is! Map) return null;
     if (pending['type'] != 'webview_task') return null;
-    final payload = pending['payload'];
-    return payload is Map ? Map<String, dynamic>.from(payload) : null;
-  }
 
-  bool get canShowWebviewProgress {
-    final pending = _lastResponse?.pendingConfirmation;
-    if (pending is! Map) return false;
-    return pending['type'] == 'webview_task';
+    final payload = pending['payload'];
+    if (payload is Map<String, dynamic>) return payload;
+    if (payload is Map) {
+      return Map<String, dynamic>.from(payload);
+    }
+    return null;
   }
+  String get webviewUrl {
+    final payload = webviewTaskPayload;
+    if (payload != null) {
+      final executionUrl = payload['executionUrl'];
+      if (executionUrl is String && executionUrl.trim().isNotEmpty) {
+        return executionUrl.trim();
+      }
+    }
+
+    final selectedProduct = _lastResponse?.selectedProduct;
+    if (selectedProduct is Map) {
+      final executionUrl = selectedProduct['execution_url'];
+      if (executionUrl is String && executionUrl.trim().isNotEmpty) {
+        return executionUrl.trim();
+      }
+      final productUrl = selectedProduct['product_url'];
+      if (productUrl is String && productUrl.trim().isNotEmpty) {
+        return productUrl.trim();
+      }
+    }
+
+    return 'about:blank';
+  }
+  bool get canShowWebviewProgress =>
+      _conversationId != null &&
+      (_stage == CallStage.cart ||
+          _stage == CallStage.payment ||
+          (_stage == CallStage.productSelection &&
+              _isLoading &&
+              _isAwaitingCartWebviewProgress));
+  bool get hasPendingWebviewTask => webviewTaskPayload != null;
   String get webviewStatusText {
     final asyncMessage = currentAsyncStatusMessage;
     if (asyncMessage != null) return asyncMessage;
@@ -144,11 +173,9 @@ class CallProvider extends ChangeNotifier {
   int? get currentOrderId {
     final order = _lastResponse?.order;
     if (order is Map && order['orderId'] is int) return order['orderId'] as int;
-    final pending = _lastResponse?.pendingConfirmation;
-    if (pending is Map &&
-        pending['payload'] is Map &&
-        pending['payload']['orderId'] is int) {
-      return pending['payload']['orderId'] as int;
+    final payload = webviewTaskPayload;
+    if (payload != null && payload['orderId'] is int) {
+      return payload['orderId'] as int;
     }
     return null;
   }
@@ -157,18 +184,62 @@ class CallProvider extends ChangeNotifier {
     if (payment is Map && payment['paymentId'] is int) {
       return payment['paymentId'] as int;
     }
-    final pending = _lastResponse?.pendingConfirmation;
-    if (pending is Map &&
-        pending['payload'] is Map &&
-        pending['payload']['paymentId'] is int) {
-      return pending['payload']['paymentId'] as int;
+    final payload = webviewTaskPayload;
+    if (payload != null && payload['paymentId'] is int) {
+      return payload['paymentId'] as int;
     }
     return null;
   }
-  Future<Map<String, dynamic>?> getWebviewStatus() async {
-    final conversationId = _conversationId;
-    if (conversationId == null) return null;
-    return _agentRepository.getWebviewStatus(conversationId);
+  String? get currentWebviewProductName {
+    final payload = webviewTaskPayload;
+    final targetProductName = payload?['targetProductName'];
+    if (targetProductName is String && targetProductName.trim().isNotEmpty) {
+      return targetProductName.trim();
+    }
+
+    final selectedProduct = _lastResponse?.selectedProduct;
+    if (selectedProduct is Map) {
+      final productName =
+          selectedProduct['product_name'] ?? selectedProduct['productName'];
+      if (productName is String && productName.trim().isNotEmpty) {
+        return productName.trim();
+      }
+    }
+
+    return null;
+  }
+
+  int get currentWebviewQuantity {
+    final payload = webviewTaskPayload;
+    final quantity = payload?['quantity'];
+    if (quantity is int && quantity > 0) return quantity;
+
+    final order = _lastResponse?.order;
+    if (order is Map && order['quantity'] is int && order['quantity'] > 0) {
+      return order['quantity'] as int;
+    }
+
+    return 1;
+  }
+
+  String? get currentCanonicalProductUrl {
+    final payload = webviewTaskPayload;
+    final canonicalProductUrl = payload?['canonicalProductUrl'];
+    if (canonicalProductUrl is String &&
+        canonicalProductUrl.trim().isNotEmpty) {
+      return canonicalProductUrl.trim();
+    }
+
+    final selectedProduct = _lastResponse?.selectedProduct;
+    if (selectedProduct is Map) {
+      final sourceUrl =
+          selectedProduct['source_url'] ?? selectedProduct['sourceUrl'];
+      if (sourceUrl is String && sourceUrl.trim().isNotEmpty) {
+        return sourceUrl.trim();
+      }
+    }
+
+    return null;
   }
 
   Future<void> interruptWebviewProgress() async {
@@ -587,6 +658,7 @@ class CallProvider extends ChangeNotifier {
       debugPrint('🔇 [TTS Fallback] $e');
     } finally {
       if (!responsePresented) {
+        responsePresented = true;
         _presentAssistantResponse(response, nextStage);
       }
       _isSpeaking = false;
