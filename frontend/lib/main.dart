@@ -14,19 +14,21 @@ import 'presentation/screens/preview/ui_preview_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/services/app_log_service.dart';
 import 'core/services/gpt_voice_service.dart';
-import 'core/services/gpt_realtime_voice_service.dart';
+// GptRealtimeVoiceService는 MVP에서 미사용 (OPENAI_API_KEY 불필요).
+// 향후 realtime 실험 시 아래 주석 해제 후 main()의 init 호출도 복원할 것.
+// import 'core/services/gpt_realtime_voice_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogService.instance.init();
   await dotenv.load(fileName: '.env', isOptional: true);
   debugPrint(
-    '🚀 [App Start] .env loaded, OPENAI_API_KEY='
-    '${dotenv.env['OPENAI_API_KEY']?.isNotEmpty == true ? 'configured' : 'missing'}',
+    '🚀 [App Start] .env loaded, API_BASE_URL='
+    '${dotenv.env['API_BASE_URL'] ?? 'not set'}',
   );
   debugPrint('📝 [App Log] active file=${AppLogService.instance.currentLogPath}');
   await GptVoiceService.instance.init();
-  await GptRealtimeVoiceService.instance.init();
+  // GptRealtimeVoiceService.instance.init() 제거 — OPENAI_API_KEY 없어도 앱 실행됨.
   _warmCommonTtsPhrases();
   runApp(const DdalangooApp());
 }
