@@ -903,33 +903,21 @@ async def _persist_cart_order_payment_for_confirm(
             selected_product=selected_product if isinstance(selected_product, dict) else {},
             order_bundle=order_bundle,
         )
-        progress_payload = _emit_real_browser_progress(
-            conversation_id,
-            selected_product=selected_product if isinstance(selected_product, dict) else {},
-            webview_input=webview_input,
-            order_bundle=order_bundle,
-            payment_bundle=payment_bundle,
-            assistant_message=assistant_message,
-        )
-        _start_real_browser_purchase(
-            conversation_id,
-            selected_product=selected_product if isinstance(selected_product, dict) else {},
-            webview_input=webview_input,
-            order_bundle=order_bundle,
-            payment_bundle=payment_bundle,
-        )
 
         state_patch.update({
-            "stage": "payment_password_required",
+            "stage": "payment_processing",
             "messages": _assistant_message_patch(assistant_message),
-            "webview_progress": progress_payload,
             "pending_action": {
-                "type": "payment_confirm",
+                "type": "webview_task",
                 "message": assistant_message,
                 "payload": {
                     "orderId": order_bundle["order"]["id"],
                     "paymentId": payment_bundle["payment"]["id"],
-                    "paymentStatus": payment_bundle["payment"]["payment_status"],
+                    "platform": webview_input.platform if webview_input else "kurly",
+                    "executionUrl": webview_input.execution_url if webview_input else None,
+                    "canonicalProductUrl": webview_input.canonical_product_url if webview_input else None,
+                    "targetProductName": webview_input.target_product_name if webview_input else None,
+                    "quantity": webview_input.quantity if webview_input else (state.get("quantity") or 1),
                 },
             },
             "checkout_session": order_bundle["checkout_session"],

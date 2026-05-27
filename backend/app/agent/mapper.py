@@ -160,6 +160,13 @@ def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
             "payload": _payload_with_subtype(payload, "platform_suggest"),
         }
 
+    if ptype == "webview_task":
+        return {
+            "type": "webview_task",
+            "message": message,
+            "payload": payload,
+        }
+
     if ptype == "continue_shopping":
         return {
             "type": "payment",

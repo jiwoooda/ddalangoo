@@ -27,14 +27,6 @@ class _CallScreenState extends State<CallScreen> {
   static const double _bodyFontSize = 22;
   static const double _supportFontSize = 15;
   static const double _buttonFontSize = 18;
-  static const Set<String> _activeWebviewSteps = {
-    'opening_shop',
-    'logging_in',
-    'searching_product',
-    'opening_product',
-    'fallback_searching',
-    'adding_to_cart',
-  };
 
   final TextEditingController _textController = TextEditingController();
   final ScrollController _messageScrollController = ScrollController();
@@ -50,12 +42,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _isProductCardExpanded = true;
   int _lastMessageCount = 0;
   bool _isWebviewOpen = false;
-  bool _isCheckingWebviewAvailability = false;
   String? _lastWebviewCommandKey;
-  Timer? _webviewRetryTimer;
-  DateTime? _lastWebviewStatusCheckAt;
-  String? _lastWebviewCheckSummary;
-  String? _lastWebviewIdleSummary;
 
   @override
   void initState() {
@@ -78,7 +65,6 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     _provider?.removeListener(_handleProviderChanged);
     _callTimer?.cancel();
-    _webviewRetryTimer?.cancel();
     _textController.dispose();
     _messageScrollController.dispose();
     super.dispose();
@@ -120,154 +106,46 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _handleWebviewCommand(CallProvider provider) {
-    if (!provider.canShowWebviewProgress) {
-      _webviewRetryTimer?.cancel();
-      _webviewRetryTimer = null;
-      _lastWebviewIdleSummary = null;
-      return;
-    }
-    final streamUrl = provider.webviewStreamUrl;
-    final checkSummary =
-        'stage=${provider.stage.name}|streamUrl=$streamUrl|'
-        'orderId=${provider.currentOrderId}|paymentId=${provider.currentPaymentId}';
-    if (_lastWebviewCheckSummary != checkSummary) {
-      _lastWebviewCheckSummary = checkSummary;
-      debugPrint(
-        '🪟 [CallScreen WebView Check] '
-        'stage=${provider.stage.name}, '
-        'url=${provider.webviewUrl}, '
-        'streamUrl=$streamUrl, '
-        'orderId=${provider.currentOrderId}, '
-        'paymentId=${provider.currentPaymentId}',
-      );
-    }
-    unawaited(_maybeOpenWebviewFromProgress(provider));
-  }
+    if (!provider.canShowWebviewProgress || _isWebviewOpen) return;
 
-  Future<void> _maybeOpenWebviewFromProgress(CallProvider provider) async {
-    if (!provider.canShowWebviewProgress ||
-        _isWebviewOpen ||
-        _isCheckingWebviewAvailability) {
-      return;
-    }
+    final payload = provider.webviewTaskPayload;
+    if (payload == null) return;
 
-    final now = DateTime.now();
-    if (_lastWebviewStatusCheckAt != null &&
-        now.difference(_lastWebviewStatusCheckAt!) <
-            const Duration(milliseconds: 900)) {
-      return;
-    }
-
-    final conversationId = provider.conversationId;
-    final streamUrl = provider.webviewStreamUrl;
-    if (conversationId == null || streamUrl == null) {
-      debugPrint(
-        '🪟 [CallScreen WebView Check] progress fallback unavailable. '
-        'conversationId=$conversationId, streamUrl=$streamUrl',
-      );
-      return;
-    }
-
-    _isCheckingWebviewAvailability = true;
-    _lastWebviewStatusCheckAt = now;
-    try {
-      final status = await provider.getWebviewStatus();
-      if (!mounted || status == null) return;
-
-      final statusValue = status['status'] as String?;
-      final message = status['message'] as String?;
-      final step = status['step'] as String?;
-      final normalizedStatus = statusValue?.trim().toLowerCase();
-      final normalizedStep = step?.trim().toLowerCase();
-      final hasActiveStep =
-          normalizedStep != null &&
-          _activeWebviewSteps.contains(normalizedStep);
-      final hasProgress =
-          normalizedStatus != null &&
-          normalizedStatus != 'idle' &&
-          normalizedStatus != 'waiting' &&
-          normalizedStep != 'not_started' &&
-          (hasActiveStep || status['screenshotUrl'] != null) &&
-          ((message != null && message.isNotEmpty) ||
-              (step != null && step.isNotEmpty) ||
-              status['screenshotUrl'] != null);
-      if (!hasProgress) {
-        final idleSummary = 'status=$statusValue|step=$step|message=$message';
-        if (_lastWebviewIdleSummary != idleSummary) {
-          _lastWebviewIdleSummary = idleSummary;
-          debugPrint(
-            '🪟 [CallScreen WebView Check] no active backend progress. '
-            'status=$statusValue, step=$step, message=$message',
-          );
-        }
-        _scheduleWebviewRetry();
-        return;
-      }
-
-      _webviewRetryTimer?.cancel();
-      _webviewRetryTimer = null;
-      _lastWebviewIdleSummary = null;
-      final commandKey =
-          'progress|$conversationId|${status['updatedAt'] ?? statusValue ?? step ?? 'unknown'}';
-      _openWebview(
-        provider,
-        commandKey: commandKey,
-        url: provider.webviewUrl,
-        streamUrl: streamUrl,
-      );
-    } catch (error) {
-      debugPrint(
-        '🪟 [CallScreen WebView Check] progress fallback error: $error',
-      );
-    } finally {
-      _isCheckingWebviewAvailability = false;
-    }
-  }
-
-  void _scheduleWebviewRetry() {
-    if (_webviewRetryTimer?.isActive == true || !mounted) return;
-    _webviewRetryTimer = Timer(const Duration(seconds: 1), () {
-      _webviewRetryTimer = null;
-      if (!mounted || widget.previewMode) return;
-      final provider = _provider;
-      if (provider == null || !provider.canShowWebviewProgress) return;
-      _handleWebviewCommand(provider);
-    });
+    final orderId = payload['orderId'];
+    final commandKey = 'webview_task|${provider.conversationId}|$orderId';
+    _openWebview(provider, commandKey: commandKey, payload: payload);
   }
 
   void _openWebview(
     CallProvider provider, {
     required String commandKey,
-    required String url,
-    required String? streamUrl,
+    required Map<String, dynamic> payload,
   }) {
-    if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) {
-      debugPrint(
-        '🪟 [CallScreen WebView Check] already handled. '
-        '_isWebviewOpen=$_isWebviewOpen, commandKey=$commandKey',
-      );
-      return;
-    }
+    if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) return;
 
     _isWebviewOpen = true;
-    _webviewRetryTimer?.cancel();
-    _webviewRetryTimer = null;
-    _lastWebviewIdleSummary = null;
     _lastWebviewCommandKey = commandKey;
-    debugPrint(
-      '🪟 [CallScreen WebView Open] commandKey=$commandKey, '
-      'url=$url, streamUrl=$streamUrl',
-    );
+
+    final executionUrl = (payload['executionUrl'] as String?) ?? 'https://www.kurly.com';
+    final canonicalUrl = payload['canonicalProductUrl'] as String?;
+    final productName = payload['targetProductName'] as String?;
+    final quantity = (payload['quantity'] as num?)?.toInt() ?? 1;
+    final orderId = (payload['orderId'] as num?)?.toInt();
+    final paymentId = (payload['paymentId'] as num?)?.toInt();
+
+    debugPrint('🪟 [CallScreen WebView Open] commandKey=$commandKey, url=$executionUrl');
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => PaymentWebViewScreen(
-            url: url,
-            streamUrl: streamUrl,
-            orderId: provider.currentOrderId,
-            paymentId: provider.currentPaymentId,
+            url: executionUrl,
+            canonicalProductUrl: canonicalUrl,
+            productName: productName,
+            quantity: quantity,
+            orderId: orderId,
+            paymentId: paymentId,
           ),
         ),
       );

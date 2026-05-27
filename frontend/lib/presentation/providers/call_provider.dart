@@ -109,27 +109,19 @@ class CallProvider extends ChangeNotifier {
     }
     return null;
   }
-  String? get webviewStreamUrl {
-    final conversationId = _conversationId;
-    if (conversationId == null) return null;
-
-    final baseUri = Uri.parse(ApiClient.baseUrl);
-    final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
-    return baseUri.replace(
-      scheme: wsScheme,
-      path: '/api/agent/conversations/$conversationId/webview',
-      query: null,
-      fragment: null,
-    ).toString();
+  Map<String, dynamic>? get webviewTaskPayload {
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is! Map) return null;
+    if (pending['type'] != 'webview_task') return null;
+    final payload = pending['payload'];
+    return payload is Map ? Map<String, dynamic>.from(payload) : null;
   }
-  String get webviewUrl => 'about:blank';
-  bool get canShowWebviewProgress =>
-      _conversationId != null &&
-      (_stage == CallStage.cart ||
-          _stage == CallStage.payment ||
-          (_stage == CallStage.productSelection &&
-              _isLoading &&
-              _isAwaitingCartWebviewProgress));
+
+  bool get canShowWebviewProgress {
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is! Map) return false;
+    return pending['type'] == 'webview_task';
+  }
   String get webviewStatusText {
     final asyncMessage = currentAsyncStatusMessage;
     if (asyncMessage != null) return asyncMessage;
