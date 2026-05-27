@@ -72,9 +72,6 @@ class UiPreviewScreen extends StatelessWidget {
                 previewHelperText: '수량과 옵션을 확인한 뒤 장바구니에 담는 중이에요.',
                 previewStep: 'adding_to_cart',
                 previewMessage: '장바구니에 담고 있어요.',
-                previewScreenshotUrl:
-                    'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80',
-                previewShowActionButtons: true,
               ),
             ),
           ),
@@ -647,9 +644,6 @@ final List<_ShoppingJourneyStep> _shoppingJourneySteps = [
         previewHelperText: '수량과 배송 조건을 확인한 뒤 장바구니에 담는 중이에요.',
         previewStep: 'adding_to_cart',
         previewMessage: '장바구니에 담고 있어요.',
-        previewScreenshotUrl:
-            'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80',
-        previewShowActionButtons: true,
       ),
     ),
   ),

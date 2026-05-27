@@ -7,10 +7,19 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ApiClient {
-  static String get baseUrl =>
-      dotenv.env['API_BASE_URL']?.trim().isNotEmpty == true
-      ? dotenv.env['API_BASE_URL']!.trim()
-      : 'https://ddalangoo-production.up.railway.app';
+  // Docker/Railway 빌드에서는 --dart-define 값이 우선이고,
+  // 로컬 개발에서는 .env 값을 사용한다.
+  static const String _definedBaseUrl = String.fromEnvironment('API_BASE_URL');
+
+  static String get baseUrl {
+    if (_definedBaseUrl.trim().isNotEmpty) {
+      return _definedBaseUrl.trim();
+    }
+    if (dotenv.env['API_BASE_URL']?.trim().isNotEmpty == true) {
+      return dotenv.env['API_BASE_URL']!.trim();
+    }
+    return '';
+  }
 
   static Dio createDio() {
     final dio = Dio(
