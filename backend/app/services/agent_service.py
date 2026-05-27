@@ -62,7 +62,7 @@ async def _sync_recommendations(
         conversation_id=conversation_id,
     )
     if synced is not state:
-        synced = await runtime.update_state(conversation_id, {
+        patch: dict = {
             "search_results": synced.get("search_results") or [],
             "recommended_products": synced.get("recommended_products") or [],
             "selected_product": synced.get("selected_product"),
@@ -72,7 +72,23 @@ async def _sync_recommendations(
             "stage": synced.get("stage"),
             "error": synced.get("error"),
             "explanation": synced.get("explanation"),
-        })
+        }
+
+        # selected_product가 다른 상품으로 교체됐으면 assistantMessage와 pending_action.message도 갱신.
+        # 그렇지 않으면 reorder 경로에서 설정한 "스미후루..." 메시지가 남아
+        # assistantMessage와 recommendations가 다른 상품을 가리키는 불일치가 생긴다.
+        orig_name = (state.get("selected_product") or {}).get("product_name")
+        new_product = synced.get("selected_product") or {}
+        new_name = new_product.get("product_name")
+        if new_name and new_name != orig_name:
+            new_price = new_product.get("price", 0)
+            new_msg = f"{new_name} {new_price:,}원이에요. 주문할까요?"
+            patch["messages"] = [{"role": "assistant", "content": new_msg}]
+            new_pending = synced.get("pending_action")
+            if isinstance(new_pending, dict):
+                patch["pending_action"] = {**new_pending, "message": new_msg}
+
+        synced = await runtime.update_state(conversation_id, patch)
     return synced
 
 
