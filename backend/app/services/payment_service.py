@@ -107,78 +107,15 @@ async def handle_webview_result_db(
 
     result = req.result.lower()
     if result in {"success", "completed", "paid"}:
-        updated_payment = await payment_repository.update_payment_status_db(
-            db,
-            req.paymentId,
-            payment_status="paid",
-        )
-        updated_order = await order_repository.update_order_status_db(
-            db,
-            req.orderId,
-            status="order_completed",
-        )
-        histories = await purchase_history_repository.create_histories_from_order_db(
-            db,
-            order_id=req.orderId,
-            payment_id=req.paymentId,
-        )
-        await conversation_repository.update_conversation_db(
-            db,
-            conversation_id,
-            {
-                "status": "completed",
-                "stage": "completed",
-                "ended_at": datetime.now(UTC),
-            },
-        )
-        await agent_event_repository.create_agent_event_db(
-            db,
-            conversation_id=conversation_id,
-            agent_name="payment_service",
-            event_type="payment_completed",
-            input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
-            output_summary={"order_status": updated_order["status"], "payment_status": updated_payment["payment_status"]},
-        )
         webview_progress_service.clear_progress(conversation_id)
-        await runtime.update_state(conversation_id, {
-            "stage": "completed",
-            "messages": _assistant_message_patch("결제가 완료되었습니다."),
+        # 장바구니 담기 완료 → LangGraph cart_shopping 단계로 재개하여 address_confirm → payment_password 흐름을 탄다
+        state = await runtime.inject_and_resume(conversation_id, {
+            "stage": "cart_shopping",
             "pending_action": None,
-            "order": {
-                "orderId": updated_order["id"],
-                "status": updated_order["status"],
-                "totalPaymentAmount": updated_order["total_payment_amount"],
-            },
-            "payment": {
-                "paymentId": updated_payment["id"],
-                "orderId": updated_payment["order_id"],
-                "paymentStatus": updated_payment["payment_status"],
-                "paymentProvider": updated_payment["payment_provider"],
-                "paymentAmount": updated_payment["payment_amount"],
-            },
             "webview_progress": None,
         })
-        return {
-            **base,
-            "status": "order_completed",
-            "stage": "completed",
-            "assistantMessage": "결제가 완료되었습니다.",
-            "order": {
-                "orderId": updated_order["id"],
-                "status": updated_order["status"],
-                "totalPaymentAmount": updated_order["total_payment_amount"],
-            },
-            "payment": {
-                "paymentId": updated_payment["id"],
-                "orderId": updated_payment["order_id"],
-                "paymentStatus": updated_payment["payment_status"],
-                "paymentProvider": updated_payment["payment_provider"],
-                "paymentAmount": updated_payment["payment_amount"],
-            },
-            "purchaseHistories": histories,
-            "uiCommand": {"type": "close_webview"},
-            "error": None,
-        }
+        from app.agent.mapper import state_to_response
+        return state_to_response(state, conversation_id).model_dump(by_alias=True)
 
     if result == "cancelled":
         updated_payment = await payment_repository.update_payment_status_db(
