@@ -122,7 +122,30 @@ class CallProvider extends ChangeNotifier {
       fragment: null,
     ).toString();
   }
-  String get webviewUrl => 'about:blank';
+  String get webviewUrl {
+    final pending = _lastResponse?.pendingConfirmation;
+    if (pending is Map && pending['payload'] is Map) {
+      final payload = pending['payload'] as Map;
+      final executionUrl = payload['executionUrl'];
+      if (executionUrl is String && executionUrl.trim().isNotEmpty) {
+        return executionUrl.trim();
+      }
+    }
+
+    final selectedProduct = _lastResponse?.selectedProduct;
+    if (selectedProduct is Map) {
+      final executionUrl = selectedProduct['execution_url'];
+      if (executionUrl is String && executionUrl.trim().isNotEmpty) {
+        return executionUrl.trim();
+      }
+      final productUrl = selectedProduct['product_url'];
+      if (productUrl is String && productUrl.trim().isNotEmpty) {
+        return productUrl.trim();
+      }
+    }
+
+    return 'about:blank';
+  }
   bool get canShowWebviewProgress =>
       _conversationId != null &&
       (_stage == CallStage.cart ||
@@ -130,6 +153,10 @@ class CallProvider extends ChangeNotifier {
           (_stage == CallStage.productSelection &&
               _isLoading &&
               _isAwaitingCartWebviewProgress));
+  bool get hasPendingWebviewTask {
+    final pending = _lastResponse?.pendingConfirmation;
+    return pending is Map && pending['type'] == 'webview_task';
+  }
   String get webviewStatusText {
     final asyncMessage = currentAsyncStatusMessage;
     if (asyncMessage != null) return asyncMessage;

@@ -141,6 +141,17 @@ class _CallScreenState extends State<CallScreen> {
         'paymentId=${provider.currentPaymentId}',
       );
     }
+    if (provider.hasPendingWebviewTask) {
+      final commandKey =
+          'pending|${provider.conversationId}|${provider.currentOrderId}|${provider.currentPaymentId}';
+      _openWebview(
+        provider,
+        commandKey: commandKey,
+        url: provider.webviewUrl,
+        streamUrl: streamUrl,
+      );
+      return;
+    }
     unawaited(_maybeOpenWebviewFromProgress(provider));
   }
 
