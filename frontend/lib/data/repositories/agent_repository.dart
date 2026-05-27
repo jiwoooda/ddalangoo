@@ -187,15 +187,6 @@ class AgentRepository {
     return AgentResponse.fromJson(response.data);
   }
 
-  Future<Map<String, dynamic>?> getWebviewStatus(int conversationId) async {
-    final response = await _dio.get(
-      '/api/agent/conversations/$conversationId/webview/status',
-    );
-    final data = response.data;
-    if (data is! Map<String, dynamic>) return null;
-    return data;
-  }
-
   Future<void> cancelConversation(int conversationId) async {
     debugPrint(
       '📤 [Conversation Cancel Request]\n${_jsonEncoder.convert({'endpoint': '/api/agent/conversations/$conversationId/cancel'})}',

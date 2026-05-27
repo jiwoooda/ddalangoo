@@ -48,6 +48,8 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   String _automationStep = 'opening_shop';
   String _automationMessage = '컬리 페이지를 열고 있어요.';
   bool _automationDone = false;
+  bool _didRetryCredentialLogin = false;
+  bool _automationStarted = false;
 
   @override
   void initState() {
@@ -93,31 +95,82 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
 
   Future<void> _runAutomation() async {
     final controller = _controller;
-    if (controller == null || widget.previewMode) return;
+    if (controller == null || widget.previewMode || _automationStarted) return;
+    _automationStarted = true;
 
     // 페이지 첫 로드 대기
     await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+
+    final credentials = await KurlyCredentialStore.ensureCredentials(context);
+    if (!mounted || credentials == null) {
+      setState(() {
+        _automationStep = 'login_required';
+        _automationMessage = '컬리 로그인 정보가 필요해요. 다시 시도해주세요.';
+        _automationDone = true;
+      });
+      return;
+    }
+
+    await _runAutomationWithCredentials(controller, credentials);
+  }
+
+  Future<void> _runAutomationWithCredentials(
+    WebViewController controller,
+    KurlyCredentials credentials,
+  ) async {
+    if (!mounted) return;
 
     final automation = KurlyWebviewAutomation(
       controller: controller,
+      credentials: credentials,
       onProgress: (step, message) {
         if (!mounted) return;
         setState(() {
           _automationStep = step;
           _automationMessage = message;
-          if (step == 'cart_added' || step == 'cart_failed' || step == 'login_failed') {
+          if (step == 'cart_added' ||
+              step == 'cart_failed' ||
+              step == 'login_failed') {
             _automationDone = true;
           }
         });
       },
     );
 
-    await automation.run(
+    final result = await automation.run(
       productName: widget.productName ?? '상품',
       quantity: widget.quantity,
       canonicalProductUrl: widget.canonicalProductUrl,
       executionUrl: widget.url,
     );
+    if (!mounted) return;
+
+    if (result == 'login_failed' && !_didRetryCredentialLogin) {
+      _didRetryCredentialLogin = true;
+      await KurlyCredentialStore.clear();
+      setState(() {
+        _automationStep = 'login_retry_required';
+        _automationMessage = '저장된 로그인 정보가 맞지 않아 다시 입력이 필요해요.';
+        _automationDone = false;
+      });
+
+      if (!mounted) return;
+      final refreshedCredentials = await KurlyCredentialStore.ensureCredentials(
+        context,
+        forcePrompt: true,
+      );
+      if (!mounted || refreshedCredentials == null) {
+        setState(() {
+          _automationStep = 'login_required';
+          _automationMessage = '컬리 로그인 정보 입력이 취소되었어요.';
+          _automationDone = true;
+        });
+        return;
+      }
+
+      await _runAutomationWithCredentials(controller, refreshedCredentials);
+    }
   }
 
   Future<void> _submitResult(String result) async {
@@ -179,6 +232,10 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         return '장바구니 담기에 실패했어요. 직접 화면에서 확인해주세요.';
       case 'login_failed':
         return '로그인에 실패했어요. 직접 로그인 후 진행해주세요.';
+      case 'login_retry_required':
+        return '저장된 로그인 정보가 맞지 않아 새 로그인 정보를 입력받고 있어요.';
+      case 'login_required':
+        return '앱 안에서 컬리 로그인 정보를 한 번 저장하면 다음부터 자동으로 사용해요.';
       default:
         return '실시간 진행 상황을 이곳에서 보여드리고 있어요.';
     }
@@ -275,8 +332,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         (widget.previewMode
             ? '웹 진행 상황'
             : context.read<CallProvider>().webviewTargetLabel);
-    final statusText =
-        widget.previewStatusText ?? _automationMessage;
+    final statusText = widget.previewStatusText ?? _automationMessage;
     final helperText = widget.previewHelperText ?? _helperTextForStep();
 
     return Container(

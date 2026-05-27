@@ -12,16 +12,19 @@ import 'presentation/screens/home/home_screen.dart';
 import 'presentation/screens/call/call_screen.dart';
 import 'presentation/screens/preview/ui_preview_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'core/services/app_log_service.dart';
 import 'core/services/gpt_voice_service.dart';
 import 'core/services/gpt_realtime_voice_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppLogService.instance.init();
   await dotenv.load(fileName: '.env');
   debugPrint(
     '🚀 [App Start] .env loaded, OPENAI_API_KEY='
     '${dotenv.env['OPENAI_API_KEY']?.isNotEmpty == true ? 'configured' : 'missing'}',
   );
+  debugPrint('📝 [App Log] active file=${AppLogService.instance.currentLogPath}');
   await GptVoiceService.instance.init();
   await GptRealtimeVoiceService.instance.init();
   _warmCommonTtsPhrases();
