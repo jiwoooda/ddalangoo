@@ -428,7 +428,7 @@ class UserRepository {
   }) async {
     final response = await _dio.post(
       '/api/users/login',
-      data: {'name': name, 'phone_number': phoneNumber},
+      data: {'name': name, 'phoneNumber': phoneNumber},
     );
     return UserResponse.fromJson(response.data);
   }

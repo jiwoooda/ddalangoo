@@ -28,9 +28,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  /// 전화번호 유효성 검사 및 정규화.
+  /// 입력: "01012345678" 또는 "010-1234-5678" 모두 허용.
+  /// 반환: 정규화된 "010-1234-5678" 형태, 유효하지 않으면 null.
+  String? _normalizePhone(String raw) {
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    // 한국 휴대폰: 010/011/016/017/018/019 + 7~8자리
+    final match = RegExp(r'^(01[016789])(\d{3,4})(\d{4})$').firstMatch(digits);
+    if (match == null) return null;
+    return '${match.group(1)}-${match.group(2)}-${match.group(3)}';
+  }
+
+  String? _validate() {
+    final name = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
+
+    if (name.isEmpty) return '이름을 입력해주세요';
+    if (name.length < 2) return '이름은 2자 이상 입력해주세요';
+    if (phone.isEmpty) return '전화번호를 입력해주세요';
+    if (_normalizePhone(phone) == null) return '올바른 전화번호를 입력해주세요 (예: 010-1234-5678)';
+    return null;
+  }
+
   Future<void> _register() async {
-    if (_nameController.text.isEmpty) {
-      setState(() => _errorMessage = '이름을 입력해주세요');
+    final error = _validate();
+    if (error != null) {
+      setState(() => _errorMessage = error);
       return;
     }
 
@@ -41,10 +64,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     try {
       final user = await _userRepository.createUser(
-        name: _nameController.text,
-        phoneNumber: _phoneController.text.isEmpty
-            ? null
-            : _phoneController.text,
+        name: _nameController.text.trim(),
+        phoneNumber: _normalizePhone(_phoneController.text.trim()),
         ageGroup: _selectedAgeGroup,
       );
 

@@ -243,11 +243,15 @@ def payment_agent_node(state: ShoppingState) -> dict:
             # 재구매 URL 있을 때만 가격 체크 (일반 구매는 history_price 없음)
             history_price_arg = price if reorder_url else None
 
+        from src.tools.webview_tool import get_kurly_session_path
+        _session_path = state.get("storage_state_path") or get_kurly_session_path(
+            state.get("user_id")
+        )
         result = run_kurly_purchase(
             product_name=product_name,
             keywords=state.get("keywords"),
             quantity=quantity,
-            storage_state_path=state.get("storage_state_path"),
+            storage_state_path=_session_path,
             reorder_url=reorder_url,
             history_price=history_price_arg,
             progress_callback=progress_callback,

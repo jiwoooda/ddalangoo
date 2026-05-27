@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 class SampleHistoryRequest(BaseModel):
-    userId: Optional[int] = 1
+    userId: Optional[int] = None
 
 router = APIRouter(prefix="/dev", tags=["Dev"])
 

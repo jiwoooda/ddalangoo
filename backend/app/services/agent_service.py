@@ -482,7 +482,7 @@ def _start_real_browser_purchase(
     def run_purchase_worker() -> None:
         """Playwright 작업의 진행 상황을 프론트가 보는 webview progress로 전달한다."""
         try:
-            from src.tools.webview_tool import run_kurly_purchase
+            from src.tools.webview_tool import run_kurly_purchase, get_kurly_session_path
 
             def progress_callback(event: dict) -> None:
                 webview_progress_service.emit_progress(
@@ -503,7 +503,7 @@ def _start_real_browser_purchase(
                 product_name=product_name,
                 keywords=[product_name],
                 quantity=int(quantity),
-                storage_state_path=None,
+                storage_state_path=get_kurly_session_path(webview_input.user_id),
                 reorder_url=reorder_url,
                 execution_url=webview_input.execution_url,
                 history_price=history_price,
@@ -512,6 +512,29 @@ def _start_real_browser_purchase(
             )
 
             if result.get("cart_added"):
+                # 사용자별 세션 파일 경로를 DB에 기록한다.
+                _saved_path = result.get("storage_state_path")
+                if _saved_path and webview_input.user_id:
+                    try:
+                        import asyncio as _asyncio
+                        from app.core.database import AsyncSessionLocal
+                        from app.repositories.platform_session_repository import (
+                            upsert_session_file_path_db,
+                        )
+
+                        async def _persist_session():
+                            async with AsyncSessionLocal() as _db:
+                                await upsert_session_file_path_db(
+                                    _db, webview_input.user_id, _saved_path
+                                )
+                                await _db.commit()
+
+                        _asyncio.run(_persist_session())
+                    except Exception as _e:
+                        import logging as _logging
+                        _logging.getLogger(__name__).warning(
+                            "[webview] 세션 경로 DB 저장 실패: %s", _e
+                        )
                 webview_progress_service.emit_progress(
                     conversation_id,
                     step="cart_added",

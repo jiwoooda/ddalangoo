@@ -73,6 +73,10 @@ class GeminiVoiceService {
     }
   }
 
+  // NOTE: STT는 백엔드 /api/voice/stt 로 위임됐으므로 이 모델은 사용되지 않는다.
+  // USE_GEMINI_TTS=false 설정 시 TTS도 로컬 FlutterTts 폴백을 사용하므로
+  // GEMINI_API_KEY가 없어도 앱이 정상 동작한다.
+  // Gemini TTS 백엔드 이전 완료 후 이 getter와 _generateSpeech를 제거할 것.
   GenerativeModel get _model => GenerativeModel(
     model: _sttModelName,
     apiKey: dotenv.env['GEMINI_API_KEY'] ?? '',
