@@ -144,9 +144,10 @@ class AgentResponse {
     stage: json['stage'],
     assistantMessage: json['assistantMessage'],
     recommendationId: json['recommendationId'],
-    recommendations: (json['recommendations'] as List? ?? [])
+    recommendations: ((json['recommendations'] as List? ?? [])
         .map((e) => RecommendationItemInAgent.fromJson(e))
-        .toList(),
+        .toList()
+      ..sort((a, b) => a.rank.compareTo(b.rank))),
     selectedProduct: json['selectedProduct'],
     pendingConfirmation: json['pendingConfirmation'],
     availableOptions: json['availableOptions'],
