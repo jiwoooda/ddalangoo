@@ -9,11 +9,44 @@ Payment Agent Node (Main Graph 진입점) — MVP.
 
 USE_REAL_BROWSER=true 시 webview_tool로 장바구니 담기 먼저 실행.
 """
+import asyncio
 import os
 import re
+import sys
 from src.state.schema import ShoppingState, bridge_shopping_to_payment, bridge_payment_to_shopping
 from src.payment.flow import payment_flow
-from src.tools.mock_tools import mock_get_default_address
+
+
+def _fetch_default_address(user_id) -> dict:
+    """DB에서 기본 배송지 조회. 실패 시 빈 dict 반환."""
+    _backend = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
+    if _backend not in sys.path:
+        sys.path.insert(0, _backend)
+
+    async def _from_db(session):
+        from app.repositories.address_repository import get_default_address_by_user_id_db
+        return await get_default_address_by_user_id_db(session, int(user_id))
+
+    async def _runner():
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            return None
+        engine = create_async_engine(database_url, pool_pre_ping=True, pool_size=1, max_overflow=0)
+        factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
+        try:
+            async with factory() as session:
+                return await _from_db(session)
+        finally:
+            await engine.dispose()
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_runner()) or {}
+    except Exception:
+        return {}
+    finally:
+        loop.close()
 
 
 _KR_NUMBERS = {
@@ -106,7 +139,7 @@ def _build_delivery_address(state: ShoppingState) -> dict:
             "recipient_phone": "",
             "zip_code": "",
         }
-    return mock_get_default_address(user_id) or {}
+    return _fetch_default_address(user_id)
 
 
 def _delivery_completion_msg(delivery_info: str) -> str:

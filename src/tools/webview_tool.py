@@ -13,6 +13,9 @@ VLM이 필수인 단계: _select_product_from_results (검색 결과는 매번 �
   KURLY_EMAIL       : 컬리 로그인 이메일
   KURLY_PASSWORD    : 컬리 로그인 비밀번호
   WEBVIEW_HEADLESS  : true면 서버 환경에서 headless 브라우저로 실행
+  WEBVIEW_SCREENSHOT_ENABLED : false면 progress/VLM screenshot 캡처를 모두 건너뜀
+  WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS : 로그인 submit 후 networkidle 대기 시간
+  WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS    : 로그인 submit 후 /member/login 이탈 대기 시간
 """
 import anthropic
 import base64
@@ -22,6 +25,11 @@ import re
 import threading
 from collections.abc import Callable
 from typing import Any
+
+# Railway 런타임에서 기본 캐시(/root/.cache)가 이미지에 남지 않을 수 있다.
+# 빌드 단계에서 설치한 브라우저를 패키지 경로에서 찾도록 Playwright import 전에 고정한다.
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+
 from playwright.sync_api import sync_playwright, Page
 
 try:
@@ -57,6 +65,11 @@ KURLY_EMAIL    = os.environ.get("KURLY_EMAIL", "")
 KURLY_PASSWORD = os.environ.get("KURLY_PASSWORD", "")
 KURLY_BASE_URL = "https://www.kurly.com"
 WEBVIEW_HEADLESS = os.environ.get("WEBVIEW_HEADLESS", "true").lower() != "false"
+WEBVIEW_BROWSER = os.environ.get("WEBVIEW_BROWSER", "chromium").lower()
+WEBVIEW_IGNORE_SESSION = os.environ.get("WEBVIEW_IGNORE_SESSION", "false").lower() == "true"
+WEBVIEW_SCREENSHOT_ENABLED = os.environ.get("WEBVIEW_SCREENSHOT_ENABLED", "true").lower() != "false"
+WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS = int(os.environ.get("WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS", "10000"))
+WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS = int(os.environ.get("WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS", "20000"))
 
 VIEWPORT = {"width": 390, "height": 844}
 USER_AGENT = (
@@ -67,6 +80,100 @@ USER_AGENT = (
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _safe_screenshot(
+    page: Page,
+    *,
+    type: str = "png",
+    quality: int | None = None,
+) -> bytes | None:
+    """Playwright screenshot crash가 전체 WebView 흐름을 깨지 않도록 감싼다."""
+    if not WEBVIEW_SCREENSHOT_ENABLED:
+        print("[webview:screenshot] skipped: WEBVIEW_SCREENSHOT_ENABLED=false")
+        return None
+    try:
+        options: dict[str, Any] = {"type": type, "full_page": False}
+        if quality is not None:
+            options["quality"] = quality
+        return page.screenshot(**options)
+    except Exception as e:
+        print(f"[webview:screenshot] capture failed: {e}")
+        return None
+
+
+def _should_restore_session(storage_state_path: str | None) -> bool:
+    """로그인 재테스트 모드가 아니고 세션 파일이 있을 때만 기존 세션을 복원한다."""
+    if WEBVIEW_IGNORE_SESSION:
+        print("[webview] 세션 복원 건너뜀: WEBVIEW_IGNORE_SESSION=true")
+        return False
+    return bool(storage_state_path and os.path.exists(storage_state_path))
+
+
+def _chromium_launch_args() -> list[str]:
+    """Railway Chromium 실행에 필요한 sandbox/dev-shm 회피 옵션."""
+    return [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--single-process",
+        "--no-zygote",
+    ]
+
+
+def _browser_launch_options(browser_name: str | None = None) -> dict[str, Any]:
+    """환경변수 기반 Playwright launch options를 한곳에서 만든다."""
+    browser_name = browser_name or WEBVIEW_BROWSER
+    launch_options: dict[str, Any] = {"headless": WEBVIEW_HEADLESS}
+    if browser_name == "chromium":
+        launch_options["args"] = _chromium_launch_args()
+    return launch_options
+
+
+def _launch_browser_with_fallback(playwright: Any, launch_options: dict[str, Any]):
+    """
+    환경변수 브라우저로 먼저 실행하고, Railway 이미지에 해당 브라우저가 없으면 Chromium으로 재시도한다.
+
+    Railway 변수는 대시보드 값이 코드 기본값보다 우선하기 때문에, WEBVIEW_BROWSER=webkit이
+    남아 있어도 chromium만 설치된 이미지에서 자동화가 바로 죽지 않도록 한다.
+    """
+    browser_type = getattr(playwright, WEBVIEW_BROWSER, playwright.chromium)
+    try:
+        return browser_type.launch(**launch_options)
+    except Exception as exc:
+        if WEBVIEW_BROWSER == "chromium" or "Executable doesn't exist" not in str(exc):
+            raise
+
+        fallback_options = _browser_launch_options("chromium")
+        print(
+            "[webview:runtime] configured browser launch failed; "
+            f"browser={WEBVIEW_BROWSER} error={exc} "
+            f"fallback_browser=chromium fallback_launch_args={fallback_options.get('args', [])}"
+        )
+        return playwright.chromium.launch(**fallback_options)
+
+
+def _log_webview_runtime_config(
+    *,
+    launch_options: dict[str, Any],
+    execution_url: str | None = None,
+    canonical_product_url: str | None = None,
+    target_product_name: str | None = None,
+) -> None:
+    """Railway 로그에서 브라우저 런타임/입력 계약을 바로 확인할 수 있게 출력한다."""
+    print(
+        "[webview:runtime] "
+        f"browser={WEBVIEW_BROWSER} "
+        f"headless={WEBVIEW_HEADLESS} "
+        f"screenshot_enabled={WEBVIEW_SCREENSHOT_ENABLED} "
+        f"login_networkidle_timeout_ms={WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS} "
+        f"login_redirect_timeout_ms={WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS} "
+        f"launch_args={launch_options.get('args', [])} "
+        f"execution_url={execution_url} "
+        f"canonical_product_url={canonical_product_url} "
+        f"target_product_name={target_product_name}"
+    )
 
 
 def _emit_progress(
@@ -91,14 +198,11 @@ def _emit_progress(
     if flow:
         event["flow"] = flow
     if page:
-        try:
-            event["screenshot_bytes"] = page.screenshot(
-                type="jpeg",
-                quality=60,
-                full_page=False,
-            )
-        except Exception as e:
-            event["screenshot_error"] = str(e)
+        screenshot_bytes = _safe_screenshot(page, type="jpeg", quality=60)
+        if screenshot_bytes:
+            event["screenshot_bytes"] = screenshot_bytes
+        else:
+            event["screenshot_error"] = "screenshot_unavailable"
 
     try:
         progress_callback(event)
@@ -134,7 +238,10 @@ def _ask_vlm(screenshot_bytes: bytes, question: str) -> dict:
 
 
 def _screenshot_and_ask(page: Page, question: str) -> dict:
-    return _ask_vlm(page.screenshot(), question)
+    screenshot_bytes = _safe_screenshot(page)
+    if not screenshot_bytes:
+        return {"found": False, "screenshot_error": "screenshot_unavailable"}
+    return _ask_vlm(screenshot_bytes, question)
 
 
 # ══════════════════════════════════════════════
@@ -179,22 +286,161 @@ def _is_logged_in(page: Page) -> bool:
     return result if result is not None else _vlm_is_logged_in(page)
 
 
+def _credential_debug_summary() -> dict[str, Any]:
+    """로그에는 credential 원문 대신 존재 여부와 길이만 남긴다."""
+    return {
+        "email_present": bool(KURLY_EMAIL),
+        "email_length": len(KURLY_EMAIL),
+        "password_present": bool(KURLY_PASSWORD),
+        "password_length": len(KURLY_PASSWORD),
+    }
+
+
+def _collect_login_error_texts(page: Page) -> list[str]:
+    """로그인 페이지에서 오류로 보이는 visible text를 최대한 안전하게 수집한다."""
+    try:
+        texts = page.evaluate("""() => {
+            const keywords = [
+                '오류', '에러', '실패', '확인', '일치', '입력', '필수',
+                '잘못', '존재하지', '인증', '잠시 후', '차단'
+            ];
+            const ignored = ['네이버로 계속하기', '카카오로 계속하기', '회원가입'];
+            const nodes = Array.from(document.querySelectorAll('body *'));
+            const results = [];
+            for (const node of nodes) {
+                const style = window.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                if (
+                    style.visibility === 'hidden' ||
+                    style.display === 'none' ||
+                    rect.width === 0 ||
+                    rect.height === 0
+                ) continue;
+                const text = (node.innerText || node.textContent || '').trim();
+                if (!text || text.length > 90) continue;
+                if (ignored.some(keyword => text.includes(keyword))) continue;
+                if (keywords.some(keyword => text.includes(keyword))) {
+                    results.push(text.replace(/\\s+/g, ' '));
+                }
+                if (results.length >= 8) break;
+            }
+            return Array.from(new Set(results));
+        }""")
+        return [str(text) for text in texts if text]
+    except Exception as e:
+        print(f"[webview:login] 오류 문구 수집 실패: {e}")
+        return []
+
+
+def _wait_for_login_navigation(page: Page, *, timeout_ms: int | None = None) -> None:
+    """submit 이후 networkidle과 URL 이탈을 순서대로 기다리되 실패를 fatal로 만들지 않는다."""
+    redirect_timeout_ms = timeout_ms or WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS
+    try:
+        page.wait_for_load_state("networkidle", timeout=WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS)
+        print(f"[webview:login] networkidle 도달 timeout_ms={WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS}")
+    except Exception as e:
+        print(
+            "[webview:login] networkidle 대기 실패/타임아웃: "
+            f"timeout_ms={WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS} error={e}"
+        )
+
+    try:
+        page.wait_for_function(
+            "() => !location.pathname.includes('/member/login')",
+            timeout=redirect_timeout_ms,
+        )
+        print(f"[webview:login] 로그인 URL 이탈 감지: {page.url} timeout_ms={redirect_timeout_ms}")
+    except Exception as e:
+        print(
+            "[webview:login] 로그인 URL 이탈 대기 실패/타임아웃: "
+            f"timeout_ms={redirect_timeout_ms} error={e} current_url={page.url}"
+        )
+
+
+def _login_failure_reason(page: Page, *, dialog_messages: list[str], fallback: str = "login_failed") -> str:
+    """로그인 실패 reason을 URL/dialog/화면 오류 문구 기반으로 만든다."""
+    current_url = ""
+    try:
+        current_url = page.url
+    except Exception:
+        current_url = "unavailable"
+    error_texts = _collect_login_error_texts(page)
+    print(f"[webview:login] submit 이후 URL: {current_url}")
+    print(f"[webview:login] dialog_messages={dialog_messages}")
+    print(f"[webview:login] error_texts={error_texts}")
+
+    if dialog_messages:
+        return f"dialog: {dialog_messages[-1]}"
+    if error_texts:
+        return " | ".join(error_texts[:3])
+    if current_url and "/member/login" in current_url:
+        return "still_on_login_page"
+    return fallback
+
+
 # ══════════════════════════════════════════════
 # 로그인
 # ══════════════════════════════════════════════
 
+def _has_visible_login_form(page: Page) -> bool:
+    """컬리 아이디 로그인 입력 폼이 실제로 보이는지 확인한다."""
+    try:
+        has_id_input = page.locator(
+            "input[name='id']:visible, input[type='email']:visible, input[placeholder*='아이디']:visible"
+        ).count() > 0
+        has_password_input = page.locator("input[type='password']:visible").count() > 0
+        return has_id_input and has_password_input
+    except Exception as e:
+        print(f"[webview:login] visible form 확인 실패: {e}")
+        return False
+
+
+def _wait_for_visible_login_form(page: Page, *, timeout_ms: int = 5000) -> bool:
+    """컬리 아이디 로그인 클릭 후 입력 폼이 열릴 때까지 기다린다."""
+    try:
+        page.wait_for_function("""() => {
+            const isVisible = (el) => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.visibility !== 'hidden' &&
+                    style.display !== 'none' &&
+                    rect.width > 0 &&
+                    rect.height > 0;
+            };
+            const idInput = document.querySelector(
+                "input[name='id'], input[type='email'], input[placeholder*='아이디']"
+            );
+            const passwordInput = document.querySelector("input[type='password']");
+            return isVisible(idInput) && isVisible(passwordInput);
+        }""", timeout=timeout_ms)
+        print("[webview:login] 컬리 아이디 로그인 입력 폼 확인")
+        return True
+    except Exception as e:
+        print(f"[webview:login] 컬리 아이디 로그인 입력 폼 대기 실패: {e}")
+        return False
+
+
+def _fill_visible_input(page: Page, selector: str, value: str, label: str) -> None:
+    """숨겨진 input 대신 실제 visible input에만 값을 채운다."""
+    loc = page.locator(selector).first
+    if loc.count() <= 0:
+        raise ValueError(f"{label} visible input not found")
+    loc.fill(value, timeout=3000)
+
+
 def _dom_click_kurly_id_login(page: Page) -> bool:
     """'컬리아이디로 로그인' 버튼 DOM 클릭. 이미 이메일 입력 폼이면 True 반환."""
     # 이미 이메일 입력 폼이 보이면 클릭 불필요
-    try:
-        if page.locator("input[type='email'], input[name='id']").count() > 0:
-            return True
-    except Exception:
-        pass
+    if _has_visible_login_form(page):
+        return True
 
     selectors = [
+        "text=컬리 아이디로 로그인",
         "text=컬리아이디로 로그인",
         "text=이메일로 로그인",
+        "a:has-text('컬리 아이디로 로그인')",
+        "button:has-text('컬리 아이디로 로그인')",
         "a:has-text('컬리아이디')",
         "button:has-text('컬리아이디')",
     ]
@@ -203,7 +449,8 @@ def _dom_click_kurly_id_login(page: Page) -> bool:
             loc = page.locator(sel).first
             if loc.count() > 0:
                 loc.click(timeout=2000)
-                page.wait_for_timeout(1500)
+                if not _wait_for_visible_login_form(page):
+                    continue
                 print(f"[webview:DOM] 컬리아이디 로그인 버튼 클릭: {sel}")
                 return True
         except Exception:
@@ -216,19 +463,19 @@ def _vlm_click_kurly_id_login(page: Page) -> bool:
     print("[webview:VLM] '컬리아이디로 로그인' 버튼 탐색 중...")
     result = _screenshot_and_ask(
         page,
-        '화면에서 "컬리아이디로 로그인" 또는 "이메일로 로그인" 텍스트/버튼의 중앙 좌표를 찾아줘. '
+        '화면에서 "컬리 아이디로 로그인", "컬리아이디로 로그인", "이메일로 로그인" 텍스트/버튼의 중앙 좌표를 찾아줘. '
         '{"x": 195, "y": 700, "found": true} 또는 {"x":0,"y":0,"found":false}',
     )
     if result.get("found"):
         page.mouse.click(result["x"], result["y"])
-        page.wait_for_timeout(1500)
+        if not _wait_for_visible_login_form(page):
+            return False
         print(f"[webview:VLM] 클릭 완료 ({result['x']}, {result['y']})")
         return True
     # 마지막 수단: 텍스트 기반 locator
     try:
-        page.locator("text=/.*컬리.*로그인.*/").first.click(timeout=2000)
-        page.wait_for_timeout(1500)
-        return True
+        page.locator("text=컬리 아이디로 로그인").first.click(timeout=2000)
+        return _wait_for_visible_login_form(page)
     except Exception:
         return False
 
@@ -236,9 +483,9 @@ def _vlm_click_kurly_id_login(page: Page) -> bool:
 def _dom_click_login_submit(page: Page) -> bool:
     """로그인 제출 버튼 DOM 클릭."""
     selectors = [
-        "button[type='submit']",
-        "button:has-text('로그인')",
-        "input[type='submit']",
+        "button[type='submit']:visible",
+        "button:has-text('로그인'):visible",
+        "input[type='submit']:visible",
     ]
     for sel in selectors:
         try:
@@ -277,8 +524,21 @@ def _login(
     page: Page,
     progress_callback: ProgressCallback | None = None,
     flow: str | None = None,
-) -> bool:
-    """컬리 로그인 수행. 성공 여부 반환."""
+) -> dict:
+    """컬리 로그인 수행. 성공 여부와 실패 reason을 반환한다."""
+    dialog_messages: list[str] = []
+
+    def on_dialog(dialog) -> None:
+        message = dialog.message
+        dialog_messages.append(message)
+        print(f"[webview:login] dialog message={message}")
+        try:
+            dialog.dismiss()
+        except Exception as e:
+            print(f"[webview:login] dialog dismiss 실패: {e}")
+
+    page.on("dialog", on_dialog)
+    print(f"[webview:login] credential_summary={_credential_debug_summary()}")
     print("[webview] 로그인 페이지 진입 중...")
     page.goto(f"{KURLY_BASE_URL}/member/login")
     page.wait_for_load_state("domcontentloaded")
@@ -293,29 +553,51 @@ def _login(
 
     # SNS 선택 화면 → 컬리아이디 로그인으로 전환
     if not _dom_click_kurly_id_login(page):
-        _vlm_click_kurly_id_login(page)
+        if not _vlm_click_kurly_id_login(page):
+            return {
+                "logged_in": False,
+                "reason": "login_form_not_visible_after_kurly_id_click",
+                "dialog_messages": dialog_messages,
+                "url": page.url,
+            }
 
     # 이메일 / 비밀번호 입력
     try:
         print("[webview] 아이디(이메일) 입력 중...")
-        page.fill("input[name='id'], input[type='email'], input[placeholder*='아이디']", KURLY_EMAIL)
+        _fill_visible_input(
+            page,
+            "input[name='id']:visible, input[type='email']:visible, input[placeholder*='아이디']:visible",
+            KURLY_EMAIL,
+            "email",
+        )
         page.wait_for_timeout(300)
         print("[webview] 비밀번호 입력 중...")
-        page.fill("input[type='password']", KURLY_PASSWORD)
+        _fill_visible_input(page, "input[type='password']:visible", KURLY_PASSWORD, "password")
         page.wait_for_timeout(300)
     except Exception as e:
         print(f"[webview] 입력 필드 오류: {e}")
-        return False
+        return {
+            "logged_in": False,
+            "reason": f"input_field_error: {e}",
+            "dialog_messages": dialog_messages,
+            "url": page.url,
+        }
 
     # 로그인 제출
     if not _dom_click_login_submit(page):
         _vlm_click_login_submit(page)
 
     print("[webview] 로그인 처리 대기 중...")
-    page.wait_for_timeout(3000)
+    _wait_for_login_navigation(page)
     logged = _is_logged_in(page)
-    print(f"[webview] 로그인 {'성공' if logged else '실패'} — URL: {page.url}")
-    return logged
+    reason = None if logged else _login_failure_reason(page, dialog_messages=dialog_messages)
+    print(f"[webview] 로그인 {'성공' if logged else '실패'} — URL: {page.url} reason={reason}")
+    return {
+        "logged_in": logged,
+        "reason": reason,
+        "dialog_messages": dialog_messages,
+        "url": page.url,
+    }
 
 
 # ══════════════════════════════════════════════
@@ -430,8 +712,8 @@ def _dom_close_popup(page: Page) -> bool:
 def _vlm_close_popup(page: Page) -> bool:
     """VLM으로 팝업 닫기(X) 버튼 탐색 후 클릭."""
     print("[webview:VLM] 팝업 닫기 버튼 탐색 중...")
-    close = _ask_vlm(
-        page.screenshot(),
+    close = _screenshot_and_ask(
+        page,
         '팝업 닫기(X) 버튼이 보이면 좌표. {"x":350,"y":200,"found":true} 또는 {"x":0,"y":0,"found":false}',
     )
     if close.get("found"):
@@ -576,8 +858,8 @@ def _click_cart_add_button(page: Page) -> bool:
         print(f"[webview:DOM] 담기 버튼 tap ({coords['x']:.0f}, {coords['y']:.0f}) 성공")
     else:
         print("[webview:DOM] 담기 버튼 미발견 → VLM 폴백")
-        result = _ask_vlm(
-            page.screenshot(),
+        result = _screenshot_and_ask(
+            page,
             '"장바구니 담기", "담기", "확인" 등 최종 확인 버튼이 보이면 좌표 반환. '
             '{"x": 195, "y": 750, "found": true, "button_text": "..."} 또는 {"x":0,"y":0,"found":false,"button_text":""}',
         )
@@ -745,7 +1027,14 @@ def check_product_price(
 
     playwright = sync_playwright().start()
     # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
-    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
+    launch_options = _browser_launch_options()
+    _log_webview_runtime_config(
+        launch_options=launch_options,
+        execution_url=product_url,
+        canonical_product_url=product_url if "/goods/" in product_url else None,
+        target_product_name=None,
+    )
+    browser = _launch_browser_with_fallback(playwright, launch_options)
 
     context_kwargs = {
         "viewport": VIEWPORT,
@@ -753,7 +1042,7 @@ def check_product_price(
         "locale": "ko-KR",
         "has_touch": True,
     }
-    if storage_state_path and os.path.exists(storage_state_path):
+    if _should_restore_session(storage_state_path):
         context_kwargs["storage_state"] = storage_state_path
 
     context = browser.new_context(**context_kwargs)
@@ -787,6 +1076,7 @@ def run_kurly_purchase(
     quantity: int = 1,
     storage_state_path: str | None = None,
     reorder_url: str | None = None,
+    execution_url: str | None = None,
     history_price: int | None = None,
     progress_callback: ProgressCallback | None = None,
     progress_flow: str | None = None,
@@ -800,6 +1090,8 @@ def run_kurly_purchase(
     keywords           : 검색 키워드 (없으면 product_name 사용)
     quantity           : 장바구니에 담을 수량
     storage_state_path : 이전 세션 파일 경로 (로그인 상태 유지용)
+    execution_url      : WebView 첫 진입용 URL. 검색 URL이면 로그인 후 해당 URL로 열고
+                         product_name 기준으로 상품 카드를 찾는다.
     reorder_url        : 재구매 시 바로 진입할 상품 URL.
                          제공되면 검색/VLM 단계를 건너뜀.
                          로그인 리다이렉트 등 실패 시 검색 방식으로 자동 fallback.
@@ -819,9 +1111,15 @@ def run_kurly_purchase(
 
     _clear_cancel()
     playwright = sync_playwright().start()
-    print("[webview] 브라우저(Webkit) 시작...")
-    # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
-    browser = playwright.webkit.launch(headless=WEBVIEW_HEADLESS)
+    launch_options = _browser_launch_options()
+    _log_webview_runtime_config(
+        launch_options=launch_options,
+        execution_url=execution_url,
+        canonical_product_url=reorder_url,
+        target_product_name=product_name,
+    )
+    print(f"[webview] 브라우저({WEBVIEW_BROWSER}) 시작...")
+    browser = _launch_browser_with_fallback(playwright, launch_options)
 
     context_kwargs = {
         "viewport": VIEWPORT,
@@ -829,7 +1127,7 @@ def run_kurly_purchase(
         "locale": "ko-KR",
         "has_touch": True,  # 모바일 터치 이벤트 활성화 (page.tap() 필수)
     }
-    if storage_state_path and os.path.exists(storage_state_path):
+    if _should_restore_session(storage_state_path):
         context_kwargs["storage_state"] = storage_state_path
         print(f"[webview] 세션 복원: {storage_state_path}")
 
@@ -913,13 +1211,23 @@ def run_kurly_purchase(
                     message="로그인하고 있어요.",
                     page=page,
                 )
-                if not _login(page, progress_callback=progress_callback, flow=flow):
+                login_result = _login(page, progress_callback=progress_callback, flow=flow)
+                if not login_result.get("logged_in"):
+                    login_failure_reason = login_result.get("reason") or "login_failed"
                     return {"cart_added": False, "storage_state_path": None,
-                            "delivery_info": "", "product_url": None, "error": "login_failed"}
+                            "delivery_info": "", "product_url": None,
+                            "login_failure_reason": login_failure_reason,
+                            "error": f"login_failed: {login_failure_reason}"}
 
             _check_cancel()
-            print(f"[webview] Step 2. 상품 검색: {product_name}")
-            _search_product(page, product_name)
+            if execution_url and "kurly.com/search" in execution_url:
+                print(f"[webview] Step 2. 검색 URL 진입: {execution_url}")
+                page.goto(execution_url, timeout=10000)
+                page.wait_for_load_state("domcontentloaded")
+                page.wait_for_timeout(2500)
+            else:
+                print(f"[webview] Step 2. 상품 검색: {product_name}")
+                _search_product(page, product_name)
             _emit_progress(
                 progress_callback,
                 flow=flow,

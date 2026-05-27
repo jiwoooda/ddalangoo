@@ -153,17 +153,12 @@ def platform_agent_node(state: ShoppingState) -> dict:
             "last_agent": "platform_agent",
         }
 
-<<<<<<< HEAD
     # ── 신선식품 키워드 감지 → 검색 없이 바로 컬리 제안 ──
     if (
         not _kurly_mvp_mode()
         and pending_action.get("type") != "platform_suggest"
         and _should_suggest_kurly_early(keywords, tried_platforms)
     ):
-=======
-    # ── 컬리 우선 제안 (아직 시도 안 한 경우) ──
-    if pending_action.get("type") != "platform_suggest" and _should_suggest_kurly_early(keywords, tried_platforms):
->>>>>>> 95708f4 (feat: TTS 응답 최적화, 재구매 플로우 개선 및 에이전트 로깅 강화)
         result = {
             "tried_platforms": tried_platforms,
             "target_platforms": [],
