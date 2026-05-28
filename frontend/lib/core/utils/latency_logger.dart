@@ -26,7 +26,9 @@ class FrontendLatencyLogger {
 
   static final FrontendLatencyLogger instance = FrontendLatencyLogger._();
   static const JsonEncoder _encoder = JsonEncoder.withIndent('  ');
-  static const String _mode = 'FRONTEND_STT_TTS';
+  static const String _mode = 'BACKEND_STT_BACKEND_TTS';
+  static const String _sttProvider = 'backend_gemini';
+  static const String _ttsProvider = 'backend_gemini';
 
   final Map<String, _FrontendLatencyTurn> _turns = {};
   final List<Map<String, dynamic>> _completedLogs = [];
@@ -46,6 +48,8 @@ class FrontendLatencyLogger {
       'event': 'latency_session_started',
       'session_id': _sessionId,
       'mode': _mode,
+      'sttProvider': _sttProvider,
+      'ttsProvider': _ttsProvider,
       'started_at': _isoNow(),
     });
   }
@@ -55,6 +59,8 @@ class FrontendLatencyLogger {
       'event': 'latency_session_ended',
       'session_id': _sessionId,
       'mode': _mode,
+      'sttProvider': _sttProvider,
+      'ttsProvider': _ttsProvider,
       'turn_count': _turnCounter,
       'ended_at': _isoNow(),
     });
@@ -130,7 +136,9 @@ class _FrontendLatencyTurn {
       'session_id': context.sessionId,
       'request_id': context.requestId,
       'turn_index': context.turnIndex,
-      'mode': 'FRONTEND_STT_TTS',
+      'mode': 'BACKEND_STT_BACKEND_TTS',
+      'sttProvider': 'backend_gemini',
+      'ttsProvider': 'backend_gemini',
       'interaction_start': _iso('interaction_start'),
       'user_speech_start': _iso('user_speech_start'),
       'user_speech_end': _iso('user_speech_end'),
@@ -139,8 +147,8 @@ class _FrontendLatencyTurn {
       'frontend_request_sent': _iso('frontend_request_sent'),
       'frontend_response_received': _iso('frontend_response_received'),
       'response_text_received': _iso('response_text_received'),
-      'frontend_tts_start': _iso('frontend_tts_start'),
-      'frontend_tts_ready': _iso('frontend_tts_ready'),
+      'backend_tts_request_start': _iso('backend_tts_request_start'),
+      'backend_tts_response_received': _iso('backend_tts_response_received'),
       'audio_play_start': _iso('audio_play_start'),
       'audio_play_end': _iso('audio_play_end'),
       'response_text_length': responseTextLength,
@@ -152,8 +160,12 @@ class _FrontendLatencyTurn {
         'frontend_request_sent',
         'frontend_response_received',
       ),
-      'frontend_tts_processing_ms': _diff(
-        'frontend_tts_start',
+      'backend_tts_round_trip_ms': _diff(
+        'backend_tts_request_start',
+        'backend_tts_response_received',
+      ),
+      'tts_to_playback_ms': _diff(
+        'backend_tts_request_start',
         'audio_play_start',
       ),
       'total_response_latency_ms': _diff('user_speech_end', 'audio_play_start'),

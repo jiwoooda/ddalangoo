@@ -83,6 +83,10 @@ class ApiClient {
     Map<String, dynamic> payload,
   ) {
     final url = payload['url']?.toString() ?? '';
+    if (url.contains('/voice/tts')) {
+      return _summarizeTtsLog(phase, payload, url);
+    }
+
     if (!url.contains('/webview/status')) {
       return payload;
     }
@@ -128,6 +132,39 @@ class ApiClient {
 
     if (phase == 'ERROR') {
       _lastSuppressedWebviewStatusLogKey = null;
+    }
+
+    return payload;
+  }
+
+  static Map<String, dynamic>? _summarizeTtsLog(
+    String phase,
+    Map<String, dynamic> payload,
+    String url,
+  ) {
+    if (phase == 'REQUEST') {
+      final body = payload['body'];
+      final text = body is Map ? body['text'] : null;
+      return {
+        'method': payload['method'],
+        'url': url,
+        'body': {'textLength': text is String ? text.runes.length : null},
+      };
+    }
+
+    if (phase == 'RESPONSE') {
+      final data = payload['data'];
+      final audioBase64 = data is Map ? data['audioBase64'] : null;
+      return {
+        'statusCode': payload['statusCode'],
+        'url': url,
+        'data': {
+          'mimeType': data is Map ? data['mimeType'] : null,
+          'audioBase64Length': audioBase64 is String
+              ? audioBase64.length
+              : null,
+        },
+      };
     }
 
     return payload;

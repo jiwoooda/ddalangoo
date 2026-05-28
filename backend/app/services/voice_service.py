@@ -9,6 +9,8 @@ SDK: google-genai (google.generativeai는 deprecated)
 import os
 import re
 import logging
+import base64
+import struct
 
 from google import genai
 from google.genai import types
@@ -21,6 +23,9 @@ logger = logging.getLogger(__name__)
 # gemini-2.5-flash (stable). Railway 환경변수 GEMINI_STT_MODEL로 재정의 가능.
 # 구 모델명 gemini-2.5-flash-preview-05-20은 2026-05 기준 404 → gemini-2.5-flash로 통합됨.
 _STT_MODEL = os.getenv("GEMINI_STT_MODEL", "models/gemini-2.5-flash")
+_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview")
+_TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Zephyr")
+_TTS_SAMPLE_RATE = 24000
 
 # 기존 프론트 gemini_voice_service.dart STT 프롬프트 기준 + 쇼핑 도메인 표현 정확도 추가.
 _STT_PROMPT = (
@@ -35,11 +40,12 @@ _STT_PROMPT = (
 _MAX_TRANSCRIPT_LENGTH = 200
 _MIN_AUDIO_BYTES = 1000  # 너무 작은 파일은 무음으로 간주
 _MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB
+_MAX_TTS_TEXT_LENGTH = 1000
 
 
-def _get_client() -> genai.Client:
+def _get_client(feature: str = "stt") -> genai.Client:
     api_key = os.getenv("GEMINI_API_KEY", "")
-    logger.info("[voice.stt] GEMINI_API_KEY exists: %s", bool(api_key))
+    logger.info("[voice.%s] GEMINI_API_KEY exists: %s", feature, bool(api_key))
     if not api_key:
         raise HTTPException(
             status_code=503,
@@ -87,7 +93,7 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
     )
 
     try:
-        client = _get_client()
+        client = _get_client("stt")
         response = await client.aio.models.generate_content(
             model=_STT_MODEL,
             contents=[
@@ -180,3 +186,142 @@ def _normalize_transcript(raw: str) -> str:
         return ""
 
     return text
+
+
+async def synthesize_speech(text: str) -> bytes:
+    """텍스트를 Gemini TTS로 합성하고 WAV bytes를 반환한다."""
+    normalized = text.strip()
+    if not normalized:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "code": "INVALID_TEXT",
+                    "message": "TTS로 읽을 텍스트가 비어 있습니다.",
+                }
+            },
+        )
+    if len(normalized) > _MAX_TTS_TEXT_LENGTH:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "error": {
+                    "code": "TEXT_TOO_LONG",
+                    "message": "TTS 텍스트가 너무 깁니다.",
+                }
+            },
+        )
+
+    logger.info(
+        "[voice.tts] Gemini TTS started model=%s voice=%s text_length=%s",
+        _TTS_MODEL,
+        _TTS_VOICE,
+        len(normalized),
+    )
+
+    try:
+        client = _get_client("tts")
+        response = await client.aio.models.generate_content(
+            model=_TTS_MODEL,
+            contents=[_tts_prompt(normalized)],
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=_TTS_VOICE,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        audio_payload = _extract_audio_payload(response)
+        if not audio_payload:
+            raise RuntimeError("Gemini TTS 응답에서 오디오 데이터를 받지 못했습니다.")
+
+        wav_bytes = _wrap_pcm16_as_wav(audio_payload)
+        logger.info("[voice.tts] Gemini TTS succeeded audio_size=%s", len(wav_bytes))
+        return wav_bytes
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("[voice.tts] Gemini TTS failed")
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": {
+                    "code": "TTS_API_ERROR",
+                    "message": f"음성 합성 중 오류가 발생했습니다: {exc}",
+                }
+            },
+        ) from exc
+
+
+def encode_audio_base64(audio_bytes: bytes) -> str:
+    """프론트가 JSON으로 받기 쉽게 audio bytes를 base64 문자열로 변환한다."""
+    return base64.b64encode(audio_bytes).decode("ascii")
+
+
+def _tts_prompt(text: str) -> str:
+    return (
+        "Read the exact following Korean text in Korean. "
+        "Speak like a warm, affectionate daughter helping an older parent shop. "
+        "Use a bright, reassuring, and very kind tone. "
+        "Keep the voice gentle, patient, and easy for older adults to understand. "
+        "Speak about 1.2x faster than a neutral default pace without sounding rushed. "
+        "Pause naturally between sentences. "
+        "Pronounce prices, quantities, dates, addresses, and payment-related words very clearly. "
+        "Sound friendly and comforting, never cold or robotic. "
+        "Do not add, remove, or change any words.\n"
+        f"{text}"
+    )
+
+
+def _extract_audio_payload(response: types.GenerateContentResponse) -> bytes:
+    """Gemini TTS 응답에서 inline audio payload를 꺼낸다."""
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) or []
+        for part in parts:
+            inline_data = getattr(part, "inline_data", None)
+            if not inline_data:
+                continue
+            data = getattr(inline_data, "data", None)
+            if isinstance(data, bytes):
+                return data
+            if isinstance(data, str) and data:
+                return base64.b64decode(data)
+    return b""
+
+
+def _wrap_pcm16_as_wav(
+    pcm_bytes: bytes,
+    *,
+    sample_rate: int = _TTS_SAMPLE_RATE,
+    channels: int = 1,
+) -> bytes:
+    """Gemini TTS의 PCM16 payload를 Flutter가 재생하기 쉬운 WAV로 감싼다."""
+    byte_rate = sample_rate * channels * 2
+    block_align = channels * 2
+    data_size = len(pcm_bytes)
+    riff_size = 36 + data_size
+
+    header = b"".join(
+        [
+            b"RIFF",
+            struct.pack("<I", riff_size),
+            b"WAVE",
+            b"fmt ",
+            struct.pack("<I", 16),
+            struct.pack("<H", 1),
+            struct.pack("<H", channels),
+            struct.pack("<I", sample_rate),
+            struct.pack("<I", byte_rate),
+            struct.pack("<H", block_align),
+            struct.pack("<H", 16),
+            b"data",
+            struct.pack("<I", data_size),
+        ]
+    )
+    return header + pcm_bytes

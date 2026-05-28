@@ -5,6 +5,7 @@ WORKDIR /app
 COPY . .
 
 ARG API_BASE_URL=https://ddalangoo-production.up.railway.app
+ARG USE_GEMINI_TTS=true
 
 # Railway의 build context가 repo root 또는 frontend 중 어느 쪽이어도 동작하게 한다.
 RUN set -eux; \
@@ -20,7 +21,7 @@ RUN set -eux; \
     cd "$FLUTTER_PROJECT_DIR"; \
     test -f .env || printf "API_BASE_URL=\nUSE_OPENAI_REALTIME_VOICE=false\nUSE_GEMINI_TTS=false\n" > .env; \
     flutter pub get; \
-    flutter build web --release --no-wasm-dry-run --dart-define=API_BASE_URL=${API_BASE_URL}; \
+    flutter build web --release --no-wasm-dry-run --dart-define=API_BASE_URL=${API_BASE_URL} --dart-define=USE_GEMINI_TTS=${USE_GEMINI_TTS}; \
     mkdir -p /app/build_output; \
     cp -R build/web/. /app/build_output/
 
