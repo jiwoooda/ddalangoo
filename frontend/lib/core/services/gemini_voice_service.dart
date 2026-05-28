@@ -27,6 +27,13 @@ class GeminiVoiceService {
   static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
   static const String _ttsVoiceName = 'Zephyr';
   static const String _useGeminiTtsEnvKey = 'USE_GEMINI_TTS';
+  static const String _geminiApiKeyEnvKey = 'GEMINI_API_KEY';
+  static const String _definedUseGeminiTts = String.fromEnvironment(
+    _useGeminiTtsEnvKey,
+  );
+  static const String _definedGeminiApiKey = String.fromEnvironment(
+    _geminiApiKeyEnvKey,
+  );
   static const double _ttsSpeedMultiplier = 1.2;
   static const int _sampleRate = 44100;
   static const int _numChannels = 1;
@@ -59,11 +66,22 @@ class GeminiVoiceService {
   bool _isRecordingToFile = false;
   int _recordedByteCount = 0;
   bool _audioPlayEndLogged = false;
+  bool _hasLoggedMissingGeminiTtsKey = false;
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _isSpeaking;
-  bool get _shouldUseGeminiTts =>
-      (dotenv.env[_useGeminiTtsEnvKey] ?? '').toLowerCase() == 'true';
+  bool get _isGeminiTtsRequested =>
+      _readRuntimeValue(
+        key: _useGeminiTtsEnvKey,
+        definedValue: _definedUseGeminiTts,
+      ).toLowerCase() ==
+      'true';
+  bool get _hasGeminiApiKey => _geminiApiKey.isNotEmpty;
+  bool get _shouldUseGeminiTts => _isGeminiTtsRequested && _hasGeminiApiKey;
+  String get _geminiApiKey => _readRuntimeValue(
+    key: _geminiApiKeyEnvKey,
+    definedValue: _definedGeminiApiKey,
+  );
 
   Future<void> init() async {
     await _player.setReleaseMode(ReleaseMode.stop);
@@ -77,10 +95,8 @@ class GeminiVoiceService {
   // USE_GEMINI_TTS=false 설정 시 TTS도 로컬 FlutterTts 폴백을 사용하므로
   // GEMINI_API_KEY가 없어도 앱이 정상 동작한다.
   // Gemini TTS 백엔드 이전 완료 후 이 getter와 _generateSpeech를 제거할 것.
-  GenerativeModel get _model => GenerativeModel(
-    model: _sttModelName,
-    apiKey: dotenv.env['GEMINI_API_KEY'] ?? '',
-  );
+  GenerativeModel get _model =>
+      GenerativeModel(model: _sttModelName, apiKey: _geminiApiKey);
 
   Future<void> startRecording() async {
     if (_isRecording) return;
@@ -160,10 +176,12 @@ class GeminiVoiceService {
 
         wavBytes = await recordingFile.readAsBytes();
         audioBytesLength = wavBytes.length;
-        unawaited(recordingFile.delete().catchError((Object e) {
-          debugPrint('⚠️ [Recording File Delete Error] $e');
-          return recordingFile;
-        }));
+        unawaited(
+          recordingFile.delete().catchError((Object e) {
+            debugPrint('⚠️ [Recording File Delete Error] $e');
+            return recordingFile;
+          }),
+        );
       } else {
         // stream 녹음은 stop 직후 마지막 chunk가 비동기로 들어올 수 있다.
         // 구독을 먼저 끊으면 마지막 오디오 조각을 잃어서 empty buffer가 될 수 있다.
@@ -266,6 +284,10 @@ class GeminiVoiceService {
   Future<void> prefetchSpeech(String text) async {
     final normalized = text.trim();
     if (normalized.isEmpty) return;
+    if (!_shouldUseGeminiTts) {
+      _logMissingGeminiTtsKeyIfNeeded();
+      return;
+    }
 
     try {
       await _getOrCreateSpeech(normalized);
@@ -297,6 +319,7 @@ class GeminiVoiceService {
 
     try {
       if (!_shouldUseGeminiTts) {
+        _logMissingGeminiTtsKeyIfNeeded();
         if (latencyContext != null) {
           FrontendLatencyLogger.instance.mark(
             latencyContext,
@@ -312,7 +335,10 @@ class GeminiVoiceService {
       final wavBytes = await _getOrCreateSpeech(text);
       final speechSource = await _createSpeechPlaybackSource(text, wavBytes);
       if (latencyContext != null) {
-        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_ready');
+        FrontendLatencyLogger.instance.mark(
+          latencyContext,
+          'frontend_tts_ready',
+        );
       }
 
       await _playerCompleteSubscription?.cancel();
@@ -520,8 +546,8 @@ class GeminiVoiceService {
   Future<File?> _getCacheFile(String cacheKey) async {
     if (kIsWeb) return null;
 
-    final directoryFuture =
-        _ttsCacheDirectoryFuture ??= _prepareTtsCacheDirectory();
+    final directoryFuture = _ttsCacheDirectoryFuture ??=
+        _prepareTtsCacheDirectory();
     final directory = await directoryFuture;
     if (directory == null) return null;
 
@@ -571,7 +597,8 @@ class GeminiVoiceService {
     );
 
     final shouldWrite =
-        !await playbackFile.exists() || await playbackFile.length() != wavBytes.length;
+        !await playbackFile.exists() ||
+        await playbackFile.length() != wavBytes.length;
     if (shouldWrite) {
       await playbackFile.writeAsBytes(wavBytes, flush: true);
     }
@@ -637,7 +664,7 @@ class GeminiVoiceService {
   }
 
   Future<Uint8List> _generateSpeech(String text) async {
-    final apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
+    final apiKey = _geminiApiKey;
     if (apiKey.isEmpty) {
       throw Exception('GEMINI_API_KEY가 설정되지 않았습니다.');
     }
@@ -706,10 +733,25 @@ class GeminiVoiceService {
     }
 
     final pcmBytes = base64Decode(encodedAudio);
-    return _wrapPcm16AsWav(
-      pcmBytes,
-      sampleRate: _ttsSampleRate,
-      channels: 1,
+    return _wrapPcm16AsWav(pcmBytes, sampleRate: _ttsSampleRate, channels: 1);
+  }
+
+  String _readRuntimeValue({
+    required String key,
+    required String definedValue,
+  }) {
+    final fromDefine = definedValue.trim();
+    if (fromDefine.isNotEmpty) return fromDefine;
+    return (dotenv.env[key] ?? '').trim();
+  }
+
+  void _logMissingGeminiTtsKeyIfNeeded() {
+    if (!_isGeminiTtsRequested || _hasGeminiApiKey) return;
+    if (_hasLoggedMissingGeminiTtsKey) return;
+    _hasLoggedMissingGeminiTtsKey = true;
+    debugPrint(
+      '⚠️ [Gemini TTS Disabled] USE_GEMINI_TTS=true 이지만 '
+      '프론트 실행 환경에 GEMINI_API_KEY가 없어 로컬 TTS를 사용합니다.',
     );
   }
 

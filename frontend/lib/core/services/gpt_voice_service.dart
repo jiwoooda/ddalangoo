@@ -20,10 +20,7 @@ class GptVoiceService {
     return _instance!;
   }
 
-  // STT는 백엔드 /api/voice/stt 로 위임한다. 직접 API 호출 없음.
-  static const String _sttModelName = 'backend-gemini-stt';
-
-  /// static const String _sttModelName = 'gpt-realtime-whisper';
+  // STT는 백엔드 /api/voice/stt 로 위임한다. 직접 모델명을 관리하지 않는다.
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
 
@@ -268,5 +265,4 @@ class GptVoiceService {
       );
     }
   }
-
 }
