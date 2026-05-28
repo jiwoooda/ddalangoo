@@ -63,6 +63,7 @@ _ADD_PRODUCT_TOKENS = (
     "넣어",
     "넣어줘",
 )
+_PRODUCT_REQUEST_TOKENS = _ADD_PRODUCT_TOKENS + ("사고싶", "살게요", "볼게", "볼래", "찾아")
 _GENERIC_CONTINUE_KEYWORDS = {
     "다른",
     "다른거",
@@ -103,7 +104,7 @@ def _parse_explicit_quantity(v) -> Optional[int]:
     if digit_match:
         return int(digit_match.group(1))
     for kr, num in sorted(_KR_NUM.items(), key=lambda x: -len(x[0])):
-        if re.search(fr"{re.escape(kr)}\s*(개|병|팩|봉|상자|박스|개만|만)", text):
+        if re.search(fr"{re.escape(kr)}\s*(개|병|팩|봉|상자|박스|개만|만)?\s*$", text):
             return num
     return None
 
@@ -128,21 +129,30 @@ def _extract_continue_shopping_keyword(text: str) -> Optional[str]:
     이 단계의 "그래"는 결제 진행이지만, "오이도 담아줘"는 새 검색으로 가야 한다.
     LLM이 pending action 때문에 confirm으로 오판해도 라우터가 쓸 keywords를 안정적으로 만든다.
     """
+    return _extract_product_keyword(text, require_request_token=True)
+
+
+def _extract_product_keyword(text: str, *, require_request_token: bool) -> Optional[str]:
+    """후속 쇼핑 발화에서 상품명 후보를 추출한다."""
     compact = _compact_text(text)
     if not compact or _looks_like_payment_confirmation(text):
         return None
-    if not any(token in compact for token in _ADD_PRODUCT_TOKENS):
+    if require_request_token and not any(token in compact for token in _PRODUCT_REQUEST_TOKENS):
         return None
 
     cleaned = text.strip()
     # 문장 끝의 구매/추가 동사를 먼저 제거한다.
     cleaned = re.sub(
-        r"(담아줘|담아|추가해줘|추가해|추가|사줘|살래|살게|구매해줘|구매|넣어줘|넣어|주세요|줘|해줘)\s*$",
+        r"(담아줘|담아|추가해줘|추가해|추가|사줘|사고\s*싶어|살래|살게요|살게|구매해줘|구매|넣어줘|넣어|볼게요|볼게|볼래|찾아줘|찾아|주세요|줘|해줘)\s*$",
         "",
         cleaned,
     ).strip()
     # 명시 수량과 보조 표현은 상품명 후보에서 제외한다.
-    cleaned = re.sub(r"(\d+\s*개|한\s*개|하나|두\s*개|둘|세\s*개|셋|만|좀|더)", " ", cleaned)
+    cleaned = re.sub(
+        r"(\d+\s*개|한\s*개|하나|두\s*개|둘|세\s*개|셋|만|좀|더)\s*$",
+        " ",
+        cleaned,
+    )
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     # 끝 조사 제거: 오이도 → 오이, 계란을 → 계란
     cleaned = re.sub(r"(도|은|는|이|가|을|를)$", "", cleaned).strip()
@@ -276,6 +286,26 @@ def intent_agent_node(state: ShoppingState) -> dict:
         if continue_keyword:
             intent = "buy"
             keywords = [continue_keyword]
+            needs_clarification = False
+            clarification_reason = None
+            confidence = max(confidence, 0.95)
+            direct_quantity = _parse_explicit_quantity(user_input)
+            if direct_quantity is not None:
+                quantity = direct_quantity
+        elif _looks_like_payment_confirmation(user_input):
+            intent = "confirm"
+            keywords = []
+            needs_clarification = False
+            clarification_reason = None
+            confidence = max(confidence, 0.95)
+
+    # "무엇을 구매하실까요?" 다음 입력은 새 상품 요청으로 해석한다.
+    # 예: "찌개 두부 하나" → keyword="찌개 두부", quantity=1
+    if pending_type == "what_to_buy":
+        what_to_buy_keyword = _extract_product_keyword(user_input, require_request_token=False)
+        if what_to_buy_keyword:
+            intent = "buy"
+            keywords = [what_to_buy_keyword]
             needs_clarification = False
             clarification_reason = None
             confidence = max(confidence, 0.95)

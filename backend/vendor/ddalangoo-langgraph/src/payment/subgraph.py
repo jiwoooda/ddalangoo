@@ -396,15 +396,25 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if stage == "cart_shopping" or pending_type is None:
         cart_items = state.get("cart_items") or []
-        if len(cart_items) > 1:
+        if cart_items:
             cart_total = sum(item["total"] for item in cart_items)
             items_summary = ", ".join(
                 f"{(item.get('keywords') or [item.get('product_name', '상품')])[0]} {item.get('quantity', 1)}개"
                 for item in cart_items
             )
             payment_msg = f"{items_summary}, 총 {cart_total:,}원이에요. 네이버로 결제할까요?"
-        else:
+        elif selected_product:
             payment_msg = f"{short_name} {quantity}개, {total:,}원이에요. 네이버로 결제할까요?"
+        else:
+            return {
+                "stage": "cart_shopping",
+                "error": "payment_precheck_missing_product",
+                "last_agent": "payment_agent",
+                "pending_action": {
+                    "type": "what_to_buy",
+                    "message": "상품을 아직 찾지 못했어요. 무엇을 구매하실까요?",
+                },
+            }
         return {
             "stage": "payment_processing",
             "error": None,

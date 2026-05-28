@@ -31,6 +31,14 @@ def _make_state(user_input: str) -> dict:
     return state
 
 
+def _make_what_to_buy_state(user_input: str) -> dict:
+    state = _make_state(user_input)
+    state["pending_action"] = {"type": "what_to_buy"}
+    state["keywords"] = []
+    state["quantity"] = None
+    return state
+
+
 def test_continue_shopping_product_addition_overrides_confirm(monkeypatch):
     """오이도 담아줘 → 결제 confirm이 아니라 새 buy intent + 오이 keyword."""
     monkeypatch.setattr(
@@ -56,6 +64,37 @@ def test_continue_shopping_payment_confirmation_clears_stale_keywords(monkeypatc
     )
 
     result = intent_agent_node(_make_state("결제할래"))
+
+    assert result["intent"] == "confirm"
+    assert result["keywords"] == []
+    assert result["needs_clarification"] is False
+
+
+def test_what_to_buy_product_with_quantity_becomes_new_purchase(monkeypatch):
+    """무엇을 구매할지 묻는 상태에서 '찌개 두부 하나'는 새 검색 요청이다."""
+    monkeypatch.setattr(
+        intent_agent,
+        "_get_llm",
+        lambda: _FakeStructuredLlm(IntentOutput(intent="confirm", keywords=["찌개"])),
+    )
+
+    result = intent_agent_node(_make_what_to_buy_state("찌개 두부 하나"))
+
+    assert result["intent"] == "buy"
+    assert result["keywords"] == ["찌개 두부"]
+    assert result["quantity"] == 1
+    assert result["needs_clarification"] is False
+
+
+def test_what_to_buy_payment_confirmation_stays_payment(monkeypatch):
+    """무엇을 살지 물은 뒤에도 사용자가 결제를 말하면 기존 장바구니 결제로 간다."""
+    monkeypatch.setattr(
+        intent_agent,
+        "_get_llm",
+        lambda: _FakeStructuredLlm(IntentOutput(intent="buy", keywords=["결제"])),
+    )
+
+    result = intent_agent_node(_make_what_to_buy_state("결제할래"))
 
     assert result["intent"] == "confirm"
     assert result["keywords"] == []

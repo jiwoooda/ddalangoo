@@ -128,6 +128,32 @@ def test_route_cart_shopping_confirm_with_keyword_goes_to_platform_search():
     assert route(state) == "platform_agent"
 
 
+def test_route_cart_shopping_what_to_buy_confirm_with_keyword_searches():
+    """what_to_buy 상태에서 상품 키워드가 있으면 confirm 오판이어도 결제로 가지 않는다."""
+    state = make_state(
+        intent="confirm",
+        stage="cart_shopping",
+        confidence=0.9,
+        needs_clarification=False,
+        keywords=["찌개 두부"],
+        pending_action={"type": "what_to_buy"},
+    )
+    assert route(state) == "platform_agent"
+
+
+def test_route_cart_shopping_what_to_buy_confirm_without_keyword_pays_cart():
+    """what_to_buy 상태라도 사용자가 결제를 명시하면 기존 장바구니 결제로 간다."""
+    state = make_state(
+        intent="confirm",
+        stage="cart_shopping",
+        confidence=0.9,
+        needs_clarification=False,
+        keywords=[],
+        pending_action={"type": "what_to_buy"},
+    )
+    assert route(state) == "payment_agent"
+
+
 # ══════════════════════════════════════════════
 # Product confirming stage
 # ══════════════════════════════════════════════
