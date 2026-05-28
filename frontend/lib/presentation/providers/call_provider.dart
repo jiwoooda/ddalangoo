@@ -99,6 +99,7 @@ class CallProvider extends ChangeNotifier {
 
     return '안내 내용을 음성으로 준비하고 있어요.';
   }
+
   String get currentAssistantMessage =>
       (_lastResponse?.assistantMessage ?? '').trim();
   String? get currentAsyncStatusMessage {
@@ -109,6 +110,7 @@ class CallProvider extends ChangeNotifier {
     }
     return null;
   }
+
   Map<String, dynamic>? get webviewTaskPayload {
     final pending = _lastResponse?.pendingConfirmation;
     if (pending is! Map) return null;
@@ -121,6 +123,7 @@ class CallProvider extends ChangeNotifier {
     }
     return null;
   }
+
   String get webviewUrl {
     final payload = webviewTaskPayload;
     if (payload != null) {
@@ -144,6 +147,7 @@ class CallProvider extends ChangeNotifier {
 
     return 'about:blank';
   }
+
   bool get canShowWebviewProgress =>
       _conversationId != null &&
       (_stage == CallStage.cart ||
@@ -163,6 +167,7 @@ class CallProvider extends ChangeNotifier {
     if (_stage == CallStage.payment) return '결제 화면을 준비하고 있어요.';
     return '웹 화면을 준비하고 있어요.';
   }
+
   String get webviewTargetLabel {
     if (_stage == CallStage.productSelection && _isLoading) {
       return '장바구니 작업';
@@ -171,6 +176,7 @@ class CallProvider extends ChangeNotifier {
     if (_stage == CallStage.payment) return '결제 진행';
     return '웹 진행 상황';
   }
+
   int? get currentOrderId {
     final order = _lastResponse?.order;
     if (order is Map && order['orderId'] is int) return order['orderId'] as int;
@@ -180,6 +186,7 @@ class CallProvider extends ChangeNotifier {
     }
     return null;
   }
+
   int? get currentPaymentId {
     final payment = _lastResponse?.payment;
     if (payment is Map && payment['paymentId'] is int) {
@@ -191,6 +198,7 @@ class CallProvider extends ChangeNotifier {
     }
     return null;
   }
+
   String? get currentWebviewProductName {
     final payload = webviewTaskPayload;
     final targetProductName = payload?['targetProductName'];
@@ -276,6 +284,7 @@ class CallProvider extends ChangeNotifier {
       rethrow;
     }
   }
+
   bool get canUseVoice =>
       _stage != CallStage.loading &&
       _stage != CallStage.completed &&
@@ -328,18 +337,12 @@ class CallProvider extends ChangeNotifier {
           onPlaybackStart: () {
             if (greetingPresented) return;
             greetingPresented = true;
-            _addMessage(
-              text: greetingText,
-              isUser: false,
-            );
+            _addMessage(text: greetingText, isUser: false);
           },
         );
       } finally {
         if (!greetingPresented) {
-          _addMessage(
-            text: greetingText,
-            isUser: false,
-          );
+          _addMessage(text: greetingText, isUser: false);
         }
         _isSpeaking = false;
         notifyListeners();
@@ -401,7 +404,10 @@ class CallProvider extends ChangeNotifier {
       final latencyContext = _activeLatencyContext;
       if (latencyContext != null) {
         FrontendLatencyLogger.instance.mark(latencyContext, 'user_speech_end');
-        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_start');
+        FrontendLatencyLogger.instance.mark(
+          latencyContext,
+          'frontend_stt_start',
+        );
       }
 
       if (_useRealtimeVoice) {
@@ -410,7 +416,10 @@ class CallProvider extends ChangeNotifier {
         await _realtimeVoiceService.stopStreamingConversation();
         final snapshot = await _realtimeVoiceService.waitForAssistantTurn();
         if (latencyContext != null) {
-          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
+          FrontendLatencyLogger.instance.mark(
+            latencyContext,
+            'frontend_stt_end',
+          );
         }
         if (snapshot.userTranscript.isEmpty) {
           _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
@@ -429,7 +438,10 @@ class CallProvider extends ChangeNotifier {
         // OpenAI STT로 텍스트 변환
         final transcript = await _voiceService.stopRecordingAndTranscribe();
         if (latencyContext != null) {
-          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
+          FrontendLatencyLogger.instance.mark(
+            latencyContext,
+            'frontend_stt_end',
+          );
         }
 
         if (transcript.isEmpty) {
@@ -628,15 +640,7 @@ class CallProvider extends ChangeNotifier {
     }
 
     debugPrint(
-      '🧭 [Provider Response Mapping]\n${_jsonEncoder.convert({
-        'conversationId': response.conversationId,
-        'backendStatus': response.status,
-        'backendStage': response.stage,
-        'mappedUiStage': nextStage.name,
-        'pendingConfirmation': response.pendingConfirmation,
-        'recommendationCount': response.recommendations.length,
-        'assistantMessage': response.assistantMessage,
-      })}',
+      '🧭 [Provider Response Mapping]\n${_jsonEncoder.convert({'conversationId': response.conversationId, 'backendStatus': response.status, 'backendStage': response.stage, 'mappedUiStage': nextStage.name, 'pendingConfirmation': response.pendingConfirmation, 'recommendationCount': response.recommendations.length, 'assistantMessage': response.assistantMessage})}',
     );
 
     if (response.stage == 'idle') {
@@ -740,7 +744,8 @@ class CallProvider extends ChangeNotifier {
     final alreadyAddedCard =
         lastMessage != null &&
         lastMessage['type'] == 'product_card' &&
-        lastMessage['recommendationItemId'] == recommendation.recommendationItemId;
+        lastMessage['recommendationItemId'] ==
+            recommendation.recommendationItemId;
     if (alreadyAddedCard) return;
 
     _messages.add({
@@ -843,6 +848,9 @@ class CallProvider extends ChangeNotifier {
         return CallStage.platformSelection;
       case 'product_selection':
       case 'product_confirming':
+        if (!_hasProductSelectionPayload(response)) {
+          return CallStage.clarification;
+        }
         return CallStage.productSelection;
       case 'cart':
       case 'cart_shopping':
@@ -860,12 +868,27 @@ class CallProvider extends ChangeNotifier {
     }
   }
 
+  bool _hasProductSelectionPayload(AgentResponse response) {
+    if (response.recommendations.isNotEmpty) return true;
+    if (response.selectedProduct != null) return true;
+
+    final pending = response.pendingConfirmation;
+    if (pending is! Map) return false;
+    if (pending['type'] != 'product') return false;
+
+    final payload = pending['payload'];
+    if (payload is! Map) return false;
+    return payload['recommendationItemId'] != null ||
+        payload['recommendation_item_id'] != null;
+  }
+
   String _buildAssistantPresentationMessage(
     AgentResponse response,
     CallStage nextStage,
   ) {
     final prefix = _userDisplayName.isEmpty ? '' : '$_userDisplayName님을 위한 ';
-    if (response.asyncStatus is Map && response.asyncStatus['message'] is String) {
+    if (response.asyncStatus is Map &&
+        response.asyncStatus['message'] is String) {
       final asyncMessage = (response.asyncStatus['message'] as String).trim();
       if (asyncMessage.isNotEmpty) return asyncMessage;
     }

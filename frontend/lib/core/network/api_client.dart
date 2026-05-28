@@ -34,39 +34,32 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          _logNetwork(
-            'REQUEST',
-            {
-              'method': options.method,
-              'url': options.uri.toString(),
-              'headers': options.headers,
-              'queryParameters': options.queryParameters,
-              'body': options.data,
-            },
-          );
+          _logNetwork('REQUEST', {
+            'method': options.method,
+            'url': options.uri.toString(),
+            'headers': options.headers,
+            'queryParameters': options.queryParameters,
+            'body': options.data,
+          });
           handler.next(options);
         },
         onResponse: (response, handler) {
-          _logNetwork(
-            'RESPONSE',
-            {
-              'statusCode': response.statusCode,
-              'url': response.requestOptions.uri.toString(),
-              'data': response.data,
-            },
-          );
+          _logNetwork('RESPONSE', {
+            'statusCode': response.statusCode,
+            'url': response.requestOptions.uri.toString(),
+            'data': response.data,
+          });
           handler.next(response);
         },
         onError: (error, handler) {
-          _logNetwork(
-            'ERROR',
-            {
-              'url': error.requestOptions.uri.toString(),
-              'message': error.message,
-              'statusCode': error.response?.statusCode,
-              'data': error.response?.data,
-            },
-          );
+          _logNetwork('ERROR', {
+            'url': error.requestOptions.uri.toString(),
+            'message': error.message,
+            'type': error.type.name,
+            'error': error.error?.toString(),
+            'statusCode': error.response?.statusCode,
+            'data': error.response?.data,
+          });
           handler.next(error);
         },
       ),
@@ -95,17 +88,20 @@ class ApiClient {
     }
 
     if (phase == 'REQUEST') {
-      return {
-        'method': payload['method'],
-        'url': url,
-      };
+      return {'method': payload['method'], 'url': url};
     }
 
     if (phase == 'RESPONSE') {
       final data = payload['data'];
-      final status = data is Map<String, dynamic> ? data['status']?.toString() : null;
-      final step = data is Map<String, dynamic> ? data['step']?.toString() : null;
-      final message = data is Map<String, dynamic> ? data['message']?.toString() : null;
+      final status = data is Map<String, dynamic>
+          ? data['status']?.toString()
+          : null;
+      final step = data is Map<String, dynamic>
+          ? data['step']?.toString()
+          : null;
+      final message = data is Map<String, dynamic>
+          ? data['message']?.toString()
+          : null;
       final signature = '$url|$status|$step|$message';
 
       if (status == 'idle') {
@@ -127,11 +123,7 @@ class ApiClient {
       }
 
       _lastSuppressedWebviewStatusLogKey = null;
-      return {
-        'statusCode': payload['statusCode'],
-        'url': url,
-        'data': data,
-      };
+      return {'statusCode': payload['statusCode'], 'url': url, 'data': data};
     }
 
     if (phase == 'ERROR') {

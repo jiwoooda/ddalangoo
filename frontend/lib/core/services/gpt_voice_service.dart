@@ -252,8 +252,12 @@ class GptVoiceService {
     final statusCode = error.response?.statusCode;
     final body = error.response?.data;
     final details = body is String ? body : jsonEncode(body);
+    final transportError = error.error?.toString();
     return '$label 요청에 실패했습니다'
         '${statusCode == null ? '' : ' (HTTP $statusCode)'}'
+        ' [${error.type.name}]'
+        '${error.message == null ? '' : ': ${error.message}'}'
+        '${transportError == null ? '' : ' / $transportError'}'
         '${details.isEmpty ? '' : ': $details'}';
   }
 
