@@ -105,6 +105,11 @@ def route(state: ShoppingState) -> RouteName:
                 return _decide("quantity_check")
             return _decide("payment_agent")
 
+        if intent in ("buy", "reorder"):
+            if intent == "reorder":
+                return _decide("memory_agent")
+            return _decide("platform_agent")
+
         if intent in ("deny", "next", "ask"):
             return _decide("product_agent")
 

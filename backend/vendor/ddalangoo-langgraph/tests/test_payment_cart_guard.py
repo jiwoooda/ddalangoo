@@ -57,3 +57,20 @@ def test_cart_payment_without_product_or_cart_does_not_create_zero_won_precheck(
     assert result["stage"] == "cart_shopping"
     assert result["pending_action"]["type"] == "what_to_buy"
     assert "총 0원" not in result["pending_action"]["message"]
+
+
+def test_payment_method_confirm_requires_default_address():
+    """기본 배송지가 없으면 빈 주소 확인 문장을 만들지 않는다."""
+    state = make_state(
+        stage="payment_processing",
+        intent="confirm",
+        selected_product={"product_name": "두부", "price": 3000},
+        quantity=1,
+        pending_action={"type": "payment_method_confirm"},
+    )
+
+    result = payment_agent_node(state)
+
+    assert result["pending_action"]["type"] == "address_required"
+    assert result["error"] == "address_required"
+    assert "로 보낼게요" not in result["pending_action"]["message"]

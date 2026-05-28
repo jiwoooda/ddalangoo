@@ -99,3 +99,36 @@ def test_what_to_buy_payment_confirmation_stays_payment(monkeypatch):
     assert result["intent"] == "confirm"
     assert result["keywords"] == []
     assert result["needs_clarification"] is False
+
+
+def test_product_confirm_replacement_request_searches_new_product(monkeypatch):
+    """그거 말고 수박 사줘 → 기존 상품 confirm이 아니라 수박 새 검색."""
+    monkeypatch.setattr(
+        intent_agent,
+        "_get_llm",
+        lambda: _FakeStructuredLlm(IntentOutput(intent="next", keywords=["토마토"])),
+    )
+
+    state = _make_state("그거 말고 수박 사줘")
+    state["pending_action"] = {"type": "product_confirm"}
+    result = intent_agent_node(state)
+
+    assert result["intent"] == "buy"
+    assert result["keywords"] == ["수박"]
+    assert result["quantity"] is None
+
+
+def test_payment_method_ambiguous_text_is_not_confirm(monkeypatch):
+    """payment_method_confirm에서 '음'은 결제 동의로 처리하지 않는다."""
+    monkeypatch.setattr(
+        intent_agent,
+        "_get_llm",
+        lambda: _FakeStructuredLlm(IntentOutput(intent="confirm", keywords=[])),
+    )
+
+    state = _make_state("음")
+    state["pending_action"] = {"type": "payment_method_confirm"}
+    result = intent_agent_node(state)
+
+    assert result["intent"] == "unclear"
+    assert result["needs_clarification"] is True

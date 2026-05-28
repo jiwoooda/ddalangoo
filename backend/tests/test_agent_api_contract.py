@@ -136,7 +136,26 @@ def test_messages_address_confirm_can_trigger_order_creation():
     assert agent_service._should_create_order_from_message(
         {"intent": "confirm"},
         "address_confirm",
+        "응",
     )
+
+
+def test_payment_method_confirm_rejects_ambiguous_confirmation_text():
+    """결제수단 확인에서 '음'은 명시적 동의가 아니므로 주문 생성 후처리를 막는다."""
+    assert agent_service._should_create_order_from_message(
+        {"intent": "confirm"},
+        "payment_method_confirm",
+        "음",
+    ) is False
+
+
+def test_payment_method_confirm_accepts_explicit_payment_text():
+    """결제수단 확인은 결제 의사가 명확한 발화에서만 주문 생성으로 이어진다."""
+    assert agent_service._should_create_order_from_message(
+        {"intent": "confirm"},
+        "payment_method_confirm",
+        "결제할래",
+    ) is True
 
 
 def test_real_browser_unsupported_platform_records_failed_progress(monkeypatch):
@@ -300,6 +319,12 @@ def test_recommendation_sync_ignores_shared_kurly_search_url_when_matching():
             "product_url": search_url,
         },
     ) is False
+
+
+def test_recommendation_sync_does_not_treat_product_id_as_recommendation_item_id():
+    """candidate.id는 product id일 수 있으므로 recommendation_item_id로 쓰면 안 된다."""
+    assert recommendation_sync._recommendation_item_id({"id": 473}) is None
+    assert recommendation_sync._recommendation_item_id({"recommendationItemId": 473}) == 473
 
 
 def test_webview_order_input_uses_recommendation_item_snapshot():

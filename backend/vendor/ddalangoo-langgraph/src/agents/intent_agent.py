@@ -49,6 +49,7 @@ _PAYMENT_CONFIRM_SHORT_TEXTS = {
     "이제결제",
     "이제결제할래",
 }
+_AMBIGUOUS_CONFIRM_TEXTS = {"음", "음.", "음...", "으음", "흠", "어", "어..."}
 _PAYMENT_CONFIRM_TOKENS = ("결제", "계산", "네이버", "페이")
 _ADD_PRODUCT_TOKENS = (
     "담아",
@@ -100,7 +101,12 @@ def _parse_explicit_quantity(v) -> Optional[int]:
     if isinstance(v, int):
         return v
     text = str(v).strip()
-    digit_match = re.search(r"(\d+)\s*(개|병|팩|봉|상자|박스|개만)?", text)
+    text = re.sub(
+        r"(담아줘|담아|추가해줘|추가해|추가|사줘|사고\s*싶어|살래|살게요|살게|구매해줘|구매|넣어줘|넣어|볼게요|볼게|볼래|찾아줘|찾아|주세요|줘|해줘)\s*$",
+        "",
+        text,
+    ).strip()
+    digit_match = re.search(r"(\d+)\s*(개|병|팩|봉|상자|박스|개만|만)\s*$", text)
     if digit_match:
         return int(digit_match.group(1))
     for kr, num in sorted(_KR_NUM.items(), key=lambda x: -len(x[0])):
@@ -122,6 +128,11 @@ def _looks_like_payment_confirmation(text: str) -> bool:
     return any(token in compact for token in _PAYMENT_CONFIRM_TOKENS)
 
 
+def _looks_ambiguous_confirmation(text: str) -> bool:
+    """결제 단계에서 바로 확정하면 위험한 짧은 망설임 표현인지 판별한다."""
+    return _compact_text(text) in _AMBIGUOUS_CONFIRM_TEXTS
+
+
 def _extract_continue_shopping_keyword(text: str) -> Optional[str]:
     """
     "결제할까요, 다른 것도 보실래요?" 다음 발화에서 새 상품명을 뽑는다.
@@ -141,6 +152,7 @@ def _extract_product_keyword(text: str, *, require_request_token: bool) -> Optio
         return None
 
     cleaned = text.strip()
+    cleaned = re.sub(r"^(그거\s*말고|그건\s*말고|말고|다른\s*거\s*말고)\s*", "", cleaned).strip()
     # 문장 끝의 구매/추가 동사를 먼저 제거한다.
     cleaned = re.sub(
         r"(담아줘|담아|추가해줘|추가해|추가|사줘|사고\s*싶어|살래|살게요|살게|구매해줘|구매|넣어줘|넣어|볼게요|볼게|볼래|찾아줘|찾아|주세요|줘|해줘)\s*$",
@@ -318,6 +330,27 @@ def intent_agent_node(state: ShoppingState) -> dict:
             needs_clarification = False
             clarification_reason = None
             confidence = max(confidence, 0.95)
+
+    # 추천/수량 확인 중에도 "그거 말고 수박 사줘"처럼 새 상품명이 나오면
+    # 현재 selected_product/recommendation_item_id를 수락한 것으로 보면 안 된다.
+    if pending_type in ("product_confirm", "quantity_confirm"):
+        replacement_keyword = _extract_product_keyword(user_input, require_request_token=True)
+        if replacement_keyword:
+            intent = "buy"
+            keywords = [replacement_keyword]
+            needs_clarification = False
+            clarification_reason = None
+            confidence = max(confidence, 0.95)
+            direct_quantity = _parse_explicit_quantity(user_input)
+            quantity = direct_quantity
+
+    if pending_type == "payment_method_confirm" and _looks_ambiguous_confirmation(user_input):
+        intent = "unclear"
+        keywords = []
+        needs_clarification = True
+        clarification_reason = "결제 진행 여부가 명확하지 않습니다."
+        confidence = 0.4
+        quantity = None
 
     # 새 구매 탐색 intent에서는 이전 state 수량 인계 금지
     # (이전 상품 구매 때 남은 quantity가 새 상품에 그대로 쓰이는 문제 방지)

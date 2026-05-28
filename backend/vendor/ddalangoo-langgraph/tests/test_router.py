@@ -219,6 +219,19 @@ def test_route_product_confirming_compare_platforms():
     assert route(state) == "platform_agent"
 
 
+def test_route_product_confirming_new_buy_replaces_current_product():
+    """상품 확인 중 새 상품 구매 요청이 오면 기존 추천 반복이 아니라 새 검색으로 간다."""
+    state = make_state(
+        intent="buy",
+        stage="product_confirming",
+        confidence=0.9,
+        needs_clarification=False,
+        keywords=["수박"],
+        pending_action={"type": "product_confirm"},
+    )
+    assert route(state) == "platform_agent"
+
+
 # ══════════════════════════════════════════════
 # Idle stage — routing map
 # ══════════════════════════════════════════════

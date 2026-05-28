@@ -237,14 +237,40 @@ def _is_payment_method_accept(
     return pending_action_before == "payment_method_confirm" and state.get("intent") == "confirm"
 
 
+def _is_explicit_payment_confirmation(message: str) -> bool:
+    """결제는 짧은 망설임이 아니라 명시적 긍정/결제 표현에서만 진행한다."""
+    compact = "".join(str(message or "").split())
+    explicit_texts = {
+        "응",
+        "네",
+        "그래",
+        "좋아",
+        "맞아",
+        "결제",
+        "결제할래",
+        "결제해줘",
+        "결제할게",
+        "네이버로결제",
+        "네이버페이로해줘",
+    }
+    if compact in explicit_texts:
+        return True
+    return any(token in compact for token in ("결제", "네이버페이", "네이버로"))
+
+
 def _should_create_order_from_message(
     state: dict,
     pending_action_before: str | None,
+    user_message: str,
 ) -> bool:
     """자연어 /messages 흐름에서 주문 생성 후처리를 연결해야 하는지 판단한다."""
     return (
         pending_action_before in {"payment_method_confirm", "address_confirm"}
         and state.get("intent") == "confirm"
+        and (
+            pending_action_before != "payment_method_confirm"
+            or _is_explicit_payment_confirmation(user_message)
+        )
         and not state.get("order")
         and not state.get("payment")
     )
@@ -261,7 +287,6 @@ def _should_add_cart_from_message(
         and state.get("intent") == "confirm"
         and state.get("stage") == "cart_shopping"
         and pending_action.get("type") == "continue_shopping"
-        and not state.get("cart")
     )
 
 
@@ -305,6 +330,15 @@ def _quantity_from_order_bundle(order_bundle: dict, recommendation_item_id: int)
             return int(order_item.get("quantity") or 1)
     first_order_item = (order_bundle.get("order_items") or [{}])[0]
     return int(first_order_item.get("quantity") or 1)
+
+
+def _first_order_recommendation_item_id(order_bundle: dict) -> int | None:
+    """WebView 실행 대상은 stale selected_product가 아니라 생성된 order_items에서 고른다."""
+    for order_item in order_bundle.get("order_items") or []:
+        item_id = order_item.get("recommendation_item_id")
+        if item_id:
+            return int(item_id)
+    return None
 
 
 def _webview_input_from_recommendation_item(
@@ -875,12 +909,17 @@ async def _persist_cart_order_payment_for_confirm(
             user_id=user_id,
             conversation_id=conversation_id,
         )
-        cart_item = await cart_repository.add_recommendation_item_to_cart_db(
-            db,
-            cart_id=cart["id"],
-            recommendation_item_id=recommendation_item_id,
-            quantity=state.get("quantity") or 1,
-        )
+        existing_cart_items = await cart_repository.get_cart_items_by_cart_id_db(db, cart["id"])
+        should_add_item = action == "add_to_cart" or not existing_cart_items
+        if should_add_item:
+            cart_item = await cart_repository.add_recommendation_item_to_cart_db(
+                db,
+                cart_id=cart["id"],
+                recommendation_item_id=recommendation_item_id,
+                quantity=state.get("quantity") or 1,
+            )
+        else:
+            cart_item = existing_cart_items[-1] if existing_cart_items else None
     except ValueError as error:
         raise HTTPException(status_code=409, detail={
             "category": "ORDER_ERROR",
@@ -894,7 +933,7 @@ async def _persist_cart_order_payment_for_confirm(
         agent_name="cart_service",
         event_type="cart_created",
         input_summary={"recommendation_item_id": recommendation_item_id, "action": action},
-        output_summary={"cart_id": cart["id"], "cart_item_id": cart_item["id"]},
+        output_summary={"cart_id": cart["id"], "cart_item_id": cart_item["id"] if cart_item else None},
     )
 
     state_patch: dict = {
@@ -949,11 +988,15 @@ async def _persist_cart_order_payment_for_confirm(
 
         assistant_message = _payment_ready_message(order_bundle)
         selected_product = state.get("selected_product") or {}
+        webview_recommendation_item_id = (
+            _first_order_recommendation_item_id(order_bundle)
+            or recommendation_item_id
+        )
         webview_input = await _build_webview_order_input(
             db,
             user_id=user_id,
             conversation_id=conversation_id,
-            recommendation_item_id=recommendation_item_id,
+            recommendation_item_id=webview_recommendation_item_id,
             selected_product=selected_product if isinstance(selected_product, dict) else {},
             order_bundle=order_bundle,
         )
@@ -1094,7 +1137,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         stage_before=snapshot.values.get("stage"),
         pending_action_before=pending_action_before,
     )
-    if _should_create_order_from_message(state, pending_action_before):
+    if _should_create_order_from_message(state, pending_action_before, req.message):
         recommendation_item_id = _selected_recommendation_item_id(state)
         if recommendation_item_id is not None:
             state = await _persist_cart_order_payment_for_confirm(

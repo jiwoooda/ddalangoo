@@ -433,6 +433,17 @@ def payment_agent_node(state: ShoppingState) -> dict:
         addr1 = address.get("address_line1", "")
         addr2 = address.get("address_line2", "")
         address_display = f"{addr1} {addr2}".strip() if addr2 else addr1
+        if not address_display:
+            return {
+                "stage": "cart_shopping",
+                "error": "address_required",
+                "last_agent": "payment_agent",
+                "pending_action": {
+                    "type": "address_required",
+                    "message": "배송지가 아직 없어요. 먼저 배송지를 등록해 주세요.",
+                    "payload": {"subType": "address_required"},
+                },
+            }
         return {
             "stage": "payment_processing",
             "error": None,
