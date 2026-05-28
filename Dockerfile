@@ -2,11 +2,12 @@ FROM ghcr.io/cirruslabs/flutter:stable AS build
 
 WORKDIR /app
 
-# 프론트만 먼저 복사해서 Docker layer cache가 pubspec 변경 기준으로 동작하게 한다.
-COPY frontend/pubspec.* ./
+# Railway 프론트 서비스의 build context는 frontend 디렉터리다.
+# 따라서 Dockerfile이 repo root에 있더라도 COPY 경로는 frontend 내부 기준으로 쓴다.
+COPY pubspec.* ./
 RUN flutter pub get
 
-COPY frontend/ ./
+COPY . .
 
 # Railway/GitHub에는 .env를 올리지 않아도 Flutter asset 번들링이 실패하지 않게 한다.
 RUN test -f .env || printf "API_BASE_URL=\nUSE_OPENAI_REALTIME_VOICE=false\nUSE_GEMINI_TTS=false\n" > .env
