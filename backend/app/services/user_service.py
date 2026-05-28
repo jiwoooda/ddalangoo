@@ -86,6 +86,53 @@ async def create_user_db(db: AsyncSession, req: UserCreateRequest) -> UserRespon
     return _to_response(user)
 
 
+async def get_user_db(db: AsyncSession, user_id: int) -> UserResponse:
+    """DB에서 userId로 사용자를 조회한다.
+
+    POST /users가 DB에 저장한 사용자를 GET /users/{id}가 바로 찾을 수 있어야 한다.
+    """
+    user = await user_repository.get_user_by_id_db(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "category": "USER_ERROR",
+                "code": "USER_NOT_FOUND",
+                "message": "사용자를 찾을 수 없습니다.",
+            },
+        )
+    return _to_response(user)
+
+
+async def update_user_db(
+    db: AsyncSession,
+    user_id: int,
+    req: UserUpdateRequest,
+) -> UserResponse:
+    """DB 사용자 정보를 수정한다."""
+    data = {"updated_at": datetime.datetime.now(datetime.timezone.utc)}
+    if req.name is not None:
+        data["name"] = req.name
+    if req.phoneNumber is not None:
+        data["phone_number"] = normalize_phone(req.phoneNumber)
+    if req.ageGroup is not None:
+        data["age_group"] = req.ageGroup
+    if req.gender is not None:
+        data["gender"] = req.gender
+
+    user = await user_repository.update_user_db(db, user_id, data)
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "category": "USER_ERROR",
+                "code": "USER_NOT_FOUND",
+                "message": "사용자를 찾을 수 없습니다.",
+            },
+        )
+    return _to_response(user)
+
+
 async def login_by_phone(db: AsyncSession, req: UserLoginRequest) -> UserResponse:
     """전화번호 기반 로그인.
 

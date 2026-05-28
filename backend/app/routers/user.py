@@ -34,12 +34,22 @@ async def create_user(req: UserCreateRequest, db: AsyncSession = Depends(get_db)
 
 
 @router.get("/{userId}", response_model=UserResponse)
-def get_user(userId: int):
-    """userId로 사용자 조회 (mock 기반 — 전환 단계 호환용)."""
-    return user_service.get_user(userId)
+async def get_user(userId: int, db: AsyncSession = Depends(get_db)):
+    """userId로 사용자 조회.
+
+    회원가입/로그인은 DB 기반이므로 조회도 같은 DB를 봐야 한다.
+    """
+    return await user_service.get_user_db(db, userId)
 
 
 @router.patch("/{userId}", response_model=UserResponse)
-def update_user(userId: int, req: UserUpdateRequest):
-    """사용자 정보 수정 (mock 기반 — 전환 단계 호환용)."""
-    return user_service.update_user(userId, req)
+async def update_user(
+    userId: int,
+    req: UserUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """사용자 정보 수정.
+
+    회원가입된 DB 사용자를 수정하고, 전환 단계 mock 사용자는 repository에서 DB에 시드한다.
+    """
+    return await user_service.update_user_db(db, userId, req)

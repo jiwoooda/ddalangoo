@@ -110,6 +110,24 @@ async def create_user_db(db: AsyncSession, data: dict) -> dict:
     return _user_to_dict(user)
 
 
+async def update_user_db(db: AsyncSession, user_id: int, data: dict) -> Optional[dict]:
+    """DB 사용자 정보를 수정한다."""
+    user = await db.get(User, user_id)
+    if not user:
+        await get_user_by_id_db(db, user_id)
+        user = await db.get(User, user_id)
+    if not user:
+        return None
+
+    for key, value in data.items():
+        if value is not None:
+            setattr(user, key, value)
+
+    await db.commit()
+    await db.refresh(user)
+    return _user_to_dict(user)
+
+
 async def update_last_login_db(db: AsyncSession, user_id: int) -> None:
     """로그인 성공 시 last_login_at을 갱신한다."""
     user = await db.get(User, user_id)
