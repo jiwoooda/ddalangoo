@@ -154,6 +154,9 @@ async def save_purchase_history_from_state_db(
     product: dict,
     quantity: int,
     keyword: str | None = None,
+    conversation_id: int | None = None,
+    order_id: int | None = None,
+    payment_id: int | None = None,
 ) -> dict:
     """
     LangGraph stage=completed 시 state에서 직접 구매이력을 저장한다.
@@ -162,6 +165,9 @@ async def save_purchase_history_from_state_db(
     from datetime import UTC, datetime
     history = PurchaseHistory(
         user_id=user_id,
+        conversation_id=conversation_id,
+        order_id=order_id,
+        payment_id=payment_id,
         platform=product.get("platform"),
         keyword=keyword,
         product_name_snapshot=product.get("product_name") or product.get("product_name_snapshot") or "",
