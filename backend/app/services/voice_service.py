@@ -8,10 +8,13 @@ SDK: google-genai (google.generativeai는 deprecated)
 
 import os
 import re
+import logging
 
 from google import genai
 from google.genai import types
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 # ── 모델 / 프롬프트 ─────────────────────────────────────────────────────────
 
@@ -36,6 +39,7 @@ _MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB
 
 def _get_client() -> genai.Client:
     api_key = os.getenv("GEMINI_API_KEY", "")
+    logger.info("[voice.stt] GEMINI_API_KEY exists: %s", bool(api_key))
     if not api_key:
         raise HTTPException(
             status_code=503,
@@ -56,6 +60,10 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
     오류 시 HTTPException을 발생시킨다.
     """
     if len(audio_bytes) < _MIN_AUDIO_BYTES:
+        logger.info(
+            "[voice.stt] audio too small; returning empty transcript size=%s",
+            len(audio_bytes),
+        )
         return ""
 
     if len(audio_bytes) > _MAX_AUDIO_BYTES:
@@ -71,6 +79,12 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
 
     # 지원 MIME 타입 정규화
     safe_mime = _normalize_mime(mime_type)
+    logger.info(
+        "[voice.stt] Gemini STT request started model=%s mime_type=%s size=%s",
+        _STT_MODEL,
+        safe_mime,
+        len(audio_bytes),
+    )
 
     try:
         client = _get_client()
@@ -82,11 +96,18 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
             ],
         )
         raw = (response.text or "").strip()
-        return _normalize_transcript(raw)
+        transcript = _normalize_transcript(raw)
+        logger.info(
+            "[voice.stt] Gemini STT succeeded raw_length=%s transcript_length=%s",
+            len(raw),
+            len(transcript),
+        )
+        return transcript
 
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("[voice.stt] Gemini STT failed")
         raise HTTPException(
             status_code=502,
             detail={

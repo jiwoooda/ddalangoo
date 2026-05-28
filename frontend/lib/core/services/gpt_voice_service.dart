@@ -23,6 +23,8 @@ class GptVoiceService {
   // STT는 백엔드 /api/voice/stt 로 위임한다. 직접 모델명을 관리하지 않는다.
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
+  static const String _sttMultipartFieldName = 'file';
+  static const String _sttEndpointPath = '/api/voice/stt';
 
   // STT 프롬프트는 백엔드 voice_service.py에서 관리한다.
 
@@ -95,6 +97,7 @@ class GptVoiceService {
       }
 
       final audioFile = File(path);
+      await _logRecordedFile('recording_stopped', audioFile);
       final transcript = await transcribeAudioFile(audioFile);
       return transcript;
     } finally {
@@ -118,8 +121,9 @@ class GptVoiceService {
     }
 
     try {
+      await _logRecordedFile('stt_request_prepare', audioFile);
       final formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(
+        _sttMultipartFieldName: await MultipartFile.fromFile(
           audioFile.path,
           filename: audioFile.uri.pathSegments.isNotEmpty
               ? audioFile.uri.pathSegments.last
@@ -127,8 +131,15 @@ class GptVoiceService {
         ),
       });
 
+      debugPrint(
+        '🎙️ [STT Request] '
+        'requestUrl=${ApiClient.baseUrl}$_sttEndpointPath, '
+        'multipartFieldName=$_sttMultipartFieldName, '
+        'fileSize=$fileLength',
+      );
+
       final response = await ApiClient.dio.post<Map<String, dynamic>>(
-        '/api/voice/stt',
+        _sttEndpointPath,
         data: formData,
         options: Options(
           contentType: 'multipart/form-data',
@@ -139,6 +150,16 @@ class GptVoiceService {
       final text = _extractTranscriptText(response.data);
       return text; // 빈 발화는 빈 문자열로 반환 (오류 아님)
     } on DioException catch (e) {
+      await _logRecordedFile('stt_request_failed', audioFile);
+      debugPrint(
+        '❌ [STT Dio Error] '
+        'requestUrl=${ApiClient.baseUrl}$_sttEndpointPath, '
+        'multipartFieldName=$_sttMultipartFieldName, '
+        'type=${e.type.name}, '
+        'message=${e.message}, '
+        'statusCode=${e.response?.statusCode}, '
+        'data=${e.response?.data}',
+      );
       throw Exception(_buildHttpErrorMessage('STT', e));
     }
   }
@@ -230,6 +251,18 @@ class GptVoiceService {
         await file.delete();
       }
     } catch (_) {}
+  }
+
+  Future<void> _logRecordedFile(String event, File audioFile) async {
+    final exists = await audioFile.exists();
+    final size = exists ? await audioFile.length() : 0;
+    debugPrint(
+      '🎙️ [STT File] '
+      'event=$event, '
+      'recordPath=${audioFile.path}, '
+      'fileExists=$exists, '
+      'fileSize=$size',
+    );
   }
 
   String _extractTranscriptText(Map<String, dynamic>? data) {

@@ -75,7 +75,7 @@ class ApiClient {
     final summarized = _summarizeNetworkLog(phase, payload);
     if (summarized == null) return;
     const encoder = JsonEncoder.withIndent('  ');
-    debugPrint('🌐 [API $phase]\n${encoder.convert(summarized)}');
+    debugPrint('🌐 [API $phase]\n${encoder.convert(_jsonSafe(summarized))}');
   }
 
   static Map<String, dynamic>? _summarizeNetworkLog(
@@ -131,5 +131,52 @@ class ApiClient {
     }
 
     return payload;
+  }
+
+  static Object? _jsonSafe(Object? value) {
+    if (value == null || value is num || value is bool || value is String) {
+      return value;
+    }
+
+    if (value is FormData) {
+      return {
+        'type': 'FormData',
+        'fields': [
+          for (final field in value.fields)
+            {'name': field.key, 'value': field.value},
+        ],
+        'files': [
+          for (final fileEntry in value.files)
+            {
+              'fieldName': fileEntry.key,
+              'filename': fileEntry.value.filename,
+              'contentType': fileEntry.value.contentType.toString(),
+              'length': fileEntry.value.length,
+            },
+        ],
+      };
+    }
+
+    if (value is MultipartFile) {
+      return {
+        'type': 'MultipartFile',
+        'filename': value.filename,
+        'contentType': value.contentType.toString(),
+        'length': value.length,
+      };
+    }
+
+    if (value is Map) {
+      return {
+        for (final entry in value.entries)
+          entry.key.toString(): _jsonSafe(entry.value),
+      };
+    }
+
+    if (value is Iterable) {
+      return [for (final item in value) _jsonSafe(item)];
+    }
+
+    return value.toString();
   }
 }
