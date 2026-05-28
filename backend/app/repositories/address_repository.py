@@ -76,3 +76,98 @@ async def get_default_address_by_user_id_db(
     if not address:
         return None
     return _address_to_dict(address)
+
+
+async def get_addresses_by_user_id_db(db: AsyncSession, user_id: int) -> list[dict]:
+    """DB에서 사용자의 배송지 목록을 조회한다."""
+    result = await db.execute(
+        select(UserAddress)
+        .where(UserAddress.user_id == user_id)
+        .order_by(UserAddress.is_default.desc(), UserAddress.id.asc())
+    )
+    return [_address_to_dict(address) for address in result.scalars().all()]
+
+
+async def get_address_by_id_db(db: AsyncSession, address_id: int) -> Optional[dict]:
+    """DB에서 배송지 단건을 조회한다."""
+    address = await db.get(UserAddress, address_id)
+    if not address:
+        return None
+    return _address_to_dict(address)
+
+
+async def create_address_db(db: AsyncSession, data: dict) -> dict:
+    """DB에 배송지를 생성한다. 기본 배송지로 지정하면 기존 기본값은 해제한다."""
+    if data.get("is_default"):
+        await _clear_default_addresses_db(db, data["user_id"])
+
+    address = UserAddress(
+        user_id=data["user_id"],
+        address_label=data.get("address_label"),
+        recipient_name=data["recipient_name"],
+        recipient_phone=data["recipient_phone"],
+        zip_code=data.get("zip_code"),
+        address_line1=data["address_line1"],
+        address_line2=data.get("address_line2"),
+        delivery_request=data.get("delivery_request"),
+        is_default=data.get("is_default", False),
+    )
+    db.add(address)
+    await db.commit()
+    await db.refresh(address)
+    return _address_to_dict(address)
+
+
+async def update_address_db(
+    db: AsyncSession,
+    address_id: int,
+    data: dict,
+) -> Optional[dict]:
+    """DB 배송지를 수정한다."""
+    address = await db.get(UserAddress, address_id)
+    if not address:
+        return None
+
+    for key, value in data.items():
+        if value is not None:
+            setattr(address, key, value)
+
+    await db.commit()
+    await db.refresh(address)
+    return _address_to_dict(address)
+
+
+async def set_default_address_db(
+    db: AsyncSession,
+    user_id: int,
+    address_id: int,
+) -> Optional[dict]:
+    """사용자의 기본 배송지를 변경한다."""
+    address = await db.get(UserAddress, address_id)
+    if not address or address.user_id != user_id:
+        return None
+
+    await _clear_default_addresses_db(db, user_id)
+    address.is_default = True
+    await db.commit()
+    await db.refresh(address)
+    return _address_to_dict(address)
+
+
+async def delete_address_db(db: AsyncSession, address_id: int) -> bool:
+    """DB 배송지를 삭제한다."""
+    address = await db.get(UserAddress, address_id)
+    if not address:
+        return False
+    await db.delete(address)
+    await db.commit()
+    return True
+
+
+async def _clear_default_addresses_db(db: AsyncSession, user_id: int) -> None:
+    """사용자의 기존 기본 배송지 표시를 해제한다."""
+    result = await db.execute(
+        select(UserAddress).where(UserAddress.user_id == user_id)
+    )
+    for address in result.scalars().all():
+        address.is_default = False

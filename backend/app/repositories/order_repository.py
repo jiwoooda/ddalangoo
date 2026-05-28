@@ -132,6 +132,39 @@ async def get_order_by_id_db(db: AsyncSession, order_id: int) -> Optional[dict]:
     return _order_to_dict(order)
 
 
+async def get_orders_by_user_id_db(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    status: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    """DB에서 사용자의 주문 목록을 조회한다."""
+    stmt = select(Order).where(Order.user_id == user_id).order_by(Order.id.desc())
+    if status:
+        stmt = stmt.where(Order.status == status)
+    if limit:
+        stmt = stmt.limit(limit)
+    result = await db.execute(stmt)
+    return [_order_to_dict(order) for order in result.scalars().all()]
+
+
+async def get_order_by_conversation_id_db(
+    db: AsyncSession,
+    conversation_id: int,
+) -> Optional[dict]:
+    """DB에서 대화에 연결된 최신 주문을 조회한다."""
+    result = await db.execute(
+        select(Order)
+        .where(Order.conversation_id == conversation_id)
+        .order_by(Order.id.desc())
+    )
+    order = result.scalars().first()
+    if not order:
+        return None
+    return _order_to_dict(order)
+
+
 async def get_order_items_by_order_id_db(
     db: AsyncSession,
     order_id: int,

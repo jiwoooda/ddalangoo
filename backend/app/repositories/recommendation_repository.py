@@ -105,6 +105,30 @@ async def get_recommendation_by_conversation_id_db(
     return _recommendation_to_dict(recommendation)
 
 
+async def get_recommendation_by_id_db(
+    db: AsyncSession,
+    recommendation_id: int,
+) -> Optional[dict]:
+    """DB에서 추천 묶음 단건을 조회한다."""
+    recommendation = await db.get(Recommendation, recommendation_id)
+    if not recommendation:
+        return None
+    return _recommendation_to_dict(recommendation)
+
+
+async def get_items_by_recommendation_id_db(
+    db: AsyncSession,
+    recommendation_id: int,
+) -> list[dict]:
+    """DB에서 추천 후보 목록을 조회한다."""
+    result = await db.execute(
+        select(RecommendationItem)
+        .where(RecommendationItem.recommendation_id == recommendation_id)
+        .order_by(RecommendationItem.rank.asc(), RecommendationItem.id.asc())
+    )
+    return [_recommendation_item_to_dict(item) for item in result.scalars().all()]
+
+
 async def create_recommendation_db(db: AsyncSession, data: dict) -> dict:
     """DB에 추천 묶음을 생성한다."""
     recommendation = Recommendation(
