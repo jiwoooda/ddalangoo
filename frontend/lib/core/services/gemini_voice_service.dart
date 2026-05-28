@@ -24,12 +24,16 @@ class GeminiVoiceService {
       _instance ??= GeminiVoiceService._();
   GeminiVoiceService._();
 
+  static const String _backendTtsCacheVersion = 'backend_gemini_tts_v2';
   static const String _sttModelName = 'models/gemini-3-flash-preview';
-  static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
   static const String _ttsVoiceName = 'Zephyr';
   static const String _useGeminiTtsEnvKey = 'USE_GEMINI_TTS';
+  static const String _useGeminiTtsPrefetchEnvKey = 'USE_GEMINI_TTS_PREFETCH';
   static const String _definedUseGeminiTts = String.fromEnvironment(
     _useGeminiTtsEnvKey,
+  );
+  static const String _definedUseGeminiTtsPrefetch = String.fromEnvironment(
+    _useGeminiTtsPrefetchEnvKey,
   );
   static const String _backendTtsEndpointPath = '/api/voice/tts';
   static const double _ttsSpeedMultiplier = 1.2;
@@ -48,6 +52,8 @@ class GeminiVoiceService {
   final BytesBuilder _audioBuffer = BytesBuilder(copy: false);
   final LinkedHashMap<String, Uint8List> _ttsCache = LinkedHashMap();
   final Map<String, Future<Uint8List>> _ttsInFlight = {};
+  final Set<String> _reportedTtsFallbackReasons = {};
+  final Set<String> _reportedTtsPrefetchFailures = {};
 
   StreamSubscription<Uint8List>? _recordingSubscription;
   StreamSubscription<void>? _playerCompleteSubscription;
@@ -73,6 +79,12 @@ class GeminiVoiceService {
       ).toLowerCase() ==
       'true';
   bool get _shouldUseGeminiTts => _isGeminiTtsRequested;
+  bool get _isGeminiTtsPrefetchEnabled =>
+      _readRuntimeValue(
+        key: _useGeminiTtsPrefetchEnvKey,
+        definedValue: _definedUseGeminiTtsPrefetch,
+      ).toLowerCase() ==
+      'true';
 
   Future<void> init() async {
     await _player.setReleaseMode(ReleaseMode.stop);
@@ -274,14 +286,17 @@ class GeminiVoiceService {
   Future<void> prefetchSpeech(String text) async {
     final normalized = text.trim();
     if (normalized.isEmpty) return;
-    if (!_shouldUseGeminiTts) {
+    if (!_shouldUseGeminiTts || !_isGeminiTtsPrefetchEnabled) {
       return;
     }
 
     try {
       await _getOrCreateSpeech(normalized);
     } catch (e) {
-      debugPrint('⚠️ [Gemini TTS Prefetch Error] "$normalized" $e');
+      final failureKey = e.runtimeType.toString();
+      if (_reportedTtsPrefetchFailures.add(failureKey)) {
+        debugPrint('⚠️ [Gemini TTS Prefetch Error] "$normalized" $e');
+      }
     }
   }
 
@@ -358,7 +373,7 @@ class GeminiVoiceService {
       await _player.play(speechSource);
       await speakCompleter.future;
     } catch (e) {
-      debugPrint('❌ [Backend Gemini TTS Error] $e');
+      _logBackendTtsFailureOnce(e);
 
       try {
         await _speakWithFallbackTts(
@@ -516,7 +531,7 @@ class GeminiVoiceService {
   }
 
   String _buildTtsCacheKey(String text) =>
-      '$_ttsModelName|$_ttsVoiceName|$_ttsSpeedMultiplier|$text';
+      '$_backendTtsCacheVersion|$_ttsVoiceName|$_ttsSpeedMultiplier|$text';
 
   void _rememberTtsCache(String cacheKey, Uint8List wavBytes) {
     _ttsCache.remove(cacheKey);
@@ -653,9 +668,11 @@ class GeminiVoiceService {
     VoidCallback? onPlaybackStart,
     required String fallbackReason,
   }) async {
-    debugPrint(
-      '[TTS] provider=local_flutter_tts fallbackReason=$fallbackReason',
-    );
+    if (_reportedTtsFallbackReasons.add(fallbackReason)) {
+      debugPrint(
+        '[TTS] provider=local_flutter_tts fallbackReason=$fallbackReason',
+      );
+    }
     await _player.stop();
     _playbackFallbackTimer?.cancel();
     final latencyContext = _activeSpeakLatencyContext;
@@ -695,6 +712,14 @@ class GeminiVoiceService {
       '[TTS] response mimeType=$mimeType audioBytes=${audioBytes.length}',
     );
     return audioBytes;
+  }
+
+  void _logBackendTtsFailureOnce(Object error) {
+    final failureKey = error is DioException
+        ? 'dio_${error.response?.statusCode}_${error.type}'
+        : error.runtimeType.toString();
+    if (!_reportedTtsPrefetchFailures.add('speak_$failureKey')) return;
+    debugPrint('❌ [Backend Gemini TTS Error] $error');
   }
 
   String _readRuntimeValue({

@@ -11,6 +11,7 @@ import re
 import logging
 import base64
 import struct
+import time
 
 from google import genai
 from google.genai import types
@@ -23,7 +24,15 @@ logger = logging.getLogger(__name__)
 # gemini-2.5-flash (stable). Railway 환경변수 GEMINI_STT_MODEL로 재정의 가능.
 # 구 모델명 gemini-2.5-flash-preview-05-20은 2026-05 기준 404 → gemini-2.5-flash로 통합됨.
 _STT_MODEL = os.getenv("GEMINI_STT_MODEL", "models/gemini-2.5-flash")
-_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview")
+_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+_TTS_FALLBACK_MODELS = [
+    model.strip()
+    for model in os.getenv(
+        "GEMINI_TTS_FALLBACK_MODELS",
+        "gemini-3.1-flash-tts-preview",
+    ).split(",")
+    if model.strip()
+]
 _TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Zephyr")
 _TTS_SAMPLE_RATE = 24000
 
@@ -51,8 +60,8 @@ def _get_client(feature: str = "stt") -> genai.Client:
             status_code=503,
             detail={
                 "error": {
-                    "code": "STT_CONFIG_ERROR",
-                    "message": "STT 서비스가 설정되지 않았습니다.",
+                    "code": f"{feature.upper()}_CONFIG_ERROR",
+                    "message": f"{feature.upper()} 서비스가 설정되지 않았습니다.",
                 }
             },
         )
@@ -212,49 +221,90 @@ async def synthesize_speech(text: str) -> bytes:
             },
         )
 
+    client = _get_client("tts")
+    models_to_try = list(dict.fromkeys([_TTS_MODEL, *_TTS_FALLBACK_MODELS]))
+    last_error: Exception | None = None
+    last_provider_error: dict | None = None
     logger.info(
-        "[voice.tts] Gemini TTS started model=%s voice=%s text_length=%s",
+        "[voice.tts] Gemini TTS started model=%s fallback_models=%s voice=%s",
         _TTS_MODEL,
+        ",".join(_TTS_FALLBACK_MODELS) or "none",
         _TTS_VOICE,
-        len(normalized),
     )
 
-    try:
-        client = _get_client("tts")
-        response = await client.aio.models.generate_content(
-            model=_TTS_MODEL,
-            contents=[_tts_prompt(normalized)],
-            config=types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name=_TTS_VOICE,
+    for model in models_to_try:
+        started_at = time.perf_counter()
+        logger.info(
+            "[voice.tts] Gemini request started model=%s voice=%s text_length=%s",
+            model,
+            _TTS_VOICE,
+            len(normalized),
+        )
+
+        try:
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=_tts_prompt(normalized),
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name=_TTS_VOICE,
+                            ),
                         ),
                     ),
                 ),
-            ),
-        )
-        audio_payload = _extract_audio_payload(response)
-        if not audio_payload:
-            raise RuntimeError("Gemini TTS 응답에서 오디오 데이터를 받지 못했습니다.")
+            )
+            latency_ms = round((time.perf_counter() - started_at) * 1000)
+            response_mime_type = _extract_audio_mime_type(response)
+            audio_payload = _extract_audio_payload(response)
+            logger.info(
+                "[voice.tts] response_mime_type=%s latency_ms=%s",
+                response_mime_type,
+                latency_ms,
+            )
+            if not audio_payload:
+                raise RuntimeError("Gemini TTS 응답에서 오디오 데이터를 받지 못했습니다.")
 
-        wav_bytes = _wrap_pcm16_as_wav(audio_payload)
-        logger.info("[voice.tts] Gemini TTS succeeded audio_size=%s", len(wav_bytes))
-        return wav_bytes
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("[voice.tts] Gemini TTS failed")
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "error": {
-                    "code": "TTS_API_ERROR",
-                    "message": f"음성 합성 중 오류가 발생했습니다: {exc}",
-                }
-            },
-        ) from exc
+            wav_bytes = _wrap_pcm16_as_wav(audio_payload)
+            logger.info(
+                "[voice.tts] Gemini TTS succeeded model=%s audio_size=%s latency_ms=%s",
+                model,
+                len(wav_bytes),
+                latency_ms,
+            )
+            return wav_bytes
+        except HTTPException:
+            raise
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - started_at) * 1000)
+            last_error = exc
+            last_provider_error = _provider_error_detail(exc)
+            logger.warning(
+                "[voice.tts] Gemini raw error model=%s status=%s code=%s message=%s latency_ms=%s",
+                model,
+                last_provider_error.get("provider_status"),
+                last_provider_error.get("provider_error_code"),
+                last_provider_error.get("provider_message"),
+                latency_ms,
+            )
+
+    if last_error:
+        logger.error(
+            "[voice.tts] Gemini TTS failed after all models",
+            exc_info=(type(last_error), last_error, last_error.__traceback__),
+        )
+    raise HTTPException(
+        status_code=502,
+        detail={
+            "error": {
+                "code": "TTS_API_ERROR",
+                "message": "음성 합성 중 오류가 발생했습니다.",
+                **(last_provider_error or {}),
+            }
+        },
+    ) from last_error
 
 
 def encode_audio_base64(audio_bytes: bytes) -> str:
@@ -293,6 +343,38 @@ def _extract_audio_payload(response: types.GenerateContentResponse) -> bytes:
             if isinstance(data, str) and data:
                 return base64.b64decode(data)
     return b""
+
+
+def _extract_audio_mime_type(response: types.GenerateContentResponse) -> str | None:
+    """Gemini TTS 응답의 inline audio MIME type을 로그용으로 꺼낸다."""
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) or []
+        for part in parts:
+            inline_data = getattr(part, "inline_data", None)
+            if inline_data:
+                return getattr(inline_data, "mime_type", None)
+    return None
+
+
+def _provider_error_detail(exc: Exception) -> dict:
+    """Gemini SDK 예외에서 provider 정보를 최대한 구조화한다."""
+    status = getattr(exc, "status", None) or getattr(exc, "status_code", None)
+    code = getattr(exc, "code", None)
+    message = getattr(exc, "message", None) or str(exc)
+
+    error = getattr(exc, "error", None)
+    if isinstance(error, dict):
+        status = status or error.get("status")
+        code = code or error.get("code")
+        message = error.get("message") or message
+
+    return {
+        "provider_status": str(status) if status is not None else None,
+        "provider_error_code": str(code) if code is not None else None,
+        "provider_message": str(message),
+    }
 
 
 def _wrap_pcm16_as_wav(
