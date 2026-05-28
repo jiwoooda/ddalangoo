@@ -250,6 +250,21 @@ def _should_create_order_from_message(
     )
 
 
+def _should_add_cart_from_message(
+    state: dict,
+    pending_action_before: str | None,
+) -> bool:
+    """자연어 상품/수량 확인 후 DB cart에 먼저 담아야 하는지 판단한다."""
+    pending_action = state.get("pending_action") or {}
+    return (
+        pending_action_before in {"product_confirm", "quantity_confirm"}
+        and state.get("intent") == "confirm"
+        and state.get("stage") == "cart_shopping"
+        and pending_action.get("type") == "continue_shopping"
+        and not state.get("cart")
+    )
+
+
 def _selected_recommendation_item_id(state: dict) -> int | None:
     """현재 선택된 상품에서 DB recommendation_item_id를 찾는다."""
     selected = state.get("selected_product") or {}
@@ -904,8 +919,8 @@ async def _persist_cart_order_payment_for_confirm(
             payment_bundle = await payment_repository.create_payment_for_order_db(
                 db,
                 order_id=order_bundle["order"]["id"],
-                payment_provider="mock",
-                payment_method="mock",
+                payment_provider="internal",
+                payment_method="manual",
                 payment_status="pending_user_action",
             )
         except ValueError as error:
@@ -1090,6 +1105,17 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
                 recommendation_item_id=int(recommendation_item_id),
                 state=state,
             )
+    elif _should_add_cart_from_message(state, pending_action_before):
+        recommendation_item_id = _selected_recommendation_item_id(state)
+        if recommendation_item_id is not None:
+            state = await _persist_cart_order_payment_for_confirm(
+                db,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                action="add_to_cart",
+                recommendation_item_id=int(recommendation_item_id),
+                state=state,
+            )
     return mapper.state_to_response(state, conversation_id)
 
 
@@ -1127,7 +1153,8 @@ async def confirm_action(db: AsyncSession, conversation_id: int, req: ConfirmReq
         stage_before=snapshot.values.get("stage"),
         pending_action_before=_pending_action_type_from(snapshot.values),
     )
-    if recommendation_item_id is not None:
+    pending_after = _pending_action_type_from(state)
+    if recommendation_item_id is not None and pending_after != "quantity_confirm":
         state = await _persist_cart_order_payment_for_confirm(
             db,
             conversation_id=conversation_id,

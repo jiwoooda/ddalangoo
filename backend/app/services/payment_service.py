@@ -24,12 +24,20 @@ def _to_detail(p: dict) -> PaymentDetailResponse:
         paymentId=p["id"], orderId=p["order_id"], paymentProvider=p.get("payment_provider"),
         paymentMethod=p.get("payment_method"), paymentStatus=p.get("payment_status", ""),
         paymentAmount=p.get("payment_amount", 0), externalPaymentId=p.get("external_payment_id"),
-        approvalNumber=p.get("approval_number"), paidAt=p.get("paid_at"),
-        cancelledAt=p.get("cancelled_at"), failureReason=p.get("failure_reason")
+        approvalNumber=p.get("approval_number"), paidAt=_iso(p.get("paid_at")),
+        cancelledAt=_iso(p.get("cancelled_at")), failureReason=p.get("failure_reason")
     )
 
-def get_payment(payment_id: int) -> PaymentDetailResponse:
-    p = payment_repository.get_payment_by_id(payment_id)
+
+def _iso(value):
+    """datetime 값을 API DTO에 맞는 문자열로 변환한다."""
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+async def get_payment_db(db: AsyncSession, payment_id: int) -> PaymentDetailResponse:
+    p = await payment_repository.get_payment_by_id_db(db, payment_id)
     if not p:
         raise HTTPException(status_code=404, detail={"category": "PAYMENT_ERROR", "code": "PAYMENT_NOT_FOUND", "message": "결제를 찾을 수 없습니다."})
     return _to_detail(p)
@@ -232,22 +240,49 @@ async def handle_webview_result_db(
         },
     }
 
-def retry_payment(order_id: int, req: PaymentRetryRequest):
-    o = order_repository.get_order_by_id(order_id)
+async def retry_payment_db(db: AsyncSession, order_id: int, req: PaymentRetryRequest):
+    """기존 결제 레코드를 DB 기준으로 다시 pending 상태로 돌린다.
+
+    실제 외부 결제 URL 재발급은 아직 연동하지 않고, 내부 결제 상태만 복구한다.
+    """
+    o = await order_repository.get_order_by_id_db(db, order_id)
     if not o:
         raise HTTPException(status_code=404, detail={"category": "ORDER_ERROR", "code": "ORDER_NOT_FOUND", "message": "주문을 찾을 수 없습니다."})
-    items = order_repository.get_order_items_by_order_id(order_id)
+
+    items = await order_repository.get_order_items_by_order_id_db(db, order_id)
     main_product = items[0] if items else {}
-    new_payment_id = 89
+    payment = await payment_repository.get_payment_by_order_id_db(db, order_id)
+    if payment:
+        payment = await payment_repository.update_payment_status_db(
+            db,
+            payment["id"],
+            payment_status="pending_user_action",
+        )
+    else:
+        bundle = await payment_repository.create_payment_for_order_db(
+            db,
+            order_id=order_id,
+            payment_provider="internal",
+            payment_method="manual",
+            payment_status="pending_user_action",
+        )
+        payment = bundle["payment"]
+
+    updated_order = await order_repository.update_order_status_db(
+        db,
+        order_id,
+        status="payment_pending",
+    )
+    payment_url = payment.get("payment_url")
     return {
         "conversationId": req.conversationId or o.get("conversation_id"),
         "status": "payment_in_progress", "stage": "payment_password_required",
         "assistantMessage": "결제창을 다시 열어드릴게요.", "recommendationId": None, "recommendations": [],
-        "selectedProduct": {"productName": main_product.get("product_name", ""), "price": main_product.get("unit_price", 0), "optionText": main_product.get("option_text"), "platform": o.get("platform", "naver")},
-        "pendingConfirmation": {"type": "payment", "message": "결제창에서 인증을 완료해 주세요.", "payload": {"orderId": order_id, "paymentId": new_payment_id}},
+        "selectedProduct": {"productName": main_product.get("product_name_snapshot", ""), "price": main_product.get("unit_price", 0), "optionText": main_product.get("option_snapshot"), "platform": o.get("platform", "internal")},
+        "pendingConfirmation": {"type": "payment", "message": "결제창에서 인증을 완료해 주세요.", "payload": {"orderId": order_id, "paymentId": payment["id"]}},
         "availableOptions": None, "deliveryAddress": None,
-        "order": {"orderId": order_id, "status": "payment_pending", "productName": main_product.get("product_name", ""), "optionText": main_product.get("option_text"), "quantity": main_product.get("quantity", 1), "totalPaymentAmount": o.get("total_payment_amount", 0)},
-        "payment": {"paymentId": new_payment_id, "paymentStatus": "pending_user_action", "paymentProvider": "naverpay", "paymentAmount": o.get("total_payment_amount", 0)},
-        "uiCommand": {"type": "open_webview", "target": "payment", "url": f"https://pay.naver.com/checkout/retry/{order_id}"},
+        "order": {"orderId": order_id, "status": updated_order["status"], "productName": main_product.get("product_name_snapshot", ""), "optionText": main_product.get("option_snapshot"), "quantity": main_product.get("quantity", 1), "totalPaymentAmount": o.get("total_payment_amount", 0)},
+        "payment": {"paymentId": payment["id"], "paymentStatus": payment["payment_status"], "paymentProvider": payment.get("payment_provider"), "paymentAmount": payment.get("payment_amount", 0)},
+        "uiCommand": {"type": "open_webview", "target": "payment", "url": payment_url} if payment_url else None,
         "asyncStatus": None, "error": None
     }

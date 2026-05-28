@@ -186,6 +186,42 @@ def payment_agent_node(state: ShoppingState) -> dict:
     delivery_info = selected_product.get("delivery", "")
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 상품/수량 확인 직후에는 결제수단으로 바로 가지 않고 장바구니 선택 단계로 멈춘다.
+    # 실제 DB cart 저장은 FastAPI agent_service 후처리에서 recommendation_item_id 기준으로 수행한다.
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (
+        stage == "product_confirming"
+        and pending_type in ("product_confirm", "quantity_confirm")
+        and state.get("intent") == "confirm"
+    ):
+        existing_cart_items = state.get("cart_items") or []
+        new_cart_item = {
+            "product_name": product_name,
+            "price": price,
+            "quantity": quantity,
+            "total": total,
+            "product": selected_product,
+            "keywords": state.get("keywords") or [],
+        }
+        new_cart_items = existing_cart_items + [new_cart_item]
+        if len(new_cart_items) > 1:
+            cart_msg = f"{short_name}도 담았어요! 총 {len(new_cart_items)}가지예요. 결제할까요, 더 담을까요?"
+        else:
+            cart_msg = f"{short_name} {quantity}개 담았어요! 결제할까요, 다른 것도 보실래요?"
+
+        return {
+            "stage": "cart_shopping",
+            "selected_product": selected_product,
+            "cart_items": new_cart_items,
+            "error": None,
+            "last_agent": "payment_agent",
+            "pending_action": {
+                "type": "continue_shopping",
+                "message": cart_msg,
+            },
+        }
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # USE_REAL_BROWSER: 장바구니 담기 (cart_shopping/payment_processing 진입 전)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     intent = state.get("intent")
