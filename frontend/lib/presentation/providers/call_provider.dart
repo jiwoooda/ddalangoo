@@ -27,6 +27,10 @@ class CallProvider extends ChangeNotifier {
   static const JsonEncoder _jsonEncoder = JsonEncoder.withIndent('  ');
   static const Duration _minTtsTimeout = Duration(seconds: 20);
   static const Duration _maxTtsTimeout = Duration(seconds: 45);
+  static const String _autoConfirmPaymentEnvKey = 'AUTO_CONFIRM_PAYMENT';
+  static const String _definedAutoConfirmPayment = String.fromEnvironment(
+    _autoConfirmPaymentEnvKey,
+  );
   final AgentRepository _agentRepository = AgentRepository();
   final UserRepository _userRepository = UserRepository();
   final GptVoiceService _voiceService = GptVoiceService.instance;
@@ -122,6 +126,14 @@ class CallProvider extends ChangeNotifier {
       return Map<String, dynamic>.from(payload);
     }
     return null;
+  }
+
+  bool get _isAutoConfirmPaymentEnabled {
+    final definedValue = _definedAutoConfirmPayment.trim();
+    final configuredValue = definedValue.isNotEmpty
+        ? definedValue
+        : (dotenv.env[_autoConfirmPaymentEnvKey] ?? 'false');
+    return configuredValue.trim().toLowerCase() == 'true';
   }
 
   String get webviewUrl {
@@ -806,6 +818,7 @@ class CallProvider extends ChangeNotifier {
   }
 
   bool _shouldAutoConfirmPaymentMethod(AgentResponse response) {
+    if (!_isAutoConfirmPaymentEnabled) return false;
     if (_isAutoConfirmingPaymentMethod) return false;
     final pending = response.pendingConfirmation;
     if (pending is! Map) return false;

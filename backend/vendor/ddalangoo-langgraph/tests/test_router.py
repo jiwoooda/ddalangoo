@@ -86,6 +86,49 @@ def test_route_payment_processing_address_change():
 
 
 # ══════════════════════════════════════════════
+# Cart shopping stage — 결제/추가 쇼핑 분기
+# ══════════════════════════════════════════════
+
+def test_route_cart_shopping_confirm_goes_to_payment():
+    """장바구니 다음 질문에 순수 확인이면 결제 단계로 간다."""
+    state = make_state(
+        intent="confirm",
+        stage="cart_shopping",
+        confidence=0.9,
+        needs_clarification=False,
+        keywords=[],
+        pending_action={"type": "continue_shopping"},
+    )
+    assert route(state) == "payment_agent"
+
+
+def test_route_cart_shopping_buy_goes_to_platform_search():
+    """새 상품 추가 의도는 기존 상품 결제가 아니라 검색 흐름으로 돌아가야 한다."""
+    state = make_state(
+        intent="buy",
+        stage="cart_shopping",
+        confidence=0.9,
+        needs_clarification=False,
+        keywords=["오이"],
+        pending_action={"type": "continue_shopping"},
+    )
+    assert route(state) == "platform_agent"
+
+
+def test_route_cart_shopping_confirm_with_keyword_goes_to_platform_search():
+    """LLM이 confirm으로 오판해도 키워드가 있으면 이전 selected_product 결제를 막는다."""
+    state = make_state(
+        intent="confirm",
+        stage="cart_shopping",
+        confidence=0.9,
+        needs_clarification=False,
+        keywords=["오이"],
+        pending_action={"type": "continue_shopping"},
+    )
+    assert route(state) == "platform_agent"
+
+
+# ══════════════════════════════════════════════
 # Product confirming stage
 # ══════════════════════════════════════════════
 

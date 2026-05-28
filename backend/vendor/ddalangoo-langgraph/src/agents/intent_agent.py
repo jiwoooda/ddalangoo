@@ -37,6 +37,44 @@ _KR_NUM = {
     "스물": 20, "스무": 20, "이십": 20,
 }
 
+_PAYMENT_CONFIRM_SHORT_TEXTS = {
+    "응",
+    "네",
+    "그래",
+    "좋아",
+    "맞아",
+    "결제",
+    "결제할래",
+    "결제해줘",
+    "이제결제",
+    "이제결제할래",
+}
+_PAYMENT_CONFIRM_TOKENS = ("결제", "계산", "네이버", "페이")
+_ADD_PRODUCT_TOKENS = (
+    "담아",
+    "담아줘",
+    "추가",
+    "추가해",
+    "추가해줘",
+    "사줘",
+    "살래",
+    "살게",
+    "구매",
+    "넣어",
+    "넣어줘",
+)
+_GENERIC_CONTINUE_KEYWORDS = {
+    "다른",
+    "다른거",
+    "다른것",
+    "하나더",
+    "한개더",
+    "더",
+    "또",
+    "추가",
+    "쇼핑",
+}
+
 
 def _parse_quantity(v) -> Optional[int]:
     """아라비아 숫자 또는 한국어 수량 표현 → int. 파싱 불가면 None."""
@@ -52,6 +90,68 @@ def _parse_quantity(v) -> Optional[int]:
         if kr in text:
             return num
     return None
+
+
+def _parse_explicit_quantity(v) -> Optional[int]:
+    """상품명 안의 글자가 아니라 '한 개/2개'처럼 명시된 수량만 파싱한다."""
+    if v is None:
+        return None
+    if isinstance(v, int):
+        return v
+    text = str(v).strip()
+    digit_match = re.search(r"(\d+)\s*(개|병|팩|봉|상자|박스|개만)?", text)
+    if digit_match:
+        return int(digit_match.group(1))
+    for kr, num in sorted(_KR_NUM.items(), key=lambda x: -len(x[0])):
+        if re.search(fr"{re.escape(kr)}\s*(개|병|팩|봉|상자|박스|개만|만)", text):
+            return num
+    return None
+
+
+def _compact_text(text: str) -> str:
+    """의도 판별용으로 공백을 제거한다."""
+    return re.sub(r"\s+", "", text.strip())
+
+
+def _looks_like_payment_confirmation(text: str) -> bool:
+    """장바구니 선택 단계에서 결제로 넘어가도 되는 발화인지 판별한다."""
+    compact = _compact_text(text)
+    if compact in _PAYMENT_CONFIRM_SHORT_TEXTS:
+        return True
+    return any(token in compact for token in _PAYMENT_CONFIRM_TOKENS)
+
+
+def _extract_continue_shopping_keyword(text: str) -> Optional[str]:
+    """
+    "결제할까요, 다른 것도 보실래요?" 다음 발화에서 새 상품명을 뽑는다.
+
+    이 단계의 "그래"는 결제 진행이지만, "오이도 담아줘"는 새 검색으로 가야 한다.
+    LLM이 pending action 때문에 confirm으로 오판해도 라우터가 쓸 keywords를 안정적으로 만든다.
+    """
+    compact = _compact_text(text)
+    if not compact or _looks_like_payment_confirmation(text):
+        return None
+    if not any(token in compact for token in _ADD_PRODUCT_TOKENS):
+        return None
+
+    cleaned = text.strip()
+    # 문장 끝의 구매/추가 동사를 먼저 제거한다.
+    cleaned = re.sub(
+        r"(담아줘|담아|추가해줘|추가해|추가|사줘|살래|살게|구매해줘|구매|넣어줘|넣어|주세요|줘|해줘)\s*$",
+        "",
+        cleaned,
+    ).strip()
+    # 명시 수량과 보조 표현은 상품명 후보에서 제외한다.
+    cleaned = re.sub(r"(\d+\s*개|한\s*개|하나|두\s*개|둘|세\s*개|셋|만|좀|더)", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    # 끝 조사 제거: 오이도 → 오이, 계란을 → 계란
+    cleaned = re.sub(r"(도|은|는|이|가|을|를)$", "", cleaned).strip()
+
+    if not cleaned:
+        return None
+    if _compact_text(cleaned) in _GENERIC_CONTINUE_KEYWORDS:
+        return None
+    return cleaned
 
 
 class IntentOutput(BaseModel):
@@ -163,15 +263,41 @@ def intent_agent_node(state: ShoppingState) -> dict:
         if direct is not None:
             quantity = direct
 
+    intent = parsed.intent
+    keywords = parsed.keywords or state.get("keywords") or []
+    needs_clarification = parsed.needs_clarification
+    clarification_reason = parsed.clarification_reason
+    confidence = parsed.confidence if parsed.confidence > 0 else 0.9
+
+    # continue_shopping에서는 "그래"와 "오이도 담아줘"가 완전히 다른 길이다.
+    # 새 상품명이 보이면 이전 selected_product를 재사용하지 않도록 buy intent로 보정한다.
+    if pending_type == "continue_shopping":
+        continue_keyword = _extract_continue_shopping_keyword(user_input)
+        if continue_keyword:
+            intent = "buy"
+            keywords = [continue_keyword]
+            needs_clarification = False
+            clarification_reason = None
+            confidence = max(confidence, 0.95)
+            direct_quantity = _parse_explicit_quantity(user_input)
+            if direct_quantity is not None:
+                quantity = direct_quantity
+        elif _looks_like_payment_confirmation(user_input):
+            intent = "confirm"
+            keywords = []
+            needs_clarification = False
+            clarification_reason = None
+            confidence = max(confidence, 0.95)
+
     # 새 구매 탐색 intent에서는 이전 state 수량 인계 금지
     # (이전 상품 구매 때 남은 quantity가 새 상품에 그대로 쓰이는 문제 방지)
     _new_search_intents = {"buy", "reorder", "refine", "compare_platforms"}
-    if quantity is None and parsed.intent not in _new_search_intents:
+    if quantity is None and intent not in _new_search_intents:
         quantity = state.get("quantity")
 
     result = {
-        "intent": parsed.intent,
-        "keywords": parsed.keywords or state.get("keywords") or [],
+        "intent": intent,
+        "keywords": keywords,
         "exclude_keywords": parsed.exclude_keywords,
         "negative_constraints": parsed.negative_constraints,
         "quantity": quantity,
@@ -180,9 +306,9 @@ def intent_agent_node(state: ShoppingState) -> dict:
         "override_platform": parsed.override_platform,
         "current_option_value": parsed.current_option_value,
         "address_text": parsed.address_text,
-        "needs_clarification": parsed.needs_clarification,
-        "clarification_reason": parsed.clarification_reason,
-        "confidence": parsed.confidence if parsed.confidence > 0 else 0.9,
+        "needs_clarification": needs_clarification,
+        "clarification_reason": clarification_reason,
+        "confidence": confidence,
         "immediate_response": parsed.immediate_response,
         "last_agent": "intent_agent",
         "tool_calls": None,
