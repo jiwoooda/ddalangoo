@@ -18,7 +18,8 @@ import 'core/services/gpt_voice_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogService.instance.init();
-  await dotenv.load(fileName: '.env');
+  // 로컬/배포 환경에 .env 파일이 없어도 dart-define과 기본값으로 앱이 떠야 한다.
+  await dotenv.load(fileName: '.env', isOptional: true);
   debugPrint(
     '🚀 [App Start] .env loaded, API_BASE_URL='
     '${dotenv.env['API_BASE_URL']?.isNotEmpty == true ? 'configured' : 'missing'}',

@@ -26,6 +26,10 @@ class CallProvider extends ChangeNotifier {
   static const String _initialCallMessage = 'INIT_CALL';
   static const Duration _minTtsTimeout = Duration(seconds: 20);
   static const Duration _maxTtsTimeout = Duration(seconds: 45);
+  static const bool _autoConfirmPaymentMethodEnabled = bool.fromEnvironment(
+    'AUTO_CONFIRM_PAYMENT_METHOD',
+    defaultValue: false,
+  );
   final AgentRepository _agentRepository = AgentRepository();
   final UserRepository _userRepository = UserRepository();
   final GptVoiceService _voiceService = GptVoiceService.instance;
@@ -810,6 +814,9 @@ class CallProvider extends ChangeNotifier {
   }
 
   bool _shouldAutoConfirmPaymentMethod(AgentResponse response) {
+    // 결제 방식 확인은 사용자의 명시 발화가 필요하다. 테스트 자동화가 필요할 때만
+    // --dart-define=AUTO_CONFIRM_PAYMENT_METHOD=true 로 켠다.
+    if (!_autoConfirmPaymentMethodEnabled) return false;
     if (_isAutoConfirmingPaymentMethod) return false;
     final pending = response.pendingConfirmation;
     if (pending is! Map) return false;
