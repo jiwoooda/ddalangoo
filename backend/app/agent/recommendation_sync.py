@@ -29,7 +29,6 @@ def _recommendation_item_id(product: dict) -> int | None:
     return (
         product.get("recommendation_item_id")
         or product.get("recommendationItemId")
-        or product.get("id")
     )
 
 

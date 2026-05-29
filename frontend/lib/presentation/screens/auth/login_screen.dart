@@ -1,6 +1,8 @@
-import 'package:ddalangoo/core/services/api_test_service.dart';
+import 'package:ddalangoo/data/repositories/agent_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../core/storage/local_storage.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -10,31 +12,66 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final ApiTestService _testService = ApiTestService();
+  final UserRepository _userRepository = UserRepository();
   bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _nameController.dispose();
     _phoneController.dispose();
     super.dispose();
   }
 
+  /// 전화번호 정규화. "01012345678" → "010-1234-5678"
+  /// 유효하지 않으면 null 반환.
+  String? _normalizePhone(String raw) {
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    final match = RegExp(r'^(01[016789])(\d{3,4})(\d{4})$').firstMatch(digits);
+    if (match == null) return null;
+    return '${match.group(1)}-${match.group(2)}-${match.group(3)}';
+  }
+
   Future<void> _handleLogin() async {
-    setState(() => _isLoading = true);
+    final name = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
+
+    if (name.isEmpty) {
+      setState(() => _errorMessage = '이름을 입력해주세요');
+      return;
+    }
+    if (phone.isEmpty) {
+      setState(() => _errorMessage = '전화번호를 입력해주세요');
+      return;
+    }
+    final normalized = _normalizePhone(phone);
+    if (normalized == null) {
+      setState(() => _errorMessage = '올바른 전화번호를 입력해주세요 (예: 010-1234-5678)');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
-      final success = await _testService.performMockLogin();
+      final user = await _userRepository.login(
+        name: name,
+        phoneNumber: normalized,
+      );
 
-      if (success && mounted) {
-        await _testService.sendShoppingRequest();
-        if (!mounted) return;
-        context.go('/home');
-      }
+      await LocalStorage.saveUserId(user.userId);
+
+      if (!mounted) return;
+      context.go('/home');
     } catch (e) {
-      debugPrint('로그인 처리 중 오류 발생: $e');
+      setState(
+        () => _errorMessage = '로그인에 실패했습니다. 이름과 전화번호를 확인해주세요',
+      );
+      debugPrint('❌ [Login Error] $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -87,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       children: [
                         TextField(
-                          controller: _usernameController,
+                          controller: _nameController,
                           decoration: InputDecoration(
                             hintText: '이름',
                             filled: true,
@@ -112,6 +149,16 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ),
+                        if (_errorMessage != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            _errorMessage!,
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 22),
                         SizedBox(
                           width: double.infinity,
@@ -144,7 +191,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             '처음이신가요? 회원가입',
                             style: Theme.of(context).textTheme.titleSmall
                                 ?.copyWith(
-                              color: Color(0xFFE8325A),
+                              color: const Color(0xFFE8325A),
                               fontWeight: FontWeight.w700,
                             ),
                           ),

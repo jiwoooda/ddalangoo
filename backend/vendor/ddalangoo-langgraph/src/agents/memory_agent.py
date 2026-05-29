@@ -561,6 +561,9 @@ def _save_purchase_history(state: ShoppingState) -> None:
             product=product,
             quantity=quantity,
             keyword=keyword,
+            conversation_id=state.get("conversation_id"),
+            order_id=order_id,
+            payment_id=payment_id,
         )
 
     try:

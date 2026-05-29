@@ -72,6 +72,26 @@ WEBVIEW_LOGIN_NETWORKIDLE_TIMEOUT_MS = int(os.environ.get("WEBVIEW_LOGIN_NETWORK
 WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS = int(os.environ.get("WEBVIEW_LOGIN_REDIRECT_TIMEOUT_MS", "20000"))
 
 VIEWPORT = {"width": 390, "height": 844}
+
+# ── 사용자별 세션 경로 유틸리티 ──────────────────────────────────────────────
+_SESSIONS_DIR = "sessions"
+_LEGACY_SESSION_FILE = "kurly_session.json"
+
+
+def get_kurly_session_path(user_id: int | str | None) -> str:
+    """user_id를 기반으로 사용자별 Playwright storage_state 파일 경로를 반환한다.
+
+    - user_id가 유효한 양수이면: "sessions/kurly_session_{user_id}.json"
+    - 없거나 0이면 레거시 "kurly_session.json" 반환 (하위 호환)
+    """
+    try:
+        uid = int(user_id) if user_id is not None else 0
+    except (ValueError, TypeError):
+        uid = 0
+    if uid > 0:
+        os.makedirs(_SESSIONS_DIR, exist_ok=True)
+        return os.path.join(_SESSIONS_DIR, f"kurly_session_{uid}.json")
+    return _LEGACY_SESSION_FILE
 USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) "
@@ -1016,6 +1036,7 @@ def _extract_delivery_info(page: Page) -> str:
 def check_product_price(
     product_url: str,
     storage_state_path: str | None = None,
+    user_id: int | str | None = None,
 ) -> dict:
     """
     상품 URL로 진입해 현재 가격만 확인하고 종료. 장바구니는 건드리지 않는다.
@@ -1023,7 +1044,7 @@ def check_product_price(
     Returns: {"current_price": int | None, "error": str | None}
     """
     if not storage_state_path:
-        storage_state_path = "kurly_session.json"
+        storage_state_path = get_kurly_session_path(user_id)
 
     playwright = sync_playwright().start()
     # Railway 같은 서버 환경에는 화면이 없으므로 기본값은 headless 실행이다.
@@ -1107,7 +1128,7 @@ def run_kurly_purchase(
           취소 시: {"cart_added": False, "cancelled": True, ...}
     """
     if not storage_state_path:
-        storage_state_path = "kurly_session.json"
+        storage_state_path = get_kurly_session_path(None)
 
     _clear_cancel()
     playwright = sync_playwright().start()

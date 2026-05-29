@@ -50,23 +50,30 @@ def route(state: ShoppingState) -> RouteName:
 
     # ── 4. 장바구니 담긴 후 추가 쇼핑 여부 ──
     if stage == "cart_shopping":
-        if intent == "confirm":
-            return _decide("payment_agent")
+        # "오이도 담아줘"처럼 새 상품이 들어온 경우에는 pending confirm 문맥보다
+        # 상품 검색을 우선한다. 그래야 이전 selected_product를 결제에 재사용하지 않는다.
+        if intent in ("buy", "reorder", "refine", "compare_platforms") or (
+            intent == "confirm"
+            and pending_type in ("continue_shopping", "what_to_buy")
+            and state.get("keywords")
+        ):
+            if intent == "reorder":
+                return _decide("memory_agent")
+            return _decide("platform_agent")
         # 사용자가 무엇을 살지 이미 지정한 경우 → 바로 검색/재구매 흐름
         if pending_type == "what_to_buy":
             if intent == "reorder":
                 return _decide("memory_agent")
             if intent in ("buy", "refine", "compare_platforms"):
                 return _decide("platform_agent")
+            if intent == "confirm":
+                return _decide("payment_agent")
             return _decide("respond")
+        if intent == "confirm":
+            return _decide("payment_agent")
         # '다른것도 살래' 등 상품 미지정 → 무엇을 살지 먼저 질문
         if intent in ("deny", "next"):
             return _decide("ask_what_to_buy")
-        # 상품명을 직접 말한 경우 (예: "우유 살래") → 바로 검색
-        if intent in ("buy", "reorder", "refine", "compare_platforms"):
-            if intent == "reorder":
-                return _decide("memory_agent")
-            return _decide("platform_agent")
         return _decide("respond")
 
     # ── 5. 상품 확인 단계 ──
@@ -97,6 +104,11 @@ def route(state: ShoppingState) -> RouteName:
             if not state.get("quantity"):
                 return _decide("quantity_check")
             return _decide("payment_agent")
+
+        if intent in ("buy", "reorder"):
+            if intent == "reorder":
+                return _decide("memory_agent")
+            return _decide("platform_agent")
 
         if intent in ("deny", "next", "ask"):
             return _decide("product_agent")

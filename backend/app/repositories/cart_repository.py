@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.mock_data.carts import MOCK_CARTS, MOCK_CART_ITEMS
 from app.models.order import Cart, CartItem
+from app.models.product import Product, ProductOption
 from app.models.recommendation import RecommendationItem
 
 def get_cart_by_user_id(user_id: int) -> Optional[dict]:
@@ -110,6 +111,84 @@ async def get_cart_items_by_cart_id_db(
         select(CartItem).where(CartItem.cart_id == cart_id).order_by(CartItem.id.asc())
     )
     return [_cart_item_to_dict(item) for item in result.scalars().all()]
+
+
+async def get_cart_by_id_db(db: AsyncSession, cart_id: int) -> Optional[dict]:
+    """DB에서 cart 단건을 조회한다."""
+    cart = await db.get(Cart, cart_id)
+    if not cart:
+        return None
+    return _cart_to_dict(cart)
+
+
+async def add_product_to_cart_db(
+    db: AsyncSession,
+    *,
+    cart_id: int,
+    product_id: int,
+    product_option_id: int | None = None,
+    quantity: int = 1,
+) -> dict:
+    """일반 cart API에서 product/product_option을 직접 장바구니에 담는다."""
+    cart = await db.get(Cart, cart_id)
+    if not cart:
+        raise ValueError("장바구니를 찾을 수 없습니다.")
+
+    product = await db.get(Product, product_id)
+    if not product:
+        raise ValueError("상품을 찾을 수 없습니다.")
+
+    option = None
+    if product_option_id is not None:
+        option = await db.get(ProductOption, product_option_id)
+        if not option or option.product_id != product_id:
+            raise ValueError("상품 옵션을 찾을 수 없습니다.")
+
+    result = await db.execute(
+        select(CartItem).where(
+            CartItem.cart_id == cart_id,
+            CartItem.product_id == product_id,
+            CartItem.product_option_id == product_option_id,
+            CartItem.recommendation_item_id.is_(None),
+        )
+    )
+    existing = result.scalars().first()
+    if existing:
+        existing.quantity += max(quantity, 1)
+        existing.updated_at = datetime.now(UTC)
+        await db.commit()
+        await db.refresh(existing)
+        return _cart_item_to_dict(existing)
+
+    option_price = option.additional_price if option and option.additional_price else 0
+    unit_price = (product.current_price or 0) + option_price
+    item = CartItem(
+        cart_id=cart_id,
+        product_id=product.id,
+        product_option_id=option.id if option else None,
+        recommendation_item_id=None,
+        quantity=max(quantity, 1),
+        unit_price_snapshot=unit_price,
+        product_name_snapshot=product.name,
+        option_snapshot=option.option_value if option else None,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return _cart_item_to_dict(item)
+
+
+async def delete_cart_item_db(db: AsyncSession, cart_id: int, cart_item_id: int) -> bool:
+    """DB cart item을 삭제한다."""
+    result = await db.execute(
+        select(CartItem).where(CartItem.cart_id == cart_id, CartItem.id == cart_item_id)
+    )
+    item = result.scalars().first()
+    if not item:
+        return False
+    await db.delete(item)
+    await db.commit()
+    return True
 
 
 async def add_recommendation_item_to_cart_db(

@@ -153,6 +153,13 @@ def _map_pending(pending_action: Optional[dict]) -> Optional[dict]:
             "payload": payload,
         }
 
+    if ptype == "address_required":
+        return {
+            "type": "address",
+            "message": message,
+            "payload": _payload_with_subtype(payload, "address_required"),
+        }
+
     if ptype == "platform_suggest":
         return {
             "type": "clarification",
@@ -267,6 +274,9 @@ def _map_stage(state: dict, ui_command: Optional[dict]) -> str:
 
     if pending_type == "address_confirm":
         return "address_confirming"
+
+    if pending_type == "address_required":
+        return "address_required"
 
     if pending_type == "payment_method_confirm":
         return "payment_precheck"

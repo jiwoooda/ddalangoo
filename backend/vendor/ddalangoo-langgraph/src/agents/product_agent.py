@@ -158,7 +158,18 @@ def product_agent_node(state: ShoppingState) -> dict:
             existing_ranked[current_idx] if existing_ranked else None
         )
         if not target or not user_question:
-            return {"stage": "product_confirming", "last_agent": "product_agent", "error": None}
+            return {
+                "stage": "clarification",
+                "needs_clarification": True,
+                "clarification_reason": "어떤 상품에 대해 물어보시는 건지 먼저 알려주세요.",
+                "pending_action": {
+                    "type": "clarification",
+                    "message": "어떤 상품에 대해 물어보시는 건지 먼저 알려주세요.",
+                    "payload": {},
+                },
+                "last_agent": "product_agent",
+                "error": None,
+            }
         answer = _get_llm().invoke([HumanMessage(content=PRODUCT_QA_PROMPT.format(
             product_json=json.dumps(target, ensure_ascii=False),
             question=user_question,

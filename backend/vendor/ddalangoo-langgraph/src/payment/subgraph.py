@@ -9,11 +9,44 @@ Payment Agent Node (Main Graph 진입점) — MVP.
 
 USE_REAL_BROWSER=true 시 webview_tool로 장바구니 담기 먼저 실행.
 """
+import asyncio
 import os
 import re
+import sys
 from src.state.schema import ShoppingState, bridge_shopping_to_payment, bridge_payment_to_shopping
 from src.payment.flow import payment_flow
-from src.tools.mock_tools import mock_get_default_address
+
+
+def _fetch_default_address(user_id) -> dict:
+    """DB에서 기본 배송지 조회. 실패 시 빈 dict 반환."""
+    _backend = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
+    if _backend not in sys.path:
+        sys.path.insert(0, _backend)
+
+    async def _from_db(session):
+        from app.repositories.address_repository import get_default_address_by_user_id_db
+        return await get_default_address_by_user_id_db(session, int(user_id))
+
+    async def _runner():
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            return None
+        engine = create_async_engine(database_url, pool_pre_ping=True, pool_size=1, max_overflow=0)
+        factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
+        try:
+            async with factory() as session:
+                return await _from_db(session)
+        finally:
+            await engine.dispose()
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_runner()) or {}
+    except Exception:
+        return {}
+    finally:
+        loop.close()
 
 
 _KR_NUMBERS = {
@@ -106,7 +139,7 @@ def _build_delivery_address(state: ShoppingState) -> dict:
             "recipient_phone": "",
             "zip_code": "",
         }
-    return mock_get_default_address(user_id) or {}
+    return _fetch_default_address(user_id)
 
 
 def _delivery_completion_msg(delivery_info: str) -> str:
@@ -151,6 +184,42 @@ def payment_agent_node(state: ShoppingState) -> dict:
 
     total = price * quantity
     delivery_info = selected_product.get("delivery", "")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 상품/수량 확인 직후에는 결제수단으로 바로 가지 않고 장바구니 선택 단계로 멈춘다.
+    # 실제 DB cart 저장은 FastAPI agent_service 후처리에서 recommendation_item_id 기준으로 수행한다.
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (
+        stage == "product_confirming"
+        and pending_type in ("product_confirm", "quantity_confirm")
+        and state.get("intent") == "confirm"
+    ):
+        existing_cart_items = state.get("cart_items") or []
+        new_cart_item = {
+            "product_name": product_name,
+            "price": price,
+            "quantity": quantity,
+            "total": total,
+            "product": selected_product,
+            "keywords": state.get("keywords") or [],
+        }
+        new_cart_items = existing_cart_items + [new_cart_item]
+        if len(new_cart_items) > 1:
+            cart_msg = f"{short_name}도 담았어요! 총 {len(new_cart_items)}가지예요. 결제할까요, 더 담을까요?"
+        else:
+            cart_msg = f"{short_name} {quantity}개 담았어요! 결제할까요, 다른 것도 보실래요?"
+
+        return {
+            "stage": "cart_shopping",
+            "selected_product": selected_product,
+            "cart_items": new_cart_items,
+            "error": None,
+            "last_agent": "payment_agent",
+            "pending_action": {
+                "type": "continue_shopping",
+                "message": cart_msg,
+            },
+        }
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # USE_REAL_BROWSER: 장바구니 담기 (cart_shopping/payment_processing 진입 전)
@@ -210,11 +279,15 @@ def payment_agent_node(state: ShoppingState) -> dict:
             # 재구매 URL 있을 때만 가격 체크 (일반 구매는 history_price 없음)
             history_price_arg = price if reorder_url else None
 
+        from src.tools.webview_tool import get_kurly_session_path
+        _session_path = state.get("storage_state_path") or get_kurly_session_path(
+            state.get("user_id")
+        )
         result = run_kurly_purchase(
             product_name=product_name,
             keywords=state.get("keywords"),
             quantity=quantity,
-            storage_state_path=state.get("storage_state_path"),
+            storage_state_path=_session_path,
             reorder_url=reorder_url,
             history_price=history_price_arg,
             progress_callback=progress_callback,
@@ -323,15 +396,25 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if stage == "cart_shopping" or pending_type is None:
         cart_items = state.get("cart_items") or []
-        if len(cart_items) > 1:
+        if cart_items:
             cart_total = sum(item["total"] for item in cart_items)
             items_summary = ", ".join(
                 f"{(item.get('keywords') or [item.get('product_name', '상품')])[0]} {item.get('quantity', 1)}개"
                 for item in cart_items
             )
             payment_msg = f"{items_summary}, 총 {cart_total:,}원이에요. 네이버로 결제할까요?"
-        else:
+        elif selected_product:
             payment_msg = f"{short_name} {quantity}개, {total:,}원이에요. 네이버로 결제할까요?"
+        else:
+            return {
+                "stage": "cart_shopping",
+                "error": "payment_precheck_missing_product",
+                "last_agent": "payment_agent",
+                "pending_action": {
+                    "type": "what_to_buy",
+                    "message": "상품을 아직 찾지 못했어요. 무엇을 구매하실까요?",
+                },
+            }
         return {
             "stage": "payment_processing",
             "error": None,
@@ -350,6 +433,17 @@ def payment_agent_node(state: ShoppingState) -> dict:
         addr1 = address.get("address_line1", "")
         addr2 = address.get("address_line2", "")
         address_display = f"{addr1} {addr2}".strip() if addr2 else addr1
+        if not address_display:
+            return {
+                "stage": "cart_shopping",
+                "error": "address_required",
+                "last_agent": "payment_agent",
+                "pending_action": {
+                    "type": "address_required",
+                    "message": "배송지가 아직 없어요. 먼저 배송지를 등록해 주세요.",
+                    "payload": {"subType": "address_required"},
+                },
+            }
         return {
             "stage": "payment_processing",
             "error": None,

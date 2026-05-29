@@ -80,8 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isLogoutHovered = value);
   }
 
-  String get _homeIntroText =>
-      _userName.isEmpty
+  String get _homeIntroText => _userName.isEmpty
       ? '딸랑구와 전화 한통으로 원하는 걸 구매해요! 화면 하단의 초록색 전화 버튼을 눌러 딸랑구를 호출하세요!'
       : '$_userName님, 딸랑구와 전화 한통으로 원하는 걸 구매해요! 화면 하단의 초록색 전화 버튼을 눌러 딸랑구를 호출하세요!';
 
@@ -131,41 +130,64 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             // 가운데 콘텐츠
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    'assets/images/ddalangoo_logo_image.png',
-                    height: 300,
-                    fit: BoxFit.contain,
-                  ),
-                  const SizedBox(height: 24),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final logoImageHeight = constraints.maxHeight < 430
+                      ? 190.0
+                      : 300.0;
+                  final logoTextHeight = constraints.maxHeight < 430
+                      ? 56.0
+                      : 80.0;
 
-                  Image.asset(
-                    'assets/images/ddalangoo_logo_text.png',
-                    height: 80,
-                    fit: BoxFit.contain,
-                  ),
-                  const SizedBox(height: 12),
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Image.asset(
+                            'assets/images/ddalangoo_logo_image.png',
+                            height: logoImageHeight,
+                            fit: BoxFit.contain,
+                          ),
+                          const SizedBox(height: 20),
 
-                  // 안내 문구
-                  Text(
-                    _userName.isEmpty
-                        ? '딸랑구와 전화 한통으로 원하는 걸 구매해요!'
-                        : '$_userName님, 딸랑구와 전화 한통으로\n원하는 걸 구매해요!',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF555555),
+                          Image.asset(
+                            'assets/images/ddalangoo_logo_text.png',
+                            height: logoTextHeight,
+                            fit: BoxFit.contain,
+                          ),
+                          const SizedBox(height: 12),
+
+                          // 화면 높이가 낮은 macOS 창에서도 문구가 잘리지 않도록 스크롤 영역 안에 둔다.
+                          Text(
+                            _userName.isEmpty
+                                ? '딸랑구와 전화 한통으로 원하는 걸 구매해요!'
+                                : '$_userName님, 딸랑구와 전화 한통으로\n원하는 걸 구매해요!',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: Color(0xFF555555),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          const Text(
+                            '화면 하단의 초록색 전화 버튼을 눌러 딸랑구를 호출하세요!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFFE8325A),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  const Text(
-                    '화면 하단의 초록색 전화 버튼을 눌러 딸랑구를 호출하세요!',
-                    style: TextStyle(fontSize: 14, color: Color(0xFFE8325A)),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
 

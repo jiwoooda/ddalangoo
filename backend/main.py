@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     agent, user, address, product,
     purchase_history, recommendation, order, payment,
-    admin, dev, cart
+    admin, dev, cart, voice
 )
 from app.agent import runtime
 from app.core.migrations import run_migrations
@@ -39,3 +39,4 @@ app.include_router(payment.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(dev.router, prefix="/api")
 app.include_router(cart.router, prefix="/api")
+app.include_router(voice.router, prefix="/api")
