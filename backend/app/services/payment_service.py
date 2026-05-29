@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories import (
+    address_repository,
     agent_event_repository,
     conversation_repository,
     order_repository,
@@ -83,6 +84,12 @@ async def handle_webview_result_db(
             "code": "CONVERSATION_NOT_FOUND",
             "message": "대화를 찾을 수 없습니다.",
         })
+    if req.orderId is None or req.paymentId is None:
+        raise HTTPException(status_code=422, detail={
+            "category": "PAYMENT_ERROR",
+            "code": "WEBVIEW_RESULT_IDS_REQUIRED",
+            "message": "웹뷰 결과 처리에는 orderId와 paymentId가 필요합니다.",
+        })
 
     order = await order_repository.get_order_by_id_db(db, req.orderId)
     if not order or order.get("conversation_id") != conversation_id:
@@ -111,6 +118,40 @@ async def handle_webview_result_db(
         "cart": None,
         "asyncStatus": None,
     }
+    order_payload = {"orderId": order["id"], "status": order["status"]}
+    payment_payload = {
+        "paymentId": payment["id"],
+        "paymentStatus": payment["payment_status"],
+    }
+
+    def _full_address(address: dict | None) -> str | None:
+        """배송지 dict를 사용자가 듣기 쉬운 한 줄 주소로 만든다."""
+        if not address:
+            return None
+        line1 = address.get("address_line1") or address.get("addressLine1") or ""
+        line2 = address.get("address_line2") or address.get("addressLine2") or ""
+        full = f"{line1} {line2}".strip()
+        return full or address.get("address") or address.get("fullAddress")
+
+    async def _delivery_address_from_request_or_db() -> dict | None:
+        """웹뷰가 보낸 배송지를 우선 사용하고, 없으면 DB 기본 배송지를 사용한다."""
+        if isinstance(req.deliveryAddress, dict):
+            return req.deliveryAddress
+        if req.addressLine1 or req.addressLine2:
+            return {
+                "recipient_name": req.recipientName,
+                "recipient_phone": req.recipientPhone,
+                "address_line1": req.addressLine1,
+                "address_line2": req.addressLine2,
+                "delivery_request": req.deliveryRequest,
+            }
+        try:
+            return await address_repository.get_default_address_by_user_id_db(
+                db,
+                order["user_id"],
+            )
+        except Exception:
+            return None
 
     result = req.result.lower()
     if result in {"success", "completed", "paid"}:
@@ -152,9 +193,7 @@ async def handle_webview_result_db(
             },
         )
         webview_progress_service.clear_progress(conversation_id)
-        # payment_processing으로 재개해야 라우터가 intent 무관하게 payment_agent로 직행한다.
-        # cart_shopping을 쓰면 intent_agent가 stale 메시지를 분석해 엉뚱한 intent를 내놓을 수 있다.
-        state = await runtime.inject_and_resume(conversation_id, {
+        await runtime.update_state(conversation_id, {
             "stage": "completed",
             "pending_action": None,
             "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
@@ -163,19 +202,110 @@ async def handle_webview_result_db(
                 "paymentStatus": updated_payment["payment_status"],
             },
             "webview_progress": None,
+            "messages": _assistant_message_patch("결제가 완료되었어요!"),
         })
-        from app.agent.mapper import state_to_response
-        return state_to_response(state, conversation_id).model_dump(by_alias=True)
+        delivery_address = await _delivery_address_from_request_or_db()
+        return {
+            **base,
+            "status": "order_completed",
+            "stage": "completed",
+            "assistantMessage": "결제가 완료되었어요!",
+            "deliveryAddress": delivery_address,
+            "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "paymentStatus": updated_payment["payment_status"],
+            },
+            "uiCommand": {"type": "close_webview"},
+            "error": None,
+        }
 
     if result == "cart_added":
         webview_progress_service.clear_progress(conversation_id)
-        state = await runtime.inject_and_resume(conversation_id, {
-            "stage": "payment_processing",
-            "pending_action": None,
+        message = "장바구니에 담았어요. 더 구매하실래요, 아니면 결제할까요?"
+        state_patch = {
+            "stage": "cart_shopping",
+            "pending_action": {
+                "type": "continue_shopping",
+                "message": message,
+                "payload": {
+                    "subType": "continue_shopping",
+                    "options": ["continue_shopping", "checkout"],
+                },
+            },
+            "messages": _assistant_message_patch(message),
+            "webview_progress": None,
+            "order": order_payload,
+            "payment": payment_payload,
+        }
+        await runtime.update_state(conversation_id, state_patch)
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {"status": "cart_shopping", "stage": "cart_shopping"},
+        )
+        return {
+            **base,
+            "status": "cart_shopping",
+            "stage": "cart_shopping",
+            "assistantMessage": message,
+            "pendingConfirmation": {
+                "type": "payment",
+                "message": message,
+                "payload": {
+                    "subType": "continue_shopping",
+                    "options": ["continue_shopping", "checkout"],
+                },
+            },
+            "order": order_payload,
+            "payment": payment_payload,
+            "uiCommand": {"type": "close_webview"},
+            "error": None,
+        }
+
+    if result == "address_checked":
+        webview_progress_service.clear_progress(conversation_id)
+        delivery_address = await _delivery_address_from_request_or_db()
+        address_text = _full_address(delivery_address)
+        message = (
+            f"{address_text}로 배송해드릴까요?"
+            if address_text
+            else "배송지를 확인했어요. 이 배송지로 진행할까요?"
+        )
+        await runtime.update_state(conversation_id, {
+            "stage": "address_confirming",
+            "delivery_address": delivery_address,
+            "pending_action": {
+                "type": "address_confirm",
+                "message": message,
+                "payload": {"address": delivery_address},
+            },
+            "messages": _assistant_message_patch(message),
+            "order": order_payload,
+            "payment": payment_payload,
             "webview_progress": None,
         })
-        from app.agent.mapper import state_to_response
-        return state_to_response(state, conversation_id).model_dump(by_alias=True)
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {"status": "address_confirming", "stage": "address_confirming"},
+        )
+        return {
+            **base,
+            "status": "waiting_user_confirmation",
+            "stage": "address_confirming",
+            "assistantMessage": message,
+            "pendingConfirmation": {
+                "type": "address_confirm",
+                "message": message,
+                "payload": {"address": delivery_address},
+            },
+            "deliveryAddress": delivery_address,
+            "order": order_payload,
+            "payment": payment_payload,
+            "uiCommand": {"type": "close_webview"},
+            "error": None,
+        }
 
     if result == "cancelled":
         updated_payment = await payment_repository.update_payment_status_db(

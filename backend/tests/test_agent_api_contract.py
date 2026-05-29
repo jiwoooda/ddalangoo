@@ -603,3 +603,34 @@ def test_price_change_pending_confirmation_uses_documented_type():
             "subType": "price_change_confirm",
         },
     }
+
+
+def test_webview_cart_task_contract_after_quantity_confirmation():
+    """수량 확정 뒤 응답은 결제 확인이 아니라 add_to_cart WebView task여야 한다."""
+    response = state_to_response(
+        {
+            "stage": "webview_cart",
+            "messages": [{"role": "assistant", "content": "네, 멜론 5개를 장바구니에 담을게요."}],
+            "pending_action": {
+                "type": "webview_task",
+                "message": "네, 멜론 5개를 장바구니에 담을게요.",
+                "payload": {
+                    "task": "add_to_cart",
+                    "orderId": 77,
+                    "paymentId": 88,
+                    "platform": "kurly",
+                    "productName": "멜론",
+                    "quantity": 5,
+                    "url": "https://www.kurly.com/goods/123",
+                    "uiCommand": {"type": "open_webview", "task": "add_to_cart"},
+                },
+            },
+        },
+        conversation_id=999009,
+    )
+
+    assert response.status == "cart_processing"
+    assert response.stage == "webview_cart"
+    assert response.pendingConfirmation["type"] == "webview_task"
+    assert response.pendingConfirmation["payload"]["task"] == "add_to_cart"
+    assert response.uiCommand == {"type": "open_webview", "task": "add_to_cart"}

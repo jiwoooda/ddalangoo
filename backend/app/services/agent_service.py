@@ -258,6 +258,162 @@ def _is_explicit_payment_confirmation(message: str) -> bool:
     return any(token in compact for token in ("결제", "네이버페이", "네이버로"))
 
 
+def _is_checkout_request(message: str) -> bool:
+    """장바구니 단계에서 결제 의사가 명확한 발화인지 확인한다."""
+    compact = "".join(str(message or "").split())
+    return any(token in compact for token in ("결제", "계산", "구매할래", "주문할래"))
+
+
+def _state_order_payload(state: dict) -> dict | None:
+    """state.order를 프론트 응답용 최소 order payload로 정규화한다."""
+    order = state.get("order")
+    if not isinstance(order, dict):
+        return None
+    order_id = order.get("orderId") or order.get("id")
+    if not order_id:
+        return order
+    return {
+        **order,
+        "orderId": order_id,
+        "status": order.get("status", "payment_pending"),
+    }
+
+
+def _state_payment_payload(state: dict) -> dict | None:
+    """state.payment를 프론트 응답용 최소 payment payload로 정규화한다."""
+    payment = state.get("payment")
+    if not isinstance(payment, dict):
+        return None
+    payment_id = payment.get("paymentId") or payment.get("id")
+    if not payment_id:
+        return payment
+    return {
+        **payment,
+        "paymentId": payment_id,
+        "paymentStatus": payment.get("paymentStatus") or payment.get("payment_status") or "pending_user_action",
+    }
+
+
+def _webview_task_payload(
+    *,
+    task: str,
+    state: dict,
+    platform: str | None = None,
+    webview_input: WebViewOrderInput | None = None,
+) -> dict:
+    """프론트 WebView가 task별로 해석할 수 있는 표준 payload를 만든다."""
+    order = _state_order_payload(state) or {}
+    payment = _state_payment_payload(state) or {}
+    selected_product = state.get("selected_product") if isinstance(state.get("selected_product"), dict) else {}
+    product_url = (
+        (webview_input.canonical_product_url if webview_input else None)
+        or (webview_input.execution_url if webview_input else None)
+        or selected_product.get("canonical_product_url")
+        or selected_product.get("product_url")
+        or selected_product.get("url")
+        or payment.get("paymentUrl")
+        or payment.get("payment_url")
+    )
+    payload = {
+        "task": task,
+        "orderId": order.get("orderId"),
+        "paymentId": payment.get("paymentId"),
+        "platform": platform or (webview_input.platform if webview_input else None) or selected_product.get("platform") or "kurly",
+        "url": product_url,
+    }
+    if task == "add_to_cart":
+        payload.update({
+            "productName": (
+                webview_input.target_product_name
+                if webview_input
+                else selected_product.get("product_name") or selected_product.get("name")
+            ),
+            "targetProductName": (
+                webview_input.target_product_name
+                if webview_input
+                else selected_product.get("product_name") or selected_product.get("name")
+            ),
+            "quantity": (
+                webview_input.quantity
+                if webview_input
+                else state.get("quantity") or 1
+            ),
+            "executionUrl": webview_input.execution_url if webview_input else selected_product.get("execution_url"),
+            "canonicalProductUrl": webview_input.canonical_product_url if webview_input else selected_product.get("canonical_product_url"),
+        })
+    return payload
+
+
+async def _address_required_response(conversation_id: int, state: dict) -> AgentResponse:
+    """cart_shopping에서 결제 의사를 받으면 배송지 확인 WebView task를 직접 반환한다."""
+    message = "배송지를 확인할게요."
+    payload = _webview_task_payload(task="address_check", state=state)
+    patch = {
+        "stage": "address_required",
+        "pending_action": {
+            "type": "webview_task",
+            "message": message,
+            "payload": payload,
+        },
+        "messages": _assistant_message_patch(message),
+        "webview_progress": None,
+    }
+    state = await runtime.update_state(conversation_id, patch)
+    return AgentResponse(
+        conversationId=conversation_id,
+        status="address_required",
+        stage="address_required",
+        assistantMessage=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=state.get("selected_product"),
+        pendingConfirmation={"type": "webview_task", "message": message, "payload": payload},
+        availableOptions=None,
+        deliveryAddress=state.get("delivery_address"),
+        cart=state.get("cart"),
+        order=_state_order_payload(state),
+        payment=_state_payment_payload(state),
+        uiCommand={"type": "open_webview", "task": "address_check"},
+        asyncStatus=None,
+        error=None,
+    )
+
+
+async def _payment_webview_response(conversation_id: int, state: dict) -> AgentResponse:
+    """배송지 음성 확인 후 결제 WebView task를 직접 반환한다."""
+    message = "네, 이제 결제를 진행할게요."
+    payload = _webview_task_payload(task="payment", state=state)
+    patch = {
+        "stage": "payment_processing",
+        "pending_action": {
+            "type": "webview_task",
+            "message": message,
+            "payload": payload,
+        },
+        "messages": _assistant_message_patch(message),
+        "webview_progress": None,
+    }
+    state = await runtime.update_state(conversation_id, patch)
+    return AgentResponse(
+        conversationId=conversation_id,
+        status="payment_in_progress",
+        stage="payment_processing",
+        assistantMessage=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=state.get("selected_product"),
+        pendingConfirmation={"type": "webview_task", "message": message, "payload": payload},
+        availableOptions=None,
+        deliveryAddress=state.get("delivery_address"),
+        cart=state.get("cart"),
+        order=_state_order_payload(state),
+        payment=_state_payment_payload(state),
+        uiCommand={"type": "open_webview", "task": "payment"},
+        asyncStatus=None,
+        error=None,
+    )
+
+
 def _should_create_order_from_message(
     state: dict,
     pending_action_before: str | None,
@@ -941,7 +1097,7 @@ async def _persist_cart_order_payment_for_confirm(
         "stage": "cart_shopping",
     }
 
-    if action == "order_now":
+    if action in {"add_to_cart", "order_now"}:
         try:
             default_address = await address_repository.get_default_address_by_user_id_db(
                 db,
@@ -986,7 +1142,16 @@ async def _persist_cart_order_payment_for_confirm(
             output_summary={"payment_id": payment_bundle["payment"]["id"], "payment_status": payment_bundle["payment"]["payment_status"]},
         )
 
-        assistant_message = _payment_ready_message(order_bundle)
+        selected_product = state.get("selected_product") or {}
+        first_item = (order_bundle.get("order_items") or [{}])[0]
+        product_name = (
+            first_item.get("product_name_snapshot")
+            or selected_product.get("product_name")
+            or selected_product.get("name")
+            or "상품"
+        )
+        quantity = first_item.get("quantity") or state.get("quantity") or 1
+        assistant_message = f"네, {product_name} {quantity}개를 장바구니에 담을게요."
         selected_product = state.get("selected_product") or {}
         webview_recommendation_item_id = (
             _first_order_recommendation_item_id(order_bundle)
@@ -1001,20 +1166,27 @@ async def _persist_cart_order_payment_for_confirm(
             order_bundle=order_bundle,
         )
 
+        webview_payload = _webview_task_payload(
+            task="add_to_cart",
+            state={
+                **state,
+                "order": _order_response(
+                    order_bundle["order"],
+                    order_bundle["order_items"],
+                ),
+                "payment": _payment_response(payment_bundle["payment"]),
+            },
+            webview_input=webview_input,
+        )
         state_patch.update({
-            "stage": "payment_processing",
+            "stage": "webview_cart",
             "messages": _assistant_message_patch(assistant_message),
             "pending_action": {
                 "type": "webview_task",
                 "message": assistant_message,
                 "payload": {
-                    "orderId": order_bundle["order"]["id"],
-                    "paymentId": payment_bundle["payment"]["id"],
-                    "platform": webview_input.platform if webview_input else "kurly",
-                    "executionUrl": webview_input.execution_url if webview_input else None,
-                    "canonicalProductUrl": webview_input.canonical_product_url if webview_input else None,
-                    "targetProductName": webview_input.target_product_name if webview_input else None,
-                    "quantity": webview_input.quantity if webview_input else (state.get("quantity") or 1),
+                    **webview_payload,
+                    "uiCommand": {"type": "open_webview", "task": "add_to_cart"},
                 },
             },
             "checkout_session": order_bundle["checkout_session"],
@@ -1126,6 +1298,31 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         })
 
     pending_action_before = _pending_action_type_from(snapshot.values)
+    if (
+        snapshot.values.get("stage") == "cart_shopping"
+        and pending_action_before == "continue_shopping"
+        and _is_checkout_request(req.message)
+    ):
+        response = await _address_required_response(conversation_id, snapshot.values)
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {"status": response.status, "stage": response.stage},
+        )
+        return response
+
+    if (
+        pending_action_before == "address_confirm"
+        and _is_explicit_payment_confirmation(req.message)
+    ):
+        response = await _payment_webview_response(conversation_id, snapshot.values)
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {"status": response.status, "stage": response.stage},
+        )
+        return response
+
     state = await runtime.resume(conversation_id=conversation_id, message=req.message)
     user_id = int(snapshot.values["user_id"])
     state = await _run_post_graph_persistence(

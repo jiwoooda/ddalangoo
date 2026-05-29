@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 
 class PaymentDetailResponse(BaseModel):
     paymentId: int
@@ -23,6 +23,7 @@ class WebviewResultRequest(BaseModel):
     recipientName: Optional[str] = None
     recipientPhone: Optional[str] = None
     deliveryRequest: Optional[str] = None
+    deliveryAddress: Optional[Any] = None
 
 class PaymentRetryRequest(BaseModel):
     conversationId: Optional[int] = None
