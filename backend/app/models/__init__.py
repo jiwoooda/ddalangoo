@@ -21,7 +21,7 @@ from app.models.purchase_history import PurchaseHistory
 from app.models.recommendation import Recommendation, RecommendationItem
 from app.models.platform_session import UserPlatformSession
 from app.models.user import User, UserNaverAccount
-from app.models.user_preference import UserPreferenceCache, UserPreferenceFeedback
+from app.models.user_preference import UserPreferenceCache
 
 __all__ = [
     "Base",
@@ -49,5 +49,4 @@ __all__ = [
     "UserNaverAccount",
     "UserPlatformSession",
     "UserPreferenceCache",
-    "UserPreferenceFeedback",
 ]

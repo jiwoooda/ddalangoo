@@ -5,8 +5,6 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from app.repositories import purchase_history_repository
-
 
 def _fetch_histories_from_db(user_id: int) -> list[dict[str, Any]] | None:
     """PostgreSQL에서 구매이력 조회. 실패 시 None 반환."""
@@ -38,11 +36,11 @@ def _fetch_histories_from_db(user_id: int) -> list[dict[str, Any]] | None:
 
 
 def _get_histories(user_id: int) -> list[dict[str, Any]]:
-    """DB 우선, 실패 시 mock JSON fallback."""
+    """MVP 재구매 후보는 DB purchase_histories에서만 가져온다."""
     result = _fetch_histories_from_db(user_id)
     if result is not None:
         return result
-    return purchase_history_repository.get_histories_by_user_id(user_id)
+    return []
 
 
 RECENCY_WORDS = (

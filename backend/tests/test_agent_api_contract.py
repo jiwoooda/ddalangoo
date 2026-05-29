@@ -1,6 +1,4 @@
 import asyncio
-import json
-
 from app.agent.mapper import state_to_response
 from app.repositories import product_repository, user_preference_repository
 from app.routers import agent as agent_router
@@ -96,24 +94,15 @@ def test_webview_progress_recovers_status_and_screenshot_from_disk(monkeypatch, 
     assert webview_progress_service.get_latest_screenshot(conversation_id) == b"fake-jpeg-bytes"
 
 
-def test_user_preference_repository_json_fallback_when_database_url_missing(monkeypatch, tmp_path):
-    """DB URL이 없는 로컬 테스트에서는 기존 함수 시그니처가 JSON fallback으로 동작한다."""
-    cache_path = tmp_path / "user_preferences.json"
-    cache_path.write_text("{}", encoding="utf-8")
+def test_user_preference_repository_noops_when_database_url_missing(monkeypatch):
+    """MVP에서는 JSON fallback 없이 DB URL이 없으면 캐시 miss/no-op으로 동작한다."""
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setattr(user_preference_repository, "_JSON_PATH", str(cache_path))
 
     user_preference_repository.save_general_preference(1, {"summary": "healthy"})
     user_preference_repository.save_keyword_preference(1, ["치즈", "모짜렐라"], [{"product_name": "치즈"}])
 
-    assert user_preference_repository.get_general_preference(1)["summary"] == "healthy"
-    assert user_preference_repository.get_keyword_preference(1, ["모짜렐라", "치즈"]) == [
-        {"product_name": "치즈"}
-    ]
-
-    stored = json.loads(cache_path.read_text(encoding="utf-8"))
-    assert "1:general" in stored
-    assert "1:kw_모짜렐라_치즈" in stored
+    assert user_preference_repository.get_general_preference(1) is None
+    assert user_preference_repository.get_keyword_preference(1, ["모짜렐라", "치즈"]) is None
 
 
 def test_cancel_conversation_endpoint_requests_webview_cancel(monkeypatch):

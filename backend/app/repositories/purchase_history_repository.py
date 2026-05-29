@@ -147,44 +147,29 @@ async def get_history_by_keyword_db(
     return histories[0] if histories else None
 
 
-async def save_purchase_history_from_state_db(
+async def get_history_by_order_item_db(
     db: AsyncSession,
     *,
-    user_id: int,
-    product: dict,
-    quantity: int,
-    keyword: str | None = None,
-    conversation_id: int | None = None,
-    order_id: int | None = None,
-    payment_id: int | None = None,
-) -> dict:
-    """
-    LangGraph stage=completed 시 state에서 직접 구매이력을 저장한다.
-    order/payment 테이블 없이도 동작한다.
-    """
-    from datetime import UTC, datetime
-    history = PurchaseHistory(
-        user_id=user_id,
-        conversation_id=conversation_id,
-        order_id=order_id,
-        payment_id=payment_id,
-        platform=product.get("platform"),
-        keyword=keyword,
-        product_name_snapshot=product.get("product_name") or product.get("product_name_snapshot") or "",
-        option_snapshot=product.get("option_text"),
-        brand_snapshot=product.get("brand"),
-        category_snapshot=product.get("category"),
-        price_at_purchase=int(product.get("price") or product.get("price_at_purchase") or 0),
-        product_url_snapshot=product.get("product_url"),
-        selected_options=product.get("selected_options") or {},
-        quantity=quantity,
-        total_price=int(product.get("price") or 0) * quantity,
-        purchased_at=datetime.now(UTC),
+    order_id: int,
+    product_id: int | None,
+    product_option_id: int | None = None,
+    option_text: str | None = None,
+) -> Optional[dict]:
+    """order_item 기준으로 이미 생성된 구매이력이 있는지 확인한다."""
+    stmt = select(PurchaseHistory).where(
+        PurchaseHistory.order_id == order_id,
+        PurchaseHistory.product_id == product_id,
     )
-    db.add(history)
-    await db.commit()
-    await db.refresh(history)
-    return _history_to_dict(history)
+    if product_option_id is not None:
+        stmt = stmt.where(PurchaseHistory.product_option_id == product_option_id)
+    else:
+        stmt = stmt.where(PurchaseHistory.product_option_id.is_(None))
+        if option_text is not None:
+            stmt = stmt.where(PurchaseHistory.option_snapshot == option_text)
+
+    result = await db.execute(stmt.limit(1))
+    history = result.scalars().first()
+    return _history_to_dict(history) if history else None
 
 
 async def create_histories_from_order_db(
@@ -196,16 +181,9 @@ async def create_histories_from_order_db(
     """
     결제 완료 후 order_items snapshot을 purchase_histories로 복사한다.
 
-    purchase_histories는 재구매 검색용 read model이므로, 이미 같은 order_id의
-    이력이 있으면 중복 생성하지 않고 기존 이력을 반환한다.
+    purchase_histories는 재구매 검색용 read model이다.
+    같은 order_id + product_id + option 조합이 이미 있으면 해당 item은 skip한다.
     """
-    existing_result = await db.execute(
-        select(PurchaseHistory).where(PurchaseHistory.order_id == order_id)
-    )
-    existing = existing_result.scalars().all()
-    if existing:
-        return [_history_to_dict(history) for history in existing]
-
     order = await db.get(Order, order_id)
     if not order:
         raise ValueError("구매 이력을 만들 주문을 찾을 수 없습니다.")
@@ -219,8 +197,20 @@ async def create_histories_from_order_db(
 
     purchased_at = order.ordered_at or datetime.now(UTC)
     created_histories: list[PurchaseHistory] = []
+    existing_histories: list[dict] = []
 
     for item in order_items:
+        existing = await get_history_by_order_item_db(
+            db,
+            order_id=order.id,
+            product_id=item.product_id,
+            product_option_id=item.product_option_id,
+            option_text=item.option_snapshot,
+        )
+        if existing:
+            existing_histories.append(existing)
+            continue
+
         product = await db.get(Product, item.product_id)
         history = PurchaseHistory(
             user_id=order.user_id,
@@ -250,4 +240,4 @@ async def create_histories_from_order_db(
     for history in created_histories:
         await db.refresh(history)
 
-    return [_history_to_dict(history) for history in created_histories]
+    return existing_histories + [_history_to_dict(history) for history in created_histories]

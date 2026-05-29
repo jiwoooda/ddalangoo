@@ -7,11 +7,10 @@ from app.repositories import (
     conversation_repository,
     order_repository,
     payment_repository,
-    purchase_history_repository,
 )
 from app.agent import runtime
 from app.schemas.payment import PaymentDetailResponse, WebviewResultRequest, PaymentRetryRequest
-from app.services import webview_progress_service
+from app.services import purchase_history_service, webview_progress_service
 from fastapi import HTTPException
 
 try:
@@ -114,10 +113,62 @@ async def handle_webview_result_db(
     }
 
     result = req.result.lower()
-    if result in {"success", "completed", "paid", "cart_added"}:
+    if result in {"success", "completed", "paid"}:
+        updated_payment = await payment_repository.update_payment_status_db(
+            db,
+            req.paymentId,
+            payment_status="paid",
+        )
+        updated_order = await order_repository.update_order_status_db(
+            db,
+            req.orderId,
+            status="order_completed",
+        )
+        history_result = await purchase_history_service.create_histories_from_order_db(
+            db,
+            conversation_id=conversation_id,
+            user_id=order["user_id"],
+            payment_id=req.paymentId,
+        )
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {
+                "status": "order_completed",
+                "stage": "completed",
+                "ended_at": datetime.now(UTC),
+            },
+        )
+        await agent_event_repository.create_agent_event_db(
+            db,
+            conversation_id=conversation_id,
+            agent_name="payment_service",
+            event_type="payment_completed",
+            input_summary={"order_id": req.orderId, "payment_id": req.paymentId},
+            output_summary={
+                "order_status": updated_order["status"],
+                "payment_status": updated_payment["payment_status"],
+                "purchase_history_count": history_result.get("count", 0),
+            },
+        )
         webview_progress_service.clear_progress(conversation_id)
         # payment_processing으로 재개해야 라우터가 intent 무관하게 payment_agent로 직행한다.
         # cart_shopping을 쓰면 intent_agent가 stale 메시지를 분석해 엉뚱한 intent를 내놓을 수 있다.
+        state = await runtime.inject_and_resume(conversation_id, {
+            "stage": "completed",
+            "pending_action": None,
+            "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "paymentStatus": updated_payment["payment_status"],
+            },
+            "webview_progress": None,
+        })
+        from app.agent.mapper import state_to_response
+        return state_to_response(state, conversation_id).model_dump(by_alias=True)
+
+    if result == "cart_added":
+        webview_progress_service.clear_progress(conversation_id)
         state = await runtime.inject_and_resume(conversation_id, {
             "stage": "payment_processing",
             "pending_action": None,

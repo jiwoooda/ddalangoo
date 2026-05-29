@@ -10,7 +10,7 @@ tool 종류:
   - search_similar_purchases  : 재구매 시 유사 구매 이력 검색
 """
 from typing import Any
-from app.repositories import purchase_history_repository, conversation_repository
+from app.repositories import conversation_repository
 from app.services import reorder_memory_resolver
 
 
@@ -51,30 +51,14 @@ def search_similar_purchases(
     query: str,
     top_k: int = 3,
 ) -> dict[str, Any]:
-    """구매 이력에서 query와 유사한 상품을 키워드 매칭으로 검색."""
-    histories = purchase_history_repository.get_histories_by_user_id(user_id)
-    query_lower = query.lower()
-
-    matched = [
-        h for h in histories
-        if query_lower in h.get("product_name", "").lower()
-        or query_lower in (h.get("keyword") or "").lower()
-        or query_lower in (h.get("category") or "").lower()
-    ]
-
-    results = [
-        {
-            "product_name": h["product_name"],
-            "price_at_purchase": h.get("price_at_purchase", 0),
-            "quantity": h.get("quantity", 1),
-            "platform": h.get("platform"),
-            "option_text": h.get("option_text"),
-            "selected_options": h.get("selected_options") or {},
-            "product_url": h.get("product_url"),
-            "purchased_at": h.get("purchased_at"),
-        }
-        for h in matched[:top_k]
-    ]
+    """DB purchase_histories 기반 reorder resolver 결과를 tool 응답 형태로 변환한다."""
+    resolution = reorder_memory_resolver.resolve_reorder_memory(
+        user_id=user_id,
+        query=query,
+        keywords=[query] if query else [],
+        top_k=top_k,
+    )
+    results = resolution.get("candidates") or []
     return {"success": True, "results": results, "count": len(results)}
 
 

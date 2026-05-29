@@ -43,7 +43,13 @@ async def webview_result(
 
 @router.post("/conversations/{conversationId}/cancel")
 async def cancel_conversation(conversationId: int):
-    """실행 중인 Playwright 웹뷰 작업에 취소 신호를 보낸다."""
+    """
+    실행 중인 Playwright 웹뷰 작업에 취소 신호를 보낸다.
+
+    현재 request_cancel()은 프로세스 내부 threading.Event 기반이다.
+    Railway 등에서 여러 worker/process로 뜨면 worker 간 Event가 공유되지 않으므로,
+    운영 확장 시 Redis/pubsub 같은 외부 cancel store로 바꿔야 한다.
+    """
     from src.tools.webview_tool import request_cancel
 
     request_cancel()

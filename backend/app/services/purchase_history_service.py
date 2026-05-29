@@ -63,6 +63,7 @@ async def create_histories_from_order_db(
     db: AsyncSession,
     conversation_id: int,
     user_id: int,
+    payment_id: int | None = None,
 ) -> dict:
     """DB order/order_items를 purchase_histories로 복사한다."""
     order = await order_repository.get_order_by_conversation_id_db(db, conversation_id)
@@ -72,6 +73,7 @@ async def create_histories_from_order_db(
     histories = await purchase_history_repository.create_histories_from_order_db(
         db,
         order_id=order["id"],
+        payment_id=payment_id,
     )
     return {
         "success": True,

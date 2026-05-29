@@ -81,31 +81,8 @@ def _save_purchase_history(
     quantity: int,
     keywords: list | None = None,
 ) -> None:
-    try:
-        from app.repositories import purchase_history_repository
-        user_id_raw = state.get("user_id", 0)
-        kw_list = keywords if keywords is not None else (state.get("keywords") or [])
-        purchase_history_repository.create_history({
-            "user_id": int(user_id_raw),
-            "conversation_id": state.get("conversation_id"),
-            "product_id": selected_product.get("product_id"),
-            "product_option_id": selected_product.get("product_option_id"),
-            "product_name": selected_product.get("product_name", ""),
-            "brand": selected_product.get("brand"),
-            "category": selected_product.get("category"),
-            "option_text": selected_product.get("option_text"),
-            "selected_options": selected_product.get("selected_options") or {},
-            "product_url": selected_product.get("product_url", ""),
-            "price_at_purchase": price,
-            "quantity": quantity,
-            "total_price": price * quantity,
-            "platform": selected_product.get("platform", ""),
-            "keyword": kw_list[0] if kw_list else None,
-            "satisfaction_score": None,
-            "memo": None,
-        })
-    except Exception as e:
-        print(f"[payment_agent] purchase history save failed: {e}")
+    """Deprecated: purchase history is persisted only by backend payment_service."""
+    return None
 
 
 def _coerce_positive_int(value, default: int | None = None) -> int | None:
