@@ -19,8 +19,6 @@ from src.tools.mock_tools import (
     mock_get_user,
     mock_get_default_address,
     mock_get_preference_memory,
-    mock_count_purchases,
-    mock_keyword_search_history,
     mock_vector_search_personal,
     mock_vector_search_collective,
 )
@@ -72,7 +70,17 @@ def _fallback_resolve_reorder_memory(
     keywords: list[str],
     top_k: int = 5,
 ) -> dict[str, Any]:
-    history = mock_keyword_search_history(user_id, keywords or [query], limit=top_k)
+    search_terms = keywords or [query]
+    all_histories = _fetch_purchase_histories(user_id)
+    history = [
+        h for h in all_histories
+        if any(
+            k.lower() in (h.get("product_name") or "").lower()
+            or k.lower() in (h.get("keyword") or "").lower()
+            or k.lower() in (h.get("category") or "").lower()
+            for k in search_terms
+        )
+    ][:top_k]
     candidates = []
     for item in history:
         candidates.append({
@@ -328,6 +336,28 @@ def _generate_llm_summary(preference: dict[str, Any], keyword_history: Optional[
         return ""
 
 
+def _fetch_user_from_db(user_id: str) -> dict[str, Any] | None:
+    """DB에서 사용자 프로필 조회. 실패 시 mock fallback."""
+    async def _from_db(session):
+        from app.repositories.user_repository import get_user_by_id_db
+        return await get_user_by_id_db(session, int(user_id))
+    try:
+        return _run_async_with_fresh_engine(_from_db)
+    except Exception:
+        return mock_get_user(user_id)
+
+
+def _fetch_default_address_for_context(user_id: str) -> dict[str, Any] | None:
+    """DB에서 기본 배송지 조회. 실패 시 mock fallback."""
+    async def _from_db(session):
+        from app.repositories.address_repository import get_default_address_by_user_id_db
+        return await get_default_address_by_user_id_db(session, int(user_id))
+    try:
+        return _run_async_with_fresh_engine(_from_db)
+    except Exception:
+        return mock_get_default_address(user_id)
+
+
 def build_preference_context(
     user_id: str,
     keywords: list[str],
@@ -433,13 +463,23 @@ def get_recommendation_context(
     - 구매 20개 미만: keyword + collective vector
     - 구매 20개 이상: keyword + personal vector + collective vector
     """
-    user_profile = mock_get_user(user_id) or {}
-    default_address = mock_get_default_address(user_id)
+    user_profile = _fetch_user_from_db(user_id) or {}
+    default_address = _fetch_default_address_for_context(user_id)
     preference_memory = mock_get_preference_memory(user_id)
-    purchase_count = mock_count_purchases(user_id)
+
+    histories = _fetch_purchase_histories(user_id)
+    purchase_count = len(histories)
 
     query = " ".join(keywords)
-    keyword_results = mock_keyword_search_history(user_id, keywords)
+    keyword_results = [
+        h for h in histories
+        if any(
+            k.lower() in (h.get("product_name") or "").lower()
+            or k.lower() in (h.get("keyword") or "").lower()
+            or k.lower() in (h.get("category") or "").lower()
+            for k in keywords
+        )
+    ][:5]
 
     use_personal_vector = purchase_count >= PERSONAL_VECTOR_THRESHOLD
     personal_vector_results = (

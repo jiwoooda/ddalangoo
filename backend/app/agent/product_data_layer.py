@@ -138,6 +138,18 @@ def build_product_confirm_patch(candidate: dict, *, message_prefix: str | None =
     }
 
 
+_PAYMENT_STAGES = {
+    "payment_method_confirm",
+    "address_confirm",
+    "payment_password",
+    "payment_processing",
+    "cart_shopping",
+    "completed",
+    "cancelled",
+    "failed",
+}
+
+
 async def hydrate_state_with_db_candidates(
     db: AsyncSession,
     *,
@@ -150,6 +162,12 @@ async def hydrate_state_with_db_candidates(
     - reorder: purchase_histories를 우선 사용한다.
     - 일반 구매: 외부 검색 결과가 없을 때 products 후보 pool을 fallback으로 사용한다.
     """
+    # 결제 단계에서는 후보를 교체하지 않는다.
+    # reorder intent인 경우 구매 이력 후보를 주입하면 stage: "product_confirming"으로
+    # 덮어써져 LangGraph 체크포인트가 오염된다.
+    if state.get("stage") in _PAYMENT_STAGES:
+        return state
+
     intent = state.get("intent")
     existing_candidates = state.get("recommended_products") or state.get("search_results") or []
 

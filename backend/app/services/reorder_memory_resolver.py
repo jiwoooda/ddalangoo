@@ -8,6 +8,43 @@ from typing import Any
 from app.repositories import purchase_history_repository
 
 
+def _fetch_histories_from_db(user_id: int) -> list[dict[str, Any]] | None:
+    """PostgreSQL에서 구매이력 조회. 실패 시 None 반환."""
+    import asyncio
+
+    async def _runner():
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+        from app.repositories.purchase_history_repository import get_histories_by_user_id_db
+
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            return None
+        engine = create_async_engine(database_url, pool_pre_ping=True, pool_size=1, max_overflow=0)
+        factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
+        try:
+            async with factory() as session:
+                return await get_histories_by_user_id_db(session, user_id)
+        finally:
+            await engine.dispose()
+
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_runner())
+        finally:
+            loop.close()
+    except Exception:
+        return None
+
+
+def _get_histories(user_id: int) -> list[dict[str, Any]]:
+    """DB 우선, 실패 시 mock JSON fallback."""
+    result = _fetch_histories_from_db(user_id)
+    if result is not None:
+        return result
+    return purchase_history_repository.get_histories_by_user_id(user_id)
+
+
 RECENCY_WORDS = (
     "저번에",
     "전에",
@@ -82,7 +119,7 @@ def _search_candidates_sql(
     keywords: list[str],
     top_k: int,
 ) -> list[dict[str, Any]]:
-    histories = purchase_history_repository.get_histories_by_user_id(user_id)
+    histories = _get_histories(user_id)
     terms = _expand_terms(query, keywords)
     scored: list[dict[str, Any]] = []
 
