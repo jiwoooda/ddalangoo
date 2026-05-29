@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/storage/local_storage.dart';
+import '../../../data/repositories/agent_repository.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -10,6 +11,8 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  final UserRepository _userRepository = UserRepository();
+
   @override
   void initState() {
     super.initState();
@@ -22,11 +25,25 @@ class _SplashScreenState extends State<SplashScreen> {
 
     if (!mounted) return;
 
-    // 로그인 여부 확인 후 화면 이동
-    final isLoggedIn = await LocalStorage.isLoggedIn();
+    final userId = await LocalStorage.getUserId();
     if (!mounted) return;
 
-    if (isLoggedIn) {
+    if (userId == null) {
+      context.go('/login');
+      return;
+    }
+
+    try {
+      await _userRepository.getUser(userId);
+    } catch (_) {
+      await LocalStorage.clearUserId();
+      if (!mounted) return;
+      context.go('/login');
+      return;
+    }
+
+    if (!mounted) return;
+    if (userId > 0) {
       context.go('/home');
     } else {
       context.go('/login');

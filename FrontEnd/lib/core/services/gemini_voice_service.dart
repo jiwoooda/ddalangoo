@@ -15,6 +15,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import '../network/api_client.dart';
 import '../utils/latency_logger.dart';
 
 class GeminiVoiceService {
@@ -23,10 +24,18 @@ class GeminiVoiceService {
       _instance ??= GeminiVoiceService._();
   GeminiVoiceService._();
 
+  static const String _backendTtsCacheVersion = 'backend_gemini_tts_v2';
   static const String _sttModelName = 'models/gemini-3-flash-preview';
-  static const String _ttsModelName = 'gemini-3.1-flash-tts-preview';
   static const String _ttsVoiceName = 'Zephyr';
   static const String _useGeminiTtsEnvKey = 'USE_GEMINI_TTS';
+  static const String _useGeminiTtsPrefetchEnvKey = 'USE_GEMINI_TTS_PREFETCH';
+  static const String _definedUseGeminiTts = String.fromEnvironment(
+    _useGeminiTtsEnvKey,
+  );
+  static const String _definedUseGeminiTtsPrefetch = String.fromEnvironment(
+    _useGeminiTtsPrefetchEnvKey,
+  );
+  static const String _backendTtsEndpointPath = '/api/voice/tts';
   static const double _ttsSpeedMultiplier = 1.2;
   static const int _sampleRate = 44100;
   static const int _numChannels = 1;
@@ -40,10 +49,11 @@ class GeminiVoiceService {
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
   final FlutterTts _fallbackTts = FlutterTts();
-  final Dio _dio = Dio();
   final BytesBuilder _audioBuffer = BytesBuilder(copy: false);
   final LinkedHashMap<String, Uint8List> _ttsCache = LinkedHashMap();
   final Map<String, Future<Uint8List>> _ttsInFlight = {};
+  final Set<String> _reportedTtsFallbackReasons = {};
+  final Set<String> _reportedTtsPrefetchFailures = {};
 
   StreamSubscription<Uint8List>? _recordingSubscription;
   StreamSubscription<void>? _playerCompleteSubscription;
@@ -62,8 +72,19 @@ class GeminiVoiceService {
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _isSpeaking;
-  bool get _shouldUseGeminiTts =>
-      (dotenv.env[_useGeminiTtsEnvKey] ?? '').toLowerCase() == 'true';
+  bool get _isGeminiTtsRequested =>
+      _readRuntimeValue(
+        key: _useGeminiTtsEnvKey,
+        definedValue: _definedUseGeminiTts,
+      ).toLowerCase() ==
+      'true';
+  bool get _shouldUseGeminiTts => _isGeminiTtsRequested;
+  bool get _isGeminiTtsPrefetchEnabled =>
+      _readRuntimeValue(
+        key: _useGeminiTtsPrefetchEnvKey,
+        definedValue: _definedUseGeminiTtsPrefetch,
+      ).toLowerCase() ==
+      'true';
 
   Future<void> init() async {
     await _player.setReleaseMode(ReleaseMode.stop);
@@ -73,10 +94,11 @@ class GeminiVoiceService {
     }
   }
 
-  GenerativeModel get _model => GenerativeModel(
-    model: _sttModelName,
-    apiKey: dotenv.env['GEMINI_API_KEY'] ?? '',
-  );
+  // NOTE: STT는 백엔드 /api/voice/stt 로 위임됐으므로 이 모델은 사용되지 않는다.
+  // TTS도 백엔드 /api/voice/tts 로 위임한다.
+  // 프론트는 GEMINI_API_KEY를 읽거나 보관하지 않는다.
+  GenerativeModel get _model =>
+      GenerativeModel(model: _sttModelName, apiKey: '');
 
   Future<void> startRecording() async {
     if (_isRecording) return;
@@ -156,10 +178,12 @@ class GeminiVoiceService {
 
         wavBytes = await recordingFile.readAsBytes();
         audioBytesLength = wavBytes.length;
-        unawaited(recordingFile.delete().catchError((Object e) {
-          debugPrint('⚠️ [Recording File Delete Error] $e');
-          return recordingFile;
-        }));
+        unawaited(
+          recordingFile.delete().catchError((Object e) {
+            debugPrint('⚠️ [Recording File Delete Error] $e');
+            return recordingFile;
+          }),
+        );
       } else {
         // stream 녹음은 stop 직후 마지막 chunk가 비동기로 들어올 수 있다.
         // 구독을 먼저 끊으면 마지막 오디오 조각을 잃어서 empty buffer가 될 수 있다.
@@ -262,11 +286,17 @@ class GeminiVoiceService {
   Future<void> prefetchSpeech(String text) async {
     final normalized = text.trim();
     if (normalized.isEmpty) return;
+    if (!_shouldUseGeminiTts || !_isGeminiTtsPrefetchEnabled) {
+      return;
+    }
 
     try {
       await _getOrCreateSpeech(normalized);
     } catch (e) {
-      debugPrint('⚠️ [Gemini TTS Prefetch Error] "$normalized" $e');
+      final failureKey = e.runtimeType.toString();
+      if (_reportedTtsPrefetchFailures.add(failureKey)) {
+        debugPrint('⚠️ [Gemini TTS Prefetch Error] "$normalized" $e');
+      }
     }
   }
 
@@ -288,7 +318,10 @@ class GeminiVoiceService {
     _activeSpeakLatencyContext = latencyContext;
     _audioPlayEndLogged = false;
     if (latencyContext != null) {
-      FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_start');
+      FrontendLatencyLogger.instance.mark(
+        latencyContext,
+        'backend_tts_request_start',
+      );
     }
 
     try {
@@ -296,10 +329,14 @@ class GeminiVoiceService {
         if (latencyContext != null) {
           FrontendLatencyLogger.instance.mark(
             latencyContext,
-            'frontend_tts_ready',
+            'backend_tts_response_received',
           );
         }
-        await _speakWithFallbackTts(text, onPlaybackStart: onPlaybackStart);
+        await _speakWithFallbackTts(
+          text,
+          onPlaybackStart: onPlaybackStart,
+          fallbackReason: 'backend_tts_disabled',
+        );
         _markAudioPlayEnd();
         _finishSpeaking();
         return;
@@ -308,7 +345,10 @@ class GeminiVoiceService {
       final wavBytes = await _getOrCreateSpeech(text);
       final speechSource = await _createSpeechPlaybackSource(text, wavBytes);
       if (latencyContext != null) {
-        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_tts_ready');
+        FrontendLatencyLogger.instance.mark(
+          latencyContext,
+          'backend_tts_response_received',
+        );
       }
 
       await _playerCompleteSubscription?.cancel();
@@ -329,13 +369,18 @@ class GeminiVoiceService {
         FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
       }
       onPlaybackStart?.call();
+      debugPrint('[TTS] playback started');
       await _player.play(speechSource);
       await speakCompleter.future;
     } catch (e) {
-      debugPrint('❌ [Gemini TTS Error] $e');
+      _logBackendTtsFailureOnce(e);
 
       try {
-        await _speakWithFallbackTts(text, onPlaybackStart: onPlaybackStart);
+        await _speakWithFallbackTts(
+          text,
+          onPlaybackStart: onPlaybackStart,
+          fallbackReason: 'backend_tts_failed',
+        );
       } finally {
         _markAudioPlayEnd();
         _finishSpeaking();
@@ -486,7 +531,7 @@ class GeminiVoiceService {
   }
 
   String _buildTtsCacheKey(String text) =>
-      '$_ttsModelName|$_ttsVoiceName|$_ttsSpeedMultiplier|$text';
+      '$_backendTtsCacheVersion|$_ttsVoiceName|$_ttsSpeedMultiplier|$text';
 
   void _rememberTtsCache(String cacheKey, Uint8List wavBytes) {
     _ttsCache.remove(cacheKey);
@@ -516,8 +561,8 @@ class GeminiVoiceService {
   Future<File?> _getCacheFile(String cacheKey) async {
     if (kIsWeb) return null;
 
-    final directoryFuture =
-        _ttsCacheDirectoryFuture ??= _prepareTtsCacheDirectory();
+    final directoryFuture = _ttsCacheDirectoryFuture ??=
+        _prepareTtsCacheDirectory();
     final directory = await directoryFuture;
     if (directory == null) return null;
 
@@ -567,7 +612,8 @@ class GeminiVoiceService {
     );
 
     final shouldWrite =
-        !await playbackFile.exists() || await playbackFile.length() != wavBytes.length;
+        !await playbackFile.exists() ||
+        await playbackFile.length() != wavBytes.length;
     if (shouldWrite) {
       await playbackFile.writeAsBytes(wavBytes, flush: true);
     }
@@ -620,8 +666,13 @@ class GeminiVoiceService {
   Future<void> _speakWithFallbackTts(
     String text, {
     VoidCallback? onPlaybackStart,
+    required String fallbackReason,
   }) async {
-    debugPrint('🟠 [Fallback TTS] Gemini TTS 대신 로컬 TTS를 사용합니다.');
+    if (_reportedTtsFallbackReasons.add(fallbackReason)) {
+      debugPrint(
+        '[TTS] provider=local_flutter_tts fallbackReason=$fallbackReason',
+      );
+    }
     await _player.stop();
     _playbackFallbackTimer?.cancel();
     final latencyContext = _activeSpeakLatencyContext;
@@ -633,80 +684,51 @@ class GeminiVoiceService {
   }
 
   Future<Uint8List> _generateSpeech(String text) async {
-    final apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
-    if (apiKey.isEmpty) {
-      throw Exception('GEMINI_API_KEY가 설정되지 않았습니다.');
-    }
+    debugPrint('[TTS] provider=backend_gemini');
+    debugPrint('[TTS] requestUrl=${ApiClient.baseUrl}$_backendTtsEndpointPath');
+    debugPrint('[TTS] textLength=${text.runes.length}');
 
-    final response = await _dio.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/'
-      '$_ttsModelName:generateContent',
-      options: Options(headers: {'x-goog-api-key': apiKey}),
-      data: {
-        'contents': [
-          {
-            'parts': [
-              {
-                'text':
-                    'Read the exact following Korean text in Korean. '
-                    'Speak like a warm, affectionate daughter helping an older parent shop. '
-                    'Use a bright, reassuring, and very kind tone. '
-                    'Keep the voice gentle, patient, and easy for older adults to understand. '
-                    'Speak about 1.2x faster than a neutral default pace without sounding rushed. '
-                    'Pause naturally between sentences. '
-                    'Pronounce prices, quantities, dates, addresses, and payment-related words very clearly. '
-                    'Sound friendly and comforting, never cold or robotic. '
-                    'Do not add, remove, or change any words.\n$text',
-              },
-            ],
-          },
-        ],
-        'generationConfig': {
-          'responseModalities': ['AUDIO'],
-          'speechConfig': {
-            'voiceConfig': {
-              'prebuiltVoiceConfig': {'voiceName': _ttsVoiceName},
-            },
-          },
-        },
-        'model': _ttsModelName,
-      },
+    final response = await ApiClient.dio.post<Map<String, dynamic>>(
+      _backendTtsEndpointPath,
+      data: {'text': text},
+      options: Options(
+        contentType: Headers.jsonContentType,
+        responseType: ResponseType.json,
+      ),
     );
 
     final data = response.data;
-    String? encodedAudio;
-    if (data is Map<String, dynamic>) {
-      final candidates = data['candidates'];
-      if (candidates is List && candidates.isNotEmpty) {
-        final firstCandidate = candidates.first;
-        if (firstCandidate is Map<String, dynamic>) {
-          final content = firstCandidate['content'];
-          if (content is Map<String, dynamic>) {
-            final parts = content['parts'];
-            if (parts is List && parts.isNotEmpty) {
-              final firstPart = parts.first;
-              if (firstPart is Map<String, dynamic>) {
-                final inlineData = firstPart['inlineData'];
-                if (inlineData is Map<String, dynamic>) {
-                  encodedAudio = inlineData['data'] as String?;
-                }
-              }
-            }
-          }
-        }
-      }
+    final encodedAudio = data?['audioBase64'];
+    final mimeType = data?['mimeType'];
+    if (encodedAudio is! String || encodedAudio.isEmpty) {
+      throw Exception('백엔드 TTS 응답에서 오디오 데이터를 받지 못했습니다.');
     }
 
-    if (encodedAudio == null || encodedAudio.isEmpty) {
-      throw Exception('Gemini TTS 응답에서 오디오 데이터를 받지 못했습니다.');
+    final audioBytes = base64Decode(encodedAudio);
+    if (audioBytes.isEmpty) {
+      throw Exception('백엔드 TTS 오디오가 비어 있습니다.');
     }
-
-    final pcmBytes = base64Decode(encodedAudio);
-    return _wrapPcm16AsWav(
-      pcmBytes,
-      sampleRate: _ttsSampleRate,
-      channels: 1,
+    debugPrint(
+      '[TTS] response mimeType=$mimeType audioBytes=${audioBytes.length}',
     );
+    return audioBytes;
+  }
+
+  void _logBackendTtsFailureOnce(Object error) {
+    final failureKey = error is DioException
+        ? 'dio_${error.response?.statusCode}_${error.type}'
+        : error.runtimeType.toString();
+    if (!_reportedTtsPrefetchFailures.add('speak_$failureKey')) return;
+    debugPrint('❌ [Backend Gemini TTS Error] $error');
+  }
+
+  String _readRuntimeValue({
+    required String key,
+    required String definedValue,
+  }) {
+    final fromDefine = definedValue.trim();
+    if (fromDefine.isNotEmpty) return fromDefine;
+    return (dotenv.env[key] ?? '').trim();
   }
 
   void _startPlaybackCompletionFallback(Uint8List wavBytes) {
@@ -759,6 +781,7 @@ class GeminiVoiceService {
 
   void _markAudioPlayEnd() {
     if (_audioPlayEndLogged) return;
+    debugPrint('[TTS] playback ended');
     final latencyContext = _activeSpeakLatencyContext;
     if (latencyContext != null) {
       FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_end');

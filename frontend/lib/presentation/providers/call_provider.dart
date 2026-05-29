@@ -426,7 +426,7 @@ class CallProvider extends ChangeNotifier {
         _stage = CallStage.clarification;
         notifyListeners();
       } else {
-        // OpenAI STT로 텍스트 변환
+        // 백엔드 STT로 텍스트 변환
         final transcript = await _voiceService.stopRecordingAndTranscribe();
         if (latencyContext != null) {
           FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
@@ -451,6 +451,7 @@ class CallProvider extends ChangeNotifier {
           final response = await _agentRepository.startShopping(
             userId: userId,
             message: transcript,
+            inputType: 'voice',
             latencyContext: latencyContext,
           );
           await _handleResponse(response, latencyContext: latencyContext);
@@ -458,6 +459,7 @@ class CallProvider extends ChangeNotifier {
           final response = await _agentRepository.sendMessage(
             conversationId: _conversationId!,
             message: transcript,
+            inputType: 'voice',
             latencyContext: latencyContext,
           );
           await _handleResponse(response, latencyContext: latencyContext);

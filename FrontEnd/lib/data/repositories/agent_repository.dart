@@ -140,6 +140,7 @@ class AgentRepository {
   Future<AgentResponse> startShopping({
     required int userId,
     required String message,
+    String inputType = 'text',
     LatencyRequestContext? latencyContext,
   }) async {
     if (useMock) {
@@ -154,7 +155,11 @@ class AgentRepository {
       return _mockResponse(message, 'clarification');
     }
 
-    final payload = ShoppingRequest(userId: userId, message: message).toJson();
+    final payload = ShoppingRequest(
+      userId: userId,
+      message: message,
+      inputType: inputType,
+    ).toJson();
     _logAgentRequest(
       'Shopping Start Request',
       endpoint: '/api/agent/shopping-requests',
@@ -201,6 +206,7 @@ class AgentRepository {
   Future<AgentResponse> sendMessage({
     required int conversationId,
     required String message,
+    String inputType = 'text',
     LatencyRequestContext? latencyContext,
     bool redactMessageForLogs = false,
   }) async {
@@ -287,7 +293,10 @@ class AgentRepository {
       return _mockResponse(message, 'clarification', convId: conversationId);
     }
 
-    final payload = MessageRequest(message: message).toJson();
+    final payload = MessageRequest(
+      message: message,
+      inputType: inputType,
+    ).toJson();
     _logAgentRequest(
       'Conversation Message Request',
       endpoint: '/api/agent/conversations/$conversationId/messages',
@@ -399,7 +408,42 @@ class UserRepository {
   String? _normalizePhoneNumber(String? phoneNumber) {
     if (phoneNumber == null) return null;
     final digitsOnly = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
-    return digitsOnly.isEmpty ? null : digitsOnly;
+    if (digitsOnly.isEmpty) return null;
+    final match = RegExp(
+      r'^(01[016789])(\d{3,4})(\d{4})$',
+    ).firstMatch(digitsOnly);
+    if (match == null) return null;
+    return '${match.group(1)}-${match.group(2)}-${match.group(3)}';
+  }
+
+  String _extractErrorMessage(Object error, {required String fallback}) {
+    if (error is DioException) {
+      final data = error.response?.data;
+      if (data is Map) {
+        final detail = data['detail'];
+        if (detail is Map) {
+          final message = detail['message'];
+          if (message is String && message.trim().isNotEmpty) {
+            return message.trim();
+          }
+          final nestedError = detail['error'];
+          if (nestedError is Map) {
+            final nestedMessage = nestedError['message'];
+            if (nestedMessage is String && nestedMessage.trim().isNotEmpty) {
+              return nestedMessage.trim();
+            }
+          }
+        }
+        final message = data['message'];
+        if (message is String && message.trim().isNotEmpty) {
+          return message.trim();
+        }
+      }
+      if (error.message != null && error.message!.trim().isNotEmpty) {
+        return error.message!.trim();
+      }
+    }
+    return fallback;
   }
 
   // 회원가입
@@ -407,6 +451,7 @@ class UserRepository {
     required String name,
     String? phoneNumber,
     String? ageGroup,
+    String? gender,
   }) async {
     final normalizedName = _normalizeName(name);
     final normalizedPhoneNumber = _normalizePhoneNumber(phoneNumber);
@@ -420,18 +465,27 @@ class UserRepository {
         userId: _mockUsersById.length + 1, // 새로운 Mock User ID 부여
         name: normalizedName,
         phoneNumber: normalizedPhoneNumber ?? '01000000000',
+        ageGroup: ageGroup,
+        gender: gender,
       );
     }
 
-    final response = await _dio.post(
-      '/api/users',
-      data: UserCreateRequest(
-        name: normalizedName,
-        phoneNumber: normalizedPhoneNumber,
-        ageGroup: ageGroup,
-      ).toJson(),
-    );
-    return UserResponse.fromJson(response.data);
+    try {
+      final response = await _dio.post(
+        '/api/users',
+        data: UserCreateRequest(
+          name: normalizedName,
+          phoneNumber: normalizedPhoneNumber,
+          ageGroup: ageGroup,
+          gender: gender,
+        ).toJson(),
+      );
+      return UserResponse.fromJson(response.data);
+    } catch (error) {
+      throw Exception(
+        _extractErrorMessage(error, fallback: '회원가입에 실패했습니다.'),
+      );
+    }
   }
 
   // 로그인 (전화번호/이름 기반)
@@ -442,11 +496,17 @@ class UserRepository {
     final normalizedName = _normalizeName(name);
     final normalizedPhoneNumber = _normalizePhoneNumber(phoneNumber) ?? '';
 
-    final response = await _dio.post(
-      '/api/users/login',
-      data: {'name': normalizedName, 'phone_number': normalizedPhoneNumber},
-    );
-    return UserResponse.fromJson(response.data);
+    try {
+      final response = await _dio.post(
+        '/api/users/login',
+        data: {'name': normalizedName, 'phone_number': normalizedPhoneNumber},
+      );
+      return UserResponse.fromJson(response.data);
+    } catch (error) {
+      throw Exception(
+        _extractErrorMessage(error, fallback: '로그인에 실패했습니다.'),
+      );
+    }
   }
 
   // 유저 정보 가져오기

@@ -34,39 +34,32 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          _logNetwork(
-            'REQUEST',
-            {
-              'method': options.method,
-              'url': options.uri.toString(),
-              'headers': options.headers,
-              'queryParameters': options.queryParameters,
-              'body': options.data,
-            },
-          );
+          _logNetwork('REQUEST', {
+            'method': options.method,
+            'url': options.uri.toString(),
+            'headers': options.headers,
+            'queryParameters': options.queryParameters,
+            'body': options.data,
+          });
           handler.next(options);
         },
         onResponse: (response, handler) {
-          _logNetwork(
-            'RESPONSE',
-            {
-              'statusCode': response.statusCode,
-              'url': response.requestOptions.uri.toString(),
-              'data': response.data,
-            },
-          );
+          _logNetwork('RESPONSE', {
+            'statusCode': response.statusCode,
+            'url': response.requestOptions.uri.toString(),
+            'data': response.data,
+          });
           handler.next(response);
         },
         onError: (error, handler) {
-          _logNetwork(
-            'ERROR',
-            {
-              'url': error.requestOptions.uri.toString(),
-              'message': error.message,
-              'statusCode': error.response?.statusCode,
-              'data': error.response?.data,
-            },
-          );
+          _logNetwork('ERROR', {
+            'url': error.requestOptions.uri.toString(),
+            'message': error.message,
+            'type': error.type.name,
+            'error': error.error?.toString(),
+            'statusCode': error.response?.statusCode,
+            'data': error.response?.data,
+          });
           handler.next(error);
         },
       ),
@@ -82,7 +75,7 @@ class ApiClient {
     final summarized = _summarizeNetworkLog(phase, payload);
     if (summarized == null) return;
     const encoder = JsonEncoder.withIndent('  ');
-    debugPrint('🌐 [API $phase]\n${encoder.convert(summarized)}');
+    debugPrint('🌐 [API $phase]\n${encoder.convert(_jsonSafe(summarized))}');
   }
 
   static Map<String, dynamic>? _summarizeNetworkLog(
@@ -90,22 +83,29 @@ class ApiClient {
     Map<String, dynamic> payload,
   ) {
     final url = payload['url']?.toString() ?? '';
+    if (url.contains('/voice/tts')) {
+      return _summarizeTtsLog(phase, payload, url);
+    }
+
     if (!url.contains('/webview/status')) {
       return payload;
     }
 
     if (phase == 'REQUEST') {
-      return {
-        'method': payload['method'],
-        'url': url,
-      };
+      return {'method': payload['method'], 'url': url};
     }
 
     if (phase == 'RESPONSE') {
       final data = payload['data'];
-      final status = data is Map<String, dynamic> ? data['status']?.toString() : null;
-      final step = data is Map<String, dynamic> ? data['step']?.toString() : null;
-      final message = data is Map<String, dynamic> ? data['message']?.toString() : null;
+      final status = data is Map<String, dynamic>
+          ? data['status']?.toString()
+          : null;
+      final step = data is Map<String, dynamic>
+          ? data['step']?.toString()
+          : null;
+      final message = data is Map<String, dynamic>
+          ? data['message']?.toString()
+          : null;
       final signature = '$url|$status|$step|$message';
 
       if (status == 'idle') {
@@ -127,11 +127,7 @@ class ApiClient {
       }
 
       _lastSuppressedWebviewStatusLogKey = null;
-      return {
-        'statusCode': payload['statusCode'],
-        'url': url,
-        'data': data,
-      };
+      return {'statusCode': payload['statusCode'], 'url': url, 'data': data};
     }
 
     if (phase == 'ERROR') {
@@ -139,5 +135,85 @@ class ApiClient {
     }
 
     return payload;
+  }
+
+  static Map<String, dynamic>? _summarizeTtsLog(
+    String phase,
+    Map<String, dynamic> payload,
+    String url,
+  ) {
+    if (phase == 'REQUEST') {
+      final body = payload['body'];
+      final text = body is Map ? body['text'] : null;
+      return {
+        'method': payload['method'],
+        'url': url,
+        'body': {'textLength': text is String ? text.runes.length : null},
+      };
+    }
+
+    if (phase == 'RESPONSE') {
+      final data = payload['data'];
+      final audioBase64 = data is Map ? data['audioBase64'] : null;
+      return {
+        'statusCode': payload['statusCode'],
+        'url': url,
+        'data': {
+          'mimeType': data is Map ? data['mimeType'] : null,
+          'audioBase64Length': audioBase64 is String
+              ? audioBase64.length
+              : null,
+        },
+      };
+    }
+
+    return payload;
+  }
+
+  static Object? _jsonSafe(Object? value) {
+    if (value == null || value is num || value is bool || value is String) {
+      return value;
+    }
+
+    if (value is FormData) {
+      return {
+        'type': 'FormData',
+        'fields': [
+          for (final field in value.fields)
+            {'name': field.key, 'value': field.value},
+        ],
+        'files': [
+          for (final fileEntry in value.files)
+            {
+              'fieldName': fileEntry.key,
+              'filename': fileEntry.value.filename,
+              'contentType': fileEntry.value.contentType.toString(),
+              'length': fileEntry.value.length,
+            },
+        ],
+      };
+    }
+
+    if (value is MultipartFile) {
+      return {
+        'type': 'MultipartFile',
+        'filename': value.filename,
+        'contentType': value.contentType.toString(),
+        'length': value.length,
+      };
+    }
+
+    if (value is Map) {
+      return {
+        for (final entry in value.entries)
+          entry.key.toString(): _jsonSafe(entry.value),
+      };
+    }
+
+    if (value is Iterable) {
+      return [for (final item in value) _jsonSafe(item)];
+    }
+
+    return value.toString();
   }
 }

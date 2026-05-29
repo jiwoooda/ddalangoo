@@ -4,46 +4,30 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import 'gemini_voice_service.dart';
+import '../network/api_client.dart';
 import '../utils/latency_logger.dart';
 
 class GptVoiceService {
-  GptVoiceService({required String apiKey})
-    : _apiKey = apiKey.trim(),
-      _dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.openai.com/v1',
-          headers: {'Authorization': 'Bearer ${apiKey.trim()}'},
-        ),
-      );
+  GptVoiceService();
 
   static GptVoiceService? _instance;
   static GptVoiceService get instance {
-    final apiKey = dotenv.env['OPENAI_API_KEY'] ?? '';
-    _instance ??= GptVoiceService(apiKey: apiKey);
+    _instance ??= GptVoiceService();
     return _instance!;
   }
 
-  static const String _sttModelName = 'gpt-4o-mini-transcribe';
-
-  /// static const String _sttModelName = 'gpt-realtime-whisper';
+  // STT는 백엔드 /api/voice/stt 로 위임한다. 직접 모델명을 관리하지 않는다.
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
+  static const String _sttMultipartFieldName = 'file';
+  static const String _sttEndpointPath = '/api/voice/stt';
 
-  static const String _sttPrompt =
-      "이 오디오는 한국어 음성 쇼핑 보조 서비스 '딸랑구'의 사용자 발화입니다. "
-      '사용자의 말을 가능한 한 들리는 그대로 정확히 전사해주세요. '
-      "고령층 사용자가 천천히 말하거나, 생각하면서 중간에 쉬거나, '음', '어', '그' 같은 간투사를 말할 수 있습니다. "
-      '말 사이에 짧은 침묵이 있어도 하나의 발화로 자연스럽게 이어서 전사해주세요. '
-      '상품명, 수량, 가격, 배송지, 장바구니, 결제, 재주문과 관련된 표현은 특히 정확히 전사해주세요. '
-      '불확실한 내용은 임의로 바꾸지 말고 들리는 대로 전사해주세요.';
+  // STT 프롬프트는 백엔드 voice_service.py에서 관리한다.
 
-  final String _apiKey;
-  final Dio _dio;
   final AudioRecorder _recorder = AudioRecorder();
   final GeminiVoiceService _geminiTts = GeminiVoiceService.instance;
   Future<Directory?>? _sttRecordingDirectoryFuture;
@@ -55,7 +39,6 @@ class GptVoiceService {
   bool get _supportsFileAudioFlow => !kIsWeb;
 
   Future<void> init() async {
-    _ensureApiKey();
     await _geminiTts.init();
     if (!_supportsFileAudioFlow) {
       return;
@@ -64,7 +47,6 @@ class GptVoiceService {
   }
 
   Future<void> startRecording() async {
-    _ensureApiKey();
     _ensureRecordingSupported();
     if (_isRecording) return;
 
@@ -115,6 +97,7 @@ class GptVoiceService {
       }
 
       final audioFile = File(path);
+      await _logRecordedFile('recording_stopped', audioFile);
       final transcript = await transcribeAudioFile(audioFile);
       return transcript;
     } finally {
@@ -125,9 +108,9 @@ class GptVoiceService {
     }
   }
 
+  /// 백엔드 /api/voice/stt 로 오디오 파일을 전송하고 전사 텍스트를 받는다.
+  /// OPENAI_API_KEY / GEMINI_API_KEY를 프론트에서 사용하지 않는다.
   Future<String> transcribeAudioFile(File audioFile) async {
-    _ensureApiKey();
-
     if (!await audioFile.exists()) {
       throw Exception('전사할 오디오 파일이 존재하지 않습니다.');
     }
@@ -138,12 +121,9 @@ class GptVoiceService {
     }
 
     try {
+      await _logRecordedFile('stt_request_prepare', audioFile);
       final formData = FormData.fromMap({
-        'model': _sttModelName,
-        'language': 'ko',
-        'response_format': 'json',
-        'prompt': _sttPrompt,
-        'file': await MultipartFile.fromFile(
+        _sttMultipartFieldName: await MultipartFile.fromFile(
           audioFile.path,
           filename: audioFile.uri.pathSegments.isNotEmpty
               ? audioFile.uri.pathSegments.last
@@ -151,8 +131,15 @@ class GptVoiceService {
         ),
       });
 
-      final response = await _dio.post<Map<String, dynamic>>(
-        '/audio/transcriptions',
+      debugPrint(
+        '🎙️ [STT Request] '
+        'requestUrl=${ApiClient.baseUrl}$_sttEndpointPath, '
+        'multipartFieldName=$_sttMultipartFieldName, '
+        'fileSize=$fileLength',
+      );
+
+      final response = await ApiClient.dio.post<Map<String, dynamic>>(
+        _sttEndpointPath,
         data: formData,
         options: Options(
           contentType: 'multipart/form-data',
@@ -161,11 +148,18 @@ class GptVoiceService {
       );
 
       final text = _extractTranscriptText(response.data);
-      if (text.isEmpty) {
-        throw Exception('음성 인식 결과가 비어 있습니다.');
-      }
-      return text;
+      return text; // 빈 발화는 빈 문자열로 반환 (오류 아님)
     } on DioException catch (e) {
+      await _logRecordedFile('stt_request_failed', audioFile);
+      debugPrint(
+        '❌ [STT Dio Error] '
+        'requestUrl=${ApiClient.baseUrl}$_sttEndpointPath, '
+        'multipartFieldName=$_sttMultipartFieldName, '
+        'type=${e.type.name}, '
+        'message=${e.message}, '
+        'statusCode=${e.response?.statusCode}, '
+        'data=${e.response?.data}',
+      );
       throw Exception(_buildHttpErrorMessage('STT', e));
     }
   }
@@ -259,6 +253,18 @@ class GptVoiceService {
     } catch (_) {}
   }
 
+  Future<void> _logRecordedFile(String event, File audioFile) async {
+    final exists = await audioFile.exists();
+    final size = exists ? await audioFile.length() : 0;
+    debugPrint(
+      '🎙️ [STT File] '
+      'event=$event, '
+      'recordPath=${audioFile.path}, '
+      'fileExists=$exists, '
+      'fileSize=$size',
+    );
+  }
+
   String _extractTranscriptText(Map<String, dynamic>? data) {
     if (data == null) return '';
 
@@ -279,15 +285,13 @@ class GptVoiceService {
     final statusCode = error.response?.statusCode;
     final body = error.response?.data;
     final details = body is String ? body : jsonEncode(body);
+    final transportError = error.error?.toString();
     return '$label 요청에 실패했습니다'
         '${statusCode == null ? '' : ' (HTTP $statusCode)'}'
+        ' [${error.type.name}]'
+        '${error.message == null ? '' : ': ${error.message}'}'
+        '${transportError == null ? '' : ' / $transportError'}'
         '${details.isEmpty ? '' : ': $details'}';
-  }
-
-  void _ensureApiKey() {
-    if (_apiKey.isEmpty) {
-      throw Exception('OPENAI_API_KEY가 설정되지 않았습니다.');
-    }
   }
 
   void _ensureRecordingSupported() {
@@ -298,5 +302,4 @@ class GptVoiceService {
       );
     }
   }
-
 }

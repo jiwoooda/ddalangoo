@@ -69,7 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
       context.go('/home');
     } catch (e) {
       setState(
-        () => _errorMessage = '로그인에 실패했습니다. 이름과 전화번호를 확인해주세요',
+        () => _errorMessage = e.toString().replaceFirst('Exception: ', ''),
       );
       debugPrint('❌ [Login Error] $e');
     } finally {
