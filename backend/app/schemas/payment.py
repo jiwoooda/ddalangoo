@@ -15,9 +15,14 @@ class PaymentDetailResponse(BaseModel):
     failureReason: Optional[str] = None
 
 class WebviewResultRequest(BaseModel):
-    orderId: int
-    paymentId: int
+    orderId: Optional[int] = None
+    paymentId: Optional[int] = None
     result: str
+    addressLine1: Optional[str] = None
+    addressLine2: Optional[str] = None
+    recipientName: Optional[str] = None
+    recipientPhone: Optional[str] = None
+    deliveryRequest: Optional[str] = None
 
 class PaymentRetryRequest(BaseModel):
     conversationId: Optional[int] = None
