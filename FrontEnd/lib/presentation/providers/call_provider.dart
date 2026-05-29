@@ -189,6 +189,15 @@ class CallProvider extends ChangeNotifier {
     }
     return null;
   }
+
+  String? get currentWebviewTask {
+    final payload = webviewTaskPayload;
+    final task = payload?['task'];
+    if (task is String && task.trim().isNotEmpty) {
+      return task.trim();
+    }
+    return null;
+  }
   String? get currentWebviewProductName {
     final payload = webviewTaskPayload;
     final targetProductName = payload?['targetProductName'];
@@ -553,9 +562,10 @@ class CallProvider extends ChangeNotifier {
 
   // 결제 웹뷰 결과
   Future<void> handlePaymentResult({
-    required int orderId,
-    required int paymentId,
+    int? orderId,
+    int? paymentId,
     required String result,
+    Map<String, dynamic>? extraData,
     bool awaitAssistantPresentation = true,
   }) async {
     if (_conversationId == null) return;
@@ -567,6 +577,7 @@ class CallProvider extends ChangeNotifier {
         orderId: orderId,
         paymentId: paymentId,
         result: result,
+        extraData: extraData,
       );
       if (awaitAssistantPresentation) {
         await _handleResponse(response);
@@ -810,13 +821,7 @@ class CallProvider extends ChangeNotifier {
   }
 
   bool _shouldAutoConfirmPaymentMethod(AgentResponse response) {
-    if (_isAutoConfirmingPaymentMethod) return false;
-    final pending = response.pendingConfirmation;
-    if (pending is! Map) return false;
-    if (pending['type'] != 'payment') return false;
-    final payload = pending['payload'];
-    if (payload is! Map) return false;
-    return payload['subType'] == 'payment_method_confirm';
+    return false;
   }
 
   Future<void> _autoConfirmPaymentMethod() async {
@@ -855,8 +860,10 @@ class CallProvider extends ChangeNotifier {
         return CallStage.productSelection;
       case 'cart':
       case 'cart_shopping':
+      case 'cart_processing':
         return CallStage.cart;
       case 'payment':
+      case 'address_required':
       case 'address_confirming':
       case 'payment_precheck':
       case 'payment_password_required':

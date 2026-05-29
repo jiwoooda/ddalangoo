@@ -160,6 +160,7 @@ class _CallScreenState extends State<CallScreen> {
             productName: provider.currentWebviewProductName,
             quantity: provider.currentWebviewQuantity,
             canonicalProductUrl: provider.currentCanonicalProductUrl,
+            task: provider.currentWebviewTask,
           ),
         ),
       );

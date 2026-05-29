@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -9,6 +11,7 @@ class PaymentWebViewScreen extends StatefulWidget {
   const PaymentWebViewScreen({
     super.key,
     required this.url,
+    this.task,
     this.orderId,
     this.paymentId,
     this.productName,
@@ -23,6 +26,7 @@ class PaymentWebViewScreen extends StatefulWidget {
   });
 
   final String url;
+  final String? task;
   final int? orderId;
   final int? paymentId;
   final String? productName;
@@ -98,6 +102,22 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     final controller = _controller;
     if (controller == null || widget.previewMode || _automationStarted) return;
     _automationStarted = true;
+
+    if (widget.task == 'address_check') {
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      final addressData = await _collectKurlyAddressFromCart(controller);
+      await _submitResult('address_checked', extraData: addressData);
+      return;
+    }
+
+    if (widget.task == 'payment') {
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      final prepared = await _prepareKurlyMockPayment(controller);
+      await _submitResult(prepared ? 'payment_ready_mock' : 'cancelled');
+      return;
+    }
 
     // 페이지 첫 로드 대기
     await Future.delayed(const Duration(seconds: 2));
@@ -200,14 +220,11 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     await _runAutomation();
   }
 
-  Future<void> _submitResult(String result) async {
+  Future<void> _submitResult(
+    String result, {
+    Map<String, dynamic>? extraData,
+  }) async {
     if (widget.previewMode) {
-      Navigator.of(context).pop();
-      return;
-    }
-    final orderId = widget.orderId;
-    final paymentId = widget.paymentId;
-    if (orderId == null || paymentId == null) {
       Navigator.of(context).pop();
       return;
     }
@@ -217,9 +234,10 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     final navigator = Navigator.of(context);
     try {
       await callProvider.handlePaymentResult(
-        orderId: orderId,
-        paymentId: paymentId,
+        orderId: widget.orderId,
+        paymentId: widget.paymentId,
         result: result,
+        extraData: extraData,
         awaitAssistantPresentation: false,
       );
       if (navigator.mounted) {
@@ -243,6 +261,272 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     }
 
     return widget.url;
+  }
+
+  Future<Map<String, dynamic>> _collectKurlyAddressFromCart(
+    WebViewController controller,
+  ) async {
+    final orderSheetReady = await _openKurlyOrderSheet(controller);
+    if (!orderSheetReady) {
+      return const {};
+    }
+    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final raw = await controller.runJavaScriptReturningResult('''
+        (function() {
+          function normalize(text) {
+            return (text || '').replace(/\\s+/g, ' ').trim();
+          }
+          function visible(el) {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          }
+          const selectors = [
+            '[class*="address"]',
+            '[data-testid*="address"]',
+            'button[aria-label*="배송지"]',
+            'a[aria-label*="배송지"]',
+            'section',
+            'div',
+            'span'
+          ];
+          let best = '';
+          for (const selector of selectors) {
+            const nodes = Array.from(document.querySelectorAll(selector));
+            for (const node of nodes) {
+              if (!visible(node)) continue;
+              const text = normalize(node.textContent || '');
+              if (!text) continue;
+              if (
+                text.includes('기본배송지') ||
+                text.includes('배송지') ||
+                text.includes('서빙고로') ||
+                text.includes('동') ||
+                text.includes('호')
+              ) {
+                if (text.length > best.length) best = text;
+              }
+            }
+          }
+          best = normalize(best.replace(/^배송지\\s*/, '').replace(/^기본배송지\\s*/, ''));
+          return JSON.stringify({
+            addressLine1: best || null,
+            addressLine2: null,
+            recipientName: null,
+            recipientPhone: null,
+            deliveryRequest: null
+          });
+        })()
+      ''');
+      final decoded = _decodeJavaScriptJsonObject(raw);
+      if (decoded != null) {
+        return decoded;
+      }
+    } catch (_) {}
+    return const {};
+  }
+
+  Future<bool> _prepareKurlyMockPayment(WebViewController controller) async {
+    final orderSheetReady = await _openKurlyOrderSheet(controller);
+    if (!orderSheetReady) return false;
+    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final raw = await controller.runJavaScriptReturningResult('''
+        (function() {
+          function normalize(text) {
+            return (text || '').replace(/\\s+/g, ' ').trim();
+          }
+          function visible(el) {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          }
+          function click(el) {
+            el.scrollIntoView({ block: 'center', behavior: 'instant' });
+            el.click();
+          }
+          const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+          const orderBtn = candidates.find((el) => {
+            if (!visible(el)) return false;
+            const text = normalize(el.textContent || el.value || '');
+            return text.includes('결제하기');
+          }) || candidates.find((el) => {
+            if (!visible(el)) return false;
+            const text = normalize(el.textContent || el.value || '');
+            return text.includes('결제하기');
+          });
+          if (!orderBtn) return 'missing_order_button';
+          click(orderBtn);
+          return 'clicked_payment_button';
+        })()
+      ''');
+      await Future.delayed(const Duration(seconds: 2));
+      return raw.toString().contains('clicked_payment_button');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _openKurlyOrderSheet(WebViewController controller) async {
+    await _openKurlyCart(controller);
+    await Future.delayed(const Duration(seconds: 2));
+
+    final cartOrderClicked = await _clickPrimaryKurlyButton(
+      controller,
+      matchers: const ['혜택없이', '주문하기'],
+      fallbackMatchers: ['주문하기'],
+    );
+    if (!cartOrderClicked) return false;
+
+    await Future.delayed(const Duration(seconds: 2));
+
+    // 장바구니 추천 바텀시트가 뜨면 한 번 더 보라색 주문하기 버튼을 누른다.
+    await _clickPrimaryKurlyButton(
+      controller,
+      matchers: const ['주문하기'],
+      fallbackMatchers: ['주문하기'],
+    );
+
+    await Future.delayed(const Duration(seconds: 2));
+    return await _waitForKurlyOrderSheet(controller);
+  }
+
+  Future<void> _openKurlyCart(WebViewController controller) async {
+    try {
+      await controller.runJavaScriptReturningResult('''
+        (function() {
+          function normalize(text) {
+            return (text || '').replace(/\\s+/g, ' ').trim();
+          }
+          function visible(el) {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          }
+          const selectors = [
+            'a[href*="/cart"]',
+            'a[href*="cart"]',
+            'button[aria-label*="장바구니"]',
+            'a[aria-label*="장바구니"]',
+            '[data-testid*="cart"]',
+            '[class*="cart"]'
+          ];
+          let target = null;
+          for (const selector of selectors) {
+            const found = Array.from(document.querySelectorAll(selector)).find((el) => {
+              if (!visible(el)) return false;
+              const text = normalize(el.textContent || '');
+              const aria = normalize(el.getAttribute('aria-label') || '');
+              return text.includes('장바구니') || aria.includes('장바구니') || selector.includes('/cart');
+            });
+            if (found) {
+              target = found;
+              break;
+            }
+          }
+          if (!target) return 'missing_cart_button';
+          target.scrollIntoView({ block: 'center', behavior: 'instant' });
+          target.click();
+          return 'clicked_cart';
+        })()
+      ''');
+    } catch (_) {}
+  }
+
+  Future<bool> _clickPrimaryKurlyButton(
+    WebViewController controller, {
+    required List<String> matchers,
+    List<String> fallbackMatchers = const [],
+  }) async {
+    try {
+      final raw = await controller.runJavaScriptReturningResult('''
+        (function() {
+          function normalize(text) {
+            return (text || '').replace(/\\s+/g, ' ').trim();
+          }
+          function visible(el) {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          }
+          function click(el) {
+            el.scrollIntoView({ block: 'center', behavior: 'instant' });
+            el.click();
+          }
+          const strictMatchers = ${jsonEncode(matchers)};
+          const looseMatchers = ${jsonEncode(fallbackMatchers)};
+          const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+
+          function matches(text, requiredParts) {
+            return requiredParts.every((part) => text.includes(part));
+          }
+
+          let target = candidates.find((el) => {
+            if (!visible(el)) return false;
+            const text = normalize(el.textContent || el.value || '');
+            return text && matches(text, strictMatchers);
+          });
+
+          if (!target && looseMatchers.length > 0) {
+            target = candidates.find((el) => {
+              if (!visible(el)) return false;
+              const text = normalize(el.textContent || el.value || '');
+              return text && looseMatchers.some((part) => text.includes(part));
+            });
+          }
+
+          if (!target) return 'missing_primary_button';
+          click(target);
+          return normalize(target.textContent || target.value || '');
+        })()
+      ''');
+      return !raw.toString().contains('missing_primary_button');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _waitForKurlyOrderSheet(WebViewController controller) async {
+    for (var attempt = 0; attempt < 8; attempt++) {
+      await Future.delayed(const Duration(milliseconds: 600));
+      try {
+        final raw = await controller.runJavaScriptReturningResult('''
+          (function() {
+            const bodyText = (document.body && document.body.innerText) || '';
+            return bodyText.includes('주문서') &&
+              bodyText.includes('배송지') &&
+              bodyText.includes('결제하기');
+          })()
+        ''');
+        if (raw.toString() == 'true') {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  Map<String, dynamic>? _decodeJavaScriptJsonObject(Object raw) {
+    final text = raw.toString().trim();
+    if (text.isEmpty) return null;
+    final normalized = text.startsWith('"') && text.endsWith('"')
+        ? text.substring(1, text.length - 1).replaceAll(r'\"', '"')
+        : text;
+    try {
+      final decoded = jsonDecode(normalized);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
   }
 
   Future<void> _interruptWebviewProgress() async {

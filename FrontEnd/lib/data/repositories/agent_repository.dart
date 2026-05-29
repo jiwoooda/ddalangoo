@@ -364,9 +364,10 @@ class AgentRepository {
   // 결제 웹뷰 결과 전송
   Future<AgentResponse> sendWebviewResult({
     required int conversationId,
-    required int orderId,
-    required int paymentId,
+    int? orderId,
+    int? paymentId,
     required String result, // e.g. "cart_added", "completed", "cancelled"
+    Map<String, dynamic>? extraData,
   }) async {
     if (useMock) {
       await Future.delayed(const Duration(milliseconds: 500));
@@ -383,9 +384,15 @@ class AgentRepository {
                   : '결제가 취소되었습니다.'),
       );
     }
+    final payload = <String, dynamic>{
+      'orderId': orderId,
+      'paymentId': paymentId,
+      'result': result,
+      ...?extraData,
+    };
     final response = await _dio.post(
       '/api/agent/conversations/$conversationId/payments/webview-result',
-      data: {'orderId': orderId, 'paymentId': paymentId, 'result': result},
+      data: payload,
     );
     return _parseAgentResponse(response.data, label: 'Webview Result Response');
   }
