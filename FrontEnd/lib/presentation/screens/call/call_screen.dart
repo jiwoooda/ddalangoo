@@ -39,7 +39,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _isEndCallHovered = false;
   bool _showTextInput = false;
   bool _hasStartedVoiceInteraction = false;
-  bool _isProductCardExpanded = true;
+  bool _isProductCardExpanded = false;
   int _lastMessageCount = 0;
   bool _isWebviewOpen = false;
   String? _lastWebviewCommandKey;

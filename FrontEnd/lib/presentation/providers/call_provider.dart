@@ -4,12 +4,10 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../data/models/agent_model.dart';
 import '../../data/repositories/agent_repository.dart';
 import '../../core/storage/local_storage.dart';
 import '../../core/services/gpt_voice_service.dart';
-import '../../core/services/gpt_realtime_voice_service.dart';
 import '../../core/utils/latency_logger.dart';
 
 enum CallStage {
@@ -25,13 +23,12 @@ enum CallStage {
 
 class CallProvider extends ChangeNotifier {
   static const JsonEncoder _jsonEncoder = JsonEncoder.withIndent('  ');
+  static const String _initialCallMessage = 'INIT_CALL';
   static const Duration _minTtsTimeout = Duration(seconds: 20);
   static const Duration _maxTtsTimeout = Duration(seconds: 45);
   final AgentRepository _agentRepository = AgentRepository();
   final UserRepository _userRepository = UserRepository();
   final GptVoiceService _voiceService = GptVoiceService.instance;
-  final GptRealtimeVoiceService _realtimeVoiceService =
-      GptRealtimeVoiceService.instance;
 
   CallStage _stage = CallStage.idle;
   AgentResponse? _lastResponse;
@@ -46,6 +43,7 @@ class CallProvider extends ChangeNotifier {
   String? _assistantPresentationMessage;
   bool _isAwaitingCartWebviewProgress = false;
   bool _isAutoConfirmingPaymentMethod = false;
+  int _responseEpoch = 0;
   final List<Map<String, dynamic>> _messages = [];
   LatencyRequestContext? _activeLatencyContext;
 
@@ -281,8 +279,6 @@ class CallProvider extends ChangeNotifier {
       _stage != CallStage.completed &&
       !_isLoading &&
       !_isTranscribing;
-  bool get _useRealtimeVoice =>
-      (dotenv.env['USE_OPENAI_REALTIME_VOICE'] ?? '').toLowerCase() == 'true';
 
   String get voiceStatusLabel {
     if (_isListening) return '말씀이 끝났으면 버튼을 다시 눌러주세요';
@@ -315,39 +311,70 @@ class CallProvider extends ChangeNotifier {
       _assistantPresentationMessage = null;
       _isAwaitingAssistantPresentation = false;
       _messages.clear();
-      final greetingText = greetingName.isEmpty
-          ? '무엇을 구매하고 싶으신가요?'
-          : '$greetingName님, 무엇을 구매하고 싶으신가요?';
-      unawaited(_voiceService.prefetchSpeech(greetingText));
-      var greetingPresented = false;
-      _isSpeaking = true;
-      notifyListeners();
+
       try {
-        await _voiceService.speak(
-          greetingText,
-          onPlaybackStart: () {
-            if (greetingPresented) return;
-            greetingPresented = true;
-            _addMessage(
-              text: greetingText,
-              isUser: false,
-            );
-          },
+        _setLoading(true);
+        final response = await _agentRepository.startShopping(
+          userId: userId,
+          message: _initialCallMessage,
         );
-      } finally {
-        if (!greetingPresented) {
-          _addMessage(
-            text: greetingText,
-            isUser: false,
+        if (!_isValidInitialGreetingResponse(response)) {
+          throw Exception(
+            '백엔드 초기 인사 응답이 준비되지 않아 프론트 안내 멘트로 대체합니다.',
           );
         }
-        _isSpeaking = false;
+        await _handleResponse(response);
+      } catch (e) {
+        debugPrint('⚠️ [Call Start Backend Greeting Fallback] $e');
+        final fallbackGreeting = greetingName.isEmpty
+            ? '무엇을 구매하고 싶으신가요?'
+            : '$greetingName님, 무엇을 구매하고 싶으신가요?';
+        unawaited(_voiceService.prefetchSpeech(fallbackGreeting));
+        var greetingPresented = false;
+        _isSpeaking = true;
         notifyListeners();
+        try {
+          await _voiceService.speak(
+            fallbackGreeting,
+            onPlaybackStart: () {
+              if (greetingPresented) return;
+              greetingPresented = true;
+              _addMessage(
+                text: fallbackGreeting,
+                isUser: false,
+              );
+            },
+          );
+        } finally {
+          if (!greetingPresented) {
+            _addMessage(
+              text: fallbackGreeting,
+              isUser: false,
+            );
+          }
+          _isSpeaking = false;
+          notifyListeners();
+        }
+      } finally {
+        _setLoading(false);
       }
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
     }
+  }
+
+  bool _isValidInitialGreetingResponse(AgentResponse response) {
+    final assistantMessage = response.assistantMessage.trim();
+    final looksLikeFallbackFailure =
+        response.stage == 'idle' &&
+        response.pendingConfirmation == null &&
+        response.recommendations.isEmpty &&
+        (assistantMessage.isEmpty ||
+            assistantMessage.contains('잘 모르겠') ||
+            assistantMessage.contains('이해하지 못'));
+
+    return !looksLikeFallbackFailure;
   }
 
   // 녹음 토글 (UI 버튼에서 하나만 호출하면 됨)
@@ -365,21 +392,13 @@ class CallProvider extends ChangeNotifier {
     try {
       _errorMessage = null;
       if (_isSpeaking) {
-        if (_useRealtimeVoice) {
-          await _realtimeVoiceService.stopSpeaking();
-        } else {
-          await _voiceService.stopSpeaking();
-        }
+        await _voiceService.stopSpeaking();
         _isSpeaking = false;
       }
       final latencyContext = FrontendLatencyLogger.instance.beginTurn();
       _activeLatencyContext = latencyContext;
       FrontendLatencyLogger.instance.mark(latencyContext, 'user_speech_start');
-      if (_useRealtimeVoice) {
-        await _realtimeVoiceService.startStreamingConversation();
-      } else {
-        await _voiceService.startRecording();
-      }
+      await _voiceService.startRecording();
       _isListening = true;
       notifyListeners();
     } catch (e) {
@@ -404,66 +423,40 @@ class CallProvider extends ChangeNotifier {
         FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_start');
       }
 
-      if (_useRealtimeVoice) {
-        _isSpeaking = true;
-        notifyListeners();
-        await _realtimeVoiceService.stopStreamingConversation();
-        final snapshot = await _realtimeVoiceService.waitForAssistantTurn();
-        if (latencyContext != null) {
-          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
-        }
-        if (snapshot.userTranscript.isEmpty) {
-          _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
-          _activeLatencyContext = null;
-          return;
-        }
+      final transcript = await _voiceService.stopRecordingAndTranscribe();
+      if (latencyContext != null) {
+        FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
+      }
 
-        _errorMessage = null;
-        _addMessage(text: snapshot.userTranscript, isUser: true);
-        if (snapshot.assistantTranscript.isNotEmpty) {
-          _addMessage(text: snapshot.assistantTranscript, isUser: false);
-        }
-        _stage = CallStage.clarification;
-        notifyListeners();
+      if (transcript.isEmpty) {
+        _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
+        _activeLatencyContext = null;
+        return;
+      }
+
+      _prepareWebviewProgressTrackingForOutgoingMessage(transcript);
+      _setLoading(true);
+      _errorMessage = null;
+      _addMessage(text: transcript, isUser: true);
+
+      if (_conversationId == null) {
+        final userId = await LocalStorage.getUserId();
+        if (userId == null) return;
+        final response = await _agentRepository.startShopping(
+          userId: userId,
+          message: transcript,
+          inputType: 'voice',
+          latencyContext: latencyContext,
+        );
+        await _handleResponse(response, latencyContext: latencyContext);
       } else {
-        // 백엔드 STT로 텍스트 변환
-        final transcript = await _voiceService.stopRecordingAndTranscribe();
-        if (latencyContext != null) {
-          FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_stt_end');
-        }
-
-        if (transcript.isEmpty) {
-          _errorMessage = '음성을 인식하지 못했습니다. 다시 말씀해주세요.';
-          _activeLatencyContext = null;
-          return;
-        }
-
-        _prepareWebviewProgressTrackingForOutgoingMessage(transcript);
-        _setLoading(true);
-        _errorMessage = null;
-        // 사용자 말풍선 추가
-        _addMessage(text: transcript, isUser: true);
-
-        // 백엔드 전송
-        if (_conversationId == null) {
-          final userId = await LocalStorage.getUserId();
-          if (userId == null) return;
-          final response = await _agentRepository.startShopping(
-            userId: userId,
-            message: transcript,
-            inputType: 'voice',
-            latencyContext: latencyContext,
-          );
-          await _handleResponse(response, latencyContext: latencyContext);
-        } else {
-          final response = await _agentRepository.sendMessage(
-            conversationId: _conversationId!,
-            message: transcript,
-            inputType: 'voice',
-            latencyContext: latencyContext,
-          );
-          await _handleResponse(response, latencyContext: latencyContext);
-        }
+        final response = await _agentRepository.sendMessage(
+          conversationId: _conversationId!,
+          message: transcript,
+          inputType: 'voice',
+          latencyContext: latencyContext,
+        );
+        await _handleResponse(response, latencyContext: latencyContext);
       }
     } catch (e) {
       _errorMessage = e.toString();
@@ -563,6 +556,7 @@ class CallProvider extends ChangeNotifier {
     required int orderId,
     required int paymentId,
     required String result,
+    bool awaitAssistantPresentation = true,
   }) async {
     if (_conversationId == null) return;
     _isAwaitingCartWebviewProgress = false;
@@ -574,7 +568,16 @@ class CallProvider extends ChangeNotifier {
         paymentId: paymentId,
         result: result,
       );
-      await _handleResponse(response);
+      if (awaitAssistantPresentation) {
+        await _handleResponse(response);
+      } else {
+        unawaited(
+          _handleResponse(response).catchError((Object error) {
+            _errorMessage = error.toString();
+            notifyListeners();
+          }),
+        );
+      }
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -585,13 +588,8 @@ class CallProvider extends ChangeNotifier {
 
   // 전화 끊기
   void endCall() {
-    if (_useRealtimeVoice) {
-      _realtimeVoiceService.stopSpeaking();
-      _realtimeVoiceService.disconnect();
-    } else {
-      _voiceService.stopSpeaking();
-      _voiceService.cancelRecording();
-    }
+    _voiceService.stopSpeaking();
+    _voiceService.cancelRecording();
     FrontendLatencyLogger.instance.endSession();
     _conversationId = null;
     _lastResponse = null;
@@ -613,6 +611,11 @@ class CallProvider extends ChangeNotifier {
     AgentResponse response, {
     LatencyRequestContext? latencyContext,
   }) async {
+    final responseEpoch = ++_responseEpoch;
+    if (_isSpeaking) {
+      await _voiceService.stopSpeaking();
+    }
+
     final oldStage = _stage;
     final nextStage = _mapResponseStage(response);
     _isAwaitingCartWebviewProgress = false;
@@ -682,7 +685,7 @@ class CallProvider extends ChangeNotifier {
             response.assistantMessage,
             latencyContext: latencyContext,
             onPlaybackStart: () {
-              if (responsePresented) return;
+              if (responsePresented || !_isLatestResponse(responseEpoch)) return;
               responsePresented = true;
               _presentAssistantResponse(response, nextStage);
             },
@@ -699,14 +702,16 @@ class CallProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('🔇 [TTS Fallback] $e');
     } finally {
-      if (!responsePresented) {
-        responsePresented = true;
-        _presentAssistantResponse(response, nextStage);
+      if (_isLatestResponse(responseEpoch)) {
+        if (!responsePresented) {
+          responsePresented = true;
+          _presentAssistantResponse(response, nextStage);
+        }
+        _isSpeaking = false;
+        _isAwaitingAssistantPresentation = false;
+        _assistantPresentationMessage = null;
+        notifyListeners();
       }
-      _isSpeaking = false;
-      _isAwaitingAssistantPresentation = false;
-      _assistantPresentationMessage = null;
-      notifyListeners();
     }
 
     // TTS 끝나면 자동으로 녹음 시작 (always-on)
@@ -734,6 +739,8 @@ class CallProvider extends ChangeNotifier {
     });
     notifyListeners();
   }
+
+  bool _isLatestResponse(int responseEpoch) => _responseEpoch == responseEpoch;
 
   void _addProductCardMessage(AgentResponse response) {
     if (response.recommendations.isEmpty) return;

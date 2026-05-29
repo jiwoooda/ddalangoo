@@ -213,13 +213,18 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     }
     if (_isSubmitting) return;
     setState(() => _isSubmitting = true);
+    final callProvider = context.read<CallProvider>();
+    final navigator = Navigator.of(context);
     try {
-      await context.read<CallProvider>().handlePaymentResult(
+      await callProvider.handlePaymentResult(
         orderId: orderId,
         paymentId: paymentId,
         result: result,
+        awaitAssistantPresentation: false,
       );
-      if (mounted) Navigator.of(context).pop();
+      if (navigator.mounted) {
+        navigator.pop();
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
