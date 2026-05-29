@@ -76,6 +76,8 @@ _GENERIC_CONTINUE_KEYWORDS = {
     "추가",
     "쇼핑",
 }
+_ACKNOWLEDGEMENT_KEYWORDS = {"응", "네", "그래", "좋아", "넵", "어", "음", "으응", "오케이"}
+_ACKNOWLEDGEMENT_PREFIX_PATTERN = re.compile(r"^(응|네|그래|좋아|넵|어|음|으응|오케이)\s+")
 
 
 def _parse_quantity(v) -> Optional[int]:
@@ -133,6 +135,26 @@ def _looks_ambiguous_confirmation(text: str) -> bool:
     return _compact_text(text) in _AMBIGUOUS_CONFIRM_TEXTS
 
 
+def _is_acknowledgement_only(text: str) -> bool:
+    """구매 동사를 제거한 뒤 남은 맞장구를 상품명으로 보지 않는다."""
+    return _compact_text(text) in _ACKNOWLEDGEMENT_KEYWORDS
+
+
+def _keywords_are_only_acknowledgement(keywords: list[str]) -> bool:
+    """LLM이 맞장구를 keyword로 반환해도 새 상품 검색으로 보내지 않는다."""
+    return bool(keywords) and all(_is_acknowledgement_only(keyword) for keyword in keywords)
+
+
+def _looks_like_acknowledged_purchase_confirmation(text: str) -> bool:
+    """'응 구매해줘'처럼 상품명 없이 기존 항목 구매를 확인하는 발화를 판별한다."""
+    cleaned = re.sub(
+        r"(담아줘|담아|추가해줘|추가해|추가|사줘|사고\s*싶어|살래|살게요|살게|구매해줘|구매|넣어줘|넣어|주세요|줘|해줘)\s*$",
+        "",
+        text.strip(),
+    ).strip()
+    return bool(cleaned) and _is_acknowledgement_only(cleaned)
+
+
 def _extract_continue_shopping_keyword(text: str) -> Optional[str]:
     """
     "결제할까요, 다른 것도 보실래요?" 다음 발화에서 새 상품명을 뽑는다.
@@ -152,6 +174,8 @@ def _extract_product_keyword(text: str, *, require_request_token: bool) -> Optio
         return None
 
     cleaned = text.strip()
+    # "응 수박 사줘"는 수박 요청이지만, "응 구매해줘"의 응은 상품명이 아니다.
+    cleaned = _ACKNOWLEDGEMENT_PREFIX_PATTERN.sub("", cleaned).strip()
     cleaned = re.sub(r"^(그거\s*말고|그건\s*말고|말고|다른\s*거\s*말고)\s*", "", cleaned).strip()
     # 문장 끝의 구매/추가 동사를 먼저 제거한다.
     cleaned = re.sub(
@@ -170,6 +194,8 @@ def _extract_product_keyword(text: str, *, require_request_token: bool) -> Optio
     cleaned = re.sub(r"(도|은|는|이|가|을|를)$", "", cleaned).strip()
 
     if not cleaned:
+        return None
+    if _is_acknowledgement_only(cleaned):
         return None
     if _compact_text(cleaned) in _GENERIC_CONTINUE_KEYWORDS:
         return None
@@ -304,7 +330,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
             direct_quantity = _parse_explicit_quantity(user_input)
             if direct_quantity is not None:
                 quantity = direct_quantity
-        elif _looks_like_payment_confirmation(user_input):
+        elif _looks_like_payment_confirmation(user_input) or _looks_like_acknowledged_purchase_confirmation(user_input):
             intent = "confirm"
             keywords = []
             needs_clarification = False
@@ -324,7 +350,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
             direct_quantity = _parse_explicit_quantity(user_input)
             if direct_quantity is not None:
                 quantity = direct_quantity
-        elif _looks_like_payment_confirmation(user_input):
+        elif _looks_like_payment_confirmation(user_input) or _looks_like_acknowledged_purchase_confirmation(user_input):
             intent = "confirm"
             keywords = []
             needs_clarification = False
@@ -343,6 +369,12 @@ def intent_agent_node(state: ShoppingState) -> dict:
             confidence = max(confidence, 0.95)
             direct_quantity = _parse_explicit_quantity(user_input)
             quantity = direct_quantity
+        elif _looks_like_acknowledged_purchase_confirmation(user_input):
+            intent = "confirm"
+            keywords = state.get("keywords") or []
+            needs_clarification = False
+            clarification_reason = None
+            confidence = max(confidence, 0.95)
 
     if pending_type == "payment_method_confirm" and _looks_ambiguous_confirmation(user_input):
         intent = "unclear"
@@ -355,6 +387,14 @@ def intent_agent_node(state: ShoppingState) -> dict:
     # 새 구매 탐색 intent에서는 이전 state 수량 인계 금지
     # (이전 상품 구매 때 남은 quantity가 새 상품에 그대로 쓰이는 문제 방지)
     _new_search_intents = {"buy", "reorder", "refine", "compare_platforms"}
+    if intent in _new_search_intents and _keywords_are_only_acknowledgement(keywords):
+        intent = "unclear"
+        keywords = []
+        needs_clarification = True
+        clarification_reason = "구매할 상품명이 명확하지 않습니다."
+        confidence = min(confidence, 0.4)
+        quantity = None
+
     if quantity is None and intent not in _new_search_intents:
         quantity = state.get("quantity")
 

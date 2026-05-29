@@ -70,6 +70,21 @@ def test_continue_shopping_payment_confirmation_clears_stale_keywords(monkeypatc
     assert result["needs_clarification"] is False
 
 
+def test_continue_shopping_ack_purchase_goes_to_checkout(monkeypatch):
+    """응 구매해줘 → 응을 상품명으로 보지 않고 기존 장바구니 결제로 간다."""
+    monkeypatch.setattr(
+        intent_agent,
+        "_get_llm",
+        lambda: _FakeStructuredLlm(IntentOutput(intent="buy", keywords=["응"])),
+    )
+
+    result = intent_agent_node(_make_state("응 구매해줘"))
+
+    assert result["intent"] == "confirm"
+    assert result["keywords"] == []
+    assert result["needs_clarification"] is False
+
+
 def test_what_to_buy_product_with_quantity_becomes_new_purchase(monkeypatch):
     """무엇을 구매할지 묻는 상태에서 '찌개 두부 하나'는 새 검색 요청이다."""
     monkeypatch.setattr(
@@ -116,6 +131,39 @@ def test_product_confirm_replacement_request_searches_new_product(monkeypatch):
     assert result["intent"] == "buy"
     assert result["keywords"] == ["수박"]
     assert result["quantity"] is None
+
+
+def test_product_confirm_ack_purchase_does_not_buy_acknowledgement(monkeypatch):
+    """응 구매해줘 → 응을 새 상품명으로 추출하지 않고 기존 추천을 확인한다."""
+    monkeypatch.setattr(
+        intent_agent,
+        "_get_llm",
+        lambda: _FakeStructuredLlm(IntentOutput(intent="buy", keywords=["응"])),
+    )
+
+    state = _make_state("응 구매해줘")
+    state["pending_action"] = {"type": "product_confirm"}
+    result = intent_agent_node(state)
+
+    assert result["intent"] == "confirm"
+    assert result["keywords"] == ["토마토"]
+    assert result["needs_clarification"] is False
+
+
+def test_ack_prefixed_product_request_keeps_real_product(monkeypatch):
+    """응 수박 구매해줘 → 맞장구는 버리고 실제 상품명 수박으로 새 검색한다."""
+    monkeypatch.setattr(
+        intent_agent,
+        "_get_llm",
+        lambda: _FakeStructuredLlm(IntentOutput(intent="confirm", keywords=[])),
+    )
+
+    state = _make_state("응 수박 구매해줘")
+    state["pending_action"] = {"type": "product_confirm"}
+    result = intent_agent_node(state)
+
+    assert result["intent"] == "buy"
+    assert result["keywords"] == ["수박"]
 
 
 def test_payment_method_ambiguous_text_is_not_confirm(monkeypatch):
