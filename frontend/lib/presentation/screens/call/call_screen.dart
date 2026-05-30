@@ -43,6 +43,7 @@ class _CallScreenState extends State<CallScreen> {
   int _lastMessageCount = 0;
   bool _isWebviewOpen = false;
   String? _lastWebviewCommandKey;
+  final Set<String> _completedWebviewCommandKeys = <String>{};
 
   @override
   void initState() {
@@ -113,14 +114,16 @@ class _CallScreenState extends State<CallScreen> {
     debugPrint(
       '🪟 [CallScreen WebView Check] '
       'stage=${provider.stage.name}, '
+      'task=${provider.currentWebviewTask}, '
       'url=${provider.webviewUrl}, '
       'orderId=${provider.currentOrderId}, '
       'paymentId=${provider.currentPaymentId}, '
       'productName=${provider.currentWebviewProductName}, '
       'quantity=${provider.currentWebviewQuantity}',
     );
+    final task = provider.currentWebviewTask ?? 'unknown';
     final commandKey =
-        'pending|${provider.conversationId}|${provider.currentOrderId}|${provider.currentPaymentId}';
+        'pending|${provider.conversationId}|$task|${provider.currentOrderId}|${provider.currentPaymentId}';
     _openWebview(
       provider,
       commandKey: commandKey,
@@ -133,6 +136,13 @@ class _CallScreenState extends State<CallScreen> {
     required String commandKey,
     required String url,
   }) {
+    if (_completedWebviewCommandKeys.contains(commandKey)) {
+      debugPrint(
+        '🪟 [CallScreen WebView Check] completed command ignored. '
+        'commandKey=$commandKey',
+      );
+      return;
+    }
     if (_isWebviewOpen || _lastWebviewCommandKey == commandKey) {
       debugPrint(
         '🪟 [CallScreen WebView Check] already handled. '
@@ -166,6 +176,7 @@ class _CallScreenState extends State<CallScreen> {
       );
       debugPrint('🪟 [CallScreen WebView Close] commandKey=$commandKey');
       _isWebviewOpen = false;
+      _completedWebviewCommandKeys.add(commandKey);
       if (mounted && _lastWebviewCommandKey == commandKey) {
         _lastWebviewCommandKey = null;
       }

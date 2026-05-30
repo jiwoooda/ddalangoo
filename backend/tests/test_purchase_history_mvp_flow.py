@@ -21,7 +21,13 @@ async def _fake_get_conversation(_db, conversation_id):
 
 
 async def _fake_get_order(_db, order_id):
-    return {"id": order_id, "conversation_id": 125, "user_id": 6, "status": "payment_pending"}
+    return {
+        "id": order_id,
+        "conversation_id": 125,
+        "user_id": 6,
+        "cart_id": 75,
+        "status": "payment_pending",
+    }
 
 
 async def _fake_get_payment(_db, payment_id):
@@ -100,9 +106,27 @@ async def test_webview_cart_added_returns_cart_shopping_without_graph_resume(mon
         calls["update_state"] += 1
         return patch
 
+    async def _fake_get_cart(_db, cart_id):
+        return {"id": cart_id, "status": "active", "conversation_id": 125}
+
+    async def _fake_get_cart_items(_db, cart_id):
+        return [
+            {
+                "id": 900,
+                "recommendation_item_id": 518,
+                "product_id": 168,
+                "product_name_snapshot": "[달래해장] 속 풀리는 우삼겹 소곱창전골",
+                "option_snapshot": None,
+                "quantity": 1,
+                "unit_price_snapshot": 12900,
+            }
+        ]
+
     monkeypatch.setattr(payment_service.conversation_repository, "get_conversation_by_id_db", _fake_get_conversation)
     monkeypatch.setattr(payment_service.order_repository, "get_order_by_id_db", _fake_get_order)
     monkeypatch.setattr(payment_service.payment_repository, "get_payment_by_id_db", _fake_get_payment)
+    monkeypatch.setattr(payment_service.cart_repository, "get_cart_by_id_db", _fake_get_cart)
+    monkeypatch.setattr(payment_service.cart_repository, "get_cart_items_by_cart_id_db", _fake_get_cart_items)
     monkeypatch.setattr(payment_service.conversation_repository, "update_conversation_db", _fake_update_conversation)
     monkeypatch.setattr(payment_service.webview_progress_service, "clear_progress", lambda _conversation_id: None)
     monkeypatch.setattr(payment_service.runtime, "inject_and_resume", _fake_resume)
@@ -120,6 +144,9 @@ async def test_webview_cart_added_returns_cart_shopping_without_graph_resume(mon
     assert result["uiCommand"] == {"type": "close_webview"}
     assert result["pendingConfirmation"]["type"] == "payment"
     assert result["pendingConfirmation"]["payload"]["subType"] == "continue_shopping"
+    assert result["cart"]["cartId"] == 75
+    assert result["cart"]["lastCartItem"]["productName"] == "[달래해장] 속 풀리는 우삼겹 소곱창전골"
+    assert result["cart"]["lastCartItem"]["quantity"] == 1
 
 
 @pytest.mark.anyio
@@ -185,6 +212,7 @@ async def test_webview_address_checked_returns_address_confirming(monkeypatch):
             "user_id": user_id,
             "address_line1": "서울시 강남구 테헤란로",
             "address_line2": "101호",
+            "is_default": True,
         }
 
     async def _fake_get_addresses(_db, user_id):
@@ -212,7 +240,13 @@ async def test_webview_address_checked_returns_address_confirming(monkeypatch):
     result = await payment_service.handle_webview_result_db(
         None,
         125,
-        WebviewResultRequest(result="address_checked", orderId=77, paymentId=88),
+        WebviewResultRequest(
+            result="address_checked",
+            orderId=77,
+            paymentId=88,
+            addressLine1="서울시 강남구 테헤란로",
+            addressLine2="101호",
+        ),
     )
 
     assert result["stage"] == "address_confirming"
@@ -220,6 +254,39 @@ async def test_webview_address_checked_returns_address_confirming(monkeypatch):
     assert result["pendingConfirmation"]["type"] == "address_confirm"
     assert "서울시 강남구 테헤란로 101호" in result["assistantMessage"]
     assert calls == {"created": 0, "set_default": 0}
+
+
+@pytest.mark.anyio
+async def test_webview_address_checked_without_address_requests_retry(monkeypatch):
+    """웹뷰와 DB 양쪽에서 주소를 못 찾으면 주소 확인 완료로 넘기지 않는다."""
+    async def _fake_update_state(conversation_id, patch):
+        return patch
+
+    async def _fake_get_default_address(_db, user_id):
+        return None
+
+    async def _fake_get_addresses(_db, user_id):
+        return []
+
+    monkeypatch.setattr(payment_service.conversation_repository, "get_conversation_by_id_db", _fake_get_conversation)
+    monkeypatch.setattr(payment_service.order_repository, "get_order_by_id_db", _fake_get_order)
+    monkeypatch.setattr(payment_service.payment_repository, "get_payment_by_id_db", _fake_get_payment)
+    monkeypatch.setattr(payment_service.conversation_repository, "update_conversation_db", _fake_update_conversation)
+    monkeypatch.setattr(payment_service.address_repository, "get_default_address_by_user_id_db", _fake_get_default_address)
+    monkeypatch.setattr(payment_service.address_repository, "get_addresses_by_user_id_db", _fake_get_addresses)
+    monkeypatch.setattr(payment_service.webview_progress_service, "clear_progress", lambda _conversation_id: None)
+    monkeypatch.setattr(payment_service.runtime, "update_state", _fake_update_state)
+
+    result = await payment_service.handle_webview_result_db(
+        None,
+        125,
+        WebviewResultRequest(result="address_checked", orderId=77, paymentId=88),
+    )
+
+    assert result["stage"] == "address_required"
+    assert result["pendingConfirmation"]["type"] == "address_check_failed"
+    assert result["deliveryAddress"] is None
+    assert result["error"]["code"] == "ADDRESS_NOT_FOUND_IN_WEBVIEW"
 
 
 @pytest.mark.anyio

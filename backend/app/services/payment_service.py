@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories import (
     address_repository,
     agent_event_repository,
+    cart_repository,
     conversation_repository,
     order_repository,
     payment_repository,
@@ -158,6 +159,33 @@ def _address_create_payload(
         "delivery_request": _address_value(webview_address, "delivery_request", "deliveryRequest"),
         "is_default": True,
     }
+
+
+def _cart_payload(cart: dict | None, cart_items: list[dict] | None = None) -> dict | None:
+    """WebView 결과 응답에 넣을 장바구니 요약을 만든다."""
+    if not cart:
+        return None
+    cart_items = cart_items or []
+    payload = {
+        "cartId": cart["id"],
+        "status": cart["status"],
+        "conversationId": cart.get("conversation_id"),
+        "items": [
+            {
+                "cartItemId": item["id"],
+                "recommendationItemId": item.get("recommendation_item_id"),
+                "productId": item["product_id"],
+                "productName": item["product_name_snapshot"],
+                "optionText": item.get("option_snapshot"),
+                "quantity": item["quantity"],
+                "unitPrice": item["unit_price_snapshot"],
+            }
+            for item in cart_items
+        ],
+    }
+    if cart_items:
+        payload["lastCartItem"] = payload["items"][-1]
+    return payload
 
 
 async def handle_webview_result_db(
@@ -407,6 +435,15 @@ async def handle_webview_result_db(
     if result == "cart_added":
         webview_progress_service.clear_progress(conversation_id)
         message = "장바구니에 담았어요. 더 구매하실래요, 아니면 결제할까요?"
+        cart = None
+        cart_items: list[dict] = []
+        if order.get("cart_id"):
+            cart = await cart_repository.get_cart_by_id_db(db, order["cart_id"])
+            cart_items = await cart_repository.get_cart_items_by_cart_id_db(
+                db,
+                order["cart_id"],
+            )
+        cart_summary = _cart_payload(cart, cart_items)
         state_patch = {
             "stage": "cart_shopping",
             "pending_action": {
@@ -419,6 +456,7 @@ async def handle_webview_result_db(
             },
             "messages": _assistant_message_patch(message),
             "webview_progress": None,
+            "cart": cart_summary,
             "order": order_payload,
             "payment": payment_payload,
         }
@@ -441,6 +479,7 @@ async def handle_webview_result_db(
                     "options": ["continue_shopping", "checkout"],
                 },
             },
+            "cart": cart_summary,
             "order": order_payload,
             "payment": payment_payload,
             "uiCommand": {"type": "close_webview"},
@@ -449,12 +488,102 @@ async def handle_webview_result_db(
 
     if result == "address_checked":
         webview_progress_service.clear_progress(conversation_id)
+        if not _webview_address_from_request(req):
+            message = "배송지를 찾지 못했어요. 장바구니 화면에서 배송지를 다시 확인해 주세요."
+            await runtime.update_state(conversation_id, {
+                "stage": "address_required",
+                "delivery_address": None,
+                "pending_action": {
+                    "type": "address_check_failed",
+                    "message": message,
+                    "payload": {
+                        "subType": "address_check_failed",
+                        "retryTask": "address_check",
+                    },
+                },
+                "messages": _assistant_message_patch(message),
+                "order": order_payload,
+                "payment": payment_payload,
+                "webview_progress": None,
+            })
+            await conversation_repository.update_conversation_db(
+                db,
+                conversation_id,
+                {"status": "address_required", "stage": "address_required"},
+            )
+            return {
+                **base,
+                "status": "address_required",
+                "stage": "address_required",
+                "assistantMessage": message,
+                "pendingConfirmation": {
+                    "type": "address_check_failed",
+                    "message": message,
+                    "payload": {
+                        "subType": "address_check_failed",
+                        "retryTask": "address_check",
+                    },
+                },
+                "deliveryAddress": None,
+                "order": order_payload,
+                "payment": payment_payload,
+                "uiCommand": {"type": "close_webview"},
+                "error": {
+                    "category": "ADDRESS_ERROR",
+                    "code": "ADDRESS_NOT_FOUND_IN_WEBVIEW",
+                    "message": "웹뷰에서 배송지를 찾지 못했습니다.",
+                },
+            }
         delivery_address = await _delivery_address_from_request_or_db()
         address_text = _full_address(delivery_address)
+        if not address_text:
+            message = "배송지를 찾지 못했어요. 장바구니 화면에서 배송지를 다시 확인해 주세요."
+            await runtime.update_state(conversation_id, {
+                "stage": "address_required",
+                "delivery_address": None,
+                "pending_action": {
+                    "type": "address_check_failed",
+                    "message": message,
+                    "payload": {
+                        "subType": "address_check_failed",
+                        "retryTask": "address_check",
+                    },
+                },
+                "messages": _assistant_message_patch(message),
+                "order": order_payload,
+                "payment": payment_payload,
+                "webview_progress": None,
+            })
+            await conversation_repository.update_conversation_db(
+                db,
+                conversation_id,
+                {"status": "address_required", "stage": "address_required"},
+            )
+            return {
+                **base,
+                "status": "address_required",
+                "stage": "address_required",
+                "assistantMessage": message,
+                "pendingConfirmation": {
+                    "type": "address_check_failed",
+                    "message": message,
+                    "payload": {
+                        "subType": "address_check_failed",
+                        "retryTask": "address_check",
+                    },
+                },
+                "deliveryAddress": None,
+                "order": order_payload,
+                "payment": payment_payload,
+                "uiCommand": {"type": "close_webview"},
+                "error": {
+                    "category": "ADDRESS_ERROR",
+                    "code": "ADDRESS_NOT_FOUND_IN_WEBVIEW",
+                    "message": "웹뷰에서 배송지를 찾지 못했습니다.",
+                },
+            }
         message = (
             f"{address_text}로 배송해드릴까요?"
-            if address_text
-            else "배송지를 확인했어요. 이 배송지로 진행할까요?"
         )
         await runtime.update_state(conversation_id, {
             "stage": "address_confirming",

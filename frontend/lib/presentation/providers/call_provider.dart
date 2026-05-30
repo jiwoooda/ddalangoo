@@ -581,6 +581,7 @@ class CallProvider extends ChangeNotifier {
         result: result,
         extraData: extraData,
       );
+      _applyResponseStateImmediately(response);
       if (awaitAssistantPresentation) {
         await _handleResponse(response);
       } else {
@@ -597,6 +598,16 @@ class CallProvider extends ChangeNotifier {
     } finally {
       _setLoading(false);
     }
+  }
+
+  void _applyResponseStateImmediately(AgentResponse response) {
+    _lastResponse = response;
+    _conversationId = response.conversationId;
+    _stage = _mapResponseStage(response);
+    _isAwaitingAssistantPresentation = false;
+    _assistantPresentationMessage = null;
+    _errorMessage = null;
+    notifyListeners();
   }
 
   // 전화 끊기

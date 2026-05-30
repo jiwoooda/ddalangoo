@@ -244,6 +244,11 @@ def _is_explicit_payment_confirmation(message: str) -> bool:
         "응",
         "네",
         "그래",
+        "응그래",
+        "응맞아",
+        "네그래",
+        "네맞아",
+        "그래맞아",
         "좋아",
         "맞아",
         "결제",
@@ -294,6 +299,61 @@ def _state_payment_payload(state: dict) -> dict | None:
     }
 
 
+def _kurly_cart_url() -> str:
+    """컬리 장바구니/주문서 계열 WebView task의 기본 시작 URL."""
+    return "https://www.kurly.com/cart"
+
+
+def _state_checkout_url(state: dict, payment: dict) -> str | None:
+    """state/payment 안에 저장된 장바구니/주문 관련 URL을 우선 사용한다."""
+    for key in (
+        "cartUrl",
+        "cart_url",
+        "checkoutUrl",
+        "checkout_url",
+        "orderUrl",
+        "order_url",
+    ):
+        value = state.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for key in ("paymentUrl", "payment_url"):
+        value = payment.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _task_start_url(
+    *,
+    task: str,
+    platform: str | None,
+    state: dict,
+    selected_product: dict,
+    payment: dict,
+    webview_input: WebViewOrderInput | None,
+) -> str | None:
+    """
+    WebView task별 시작 URL을 분리한다.
+
+    add_to_cart는 상품/검색 URL에서 시작하고, 배송지/결제 확인은 장바구니에서 시작한다.
+    """
+    platform_key = (platform or "").lower()
+    if task in {"address_check", "payment"}:
+        return _state_checkout_url(state, payment) or (
+            _kurly_cart_url() if platform_key == "kurly" else None
+        )
+
+    return (
+        (webview_input.canonical_product_url if webview_input else None)
+        or (webview_input.execution_url if webview_input else None)
+        or selected_product.get("canonical_product_url")
+        or selected_product.get("product_url")
+        or selected_product.get("url")
+        or _state_checkout_url(state, payment)
+    )
+
+
 def _webview_task_payload(
     *,
     task: str,
@@ -305,20 +365,20 @@ def _webview_task_payload(
     order = _state_order_payload(state) or {}
     payment = _state_payment_payload(state) or {}
     selected_product = state.get("selected_product") if isinstance(state.get("selected_product"), dict) else {}
-    product_url = (
-        (webview_input.canonical_product_url if webview_input else None)
-        or (webview_input.execution_url if webview_input else None)
-        or selected_product.get("canonical_product_url")
-        or selected_product.get("product_url")
-        or selected_product.get("url")
-        or payment.get("paymentUrl")
-        or payment.get("payment_url")
+    platform_name = platform or (webview_input.platform if webview_input else None) or selected_product.get("platform") or "kurly"
+    product_url = _task_start_url(
+        task=task,
+        platform=platform_name,
+        state=state,
+        selected_product=selected_product,
+        payment=payment,
+        webview_input=webview_input,
     )
     payload = {
         "task": task,
         "orderId": order.get("orderId"),
         "paymentId": payment.get("paymentId"),
-        "platform": platform or (webview_input.platform if webview_input else None) or selected_product.get("platform") or "kurly",
+        "platform": platform_name,
         "startUrl": product_url,
         "url": product_url,
     }
@@ -383,6 +443,66 @@ async def _address_required_response(conversation_id: int, state: dict) -> Agent
         uiCommand={"type": "open_webview", "task": "address_check"},
         asyncStatus=None,
         error=None,
+    )
+
+
+def _state_has_delivery_address(state: dict) -> bool:
+    """배송지 확인 수락 전에 실제 주소가 state에 있는지 검사한다."""
+    address = state.get("delivery_address") or state.get("deliveryAddress")
+    if not isinstance(address, dict):
+        return False
+    line1 = address.get("address_line1") or address.get("addressLine1") or address.get("address")
+    line2 = address.get("address_line2") or address.get("addressLine2")
+    return bool(" ".join(str(part).strip() for part in [line1, line2] if part).strip())
+
+
+async def _address_check_retry_response(conversation_id: int, state: dict) -> AgentResponse:
+    """주소가 없는 상태에서 확인 발화가 들어오면 결제로 가지 않고 재확인을 요청한다."""
+    message = "배송지를 아직 확인하지 못했어요. 장바구니 화면에서 배송지를 다시 확인해 주세요."
+    payload = _webview_task_payload(task="address_check", state=state)
+    patch = {
+        "stage": "address_required",
+        "delivery_address": None,
+        "pending_action": {
+            "type": "address_check_failed",
+            "message": message,
+            "payload": {
+                "subType": "address_check_failed",
+                "retryTask": "address_check",
+            },
+        },
+        "messages": _assistant_message_patch(message),
+        "webview_progress": None,
+    }
+    state = await runtime.update_state(conversation_id, patch)
+    return AgentResponse(
+        conversationId=conversation_id,
+        status="address_required",
+        stage="address_required",
+        assistantMessage=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=state.get("selected_product"),
+        pendingConfirmation={
+            "type": "address_check_failed",
+            "message": message,
+            "payload": {
+                "subType": "address_check_failed",
+                "retryTask": "address_check",
+            },
+        },
+        availableOptions=None,
+        deliveryAddress=None,
+        cart=state.get("cart"),
+        order=_state_order_payload(state),
+        payment=_state_payment_payload(state),
+        uiCommand={"type": "close_webview"},
+        asyncStatus=None,
+        error={
+            "category": "ADDRESS_ERROR",
+            "code": "ADDRESS_REQUIRED",
+            "message": "확인된 배송지가 없어 결제를 진행할 수 없습니다.",
+        },
     )
 
 
@@ -1322,7 +1442,11 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         pending_action_before == "address_confirm"
         and _is_explicit_payment_confirmation(req.message)
     ):
-        response = await _payment_webview_response(conversation_id, snapshot.values)
+        response = (
+            await _payment_webview_response(conversation_id, snapshot.values)
+            if _state_has_delivery_address(snapshot.values)
+            else await _address_check_retry_response(conversation_id, snapshot.values)
+        )
         await conversation_repository.update_conversation_db(
             db,
             conversation_id,

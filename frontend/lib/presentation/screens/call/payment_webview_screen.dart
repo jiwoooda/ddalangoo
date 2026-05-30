@@ -249,9 +249,23 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   }
 
   String _initialWebviewUrl() {
+    final task = widget.task?.trim();
+    final requestedUrl = widget.url.trim();
+
+    if (task == 'address_check' || task == 'payment') {
+      if (requestedUrl.isNotEmpty && requestedUrl != 'about:blank') {
+        return requestedUrl;
+      }
+      return 'https://www.kurly.com/cart';
+    }
+
     final canonicalUrl = widget.canonicalProductUrl?.trim();
     if (canonicalUrl != null && canonicalUrl.contains('kurly.com/goods/')) {
       return canonicalUrl;
+    }
+
+    if (requestedUrl.isNotEmpty && requestedUrl != 'about:blank') {
+      return requestedUrl;
     }
 
     final productName = widget.productName?.trim();
@@ -260,7 +274,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       return 'https://www.kurly.com/search?sword=$safeQuery';
     }
 
-    return widget.url;
+    return 'about:blank';
   }
 
   Future<Map<String, dynamic>> _collectKurlyAddressFromCart(

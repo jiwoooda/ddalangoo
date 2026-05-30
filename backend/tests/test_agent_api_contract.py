@@ -147,6 +147,68 @@ def test_payment_method_confirm_accepts_explicit_payment_text():
     ) is True
 
 
+def test_payment_confirmation_accepts_compact_affirmative_text():
+    """공백 없이 붙은 '응그래'도 명시적 확인으로 처리한다."""
+    assert agent_service._is_explicit_payment_confirmation("응 그래") is True
+    assert agent_service._is_explicit_payment_confirmation("응그래") is True
+
+
+def test_webview_task_payload_uses_cart_url_for_address_and_payment_tasks():
+    """배송지/결제 WebView는 상품 검색 URL이 아니라 장바구니 URL에서 시작한다."""
+    state = {
+        "selected_product": {
+            "platform": "kurly",
+            "product_name": "곱창전골",
+            "product_url": "https://www.kurly.com/search?sword=곱창전골",
+        },
+        "order": {"orderId": 74, "status": "payment_pending"},
+        "payment": {"paymentId": 74, "paymentStatus": "pending_user_action"},
+    }
+
+    address_payload = agent_service._webview_task_payload(
+        task="address_check",
+        state=state,
+    )
+    payment_payload = agent_service._webview_task_payload(
+        task="payment",
+        state=state,
+    )
+
+    assert address_payload["startUrl"] == "https://www.kurly.com/cart"
+    assert address_payload["url"] == "https://www.kurly.com/cart"
+    assert payment_payload["startUrl"] == "https://www.kurly.com/cart"
+    assert payment_payload["url"] == "https://www.kurly.com/cart"
+
+
+def test_webview_task_payload_uses_product_url_for_add_to_cart():
+    """장바구니 담기 WebView만 상품 URL에서 시작한다."""
+    state = {
+        "selected_product": {
+            "platform": "kurly",
+            "product_name": "곱창전골",
+            "product_url": "https://www.kurly.com/search?sword=곱창전골",
+        },
+        "quantity": 2,
+        "order": {"orderId": 74, "status": "payment_pending"},
+        "payment": {"paymentId": 74, "paymentStatus": "pending_user_action"},
+    }
+
+    payload = agent_service._webview_task_payload(task="add_to_cart", state=state)
+
+    assert payload["startUrl"] == "https://www.kurly.com/search?sword=곱창전골"
+    assert payload["url"] == "https://www.kurly.com/search?sword=곱창전골"
+    assert payload["targetProductName"] == "곱창전골"
+    assert payload["quantity"] == 2
+
+
+def test_state_has_delivery_address_requires_non_empty_address():
+    """배송지 확인 수락은 실제 주소가 state에 있을 때만 결제로 이어질 수 있다."""
+    assert agent_service._state_has_delivery_address({"delivery_address": None}) is False
+    assert agent_service._state_has_delivery_address(
+        {"delivery_address": {"address_line1": "서울시 용산구", "address_line2": "301호"}}
+    ) is True
+
+
 def test_real_browser_unsupported_platform_records_failed_progress(monkeypatch):
     """실제 브라우저 모드에서 지원하지 않는 플랫폼은 idle 대신 failed progress를 남긴다."""
     conversation_id = 999005
