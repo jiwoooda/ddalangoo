@@ -126,6 +126,10 @@ class CallProvider extends ChangeNotifier {
       if (executionUrl is String && executionUrl.trim().isNotEmpty) {
         return executionUrl.trim();
       }
+      final url = payload['url'];
+      if (url is String && url.trim().isNotEmpty) {
+        return url.trim();
+      }
     }
 
     final selectedProduct = _lastResponse?.selectedProduct;

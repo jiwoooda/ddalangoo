@@ -71,6 +71,95 @@ def _assistant_message_patch(message: str) -> list:
     return [AIMessage(content=message)]
 
 
+def _clean_address_text(value: object) -> str | None:
+    """웹뷰/DB에서 온 주소 조각을 비교 가능한 문자열로 정리한다."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return " ".join(text.split())
+
+
+def _address_value(address: dict | None, snake_key: str, camel_key: str) -> str | None:
+    """배송지 dict가 snake_case/camelCase 어느 쪽이어도 같은 값으로 읽는다."""
+    if not address:
+        return None
+    return _clean_address_text(address.get(snake_key) or address.get(camel_key))
+
+
+def _address_line(address: dict | None) -> str | None:
+    """배송지의 line1/line2를 합쳐 비교와 안내 멘트에 쓸 한 줄 주소를 만든다."""
+    if not address:
+        return None
+    line1 = _address_value(address, "address_line1", "addressLine1")
+    line2 = _address_value(address, "address_line2", "addressLine2")
+    full = " ".join(part for part in [line1, line2] if part)
+    if full:
+        return full
+    return _clean_address_text(address.get("address") or address.get("fullAddress"))
+
+
+def _same_address(left: dict | None, right: dict | None) -> bool:
+    """현재 MVP에서는 주소 한 줄이 같으면 같은 배송지로 본다."""
+    left_line = _address_line(left)
+    right_line = _address_line(right)
+    return bool(left_line and right_line and left_line == right_line)
+
+
+def _webview_address_from_request(req: WebviewResultRequest) -> dict | None:
+    """프론트 WebView가 긁어 보낸 배송지만 추출한다."""
+    if isinstance(req.deliveryAddress, dict):
+        address = req.deliveryAddress
+    elif req.addressLine1 or req.addressLine2:
+        address = {
+            "recipient_name": req.recipientName,
+            "recipient_phone": req.recipientPhone,
+            "address_line1": req.addressLine1,
+            "address_line2": req.addressLine2,
+            "delivery_request": req.deliveryRequest,
+        }
+    else:
+        return None
+
+    if not _address_line(address):
+        return None
+    return address
+
+
+def _address_create_payload(
+    *,
+    user_id: int,
+    webview_address: dict,
+    fallback_address: dict | None = None,
+) -> dict:
+    """웹뷰 배송지를 user_addresses에 저장할 수 있는 DB payload로 바꾼다."""
+    recipient_name = (
+        _address_value(webview_address, "recipient_name", "recipientName")
+        or _address_value(fallback_address, "recipient_name", "recipientName")
+        or "미확인"
+    )
+    recipient_phone = (
+        _address_value(webview_address, "recipient_phone", "recipientPhone")
+        or _address_value(fallback_address, "recipient_phone", "recipientPhone")
+        or ""
+    )
+    return {
+        "user_id": user_id,
+        "address_label": "웹뷰 배송지",
+        "recipient_name": recipient_name,
+        "recipient_phone": recipient_phone,
+        "zip_code": _address_value(webview_address, "zip_code", "zipCode"),
+        "address_line1": (
+            _address_value(webview_address, "address_line1", "addressLine1")
+            or _address_line(webview_address)
+        ),
+        "address_line2": _address_value(webview_address, "address_line2", "addressLine2"),
+        "delivery_request": _address_value(webview_address, "delivery_request", "deliveryRequest"),
+        "is_default": True,
+    }
+
+
 async def handle_webview_result_db(
     db: AsyncSession,
     conversation_id: int,
@@ -126,25 +215,61 @@ async def handle_webview_result_db(
 
     def _full_address(address: dict | None) -> str | None:
         """배송지 dict를 사용자가 듣기 쉬운 한 줄 주소로 만든다."""
-        if not address:
-            return None
-        line1 = address.get("address_line1") or address.get("addressLine1") or ""
-        line2 = address.get("address_line2") or address.get("addressLine2") or ""
-        full = f"{line1} {line2}".strip()
-        return full or address.get("address") or address.get("fullAddress")
+        return _address_line(address)
+
+    async def _sync_webview_address_with_db() -> dict | None:
+        """
+        웹뷰에서 확인한 배송지를 기본 배송지로 반영한다.
+
+        - 웹뷰 주소가 없으면 DB 기본 배송지만 사용한다.
+        - 같은 주소가 DB에 있으면 그 주소를 기본 배송지로 올린다.
+        - 없으면 웹뷰 주소를 새 기본 배송지로 저장한다.
+        """
+        webview_address = _webview_address_from_request(req)
+        try:
+            default_address = await address_repository.get_default_address_by_user_id_db(
+                db,
+                order["user_id"],
+            )
+        except Exception:
+            default_address = None
+
+        if not webview_address:
+            return default_address
+
+        try:
+            existing_addresses = await address_repository.get_addresses_by_user_id_db(
+                db,
+                order["user_id"],
+            )
+        except Exception:
+            existing_addresses = []
+
+        for existing_address in existing_addresses:
+            if _same_address(existing_address, webview_address):
+                if not existing_address.get("is_default"):
+                    updated_address = await address_repository.set_default_address_db(
+                        db,
+                        order["user_id"],
+                        existing_address["id"],
+                    )
+                    return updated_address or existing_address
+                return existing_address
+
+        return await address_repository.create_address_db(
+            db,
+            _address_create_payload(
+                user_id=order["user_id"],
+                webview_address=webview_address,
+                fallback_address=default_address,
+            ),
+        )
 
     async def _delivery_address_from_request_or_db() -> dict | None:
-        """웹뷰가 보낸 배송지를 우선 사용하고, 없으면 DB 기본 배송지를 사용한다."""
-        if isinstance(req.deliveryAddress, dict):
-            return req.deliveryAddress
-        if req.addressLine1 or req.addressLine2:
-            return {
-                "recipient_name": req.recipientName,
-                "recipient_phone": req.recipientPhone,
-                "address_line1": req.addressLine1,
-                "address_line2": req.addressLine2,
-                "delivery_request": req.deliveryRequest,
-            }
+        """웹뷰 주소를 DB 기본 배송지와 동기화한 뒤 사용할 배송지를 반환한다."""
+        synced_address = await _sync_webview_address_with_db()
+        if synced_address:
+            return synced_address
         try:
             return await address_repository.get_default_address_by_user_id_db(
                 db,
@@ -212,6 +337,65 @@ async def handle_webview_result_db(
             "assistantMessage": "결제가 완료되었어요!",
             "deliveryAddress": delivery_address,
             "order": {"orderId": updated_order["id"], "status": updated_order["status"]},
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "paymentStatus": updated_payment["payment_status"],
+            },
+            "uiCommand": {"type": "close_webview"},
+            "error": None,
+        }
+
+    if result in {"payment_ready_mock", "payment_button_attempted", "payment_ready"}:
+        message = "결제 버튼 누르기까지 시도했어요. 실제 결제 완료 여부는 쇼핑몰 화면에서 확인해주세요."
+        updated_payment = await payment_repository.update_payment_status_db(
+            db,
+            req.paymentId,
+            payment_status="payment_button_attempted",
+        )
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {
+                "status": "payment_button_attempted",
+                "stage": "completed",
+                "ended_at": datetime.now(UTC),
+            },
+        )
+        await agent_event_repository.create_agent_event_db(
+            db,
+            conversation_id=conversation_id,
+            agent_name="payment_service",
+            event_type="payment_button_attempted",
+            input_summary={
+                "order_id": req.orderId,
+                "payment_id": req.paymentId,
+                "webview_result": result,
+            },
+            output_summary={
+                "order_status": order["status"],
+                "payment_status": updated_payment["payment_status"],
+            },
+        )
+        webview_progress_service.clear_progress(conversation_id)
+        await runtime.update_state(conversation_id, {
+            "stage": "completed",
+            "pending_action": None,
+            "order": {"orderId": order["id"], "status": order["status"]},
+            "payment": {
+                "paymentId": updated_payment["id"],
+                "paymentStatus": updated_payment["payment_status"],
+            },
+            "webview_progress": None,
+            "messages": _assistant_message_patch(message),
+        })
+        delivery_address = await _delivery_address_from_request_or_db()
+        return {
+            **base,
+            "status": "payment_button_attempted",
+            "stage": "completed",
+            "assistantMessage": message,
+            "deliveryAddress": delivery_address,
+            "order": {"orderId": order["id"], "status": order["status"]},
             "payment": {
                 "paymentId": updated_payment["id"],
                 "paymentStatus": updated_payment["payment_status"],

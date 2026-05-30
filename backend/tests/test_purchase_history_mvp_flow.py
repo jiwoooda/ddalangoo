@@ -123,8 +123,59 @@ async def test_webview_cart_added_returns_cart_shopping_without_graph_resume(mon
 
 
 @pytest.mark.anyio
+async def test_webview_payment_ready_mock_is_attempt_not_paid(monkeypatch):
+    """payment_ready_mock은 실제 결제 완료가 아니라 결제 버튼 클릭 시도 완료로 기록한다."""
+    calls = {"history": 0, "payment_status": None, "order_status": None, "update_state": 0}
+
+    async def _fake_create_histories(_db, conversation_id, user_id, payment_id=None):
+        calls["history"] += 1
+        return {"success": True, "count": 1, "history_ids": [1]}
+
+    async def _fake_update_payment(_db, payment_id, *, payment_status, failure_reason=None):
+        calls["payment_status"] = payment_status
+        return {"id": payment_id, "order_id": 77, "payment_status": payment_status}
+
+    async def _fake_update_order(_db, order_id, *, status, failed_reason=None):
+        calls["order_status"] = status
+        return {"id": order_id, "status": status}
+
+    async def _fake_update_state(conversation_id, patch):
+        calls["update_state"] += 1
+        return patch
+
+    monkeypatch.setattr(payment_service.conversation_repository, "get_conversation_by_id_db", _fake_get_conversation)
+    monkeypatch.setattr(payment_service.order_repository, "get_order_by_id_db", _fake_get_order)
+    monkeypatch.setattr(payment_service.payment_repository, "get_payment_by_id_db", _fake_get_payment)
+    monkeypatch.setattr(payment_service.payment_repository, "update_payment_status_db", _fake_update_payment)
+    monkeypatch.setattr(payment_service.order_repository, "update_order_status_db", _fake_update_order)
+    monkeypatch.setattr(payment_service.conversation_repository, "update_conversation_db", _fake_update_conversation)
+    monkeypatch.setattr(payment_service.agent_event_repository, "create_agent_event_db", _fake_create_event)
+    monkeypatch.setattr(payment_service.purchase_history_service, "create_histories_from_order_db", _fake_create_histories)
+    monkeypatch.setattr(payment_service.webview_progress_service, "clear_progress", lambda _conversation_id: None)
+    monkeypatch.setattr(payment_service.runtime, "update_state", _fake_update_state)
+
+    result = await payment_service.handle_webview_result_db(
+        None,
+        125,
+        WebviewResultRequest(result="payment_ready_mock", orderId=77, paymentId=88),
+    )
+
+    assert calls["history"] == 0
+    assert calls["payment_status"] == "payment_button_attempted"
+    assert calls["order_status"] is None
+    assert calls["update_state"] == 1
+    assert result["stage"] == "completed"
+    assert result["status"] == "payment_button_attempted"
+    assert result["order"]["status"] == "payment_pending"
+    assert result["payment"]["paymentStatus"] == "payment_button_attempted"
+    assert result["uiCommand"] == {"type": "close_webview"}
+
+
+@pytest.mark.anyio
 async def test_webview_address_checked_returns_address_confirming(monkeypatch):
     """address_checked는 웹뷰를 닫고 음성 배송지 확인 단계로 돌아온다."""
+    calls = {"created": 0, "set_default": 0}
+
     async def _fake_update_state(conversation_id, patch):
         return patch
 
@@ -136,11 +187,25 @@ async def test_webview_address_checked_returns_address_confirming(monkeypatch):
             "address_line2": "101호",
         }
 
+    async def _fake_get_addresses(_db, user_id):
+        return [await _fake_get_default_address(_db, user_id)]
+
+    async def _fake_create_address(_db, data):
+        calls["created"] += 1
+        return {"id": 2, **data}
+
+    async def _fake_set_default(_db, user_id, address_id):
+        calls["set_default"] += 1
+        return await _fake_get_default_address(_db, user_id)
+
     monkeypatch.setattr(payment_service.conversation_repository, "get_conversation_by_id_db", _fake_get_conversation)
     monkeypatch.setattr(payment_service.order_repository, "get_order_by_id_db", _fake_get_order)
     monkeypatch.setattr(payment_service.payment_repository, "get_payment_by_id_db", _fake_get_payment)
     monkeypatch.setattr(payment_service.conversation_repository, "update_conversation_db", _fake_update_conversation)
     monkeypatch.setattr(payment_service.address_repository, "get_default_address_by_user_id_db", _fake_get_default_address)
+    monkeypatch.setattr(payment_service.address_repository, "get_addresses_by_user_id_db", _fake_get_addresses)
+    monkeypatch.setattr(payment_service.address_repository, "create_address_db", _fake_create_address)
+    monkeypatch.setattr(payment_service.address_repository, "set_default_address_db", _fake_set_default)
     monkeypatch.setattr(payment_service.webview_progress_service, "clear_progress", lambda _conversation_id: None)
     monkeypatch.setattr(payment_service.runtime, "update_state", _fake_update_state)
 
@@ -154,6 +219,133 @@ async def test_webview_address_checked_returns_address_confirming(monkeypatch):
     assert result["uiCommand"] == {"type": "close_webview"}
     assert result["pendingConfirmation"]["type"] == "address_confirm"
     assert "서울시 강남구 테헤란로 101호" in result["assistantMessage"]
+    assert calls == {"created": 0, "set_default": 0}
+
+
+@pytest.mark.anyio
+async def test_webview_address_checked_creates_default_address_when_missing(monkeypatch):
+    """웹뷰 배송지가 DB에 없으면 새 기본 배송지로 저장한 뒤 음성 확인한다."""
+    calls = {"created_payload": None}
+
+    async def _fake_update_state(conversation_id, patch):
+        return patch
+
+    async def _fake_get_default_address(_db, user_id):
+        return None
+
+    async def _fake_get_addresses(_db, user_id):
+        return []
+
+    async def _fake_create_address(_db, data):
+        calls["created_payload"] = data
+        return {"id": 10, **data}
+
+    monkeypatch.setattr(payment_service.conversation_repository, "get_conversation_by_id_db", _fake_get_conversation)
+    monkeypatch.setattr(payment_service.order_repository, "get_order_by_id_db", _fake_get_order)
+    monkeypatch.setattr(payment_service.payment_repository, "get_payment_by_id_db", _fake_get_payment)
+    monkeypatch.setattr(payment_service.conversation_repository, "update_conversation_db", _fake_update_conversation)
+    monkeypatch.setattr(payment_service.address_repository, "get_default_address_by_user_id_db", _fake_get_default_address)
+    monkeypatch.setattr(payment_service.address_repository, "get_addresses_by_user_id_db", _fake_get_addresses)
+    monkeypatch.setattr(payment_service.address_repository, "create_address_db", _fake_create_address)
+    monkeypatch.setattr(payment_service.webview_progress_service, "clear_progress", lambda _conversation_id: None)
+    monkeypatch.setattr(payment_service.runtime, "update_state", _fake_update_state)
+
+    result = await payment_service.handle_webview_result_db(
+        None,
+        125,
+        WebviewResultRequest(
+            result="address_checked",
+            orderId=77,
+            paymentId=88,
+            addressLine1="서울시 용산구 서빙고로 17",
+            addressLine2="301호",
+            recipientName="방달봉",
+            recipientPhone="010-0000-0000",
+        ),
+    )
+
+    assert calls["created_payload"]["is_default"] is True
+    assert calls["created_payload"]["address_line1"] == "서울시 용산구 서빙고로 17"
+    assert calls["created_payload"]["address_line2"] == "301호"
+    assert "서울시 용산구 서빙고로 17 301호" in result["assistantMessage"]
+
+
+@pytest.mark.anyio
+async def test_webview_address_checked_promotes_matching_saved_address(monkeypatch):
+    """웹뷰 배송지가 기존 비기본 배송지와 같으면 새로 만들지 않고 기본 배송지로 올린다."""
+    calls = {"created": 0, "set_default_id": None}
+
+    async def _fake_update_state(conversation_id, patch):
+        return patch
+
+    async def _fake_get_default_address(_db, user_id):
+        return {
+            "id": 1,
+            "user_id": user_id,
+            "recipient_name": "방달봉",
+            "recipient_phone": "010-0000-0000",
+            "address_line1": "서울시 강남구 테헤란로",
+            "address_line2": "101호",
+            "is_default": True,
+        }
+
+    async def _fake_get_addresses(_db, user_id):
+        return [
+            await _fake_get_default_address(_db, user_id),
+            {
+                "id": 2,
+                "user_id": user_id,
+                "recipient_name": "방달봉",
+                "recipient_phone": "010-0000-0000",
+                "address_line1": "서울시 용산구 서빙고로 17",
+                "address_line2": "301호",
+                "is_default": False,
+            },
+        ]
+
+    async def _fake_set_default(_db, user_id, address_id):
+        calls["set_default_id"] = address_id
+        return {
+            "id": address_id,
+            "user_id": user_id,
+            "recipient_name": "방달봉",
+            "recipient_phone": "010-0000-0000",
+            "address_line1": "서울시 용산구 서빙고로 17",
+            "address_line2": "301호",
+            "is_default": True,
+        }
+
+    async def _fake_create_address(_db, data):
+        calls["created"] += 1
+        return {"id": 3, **data}
+
+    monkeypatch.setattr(payment_service.conversation_repository, "get_conversation_by_id_db", _fake_get_conversation)
+    monkeypatch.setattr(payment_service.order_repository, "get_order_by_id_db", _fake_get_order)
+    monkeypatch.setattr(payment_service.payment_repository, "get_payment_by_id_db", _fake_get_payment)
+    monkeypatch.setattr(payment_service.conversation_repository, "update_conversation_db", _fake_update_conversation)
+    monkeypatch.setattr(payment_service.address_repository, "get_default_address_by_user_id_db", _fake_get_default_address)
+    monkeypatch.setattr(payment_service.address_repository, "get_addresses_by_user_id_db", _fake_get_addresses)
+    monkeypatch.setattr(payment_service.address_repository, "set_default_address_db", _fake_set_default)
+    monkeypatch.setattr(payment_service.address_repository, "create_address_db", _fake_create_address)
+    monkeypatch.setattr(payment_service.webview_progress_service, "clear_progress", lambda _conversation_id: None)
+    monkeypatch.setattr(payment_service.runtime, "update_state", _fake_update_state)
+
+    result = await payment_service.handle_webview_result_db(
+        None,
+        125,
+        WebviewResultRequest(
+            result="address_checked",
+            orderId=77,
+            paymentId=88,
+            addressLine1="서울시 용산구 서빙고로 17",
+            addressLine2="301호",
+        ),
+    )
+
+    assert calls["created"] == 0
+    assert calls["set_default_id"] == 2
+    assert result["deliveryAddress"]["is_default"] is True
+    assert "서울시 용산구 서빙고로 17 301호" in result["assistantMessage"]
 
 
 @pytest.mark.anyio
