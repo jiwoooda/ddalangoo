@@ -122,13 +122,11 @@ class CallProvider extends ChangeNotifier {
   String get webviewUrl {
     final payload = webviewTaskPayload;
     if (payload != null) {
-      final executionUrl = payload['executionUrl'];
-      if (executionUrl is String && executionUrl.trim().isNotEmpty) {
-        return executionUrl.trim();
-      }
-      final url = payload['url'];
-      if (url is String && url.trim().isNotEmpty) {
-        return url.trim();
+      for (final key in ['startUrl', 'webviewUrl', 'url', 'executionUrl']) {
+        final candidateUrl = payload[key];
+        if (candidateUrl is String && candidateUrl.trim().isNotEmpty) {
+          return candidateUrl.trim();
+        }
       }
     }
 

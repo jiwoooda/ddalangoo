@@ -319,9 +319,16 @@ def _webview_task_payload(
         "orderId": order.get("orderId"),
         "paymentId": payment.get("paymentId"),
         "platform": platform or (webview_input.platform if webview_input else None) or selected_product.get("platform") or "kurly",
+        "startUrl": product_url,
         "url": product_url,
     }
     if task == "add_to_cart":
+        execution_url = webview_input.execution_url if webview_input else selected_product.get("execution_url")
+        canonical_product_url = (
+            webview_input.canonical_product_url
+            if webview_input
+            else selected_product.get("canonical_product_url")
+        )
         payload.update({
             "productName": (
                 webview_input.target_product_name
@@ -338,8 +345,8 @@ def _webview_task_payload(
                 if webview_input
                 else state.get("quantity") or 1
             ),
-            "executionUrl": webview_input.execution_url if webview_input else selected_product.get("execution_url"),
-            "canonicalProductUrl": webview_input.canonical_product_url if webview_input else selected_product.get("canonical_product_url"),
+            "executionUrl": execution_url,
+            "canonicalProductUrl": canonical_product_url,
         })
     return payload
 

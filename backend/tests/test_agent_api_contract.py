@@ -621,6 +621,7 @@ def test_webview_cart_task_contract_after_quantity_confirmation():
                     "platform": "kurly",
                     "productName": "멜론",
                     "quantity": 5,
+                    "startUrl": "https://www.kurly.com/goods/123",
                     "url": "https://www.kurly.com/goods/123",
                     "uiCommand": {"type": "open_webview", "task": "add_to_cart"},
                 },
@@ -633,4 +634,5 @@ def test_webview_cart_task_contract_after_quantity_confirmation():
     assert response.stage == "webview_cart"
     assert response.pendingConfirmation["type"] == "webview_task"
     assert response.pendingConfirmation["payload"]["task"] == "add_to_cart"
+    assert response.pendingConfirmation["payload"]["startUrl"] == "https://www.kurly.com/goods/123"
     assert response.uiCommand == {"type": "open_webview", "task": "add_to_cart"}
