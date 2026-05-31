@@ -124,11 +124,7 @@ class _CallScreenState extends State<CallScreen> {
     final task = provider.currentWebviewTask ?? 'unknown';
     final commandKey =
         'pending|${provider.conversationId}|$task|${provider.currentOrderId}|${provider.currentPaymentId}';
-    _openWebview(
-      provider,
-      commandKey: commandKey,
-      url: provider.webviewUrl,
-    );
+    _openWebview(provider, commandKey: commandKey, url: provider.webviewUrl);
   }
 
   void _openWebview(
@@ -487,7 +483,8 @@ class _CallScreenState extends State<CallScreen> {
       return Padding(
         padding: const EdgeInsets.only(top: 8, bottom: 8),
         child: _buildProductCardFromMessage(
-          recommendation: message['recommendation'] as RecommendationItemInAgent,
+          recommendation:
+              message['recommendation'] as RecommendationItemInAgent,
           selectedProduct: message['selectedProduct'],
         ),
       );
@@ -816,16 +813,16 @@ class _CallScreenState extends State<CallScreen> {
   Widget _buildTextInputToggle() {
     return OutlinedButton.icon(
       onPressed: _toggleTextInput,
-      icon: Icon(_showTextInput ? Icons.keyboard_hide : Icons.keyboard, size: 18),
+      icon: Icon(
+        _showTextInput ? Icons.keyboard_hide : Icons.keyboard,
+        size: 18,
+      ),
       label: Text(_showTextInput ? '텍스트 닫기' : '텍스트 입력'),
       style: OutlinedButton.styleFrom(
         foregroundColor: const Color(0xFFE8325A),
         side: const BorderSide(color: Color(0xFFE8325A)),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        textStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         minimumSize: const Size(0, 44),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
@@ -979,10 +976,7 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  List<TextSpan> _buildAssistantMessageSpans(
-    String text,
-    TextStyle baseStyle,
-  ) {
+  List<TextSpan> _buildAssistantMessageSpans(String text, TextStyle baseStyle) {
     final sentences = _splitAssistantMessage(text);
     final spans = <TextSpan>[];
 
@@ -1013,7 +1007,9 @@ class _CallScreenState extends State<CallScreen> {
     String sentence,
     TextStyle baseStyle,
   ) {
-    final productQuestionMatch = RegExp(r'^(.*?)(\s*어떠세요\?)$').firstMatch(sentence);
+    final productQuestionMatch = RegExp(
+      r'^(.*?)(\s*어떠세요\?)$',
+    ).firstMatch(sentence);
     if (productQuestionMatch != null) {
       final productText = productQuestionMatch.group(1)?.trim() ?? '';
       final suffix = productQuestionMatch.group(2) ?? '';
@@ -1407,8 +1403,13 @@ class _CallScreenState extends State<CallScreen> {
 
   // 장바구니 요약
   Widget _buildCartSummary(CallProvider provider) {
+    final cart = provider.lastResponse?.cart;
     final order = provider.lastResponse?.order;
-    if (order == null) return const SizedBox.shrink();
+    final items = _cartSummaryItems(cart);
+    if (items.isEmpty && cart == null && order == null) {
+      return const SizedBox.shrink();
+    }
+    final totalAmount = _cartSummaryTotalAmount(items, order);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1433,10 +1434,19 @@ class _CallScreenState extends State<CallScreen> {
           ),
           const SizedBox(height: 8),
           const Divider(),
-          // order 데이터는 dynamic이라 Map으로 캐스팅
-          if (order is Map && order['items'] != null)
-            ...((order['items'] as List).map(
-              (item) => Padding(
+          if (items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '장바구니 정보를 확인하고 있어요.',
+                style: TextStyle(fontSize: 14, color: Color(0xFF666666)),
+              ),
+            )
+          else
+            ...items.map((item) {
+              final quantity = _cartItemQuantity(item);
+              final itemTotal = _cartItemTotalAmount(item);
+              return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   children: [
@@ -1453,7 +1463,7 @@ class _CallScreenState extends State<CallScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        item['productName'] ?? '',
+                        '${item['productName'] ?? '상품'}',
                         style: const TextStyle(fontSize: 14),
                       ),
                     ),
@@ -1461,14 +1471,14 @@ class _CallScreenState extends State<CallScreen> {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          '${item['quantity']}개',
+                          '$quantity개',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Colors.grey,
                           ),
                         ),
                         Text(
-                          '${item['totalPrice']}원',
+                          '${_formatCartAmount(itemTotal)}원',
                           style: const TextStyle(
                             color: Color(0xFFE8325A),
                             fontWeight: FontWeight.bold,
@@ -1478,15 +1488,15 @@ class _CallScreenState extends State<CallScreen> {
                     ),
                   ],
                 ),
-              ),
-            )),
+              );
+            }),
           const Divider(),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('총 금액', style: TextStyle(fontWeight: FontWeight.bold)),
               Text(
-                '${order['totalPaymentAmount'] ?? 0}원',
+                '${_formatCartAmount(totalAmount)}원',
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -1498,6 +1508,73 @@ class _CallScreenState extends State<CallScreen> {
         ],
       ),
     );
+  }
+
+  List<Map<String, dynamic>> _cartSummaryItems(dynamic cart) {
+    if (cart is! Map) return const [];
+
+    final items = cart['items'];
+    if (items is List && items.isNotEmpty) {
+      return items
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+
+    final lastCartItem = cart['lastCartItem'];
+    if (lastCartItem is Map) {
+      return [Map<String, dynamic>.from(lastCartItem)];
+    }
+
+    return const [];
+  }
+
+  int _cartItemQuantity(Map<String, dynamic> item) {
+    final quantity = item['quantity'];
+    if (quantity is int && quantity > 0) return quantity;
+    if (quantity is num && quantity > 0) return quantity.toInt();
+    return 1;
+  }
+
+  int _cartItemTotalAmount(Map<String, dynamic> item) {
+    final totalPrice = item['totalPrice'];
+    if (totalPrice is int) return totalPrice;
+    if (totalPrice is num) return totalPrice.toInt();
+
+    final unitPrice = item['unitPrice'];
+    if (unitPrice is int) return unitPrice * _cartItemQuantity(item);
+    if (unitPrice is num) return unitPrice.toInt() * _cartItemQuantity(item);
+
+    return 0;
+  }
+
+  int _cartSummaryTotalAmount(List<Map<String, dynamic>> items, dynamic order) {
+    final totalFromItems = items.fold<int>(
+      0,
+      (sum, item) => sum + _cartItemTotalAmount(item),
+    );
+    if (totalFromItems > 0) return totalFromItems;
+
+    if (order is Map) {
+      final totalPaymentAmount = order['totalPaymentAmount'];
+      if (totalPaymentAmount is int) return totalPaymentAmount;
+      if (totalPaymentAmount is num) return totalPaymentAmount.toInt();
+    }
+
+    return 0;
+  }
+
+  String _formatCartAmount(int amount) {
+    final digits = amount.toString();
+    final buffer = StringBuffer();
+    for (var index = 0; index < digits.length; index++) {
+      final remaining = digits.length - index;
+      buffer.write(digits[index]);
+      if (remaining > 1 && remaining % 3 == 1) {
+        buffer.write(',');
+      }
+    }
+    return buffer.toString();
   }
 
   Color _micButtonColor(CallProvider provider) {
@@ -1560,12 +1637,7 @@ class _CallScreenState extends State<CallScreen> {
             provider.isLoading ||
             provider.errorMessage != null;
         return Padding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            0,
-            16,
-            isCompactBottomBar ? 10 : 20,
-          ),
+          padding: EdgeInsets.fromLTRB(16, 0, 16, isCompactBottomBar ? 10 : 20),
           child: Column(
             children: [
               if (widget.previewMode) ...[

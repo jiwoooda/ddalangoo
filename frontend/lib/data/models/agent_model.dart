@@ -114,6 +114,7 @@ class AgentResponse {
   final dynamic pendingConfirmation;
   final dynamic availableOptions;
   final dynamic deliveryAddress;
+  final dynamic cart;
   final dynamic order;
   final dynamic payment;
   final dynamic uiCommand;
@@ -131,6 +132,7 @@ class AgentResponse {
     this.pendingConfirmation,
     this.availableOptions,
     this.deliveryAddress,
+    this.cart,
     this.order,
     this.payment,
     this.uiCommand,
@@ -144,14 +146,16 @@ class AgentResponse {
     stage: json['stage'],
     assistantMessage: json['assistantMessage'],
     recommendationId: json['recommendationId'],
-    recommendations: ((json['recommendations'] as List? ?? [])
-        .map((e) => RecommendationItemInAgent.fromJson(e))
-        .toList()
-      ..sort((a, b) => a.rank.compareTo(b.rank))),
+    recommendations:
+        ((json['recommendations'] as List? ?? [])
+            .map((e) => RecommendationItemInAgent.fromJson(e))
+            .toList()
+          ..sort((a, b) => a.rank.compareTo(b.rank))),
     selectedProduct: json['selectedProduct'],
     pendingConfirmation: json['pendingConfirmation'],
     availableOptions: json['availableOptions'],
     deliveryAddress: json['deliveryAddress'],
+    cart: json['cart'],
     order: json['order'],
     payment: json['payment'],
     uiCommand: json['uiCommand'],

@@ -51,18 +51,26 @@ class AgentRepository {
                   ),
                 ]
               : []),
-      order: (stage == 'cart' || stage == 'payment' || stage == 'completed')
+      cart: (stage == 'cart' || stage == 'payment' || stage == 'completed')
           ? {
+              'cartId': 1,
+              'status': 'active',
               'items': [
                 {
                   'productName': '데모용 맛있는 사과',
-                  'totalPrice': 15000,
                   'quantity': 1,
-                  'imageUrl': 'https://via.placeholder.com/150',
+                  'unitPrice': 15000,
                 },
               ],
-              'totalPaymentAmount': 15000,
+              'lastCartItem': {
+                'productName': '데모용 맛있는 사과',
+                'quantity': 1,
+                'unitPrice': 15000,
+              },
             }
+          : null,
+      order: (stage == 'cart' || stage == 'payment' || stage == 'completed')
+          ? {'totalPaymentAmount': 15000}
           : null,
       deliveryAddress: (stage == 'payment')
           ? {
@@ -91,10 +99,7 @@ class AgentRepository {
     bool redactMessage = false,
   }) {
     final sanitizedPayload = redactMessage
-        ? {
-            ...payload,
-            if (payload.containsKey('message')) 'message': '******',
-          }
+        ? {...payload, if (payload.containsKey('message')) 'message': '******'}
         : payload;
     debugPrint(
       '📤 [$label]\n${_jsonEncoder.convert({'endpoint': endpoint, 'payload': sanitizedPayload})}',
@@ -166,7 +171,10 @@ class AgentRepository {
       payload: payload,
     );
     if (latencyContext != null) {
-      FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_request_sent');
+      FrontendLatencyLogger.instance.mark(
+        latencyContext,
+        'frontend_request_sent',
+      );
     }
     final response = await _dio.post(
       '/api/agent/shopping-requests',
@@ -304,7 +312,10 @@ class AgentRepository {
       redactMessage: redactMessageForLogs,
     );
     if (latencyContext != null) {
-      FrontendLatencyLogger.instance.mark(latencyContext, 'frontend_request_sent');
+      FrontendLatencyLogger.instance.mark(
+        latencyContext,
+        'frontend_request_sent',
+      );
     }
     final response = await _dio.post(
       '/api/agent/conversations/$conversationId/messages',
@@ -375,7 +386,9 @@ class AgentRepository {
         result,
         result == 'completed'
             ? 'completed'
-            : (result == 'cart_added' ? 'payment_password_required' : 'payment'),
+            : (result == 'cart_added'
+                  ? 'payment_password_required'
+                  : 'payment'),
         convId: conversationId,
         customAssistantMessage: result == 'completed'
             ? '결제가 완료되었습니다.'
@@ -489,9 +502,7 @@ class UserRepository {
       );
       return UserResponse.fromJson(response.data);
     } catch (error) {
-      throw Exception(
-        _extractErrorMessage(error, fallback: '회원가입에 실패했습니다.'),
-      );
+      throw Exception(_extractErrorMessage(error, fallback: '회원가입에 실패했습니다.'));
     }
   }
 
@@ -510,9 +521,7 @@ class UserRepository {
       );
       return UserResponse.fromJson(response.data);
     } catch (error) {
-      throw Exception(
-        _extractErrorMessage(error, fallback: '로그인에 실패했습니다.'),
-      );
+      throw Exception(_extractErrorMessage(error, fallback: '로그인에 실패했습니다.'));
     }
   }
 
