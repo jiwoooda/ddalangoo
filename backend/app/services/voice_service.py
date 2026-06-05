@@ -1,11 +1,12 @@
-"""Gemini 기반 한국어 STT 서비스.
+"""OpenAI STT + Gemini TTS 기반 음성 서비스.
 
-업로드된 오디오 파일을 Gemini API로 전사해 텍스트를 반환한다.
-API Key는 환경변수 GEMINI_API_KEY에서만 읽는다.
+업로드된 오디오 파일은 OpenAI Transcription API로 전사하고,
+응답 TTS는 기존 Gemini TTS를 사용한다.
 
-SDK: google-genai (google.generativeai는 deprecated)
+API Key는 환경변수 OPENAI_API_KEY / GEMINI_API_KEY에서 읽는다.
 """
 
+from io import BytesIO
 import os
 import re
 import logging
@@ -15,15 +16,16 @@ import time
 
 from google import genai
 from google.genai import types
+from openai import AsyncOpenAI
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
 # ── 모델 / 프롬프트 ─────────────────────────────────────────────────────────
 
-# gemini-2.5-flash (stable). Railway 환경변수 GEMINI_STT_MODEL로 재정의 가능.
-# 구 모델명 gemini-2.5-flash-preview-05-20은 2026-05 기준 404 → gemini-2.5-flash로 통합됨.
-_STT_MODEL = os.getenv("GEMINI_STT_MODEL", "models/gemini-2.5-flash")
+# 프론트는 녹음이 끝난 WAV 파일을 업로드한다. 진짜 Realtime 스트리밍은
+# WebRTC/WebSocket 입력 구조가 필요하므로, 현재 엔드포인트에서는 Transcription API를 사용한다.
+_STT_MODEL = os.getenv("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
 _TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 _TTS_FALLBACK_MODELS = [
     model.strip()
@@ -36,7 +38,7 @@ _TTS_FALLBACK_MODELS = [
 _TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Zephyr")
 _TTS_SAMPLE_RATE = 24000
 
-# 기존 프론트 gemini_voice_service.dart STT 프롬프트 기준 + 쇼핑 도메인 표현 정확도 추가.
+# 쇼핑 도메인 표현 정확도를 높이기 위한 STT 프롬프트.
 _STT_PROMPT = (
     "너는 한국어 음성 인식 엔진이다. "
     "오디오에서 실제로 들리는 사용자의 말만 한 줄 한국어 텍스트로 전사해라. "
@@ -50,6 +52,22 @@ _MAX_TRANSCRIPT_LENGTH = 200
 _MIN_AUDIO_BYTES = 1000  # 너무 작은 파일은 무음으로 간주
 _MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB
 _MAX_TTS_TEXT_LENGTH = 1000
+
+
+def _get_openai_client(feature: str = "stt") -> AsyncOpenAI:
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    logger.info("[voice.%s] OPENAI_API_KEY exists: %s", feature, bool(api_key))
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": f"{feature.upper()}_CONFIG_ERROR",
+                    "message": f"{feature.upper()} 서비스가 설정되지 않았습니다.",
+                }
+            },
+        )
+    return AsyncOpenAI(api_key=api_key)
 
 
 def _get_client(feature: str = "stt") -> genai.Client:
@@ -69,7 +87,7 @@ def _get_client(feature: str = "stt") -> genai.Client:
 
 
 async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
-    """오디오 바이트를 Gemini로 전사해 텍스트를 반환한다.
+    """오디오 바이트를 OpenAI Transcription API로 전사해 텍스트를 반환한다.
 
     빈 발화이면 빈 문자열("")을 반환한다.
     오류 시 HTTPException을 발생시킨다.
@@ -92,28 +110,31 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
             },
         )
 
-    # 지원 MIME 타입 정규화
-    safe_mime = _normalize_mime(mime_type)
+    safe_mime = _normalize_openai_audio_mime(mime_type)
+    filename = _filename_for_mime(safe_mime)
     logger.info(
-        "[voice.stt] Gemini STT request started model=%s mime_type=%s size=%s",
+        "[voice.stt] OpenAI STT request started model=%s mime_type=%s size=%s",
         _STT_MODEL,
         safe_mime,
         len(audio_bytes),
     )
 
     try:
-        client = _get_client("stt")
-        response = await client.aio.models.generate_content(
+        client = _get_openai_client("stt")
+        # OpenAI SDK는 파일명 확장자를 함께 보므로 BytesIO에 name을 지정한다.
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = filename
+
+        response = await client.audio.transcriptions.create(
             model=_STT_MODEL,
-            contents=[
-                types.Part.from_bytes(data=audio_bytes, mime_type=safe_mime),
-                _STT_PROMPT,
-            ],
+            file=(filename, audio_file, safe_mime),
+            language="ko",
+            prompt=_STT_PROMPT,
         )
-        raw = (response.text or "").strip()
+        raw = (getattr(response, "text", "") or "").strip()
         transcript = _normalize_transcript(raw)
         logger.info(
-            "[voice.stt] Gemini STT succeeded raw_length=%s transcript_length=%s",
+            "[voice.stt] OpenAI STT succeeded raw_length=%s transcript_length=%s",
             len(raw),
             len(transcript),
         )
@@ -122,7 +143,7 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("[voice.stt] Gemini STT failed")
+        logger.exception("[voice.stt] OpenAI STT failed")
         raise HTTPException(
             status_code=502,
             detail={
@@ -136,32 +157,47 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
 
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
 
-def _normalize_mime(mime_type: str) -> str:
-    """업로드 파일의 Content-Type을 Gemini가 허용하는 값으로 정규화한다."""
+def _normalize_openai_audio_mime(mime_type: str) -> str:
+    """OpenAI Transcription API가 받는 오디오 MIME 타입으로 정규화한다."""
     mime = (mime_type or "").lower().split(";")[0].strip()
     _supported = {
         "audio/wav", "audio/wave", "audio/x-wav",
         "audio/mp4", "audio/mpeg", "audio/mp3",
-        "audio/webm", "audio/ogg", "audio/flac",
-        "audio/aac", "audio/x-m4a",
+        "audio/mpga", "audio/webm", "audio/x-m4a",
     }
     if mime in _supported:
+        if mime in {"audio/wave", "audio/x-wav"}:
+            return "audio/wav"
+        if mime == "audio/mp3":
+            return "audio/mpeg"
+        if mime == "audio/x-m4a":
+            return "audio/mp4"
         return mime
-    # 확장자로 매핑 가능한 경우
+
     if "wav" in mime:
         return "audio/wav"
-    if "mp3" in mime or "mpeg" in mime:
+    if "mp3" in mime or "mpeg" in mime or "mpga" in mime:
         return "audio/mpeg"
     if "webm" in mime:
         return "audio/webm"
-    if "ogg" in mime:
-        return "audio/ogg"
-    if "flac" in mime:
-        return "audio/flac"
-    if "aac" in mime or "m4a" in mime or "mp4" in mime:
+    if "m4a" in mime or "aac" in mime or "mp4" in mime:
         return "audio/mp4"
-    # 기본값
+
+    # 현재 프론트 녹음은 WAV이므로 알 수 없는 타입은 WAV로 취급한다.
     return "audio/wav"
+
+
+def _filename_for_mime(mime_type: str) -> str:
+    """Transcription API에 넘길 파일명 확장자를 MIME 타입에 맞춘다."""
+    extension_by_mime = {
+        "audio/wav": "wav",
+        "audio/mpeg": "mp3",
+        "audio/mp4": "m4a",
+        "audio/mpga": "mpga",
+        "audio/webm": "webm",
+    }
+    extension = extension_by_mime.get(mime_type, "wav")
+    return f"speech.{extension}"
 
 
 def _normalize_transcript(raw: str) -> str:

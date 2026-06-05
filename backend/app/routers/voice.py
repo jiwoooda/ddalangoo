@@ -1,4 +1,4 @@
-"""POST /api/voice/stt — Gemini 기반 한국어 음성 전사 엔드포인트."""
+"""POST /api/voice/stt — OpenAI 기반 한국어 음성 전사 엔드포인트."""
 
 import logging
 
@@ -50,7 +50,7 @@ async def speech_to_text(file: UploadFile = File(...)) -> SttResponse:
 async def text_to_speech(req: TtsRequest) -> TtsResponse:
     """텍스트를 Gemini TTS 음성으로 변환한다.
 
-    프론트에는 Gemini API key를 두지 않고, Railway 백엔드 환경변수만 사용한다.
+    프론트에는 OpenAI/Gemini API key를 두지 않고, Railway 백엔드 환경변수만 사용한다.
     """
     text = req.text.strip()
     logger.info("[voice.tts] request received text_length=%s", len(text))

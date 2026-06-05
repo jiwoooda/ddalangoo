@@ -27,7 +27,7 @@ class FrontendLatencyLogger {
   static final FrontendLatencyLogger instance = FrontendLatencyLogger._();
   static const JsonEncoder _encoder = JsonEncoder.withIndent('  ');
   static const String _mode = 'BACKEND_STT_BACKEND_TTS';
-  static const String _sttProvider = 'backend_gemini';
+  static const String _sttProvider = 'backend_openai';
   static const String _ttsProvider = 'backend_gemini';
 
   final Map<String, _FrontendLatencyTurn> _turns = {};
@@ -137,7 +137,7 @@ class _FrontendLatencyTurn {
       'request_id': context.requestId,
       'turn_index': context.turnIndex,
       'mode': 'BACKEND_STT_BACKEND_TTS',
-      'sttProvider': 'backend_gemini',
+      'sttProvider': 'backend_openai',
       'ttsProvider': 'backend_gemini',
       'interaction_start': _iso('interaction_start'),
       'user_speech_start': _iso('user_speech_start'),
