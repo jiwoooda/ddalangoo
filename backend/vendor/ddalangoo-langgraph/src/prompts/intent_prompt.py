@@ -132,7 +132,7 @@ deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용�
 예: 아니, 싫어, 별로야, 그건 빼
 
 주의:
-- "다른 거", "다음 거", "또 보여줘"는 deny가 아니라 next입니다. 단, "아니 다른 걸로 보여줘"처럼 "아니"로 시작하면서 pending_action이 있으면 deny 우선 (router가 next 처리를 담당).
+- "다른 거", "다음 거", "또 보여줘"는 deny가 아니라 next입니다. "아니 다른 걸로 보여줘"처럼 앞에 "아니"가 붙어도 next로 처리합니다.
 - pending_action이 없는데 사용자가 "응", "아니"만 말하면 intent="unclear", needs_clarification=true로 처리합니다.
 
 # Clarification 규칙
