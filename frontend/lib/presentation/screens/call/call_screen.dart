@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../data/models/agent_model.dart';
 import '../../../presentation/providers/call_provider.dart';
+import 'kurly_webview_session.dart';
 import 'payment_webview_screen.dart';
 
 class CallScreen extends StatefulWidget {
@@ -44,6 +45,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _isWebviewOpen = false;
   String? _lastWebviewCommandKey;
   final Set<String> _completedWebviewCommandKeys = <String>{};
+  final KurlyWebviewSession _kurlyWebviewSession = KurlyWebviewSession();
 
   @override
   void initState() {
@@ -66,6 +68,7 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     _provider?.removeListener(_handleProviderChanged);
     _callTimer?.cancel();
+    _kurlyWebviewSession.dispose();
     _textController.dispose();
     _messageScrollController.dispose();
     super.dispose();
@@ -167,6 +170,7 @@ class _CallScreenState extends State<CallScreen> {
             quantity: provider.currentWebviewQuantity,
             canonicalProductUrl: provider.currentCanonicalProductUrl,
             task: provider.currentWebviewTask,
+            session: _kurlyWebviewSession,
           ),
         ),
       );
@@ -226,6 +230,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _endCall() {
+    _kurlyWebviewSession.dispose();
     context.read<CallProvider>().endCall();
     if (widget.previewMode) {
       Navigator.of(context).maybePop();

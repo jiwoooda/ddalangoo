@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../providers/call_provider.dart';
 import 'kurly_webview_automation.dart';
+import 'kurly_webview_session.dart';
 
 class PaymentWebViewScreen extends StatefulWidget {
   const PaymentWebViewScreen({
@@ -23,6 +24,7 @@ class PaymentWebViewScreen extends StatefulWidget {
     this.previewHelperText,
     this.previewStep,
     this.previewMessage,
+    this.session,
   });
 
   final String url;
@@ -38,6 +40,7 @@ class PaymentWebViewScreen extends StatefulWidget {
   final String? previewHelperText;
   final String? previewStep;
   final String? previewMessage;
+  final KurlyWebviewSession? session;
 
   @override
   State<PaymentWebViewScreen> createState() => _PaymentWebViewScreenState();
@@ -70,32 +73,52 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
 
   void _initWebView() {
     final initialUrl = _initialWebviewUrl();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'KurlyChannel',
-        onMessageReceived: (JavaScriptMessage msg) {
-          debugPrint('🛒 [KurlyChannel] ${msg.message}');
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (progress) {
-            if (!mounted) return;
-            setState(() => _loadingProgress = progress);
+    final session = widget.session;
+    if (session == null) {
+      _controller = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..addJavaScriptChannel(
+          'KurlyChannel',
+          onMessageReceived: (JavaScriptMessage msg) {
+            debugPrint('🛒 [KurlyChannel] ${msg.message}');
           },
-          onPageFinished: (_) {
-            if (!mounted) return;
-            setState(() {
-              _pageLoaded = true;
-              _loadingProgress = 100;
-            });
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse(initialUrl));
+        )
+        ..setNavigationDelegate(_navigationDelegate())
+        ..loadRequest(Uri.parse(initialUrl));
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runAutomation());
+      return;
+    }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) => _runAutomation());
+    _controller = session.controller;
+    if (session.hasLoadedInitialUrl) {
+      _pageLoaded = true;
+      _loadingProgress = 100;
+    }
+    session
+        .attach(
+          navigationDelegate: _navigationDelegate(),
+          initialUrl: initialUrl,
+        )
+        .then((_) {
+          if (!mounted) return;
+          WidgetsBinding.instance.addPostFrameCallback((_) => _runAutomation());
+        });
+  }
+
+  NavigationDelegate _navigationDelegate() {
+    return NavigationDelegate(
+      onProgress: (progress) {
+        if (!mounted) return;
+        setState(() => _loadingProgress = progress);
+      },
+      onPageFinished: (_) {
+        if (!mounted) return;
+        setState(() {
+          _pageLoaded = true;
+          _loadingProgress = 100;
+        });
+      },
+    );
   }
 
   Future<void> _runAutomation() async {
@@ -104,16 +127,16 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     _automationStarted = true;
 
     if (widget.task == 'address_check') {
-      await Future.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
+      final proceeded = await _runAddressCheckAutomation(controller);
+      if (!proceeded || !mounted) return;
       final addressData = await _collectKurlyAddressFromCart(controller);
       await _submitResult('address_checked', extraData: addressData);
       return;
     }
 
     if (widget.task == 'payment') {
-      await Future.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
+      final proceeded = await _runPaymentPreparationAutomation(controller);
+      if (!proceeded || !mounted) return;
       final prepared = await _prepareKurlyMockPayment(controller);
       await _submitResult(prepared ? 'payment_ready_mock' : 'cancelled');
       return;
@@ -127,6 +150,109 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     if (!mounted) return;
 
     await _runAutomationWithCredentials(controller, credentials);
+  }
+
+  Future<bool> _runAddressCheckAutomation(WebViewController controller) async {
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return false;
+
+    final credentials = await KurlyCredentialStore.read();
+    if (!mounted) return false;
+
+    return _ensureLoggedInForTask(
+      controller,
+      credentials: credentials,
+      fallbackUrl: _initialWebviewUrl(),
+    );
+  }
+
+  Future<bool> _runPaymentPreparationAutomation(
+    WebViewController controller,
+  ) async {
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return false;
+
+    final credentials = await KurlyCredentialStore.read();
+    if (!mounted) return false;
+
+    return _ensureLoggedInForTask(
+      controller,
+      credentials: credentials,
+      fallbackUrl: _initialWebviewUrl(),
+    );
+  }
+
+  Future<bool> _ensureLoggedInForTask(
+    WebViewController controller, {
+    required KurlyCredentials? credentials,
+    required String fallbackUrl,
+  }) async {
+    final automation = KurlyWebviewAutomation(
+      controller: controller,
+      credentials: credentials,
+      onProgress: (step, message) {
+        if (!mounted) return;
+        setState(() {
+          _automationStep = step;
+          _automationMessage = message;
+          if (step == 'login_failed' || step == 'login_required') {
+            _automationDone = true;
+          }
+        });
+      },
+    );
+
+    final result = await automation.ensureLoggedInForTask(
+      fallbackUrl: fallbackUrl,
+    );
+    if (!mounted) return false;
+
+    if (result == 'ok') {
+      setState(() {
+        _automationDone = false;
+      });
+      return true;
+    }
+
+    if ((result == 'login_required' || result == 'login_failed') &&
+        !_didRetryCredentialLogin) {
+      _didRetryCredentialLogin = true;
+      if (result == 'login_failed') {
+        await KurlyCredentialStore.clear();
+      }
+      setState(() {
+        _automationStep = result == 'login_failed'
+            ? 'login_retry_required'
+            : 'login_required';
+        _automationMessage = result == 'login_failed'
+            ? '저장된 로그인 정보가 맞지 않아 다시 입력이 필요해요.'
+            : '로그인이 필요해요. 로그인 정보를 입력받고 있어요.';
+        _automationDone = false;
+      });
+
+      if (!context.mounted) return false;
+      final currentContext = context;
+      final refreshedCredentials = await KurlyCredentialStore.ensureCredentials(
+        currentContext,
+        forcePrompt: true,
+      );
+      if (!mounted || refreshedCredentials == null) {
+        setState(() {
+          _automationStep = 'login_required';
+          _automationMessage = '컬리 로그인 정보 입력이 취소되었어요.';
+          _automationDone = true;
+        });
+        return false;
+      }
+
+      return _ensureLoggedInForTask(
+        controller,
+        credentials: refreshedCredentials,
+        fallbackUrl: fallbackUrl,
+      );
+    }
+
+    return false;
   }
 
   Future<void> _runAutomationWithCredentials(

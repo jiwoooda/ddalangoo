@@ -302,6 +302,45 @@ class KurlyWebviewAutomation {
     }
   }
 
+  Future<String> ensureLoggedInForTask({
+    required String fallbackUrl,
+  }) async {
+    _report('opening_shop', '컬리 페이지를 열고 있어요.');
+    await _loadUrlIfNeeded(fallbackUrl);
+    await _waitForPageLoad();
+    await _dismissAlreadyLoggedInDialogIfNeeded();
+
+    final isLoggedIn = await _checkLoginState();
+    _debug('task login state=$isLoggedIn fallbackUrl=$fallbackUrl');
+    if (isLoggedIn) return 'ok';
+
+    if (credentials == null) {
+      _report('login_required', '로그인이 필요해요. 로그인 정보를 입력해주세요.');
+      return 'login_required';
+    }
+
+    _report('logging_in', '로그인이 필요해요. 계정 정보를 입력하고 있어요.');
+    final loginSuccess = await _attemptLogin();
+    _debug('task login attempt result=$loginSuccess');
+    if (!loginSuccess) {
+      _report('login_failed', '로그인에 실패했어요. 다시 시도해주세요.');
+      return 'login_failed';
+    }
+
+    await _waitForPageLoad();
+    await _dismissAlreadyLoggedInDialogIfNeeded();
+    await _loadUrlIfNeeded(fallbackUrl);
+    await _waitForPageLoad();
+
+    final recovered = await _checkLoginState();
+    _debug('task login recovered=$recovered');
+    if (!recovered) {
+      _report('login_failed', '다시 로그인했지만 쇼핑 화면으로 복귀하지 못했어요.');
+      return 'login_failed';
+    }
+    return 'ok';
+  }
+
   Future<void> _waitForPageLoad() async {
     await Future.delayed(const Duration(milliseconds: 1500));
   }
