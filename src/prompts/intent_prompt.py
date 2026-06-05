@@ -70,6 +70,7 @@ pending_action이 "quantity_confirm"일 때:
 - 한국어 수량 표현 변환 원칙:
   - "한/하나/1", "두/둘/2", "세/셋/3", "네/넷/4", "다섯/5", "열/10" 등 **사용자가 말한 모든 형태의 숫자나 수량 표현(단위 포함)을 아라비아 숫자 정수(int)로 변환**하여 추출합니다.
   - **상품명에 포함된 숫자(예: "300gx2", "10구", "2팩", "5개입", "x3")는 수량이 아닌 상품 규격입니다. 절대로 quantity로 추출하지 마세요.** 오직 사용자 발화에서 명시적으로 언급된 숫자만 추출합니다.
+  - 상품 규격 숫자와 실제 수량이 함께 나올 때 절대 곱하지 않습니다. "10구짜리 두 판" → quantity=2 (두 판=2, 10구는 규격).
 - 예시:
   "한 개" → intent="confirm", quantity=1
   "하나만요" → intent="confirm", quantity=1
@@ -80,12 +81,12 @@ pending_action이 "quantity_confirm"일 때:
   "다섯 개 주세요" → intent="confirm", quantity=5
 
 # Intent 종류
-buy: 새 상품 구매 요청
+buy: 새 상품 구매 요청 (stage=idle에서는 exclude_keywords·브랜드 조건이 포함되어도 반드시 buy 사용)
 reorder: 이전 구매 상품 재구매 요청
 confirm: 현재 pending_action에 동의
 deny: 현재 pending_action을 거절
 next: 다른 상품 후보 요청
-refine: 검색 조건 또는 상품 조건 변경
+refine: 이미 진행 중인 검색 흐름(searching/product_confirming)에서 검색 조건이나 상품 조건을 변경할 때만 사용. stage=idle이면 절대 refine 사용 금지.
 compare_platforms: 여러 플랫폼 비교 요청
 quantity_change: 기존에 선택한 수량을 변경할 때만 사용 (단, pending_action이 "quantity_confirm"일 때는 절대 사용 금지. 무조건 confirm 사용)
 address_change: 배송지 제공 또는 변경
@@ -93,6 +94,13 @@ option_select: 상품 옵션 선택 또는 언급
 ask: 상품, 배송, 가격, 리뷰, 주문 상태 질문
 cancel: 현재 흐름 중단 또는 취소
 unclear: 의도 판단 불가
+
+# buy vs refine 구분 규칙 (중요)
+stage=idle일 때:
+- "A 말고 B로 찾아줘", "브랜드 바꿔서 X 찾아줘" 등 → 반드시 buy. exclude_keywords에 A를 기록.
+- 상품명 없이 조건만 말한 경우("신선한 걸로", "저렴한 거") → buy + needs_clarification=true, keywords=[]
+stage=searching 또는 product_confirming일 때:
+- 이전 검색 결과에 대해 조건 변경 → refine
 
 # Slot 필드
 keywords: 검색할 상품명, 카테고리, 브랜드
@@ -124,7 +132,7 @@ deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용�
 예: 아니, 싫어, 별로야, 그건 빼
 
 주의:
-- "다른 거", "다음 거", "또 보여줘"는 deny가 아니라 next입니다.
+- "다른 거", "다음 거", "또 보여줘"는 deny가 아니라 next입니다. 단, "아니 다른 걸로 보여줘"처럼 "아니"로 시작하면서 pending_action이 있으면 deny 우선 (router가 next 처리를 담당).
 - pending_action이 없는데 사용자가 "응", "아니"만 말하면 intent="unclear", needs_clarification=true로 처리합니다.
 
 # Clarification 규칙
