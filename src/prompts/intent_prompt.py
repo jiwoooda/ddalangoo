@@ -1,4 +1,26 @@
-INTENT_AGENT_PROMPT = """
+try:
+    from langchain import hub as _hub
+except ImportError:
+    try:
+        import langchainhub as _hub
+    except ImportError:
+        _hub = None
+
+
+def _extract_hub_template(prompt_obj) -> str:
+    """Hub에서 받은 프롬프트 객체 → 템플릿 문자열 추출."""
+    if hasattr(prompt_obj, "template"):  # PromptTemplate
+        return prompt_obj.template
+    if hasattr(prompt_obj, "messages") and prompt_obj.messages:  # ChatPromptTemplate
+        first = prompt_obj.messages[0]
+        if hasattr(first, "prompt") and hasattr(first.prompt, "template"):
+            return first.prompt.template
+        if hasattr(first, "template"):
+            return first.template
+    return str(prompt_obj)
+
+
+_INTENT_AGENT_PROMPT_FALLBACK = """
 당신은 한국어 음성 기반 쇼핑 어시스턴트의 Intent Agent입니다.
 
 반드시 JSON만 반환하세요.
@@ -126,3 +148,10 @@ deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용�
 - 반드시 실제 값을 채워 넣으세요. 기본값 0.0을 그대로 반환하면 안 됩니다.
 
 """
+
+try:
+    if _hub is None:
+        raise ImportError("hub not available")
+    INTENT_AGENT_PROMPT = _extract_hub_template(_hub.pull("intent-prompt"))
+except Exception:
+    INTENT_AGENT_PROMPT = _INTENT_AGENT_PROMPT_FALLBACK

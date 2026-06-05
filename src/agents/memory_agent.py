@@ -211,7 +211,7 @@ def _run_async_with_fresh_engine(coro_factory) -> Any:
 
 
 def _fetch_purchase_histories(user_id: str) -> list[dict[str, Any]]:
-    """구매이력 조회. DB 우선, 실패 시 mock JSON fallback."""
+    """구매이력 조회. MVP에서는 비즈니스 DB만 사용한다."""
     import os
     import sys
 
@@ -228,16 +228,7 @@ def _fetch_purchase_histories(user_id: str) -> list[dict[str, Any]]:
         agent_logger.log(f"[memory_agent] DB 구매이력 로드: {len(result)}건 (user_id={user_id})")
         return result
     except Exception as e:
-        agent_logger.log(f"[memory_agent] DB 조회 실패, mock fallback 시도: {e}")
-
-    # fallback: mock JSON
-    try:
-        from app.repositories import purchase_history_repository
-        result = purchase_history_repository.get_histories_by_user_id(int(user_id))
-        agent_logger.log(f"[memory_agent] mock JSON 구매이력: {len(result)}건 (user_id={user_id})")
-        return result
-    except Exception:
-        agent_logger.log(f"[memory_agent] 구매이력 로드 완전 실패 → 빈 리스트 반환")
+        agent_logger.log(f"[memory_agent] DB 구매이력 조회 실패 → 빈 리스트 반환: {e}")
         return []
 
 
@@ -571,50 +562,6 @@ def _build_tool_calls(state: ShoppingState) -> list[dict[str, Any]]:
     return calls
 
 
-def _save_purchase_history(state: ShoppingState) -> None:
-    """결제 완료 후 구매이력을 DB에 저장한다. 실패 시 조용히 무시.
-
-    FastAPI 경유 시: state["order"]["orderId"] 존재 → create_histories_from_order_db (order/payment 연결)
-    main.py 직접 실행 시: order 없음 → save_purchase_history_from_state_db (state에서 직접 저장)
-    """
-    user_id = state.get("user_id", "")
-    order_info = state.get("order") or {}
-    payment_info = state.get("payment") or {}
-    order_id = order_info.get("orderId")
-    payment_id = payment_info.get("paymentId")
-
-    async def _write_with_order(session):
-        from app.repositories.purchase_history_repository import create_histories_from_order_db
-        await create_histories_from_order_db(session, order_id=order_id, payment_id=payment_id)
-
-    async def _write_from_state(session):
-        product = state.get("selected_product") or {}
-        if not product:
-            return
-        quantity = state.get("quantity") or 1
-        keywords = state.get("keywords") or []
-        keyword = keywords[0] if keywords else None
-        from app.repositories.purchase_history_repository import save_purchase_history_from_state_db
-        await save_purchase_history_from_state_db(
-            session,
-            user_id=int(user_id),
-            product=product,
-            quantity=quantity,
-            keyword=keyword,
-            conversation_id=state.get("conversation_id"),
-            order_id=order_id,
-            payment_id=payment_id,
-        )
-
-    try:
-        _run_async_with_fresh_engine(_write_with_order if order_id else _write_from_state)
-        path = "order_id 연결" if order_id else "state 직접"
-        agent_logger.log(f"[memory_agent] 구매이력 저장 완료 ({path}, user_id={user_id})")
-    except Exception as e:
-        agent_logger.log(f"[memory_agent] 구매이력 저장 실패: {e}")
-        print(f"[memory_agent] 구매이력 저장 실패: {e}")
-
-
 def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -> dict:
     """
     Memory Agent.
@@ -639,10 +586,9 @@ def memory_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -
     if len(state.get("messages") or []) > 10:
         updates["conversation_summary"] = _summarize_messages(state.get("messages") or [])
 
-    # ── 결제 완료 후 호출: 구매이력 저장 (선호도 캐시는 TTL로 자연 만료) ──
+    # ── 결제 완료 후 호출: 구매이력은 payment_service가 저장한다. ──
     if stage == "completed":
-        agent_logger.log(f"[memory_agent] 결제 완료 → 구매이력 저장 시작")
-        _save_purchase_history(state)
+        agent_logger.log("[memory_agent] 결제 완료 → 구매이력 저장은 payment_service에 위임")
         return updates
 
     # ── reorder: 선호도 컨텍스트 불필요 — resolver만 실행 ──

@@ -1,4 +1,26 @@
-PRODUCT_RANK_PROMPT = """
+try:
+    from langchain import hub as _hub
+except ImportError:
+    try:
+        import langchainhub as _hub
+    except ImportError:
+        _hub = None
+
+
+def _extract_hub_template(prompt_obj) -> str:
+    """Hub에서 받은 프롬프트 객체 → 템플릿 문자열 추출."""
+    if hasattr(prompt_obj, "template"):  # PromptTemplate
+        return prompt_obj.template
+    if hasattr(prompt_obj, "messages") and prompt_obj.messages:  # ChatPromptTemplate
+        first = prompt_obj.messages[0]
+        if hasattr(first, "prompt") and hasattr(first.prompt, "template"):
+            return first.prompt.template
+        if hasattr(first, "template"):
+            return first.template
+    return str(prompt_obj)
+
+
+_PRODUCT_RANK_PROMPT_FALLBACK = """
 ## 쿼리
 - 키워드: {keywords}
 - condition: {condition}
@@ -22,7 +44,7 @@ rank_products 툴을 호출해 후보를 순위화하라.
    3순위: 일반 품질 (가격·평점·리뷰 수)
 """
 
-PRODUCT_EXPLAIN_PROMPT = """
+_PRODUCT_EXPLAIN_PROMPT_FALLBACK = """
 추천 상품:
 {product_json}
 
@@ -56,7 +78,7 @@ condition별 추천 이유:
 텍스트만 반환. JSON 아님.
 """
 
-PRODUCT_QA_PROMPT = """
+_PRODUCT_QA_PROMPT_FALLBACK = """
 상품 정보:
 {product_json}
 
@@ -67,3 +89,24 @@ PRODUCT_QA_PROMPT = """
 
 텍스트만 반환.
 """
+
+try:
+    if _hub is None:
+        raise ImportError("hub not available")
+    PRODUCT_RANK_PROMPT = _extract_hub_template(_hub.pull("product-rank"))
+except Exception:
+    PRODUCT_RANK_PROMPT = _PRODUCT_RANK_PROMPT_FALLBACK
+
+try:
+    if _hub is None:
+        raise ImportError("hub not available")
+    PRODUCT_EXPLAIN_PROMPT = _extract_hub_template(_hub.pull("product-explain"))
+except Exception:
+    PRODUCT_EXPLAIN_PROMPT = _PRODUCT_EXPLAIN_PROMPT_FALLBACK
+
+try:
+    if _hub is None:
+        raise ImportError("hub not available")
+    PRODUCT_QA_PROMPT = _extract_hub_template(_hub.pull("product-qa"))
+except Exception:
+    PRODUCT_QA_PROMPT = _PRODUCT_QA_PROMPT_FALLBACK
