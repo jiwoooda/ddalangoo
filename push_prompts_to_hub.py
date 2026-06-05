@@ -1,26 +1,20 @@
-try:
-    from langchain import hub as _hub
-except ImportError:
-    try:
-        import langchainhub as _hub
-    except ImportError:
-        _hub = None
+"""
+현재 각 에이전트의 하드코딩 프롬프트를 LangSmith Hub에 push합니다.
+hub.pull("ddalangoo/<agent>") 경로로 관리됩니다.
+"""
+import os
+import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
-def _extract_hub_template(prompt_obj) -> str:
-    """Hub에서 받은 프롬프트 객체 → 템플릿 문자열 추출."""
-    if hasattr(prompt_obj, "template"):  # PromptTemplate
-        return prompt_obj.template
-    if hasattr(prompt_obj, "messages") and prompt_obj.messages:  # ChatPromptTemplate
-        first = prompt_obj.messages[0]
-        if hasattr(first, "prompt") and hasattr(first.prompt, "template"):
-            return first.prompt.template
-        if hasattr(first, "template"):
-            return first.template
-    return str(prompt_obj)
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
+import langsmith
+from langchain_core.prompts import PromptTemplate
 
-_INTENT_AGENT_PROMPT_FALLBACK = """
+# ── Intent Agent ─────────────────────────────────────────────
+INTENT_AGENT_PROMPT = """
 당신은 한국어 음성 기반 쇼핑 어시스턴트의 Intent Agent입니다.
 
 반드시 JSON만 반환하세요.
@@ -68,8 +62,8 @@ pending_action이 "quantity_confirm"일 때:
 - 사용자가 수량을 말하면 반드시 quantity 필드도 채운다. intent만 채우고 quantity를 null로 두면 안 된다.
 - 사용자가 수량을 대답하는 것은 "quantity_change"가 아니라 반드시 "confirm"으로 처리합니다.
 - 한국어 수량 표현 변환 원칙:
-  - "한/하나/1", "두/둘/2", "세/셋/3", "네/넷/4", "다섯/5", "열/10" 등 **사용자가 말한 모든 형태의 숫자나 수량 표현(단위 포함)을 아라비아 숫자 정수(int)로 변환**하여 추출합니다.
-  - **상품명에 포함된 숫자(예: "300gx2", "10구", "2팩", "5개입", "x3")는 수량이 아닌 상품 규격입니다. 절대로 quantity로 추출하지 마세요.** 오직 사용자 발화에서 명시적으로 언급된 숫자만 추출합니다.
+  - "한/하나/1", "두/둘/2", "세/셋/3", "네/넷/4", "다섯/5", "열/10" 등 사용자가 말한 모든 형태의 숫자나 수량 표현(단위 포함)을 아라비아 숫자 정수(int)로 변환하여 추출합니다.
+  - 상품명에 포함된 숫자(예: "300gx2", "10구", "2팩", "5개입", "x3")는 수량이 아닌 상품 규격입니다. 절대로 quantity로 추출하지 마세요. 오직 사용자 발화에서 명시적으로 언급된 숫자만 추출합니다.
   - 상품 규격 숫자와 실제 수량이 함께 나올 때 절대 곱하지 않습니다. "10구짜리 두 판" → quantity=2 (두 판=2, 10구는 규격).
 - 예시:
   "한 개" → intent="confirm", quantity=1
@@ -79,6 +73,7 @@ pending_action이 "quantity_confirm"일 때:
   "여섯 개 주세요" → intent="confirm", quantity=6
   "10개" → intent="confirm", quantity=10
   "다섯 개 주세요" → intent="confirm", quantity=5
+  "10구짜리 두 판" → intent="confirm", quantity=2
 
 # Intent 종류
 buy: 새 상품 구매 요청 (stage=idle에서는 exclude_keywords·브랜드 조건이 포함되어도 반드시 buy 사용)
@@ -154,12 +149,101 @@ deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용�
 - 0.0~1.0 사이 실수로 의도 해석에 대한 확신도를 나타냅니다.
 - 발화가 명확하면 0.9 이상, 다소 모호하면 0.5~0.8, 전혀 모르면 0.3 이하
 - 반드시 실제 값을 채워 넣으세요. 기본값 0.0을 그대로 반환하면 안 됩니다.
-
 """
 
-try:
-    if _hub is None:
-        raise ImportError("hub not available")
-    INTENT_AGENT_PROMPT = _extract_hub_template(_hub.pull("intent-prompt"))
-except Exception:
-    INTENT_AGENT_PROMPT = _INTENT_AGENT_PROMPT_FALLBACK
+# ── Product Rank ──────────────────────────────────────────────
+PRODUCT_RANK_PROMPT = """
+## 쿼리
+- 키워드: {keywords}
+- condition: {condition}
+
+## 유저 선호 (구매이력 기반)
+{preference_context}
+
+## 후보 상품
+{formatted_products}
+
+## 작업
+rank_products 툴을 호출해 후보를 순위화하라.
+
+1. 키워드와 상품군이 다른 것을 filtered_out_labels로 제외한다
+   (예: "두부" 요청이면 순두부·연두부·두부면·유부는 제외)
+   (단, 사용자가 해당 변형을 명시했으면 유지)
+2. 나머지를 ranked_labels에 아래 우선순위로 정렬한다
+   1순위: condition 충족 (최저가/빠른배송/무료배송/리뷰좋은)
+          단, delivery 필드가 비어있는 상품은 배송 조건으로 순위화하지 않는다
+   2순위: 유저 선호 (브랜드·가격대) — condition 동점일 때만
+   3순위: 일반 품질 (가격·평점·리뷰 수)
+"""
+
+# ── Product Explain ───────────────────────────────────────────
+PRODUCT_EXPLAIN_PROMPT = """
+추천 상품:
+{product_json}
+
+키워드: {keywords}
+condition: {condition}
+
+유저 선호도:
+{preference_context}
+
+위 상품에 대해 TTS(음성) 출력용 한국어 설명을 정확히 2문장으로 작성하라.
+
+문장 구조:
+- 1문장: 상품명(full) + 가격. 예: "풀무원 달걀 10구, 4,900원이에요."
+- 2문장: 추천 이유 1가지 + "주문할까요?"
+  예: "평소 즐겨 사시는 브랜드예요. 주문할까요?"
+
+condition별 추천 이유:
+- 최저가  → "후보 중 가장 저렴해요."
+- 리뷰좋은 → "리뷰가 가장 많은 상품이에요."
+- 가성비   → "가격이 합리적한 상품이에요."
+- 그 외   → 유저 선호 우선 (브랜드 일치 → 가격대 일치 → 재구매) 또는 "인기 있는 상품이에요."
+
+공통 규칙:
+- 추천 이유 생략 불가 — 반드시 포함
+- delivery 필드가 있을 때만 배송 언급 (없으면 생략)
+- 한 문장 15자 이내 목표
+- 쉬운 단어: 플랫폼→쇼핑몰, 장바구니→담기
+- 존댓말: ~이에요, ~할까요?
+- 구어체, 친근한 어투 (고령 사용자 대상)
+
+텍스트만 반환. JSON 아님.
+"""
+
+# ── Product QA ────────────────────────────────────────────────
+PRODUCT_QA_PROMPT = """
+상품 정보:
+{product_json}
+
+질문: {question}
+
+위 상품 정보 기반으로 1~2문장 한국어로 답변하라.
+정보가 없으면 "확인되는 정보가 부족합니다"라고 말한다.
+
+텍스트만 반환.
+"""
+
+
+def push(client: langsmith.Client, hub_path: str, template: str, message: str = "") -> None:
+    prompt = PromptTemplate.from_template(template)
+    url = client.push_prompt(hub_path, object=prompt, is_public=False, commit_description=message)
+    print(f"  ✓ {hub_path}  →  {url}")
+
+
+if __name__ == "__main__":
+    api_key = os.environ.get("LANGCHAIN_API_KEY")
+    if not api_key:
+        print("ERROR: LANGCHAIN_API_KEY가 .env에 없습니다.")
+        sys.exit(1)
+
+    client = langsmith.Client(api_key=api_key)
+
+    message = input("커밋 메시지 입력 (엔터 시 생략): ").strip()
+
+    print("\nLangSmith Hub에 프롬프트 push 중...\n")
+    push(client, "intent-prompt",   INTENT_AGENT_PROMPT,   message)
+    push(client, "product-rank",    PRODUCT_RANK_PROMPT,    message)
+    push(client, "product-explain", PRODUCT_EXPLAIN_PROMPT, message)
+    push(client, "product-qa",      PRODUCT_QA_PROMPT,      message)
+    print("\n완료.")
