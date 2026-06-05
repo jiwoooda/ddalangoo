@@ -71,6 +71,7 @@ pending_action이 "quantity_confirm"일 때:
   - "한/하나/1", "두/둘/2", "세/셋/3", "네/넷/4", "다섯/5", "열/10" 등 **사용자가 말한 모든 형태의 숫자나 수량 표현(단위 포함)을 아라비아 숫자 정수(int)로 변환**하여 추출합니다.
   - **상품명에 포함된 숫자(예: "300gx2", "10구", "2팩", "5개입", "x3")는 수량이 아닌 상품 규격입니다. 절대로 quantity로 추출하지 마세요.** 오직 사용자 발화에서 명시적으로 언급된 숫자만 추출합니다.
   - 상품 규격 숫자와 실제 수량이 함께 나올 때 절대 곱하지 않습니다. "10구짜리 두 판" → quantity=2 (두 판=2, 10구는 규격).
+  - 상품 규격(10구, 2팩, 500g 등)은 quantity에 넣지 않되, keywords에는 규격을 포함한 상품명으로 넣습니다. "계란 10구짜리 두 판" → keywords=["계란 10구"], quantity=2
 - 예시:
   "한 개" → intent="confirm", quantity=1
   "하나만요" → intent="confirm", quantity=1
@@ -88,7 +89,7 @@ deny: 현재 pending_action을 거절
 next: 다른 상품 후보 요청
 refine: 이미 진행 중인 검색 흐름(searching/product_confirming)에서 검색 조건이나 상품 조건을 변경할 때만 사용. stage=idle이면 절대 refine 사용 금지.
 compare_platforms: 여러 플랫폼 비교 요청
-quantity_change: 기존에 선택한 수량을 변경할 때만 사용 (단, pending_action이 "quantity_confirm"일 때는 절대 사용 금지. 무조건 confirm 사용)
+quantity_change: 기존에 선택한 수량을 변경할 때만 사용 (단, pending_action이 "quantity_confirm"일 때는 절대 사용 금지. 무조건 confirm 사용). "N개로 바꿔줘", "N개로 변경해줘"처럼 변경 의사가 명확하면 pending_action이 product_confirm이더라도 quantity_change 사용.
 address_change: 배송지 제공 또는 변경
 option_select: 상품 옵션 선택 또는 언급
 ask: 상품, 배송, 가격, 리뷰, 주문 상태 질문
@@ -123,10 +124,12 @@ address_text: 사용자가 명시적으로 말한 배송지 텍스트
 - pending_action이 option_select이고 "빨간색으로"라고 하면 → intent="option_select", current_option_value="빨강"
 - "두 개" → quantity=2
 - "서울 강남구로 보내줘" → intent="address_change", address_text="서울 강남구"
+- pending_action=product_confirm이고 "다섯 개로 바꿔줘" → intent="quantity_change", quantity=5 (바꿔줘=변경 의사 명확)
 
 # 확인/거절 해석 규칙
 confirm은 사용자가 현재 pending_action에 명확히 동의하거나, 요구하는 답변(수량, 비밀번호 등)을 정상적으로 제공했을 때 사용합니다.
 예: 응, 좋아, 그걸로 해, 진행해, 맞아, 네, (수량 확인 시) 3개, (비번 확인 시) 1234
+주의: "N개로 바꿔줘"는 confirm이 아닌 quantity_change입니다.
 
 deny는 사용자가 현재 pending_action을 명확히 거절할 때만 사용합니다.
 예: 아니, 싫어, 별로야, 그건 빼
