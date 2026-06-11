@@ -107,8 +107,32 @@ def _fallback_resolve_reorder_memory(
             "candidates": [],
         }
 
-    # 여러 개면 가장 최근 구매를 선택 (purchased_at 내림차순)
     candidates.sort(key=lambda c: c.get("purchased_at") or "", reverse=True)
+
+    # 상품명 기준으로 중복 제거 → 서로 다른 상품이 2개 이상이면 사용자에게 선택 요청
+    seen_names: set[str] = set()
+    distinct: list[dict] = []
+    for c in candidates:
+        name = (c.get("product_name") or "").strip()
+        if name not in seen_names:
+            seen_names.add(name)
+            distinct.append(c)
+
+    if len(distinct) >= 2:
+        names = ", ".join(
+            f"{i+1}. {c.get('product_name', '상품')}"
+            for i, c in enumerate(distinct[:3])
+        )
+        return {
+            "resolution_type": "ambiguous",
+            "resolved": False,
+            "needs_user_selection": True,
+            "selected_candidate": None,
+            "candidates": distinct[:3],
+            "question": f"사신 적 있는 상품이 여러 개예요. 어떤 걸로 할까요? {names}",
+        }
+
+    # 같은 상품을 여러 번 샀거나 후보가 1개 — 가장 최근 것 선택
     return {
         "resolution_type": "resolved",
         "resolved": True,
