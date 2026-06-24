@@ -13,7 +13,7 @@ class ShoppingFlowController extends ChangeNotifier {
   static const Duration _initialSpeechWaitTimeout = Duration(
     milliseconds: 6500,
   );
-  static const Duration _maxRecordingDuration = Duration(seconds: 30);
+  static const Duration _maxRecordingDuration = Duration(seconds: 18);
   static const Duration _endOfSpeechSilence = Duration(milliseconds: 2300);
   static const Duration _silenceConfirmDuration = Duration(milliseconds: 900);
   static const Duration _minSpeechWindow = Duration(milliseconds: 1200);
@@ -378,7 +378,8 @@ class ShoppingFlowController extends ChangeNotifier {
         return;
       case ShoppingStep.searchingProduct:
         _step = ShoppingStep.searchingProduct;
-        if (response.assistantMessage.trim().isNotEmpty) {
+        if (response.assistantMessage.trim().isNotEmpty &&
+            response.assistantMessage.trim() != _assistantText.trim()) {
           _assistantText = response.assistantMessage;
         }
         _voiceTurnState = VoiceTurnState.agentThinking;
@@ -503,6 +504,13 @@ class ShoppingFlowController extends ChangeNotifier {
         result: result,
         extraData: extraData,
       );
+      debugPrint(
+        'ℹ️ [ShoppingFlowController] webview_result_synced '
+        'result=$result '
+        'stage=${response.stage} '
+        'assistant="${response.assistantMessage}" '
+        'pendingType=${response.pendingConfirmation?['type']}',
+      );
       _conversationId = response.conversationId ?? _conversationId;
       await _consumeAgentResponse(response, _latestTranscript ?? '');
     } catch (error, stackTrace) {
@@ -599,12 +607,16 @@ class ShoppingFlowController extends ChangeNotifier {
   }) async {
     _cancelVoiceTimers();
     final epoch = ++_speakEpoch;
+    final hasSegmentedSpeech =
+        speechSegments.isNotEmpty && !_shouldBypassTtsForDemo;
     _step = nextStep;
-    _assistantText = text;
+    _assistantText = hasSegmentedSpeech
+        ? speechSegments.first.text.trim()
+        : text;
     _voiceTurnState = VoiceTurnState.agentSpeaking;
     _voiceLevel = 0.22;
     notifyListeners();
-    if (speechSegments.isNotEmpty && !_shouldBypassTtsForDemo) {
+    if (hasSegmentedSpeech) {
       await _presentAssistantSpeechQueue(text, speechSegments, epoch);
     } else if (_shouldBypassTtsForDemo) {
       await _presentAssistantSilently(text, epoch);
@@ -812,6 +824,8 @@ class ShoppingFlowController extends ChangeNotifier {
         _voiceTurnState != VoiceTurnState.userCanSpeak) {
       return;
     }
+    final effectiveInitialWait = _currentInitialSpeechWaitTimeout();
+    final effectiveMaxRecording = _currentMaxRecordingDuration();
     _hasDetectedSpeech = false;
     _noiseSampleCount = 0;
     _speechNoiseFloor = -45;
@@ -828,17 +842,17 @@ class ShoppingFlowController extends ChangeNotifier {
     debugPrint(
       '[VAD] recording_started '
       'step=$_step epoch=$epoch '
-      'initialSpeechWaitMs=${_initialSpeechWaitTimeout.inMilliseconds} '
-      'maxRecordingMs=${_maxRecordingDuration.inMilliseconds}',
+      'initialSpeechWaitMs=${effectiveInitialWait.inMilliseconds} '
+      'maxRecordingMs=${effectiveMaxRecording.inMilliseconds}',
     );
     notifyListeners();
     try {
       await _voiceTurnService.startRecording();
       _listenAmplitude();
-      _recordingTimeoutTimer = Timer(_maxRecordingDuration, () {
+      _recordingTimeoutTimer = Timer(effectiveMaxRecording, () {
         unawaited(_finishRecording());
       });
-      _speechSilenceTimer = Timer(_initialSpeechWaitTimeout, () async {
+      _speechSilenceTimer = Timer(effectiveInitialWait, () async {
         if (_hasDetectedSpeech ||
             _voiceTurnState != VoiceTurnState.userRecording) {
           return;
@@ -1034,6 +1048,8 @@ class ShoppingFlowController extends ChangeNotifier {
 
     final speechStartThreshold = (_speechNoiseFloor + 11).clamp(-34, -22);
     final speechContinueThreshold = (_speechNoiseFloor + 7).clamp(-40, -26);
+    final effectiveEndOfSpeechSilence = _currentEndOfSpeechSilence();
+    final effectiveSilenceConfirmDuration = _currentSilenceConfirmDuration();
     final now = DateTime.now();
 
     if (_lastVadDebugAt == null ||
@@ -1090,7 +1106,7 @@ class ShoppingFlowController extends ChangeNotifier {
     final speechElapsed = now.difference(recordingStartedAt);
     final silenceElapsed = now.difference(lastSpeechAt);
     if (speechElapsed >= _minSpeechWindow &&
-        silenceElapsed >= _endOfSpeechSilence &&
+        silenceElapsed >= effectiveEndOfSpeechSilence &&
         !_isAwaitingSilenceConfirmation) {
       _isAwaitingSilenceConfirmation = true;
       _silenceCandidateStartedAt = now;
@@ -1098,11 +1114,12 @@ class ShoppingFlowController extends ChangeNotifier {
         '[VAD] silence_candidate '
         'speechElapsedMs=${speechElapsed.inMilliseconds} '
         'silenceElapsedMs=${silenceElapsed.inMilliseconds} '
+        'requiredSilenceMs=${effectiveEndOfSpeechSilence.inMilliseconds} '
         'continueThreshold=${speechContinueThreshold.toStringAsFixed(1)} '
         'amp=${amplitude.toStringAsFixed(1)}',
       );
       _speechSilenceTimer?.cancel();
-      _speechSilenceTimer = Timer(_silenceConfirmDuration, () {
+      _speechSilenceTimer = Timer(effectiveSilenceConfirmDuration, () {
         if (_voiceTurnState != VoiceTurnState.userRecording) {
           return;
         }
@@ -1113,10 +1130,91 @@ class ShoppingFlowController extends ChangeNotifier {
         debugPrint(
           '[VAD] speech_ended_confirmed '
           'confirmMs=$confirmedSilenceMs '
-          'extraConfirmMs=${_silenceConfirmDuration.inMilliseconds}',
+          'extraConfirmMs=${effectiveSilenceConfirmDuration.inMilliseconds}',
         );
         unawaited(_finishRecording());
       });
+    }
+  }
+
+  Duration _currentInitialSpeechWaitTimeout() {
+    switch (_step) {
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askMoreOrCheckout:
+      case ShoppingStep.confirmAddress:
+        return const Duration(milliseconds: 5200);
+      case ShoppingStep.askQuantity:
+        return const Duration(milliseconds: 6000);
+      case ShoppingStep.askProduct:
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+      case ShoppingStep.error:
+        return _initialSpeechWaitTimeout;
+    }
+  }
+
+  Duration _currentMaxRecordingDuration() {
+    switch (_step) {
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askMoreOrCheckout:
+      case ShoppingStep.confirmAddress:
+        return const Duration(seconds: 10);
+      case ShoppingStep.askQuantity:
+        return const Duration(seconds: 14);
+      case ShoppingStep.askProduct:
+        return _maxRecordingDuration;
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+      case ShoppingStep.error:
+        return const Duration(seconds: 12);
+    }
+  }
+
+  Duration _currentEndOfSpeechSilence() {
+    switch (_step) {
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askMoreOrCheckout:
+      case ShoppingStep.confirmAddress:
+        return const Duration(milliseconds: 1450);
+      case ShoppingStep.askQuantity:
+        return const Duration(milliseconds: 1800);
+      case ShoppingStep.askProduct:
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+      case ShoppingStep.error:
+        return _endOfSpeechSilence;
+    }
+  }
+
+  Duration _currentSilenceConfirmDuration() {
+    switch (_step) {
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askMoreOrCheckout:
+      case ShoppingStep.confirmAddress:
+        return const Duration(milliseconds: 520);
+      case ShoppingStep.askQuantity:
+        return const Duration(milliseconds: 680);
+      case ShoppingStep.askProduct:
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+      case ShoppingStep.error:
+        return _silenceConfirmDuration;
     }
   }
 

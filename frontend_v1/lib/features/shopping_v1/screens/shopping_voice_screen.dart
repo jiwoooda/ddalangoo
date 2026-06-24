@@ -323,12 +323,16 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           progress: _controller.cartProgress,
         );
       case ShoppingStep.confirmAddress:
-        return AddressConfirmCard(
+        return SingleChildScrollView(
           key: const ValueKey('confirm-address'),
-          summary:
-              _controller.checkoutSummary ??
-              CheckoutSummary.mock(_controller.cartItems),
-          onConfirm: _controller.confirmAddressStep,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 12),
+          child: AddressConfirmCard(
+            summary:
+                _controller.checkoutSummary ??
+                CheckoutSummary.mock(_controller.cartItems),
+            onConfirm: _controller.confirmAddressStep,
+          ),
         );
       case ShoppingStep.enterPassword:
         return PinKeypad(

@@ -63,10 +63,24 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   bool _automationStarted = false;
   String? _pendingSubmitResult;
   Map<String, dynamic>? _pendingSubmitExtraData;
+  String? _lastAutomationFailureReason;
 
   bool get _usesExternalResultHandler => widget.onResult != null;
   bool get _supportsKurlyAutomation {
-    if (_isKurlyUrl(widget.canonicalProductUrl) || _isKurlyUrl(widget.url)) {
+    final normalizedTask = widget.task?.trim().toLowerCase();
+    if (normalizedTask == 'add_to_cart' ||
+        normalizedTask == 'address_check' ||
+        normalizedTask == 'payment') {
+      return true;
+    }
+    final normalizedPlatform = widget.platform?.trim().toLowerCase();
+    final normalizedShopName = widget.shopName?.trim().toLowerCase() ?? '';
+    if (_isKurlyUrl(widget.canonicalProductUrl) ||
+        _isKurlyUrl(widget.url) ||
+        normalizedPlatform == 'kurly' ||
+        normalizedPlatform == 'kurlynmart' ||
+        normalizedShopName.contains('컬리') ||
+        normalizedShopName.contains('kurly')) {
       return true;
     }
     return false;
@@ -191,6 +205,15 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
 
     if (result == 'cart_added') {
       await _submitResult('cart_added');
+      return;
+    }
+
+    if (result == 'cart_failed') {
+      _lastAutomationFailureReason = automation.lastCartFailureReason;
+      await _submitResult('cart_failed', extraData: {
+        if (_lastAutomationFailureReason != null)
+          'failureReason': _lastAutomationFailureReason,
+      });
       return;
     }
 
@@ -330,11 +353,29 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       return canonicalUrl;
     }
 
+    final productName = widget.productName?.trim();
+    if (task == 'add_to_cart' && productName != null && productName.isNotEmpty) {
+      final safeQuery = Uri.encodeQueryComponent(productName);
+      return 'https://www.kurly.com/search?sword=$safeQuery';
+    }
+
+    final normalizedPlatform = widget.platform?.trim().toLowerCase();
+    final normalizedShopName = widget.shopName?.trim().toLowerCase() ?? '';
+    final prefersKurlySearch =
+        normalizedPlatform == 'kurly' ||
+        normalizedPlatform == 'kurlynmart' ||
+        normalizedShopName.contains('컬리') ||
+        normalizedShopName.contains('kurly');
+
+    if (prefersKurlySearch && productName != null && productName.isNotEmpty) {
+      final safeQuery = Uri.encodeQueryComponent(productName);
+      return 'https://www.kurly.com/search?sword=$safeQuery';
+    }
+
     if (requestedUrl.isNotEmpty && requestedUrl != 'about:blank') {
       return requestedUrl;
     }
 
-    final productName = widget.productName?.trim();
     if (productName != null && productName.isNotEmpty) {
       final safeQuery = Uri.encodeQueryComponent(productName);
       return 'https://www.kurly.com/search?sword=$safeQuery';
@@ -614,6 +655,13 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     setState(() => _isInterrupting = true);
     try {
       if (_usesExternalResultHandler) {
+        if (_automationStep == 'cart_failed') {
+          await _submitResult('cart_failed', extraData: {
+            if (_lastAutomationFailureReason != null)
+              'failureReason': _lastAutomationFailureReason,
+          });
+          return;
+        }
         await _submitResult('cancelled');
         return;
       }
@@ -727,7 +775,19 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
           TextButton(
             onPressed: _isSubmitting
                 ? null
-                : () => _submitResult(canSubmitResult ? 'cancelled' : 'close'),
+                : () => _submitResult(
+                    canSubmitResult
+                        ? (_automationStep == 'cart_failed'
+                              ? 'cart_failed'
+                              : 'cancelled')
+                        : 'close',
+                    extraData: _automationStep == 'cart_failed'
+                        ? {
+                            if (_lastAutomationFailureReason != null)
+                              'failureReason': _lastAutomationFailureReason,
+                          }
+                        : null,
+                  ),
             child: const Text('닫기'),
           ),
         ],

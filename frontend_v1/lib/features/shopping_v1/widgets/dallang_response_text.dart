@@ -14,15 +14,50 @@ class DallangResponseText extends StatelessWidget {
   final int? maxLines;
 
   static final RegExp _highlightPattern = RegExp(
-    r'(\d[\d,]*원|\d+\s*개|가장 싼 가격|찾는 중|리뷰가 좋고|결제가 완료되었어요|배송지|비밀번호 6자리)',
+    r'('
+    //r'[가-힣A-Za-z0-9]+\s*님|'
+    r'\d[\d,]*원|'
+    r'\d+\s*개|'
+    r'\d+\s*자리|'
+    r'몇 개|'
+    r'가장 싼|'
+    r'최저가|'
+    r'리뷰가 좋고|'
+    r'인기 있는|'
+    r'6자리|'
+    r'진행 중|'
+    r'결제가 완료|'
+    r'주문|'
+    r'구매를 완료|'
+    r'구매가 완료|'
+    r'다른 상품|'
+    r')',
+  );
+  static final RegExp _searchKeywordPattern = RegExp(
+    r'([^.!?。！？\n]+?)(?=(?:을|를)\s*찾고 있어요)|([^.!?。！？\n]+?)(?=\s*님)',
   );
 
   @override
   Widget build(BuildContext context) {
     final balancedText = _balanceTextByWords(text);
+    final matches =
+        <RegExpMatch>[
+          ..._highlightPattern.allMatches(balancedText),
+          ..._searchKeywordPattern.allMatches(balancedText),
+        ]..sort((a, b) {
+          final startCompare = a.start.compareTo(b.start);
+          if (startCompare != 0) {
+            return startCompare;
+          }
+          return a.end.compareTo(b.end);
+        });
+
     final spans = <TextSpan>[];
     var currentIndex = 0;
-    for (final match in _highlightPattern.allMatches(balancedText)) {
+    for (final match in matches) {
+      if (match.start < currentIndex) {
+        continue;
+      }
       if (match.start > currentIndex) {
         spans.add(
           TextSpan(text: balancedText.substring(currentIndex, match.start)),

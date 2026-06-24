@@ -187,6 +187,8 @@ class KurlyWebviewAutomation {
   final AutomationProgressCallback? onProgress;
   String? _lastCartFailureReason;
 
+  String? get lastCartFailureReason => _lastCartFailureReason;
+
   KurlyWebviewAutomation({
     required this.controller,
     this.credentials,

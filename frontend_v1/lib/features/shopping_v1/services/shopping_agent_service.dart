@@ -11,7 +11,9 @@ class ShoppingAgentService {
   final Dio _dio;
 
   Future<int> resolveUserId() async {
-    return await LocalStorage.getUserId() ?? 1;
+    final userId = await LocalStorage.getUserId() ?? 1;
+    debugPrint('ℹ️ [ShoppingAgentService] resolved userId=$userId');
+    return userId;
   }
 
   Future<String?> resolveUserName({int? userId}) async {
@@ -23,6 +25,9 @@ class ShoppingAgentService {
       final user = response.data ?? const <String, dynamic>{};
       final name = _stringOf(user['name'])?.trim();
       if (name != null && name.isNotEmpty) {
+        debugPrint(
+          'ℹ️ [ShoppingAgentService] resolved userName="$name" userId=$effectiveUserId',
+        );
         return name;
       }
     } catch (error, stackTrace) {
@@ -224,6 +229,10 @@ class ShoppingAgentService {
         : const <String, dynamic>{};
     final selectedProduct = response.selectedProduct ?? const <String, dynamic>{};
 
+    final rawSource = selectedProduct['raw'] is Map
+        ? Map<String, dynamic>.from(selectedProduct['raw'] as Map)
+        : const <String, dynamic>{};
+
     String? url = _firstNonEmptyString([
       payload['startUrl'],
       payload['webviewUrl'],
@@ -231,8 +240,12 @@ class ShoppingAgentService {
       payload['executionUrl'],
       selectedProduct['execution_url'],
       selectedProduct['executionUrl'],
+      selectedProduct['source_url'],
+      selectedProduct['sourceUrl'],
       selectedProduct['product_url'],
       selectedProduct['productUrl'],
+      rawSource['source_url'],
+      rawSource['sourceUrl'],
       fallbackProduct?.productUrl,
     ]);
 
@@ -242,7 +255,7 @@ class ShoppingAgentService {
     url = url.trim();
 
     final task = _stringOf(payload['task']);
-    final platform = _firstNonEmptyString([
+    final rawPlatform = _firstNonEmptyString([
       payload['platform'],
       selectedProduct['platform'],
       fallbackProduct?.platform,
@@ -256,6 +269,14 @@ class ShoppingAgentService {
           ? (selectedProduct['raw'] as Map)['shop_name']
           : null,
       fallbackProduct?.shopName,
+    ]);
+    final sourceUrl = _firstNonEmptyString([
+      payload['sourceUrl'],
+      payload['source_url'],
+      selectedProduct['source_url'],
+      selectedProduct['sourceUrl'],
+      rawSource['source_url'],
+      rawSource['sourceUrl'],
     ]);
     final orderId =
         _intOf(response.order?['orderId']) ?? _intOf(payload['orderId']);
@@ -273,12 +294,20 @@ class ShoppingAgentService {
         defaultQuantity;
     final canonicalProductUrl = _firstNonEmptyString([
       payload['canonicalProductUrl'],
+      sourceUrl,
       selectedProduct['product_url'],
       selectedProduct['productUrl'],
       selectedProduct['execution_url'],
       selectedProduct['executionUrl'],
       fallbackProduct?.productUrl,
     ]);
+    final inferredPlatform = _normalizeWebviewPlatform(
+      platform: rawPlatform,
+      shopName: shopName,
+      url: url,
+      canonicalProductUrl: canonicalProductUrl,
+      sourceUrl: sourceUrl,
+    );
     final conversationId = response.conversationId ?? 0;
     final commandKey =
         'pending|$conversationId|${task ?? 'webview'}|${orderId ?? 0}|${paymentId ?? 0}|$url';
@@ -286,7 +315,7 @@ class ShoppingAgentService {
     return WebviewTaskViewData(
       commandKey: commandKey,
       url: url,
-      platform: platform,
+      platform: inferredPlatform,
       shopName: shopName,
       task: task,
       orderId: orderId,
@@ -299,6 +328,39 @@ class ShoppingAgentService {
           ? canonicalProductUrl
           : null,
     );
+  }
+
+  String? _normalizeWebviewPlatform({
+    String? platform,
+    String? shopName,
+    String? url,
+    String? canonicalProductUrl,
+    String? sourceUrl,
+  }) {
+    final normalizedPlatform = platform?.trim().toLowerCase();
+    final normalizedShopName = shopName?.trim().toLowerCase() ?? '';
+    final urlCandidates = [
+      url,
+      canonicalProductUrl,
+      sourceUrl,
+    ]
+        .whereType<String>()
+        .map((value) => value.trim().toLowerCase())
+        .toList();
+
+    final looksKurly = normalizedPlatform == 'kurly' ||
+        normalizedPlatform == 'kurlynmart' ||
+        normalizedShopName.contains('컬리') ||
+        normalizedShopName.contains('kurly') ||
+        urlCandidates.any((value) => value.contains('kurly.com/'));
+
+    if (looksKurly) {
+      return normalizedShopName.contains('n마트') ||
+              normalizedShopName.contains('nmart')
+          ? 'kurlynmart'
+          : 'kurly';
+    }
+    return normalizedPlatform;
   }
 
   Map<String, dynamic>? pendingPayload(ShoppingAgentResponse response) =>

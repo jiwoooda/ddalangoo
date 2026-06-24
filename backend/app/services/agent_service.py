@@ -1862,16 +1862,20 @@ def _prompt_message(kind: str, payload: object | None) -> str:
         normalized = re.sub(r"\s+", " ", message).strip()
         if not normalized:
             return ""
-        normalized = re.sub(r"[?？!！.,]+$", "", normalized).strip()
+        normalized = re.sub(r"[?？!！.,~…-]+$", "", normalized).strip()
         suffix_patterns = [
             r"(사고\s*싶어요?|사줘요?|찾아줘요?|주문해줘요?|구매하고\s*싶어요?)$",
             r"(사고)$",
             r"(살래요?|살래|주세요|찾아봐요?|알아봐줘요?)$",
+            r"(있어요?|있나(?:요)?|있을까요?|있)$",
             r"(요즘\s*유행하는)\s+",
             r"^(나는|전|저는|저|나)\s+",
         ]
         for pattern in suffix_patterns:
             normalized = re.sub(pattern, "", normalized).strip()
+        normalized = re.sub(r"(있)[-~…]?$", "", normalized).strip()
+        normalized = re.sub(r"\s+[-~…]+$", "", normalized).strip()
+        normalized = re.sub(r"[-~…]+$", "", normalized).strip()
         normalized = normalized.strip(" '\"")
         return normalized
 

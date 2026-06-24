@@ -18,6 +18,7 @@ class WebviewResultRequest(BaseModel):
     orderId: Optional[int] = None
     paymentId: Optional[int] = None
     result: str
+    failureReason: Optional[str] = None
     addressLine1: Optional[str] = None
     addressLine2: Optional[str] = None
     recipientName: Optional[str] = None

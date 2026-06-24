@@ -154,6 +154,7 @@ class ProductCard extends StatelessWidget {
         return 'assets/images/coupang.png';
       case 'kurly':
         return 'assets/images/kurly.png';
+      case '컬리N마트':
       case 'kurlynmart':
         return 'assets/images/kurlynmart.png';
       default:
@@ -163,10 +164,7 @@ class ProductCard extends StatelessWidget {
 }
 
 class _PlatformOverlayBadge extends StatelessWidget {
-  const _PlatformOverlayBadge({
-    required this.label,
-    this.logoAsset,
-  });
+  const _PlatformOverlayBadge({required this.label, this.logoAsset});
 
   final String label;
   final String? logoAsset;

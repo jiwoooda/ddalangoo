@@ -36,11 +36,7 @@ class _ShoppingSplashScreenState extends State<ShoppingSplashScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFFCFEFD),
-              Color(0xFFF5F9F8),
-              Color(0xFFF9F6F8),
-            ],
+            colors: [Color(0xFFFCFEFD), Color(0xFFF5F9F8), Color(0xFFF9F6F8)],
           ),
         ),
         child: SafeArea(
@@ -49,18 +45,12 @@ class _ShoppingSplashScreenState extends State<ShoppingSplashScreen> {
               Positioned(
                 top: -60,
                 left: -50,
-                child: _SoftBlob(
-                  size: 220,
-                  color: const Color(0x11FFFFFF),
-                ),
+                child: _SoftBlob(size: 220, color: const Color(0x11FFFFFF)),
               ),
               Positioned(
                 right: -40,
                 bottom: 90,
-                child: _SoftBlob(
-                  size: 180,
-                  color: const Color(0x14FFFFFF),
-                ),
+                child: _SoftBlob(size: 180, color: const Color(0x14FFFFFF)),
               ),
               Center(
                 child: Padding(
@@ -113,7 +103,7 @@ class _ShoppingSplashScreenState extends State<ShoppingSplashScreen> {
                       ),
                       const SizedBox(height: 18),
                       const Text(
-                        '말로 편하게 장보는 쇼핑 도우미',
+                        '말로 편하게 쇼핑을 시작해보세요!',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 16,
@@ -144,10 +134,7 @@ class _ShoppingSplashScreenState extends State<ShoppingSplashScreen> {
 }
 
 class _SoftBlob extends StatelessWidget {
-  const _SoftBlob({
-    required this.size,
-    required this.color,
-  });
+  const _SoftBlob({required this.size, required this.color});
 
   final double size;
   final Color color;
@@ -160,10 +147,7 @@ class _SoftBlob extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: RadialGradient(
-          colors: [
-            color,
-            Colors.white.withValues(alpha: 0),
-          ],
+          colors: [color, Colors.white.withValues(alpha: 0)],
         ),
       ),
     );
