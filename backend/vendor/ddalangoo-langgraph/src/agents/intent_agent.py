@@ -37,6 +37,33 @@ _KR_NUM = {
     "스물": 20, "스무": 20, "이십": 20,
 }
 
+_SEARCH_ENDING_PATTERNS = (
+    r"(사고\s*싶어요?|사고\s*싶어)$",
+    r"(사달라니까요?|사달라니까|사달라고요?|사달라고)$",
+    r"(사줘요?|사줘라|사줘)$",
+    r"(주문해\s*달라고요?|주문해\s*달라고)$",
+    r"(주문해줘요?|주문해줘|주문해요?|주문해)$",
+    r"(구매해줘요?|구매해줘|구매하고\s*싶어요?|구매하고\s*싶어)$",
+    r"(찾아줘요?|찾아줘|찾아봐요?|찾아봐줘요?)$",
+    r"((?:먹고|마시고|드시고)\s*싶어요?)$",
+    r"(주세요|살래요?|살래|사)$",
+)
+
+_SEARCH_FILLER_WORDS = {
+    "나",
+    "저",
+    "저는",
+    "나는",
+    "전",
+    "이거",
+    "그거",
+    "저거",
+    "좀",
+    "그냥",
+    "요",
+    "이요",
+}
+
 def _parse_quantity(v) -> Optional[int]:
     """아라비아 숫자 또는 한국어 수량 표현 → int. 파싱 불가면 None."""
     if v is None:
@@ -51,6 +78,105 @@ def _parse_quantity(v) -> Optional[int]:
         if kr in text:
             return num
     return None
+
+
+def _looks_like_quantity_reply(text: str) -> bool:
+    compact = _compact_korean_text(text)
+    if not compact:
+        return False
+
+    if re.search(r"\d+\s*개", text):
+        return True
+
+    quantity_markers = (
+        "개",
+        "봉지",
+        "박스",
+        "세트",
+        "팩",
+        "통",
+        "병",
+        "캔",
+        "개요",
+        "개라니까",
+        "개만",
+        "개로",
+    )
+    if any(marker in compact for marker in quantity_markers):
+        return _parse_quantity(text) is not None
+
+    return False
+
+
+def _normalize_keyword_tokens(tokens: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for token in tokens:
+        cleaned = re.sub(r"[?？!！.,~…-]+$", "", str(token or "").strip())
+        if not cleaned:
+            continue
+        if normalized and normalized[-1] == cleaned:
+            continue
+        normalized.append(cleaned)
+    return normalized
+
+
+def _fallback_search_keywords(user_input: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", str(user_input or "")).strip()
+    if not normalized:
+        return []
+
+    normalized = re.sub(r"^[\"'“”‘’\[]+|[\"'“”‘’\]]+$", "", normalized).strip()
+    normalized = re.sub(r"^(나는|전|저는|저|나)\s+", "", normalized).strip()
+    for pattern in _SEARCH_ENDING_PATTERNS:
+        normalized = re.sub(pattern, "", normalized).strip()
+    normalized = re.sub(r"(있)[-~…]?$", "", normalized).strip()
+    normalized = re.sub(r"[-~…]+$", "", normalized).strip()
+    normalized = re.sub(r"[?？!！.,]+$", "", normalized).strip()
+    if not normalized:
+        return []
+
+    tokens = _normalize_keyword_tokens(normalized.split(" "))
+    tokens = [token for token in tokens if token not in _SEARCH_FILLER_WORDS]
+    if not tokens:
+        return []
+
+    if len(tokens) >= 2 and len(set(tokens)) == 1:
+        return [tokens[0]]
+
+    collapsed_phrase = " ".join(tokens).strip()
+    if not collapsed_phrase:
+        return []
+    return [collapsed_phrase]
+
+
+def _should_force_buy_from_freeform(
+    user_input: str,
+    stage: str,
+    pending_type: str | None,
+    intent: str,
+    keywords: list[str],
+) -> bool:
+    if pending_type not in {None, "null"}:
+        return False
+    if stage not in {"idle", "searching", "product_confirming"}:
+        return False
+    if intent in {"cancel", "deny", "address_change", "option_select"}:
+        return False
+
+    compact = _compact_korean_text(user_input)
+    if not compact:
+        return False
+    if _parse_quantity(user_input) is not None and _looks_like_quantity_reply(user_input):
+        return False
+    if keywords:
+        return False
+
+    fallback_keywords = _fallback_search_keywords(user_input)
+    if not fallback_keywords:
+        return False
+
+    compact_keywords = _compact_korean_text(fallback_keywords[0])
+    return len(compact_keywords) >= 2
 
 
 class IntentOutput(BaseModel):
@@ -219,6 +345,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
         if direct is not None:
             quantity = direct
 
+    normalized_keywords = _normalize_keyword_tokens(parsed.keywords)
     normalized_intent = parsed.intent
     normalized_needs_clarification = parsed.needs_clarification
     normalized_clarification_reason = parsed.clarification_reason
@@ -232,6 +359,32 @@ def intent_agent_node(state: ShoppingState) -> dict:
         normalized_immediate_response = ""
         normalized_confidence = max(normalized_confidence, 0.95)
 
+    if pending_type == "quantity_confirm" and quantity is not None:
+        if _looks_like_quantity_reply(user_input) or normalized_intent in {
+            "confirm",
+            "quantity_change",
+            "buy",
+        }:
+            normalized_intent = "confirm"
+            normalized_needs_clarification = False
+            normalized_clarification_reason = None
+            normalized_immediate_response = ""
+            normalized_confidence = max(normalized_confidence, 0.98)
+
+    if _should_force_buy_from_freeform(
+        user_input=user_input,
+        stage=stage,
+        pending_type=pending_type,
+        intent=normalized_intent,
+        keywords=normalized_keywords,
+    ):
+        normalized_keywords = _fallback_search_keywords(user_input)
+        normalized_intent = "buy"
+        normalized_needs_clarification = False
+        normalized_clarification_reason = None
+        normalized_immediate_response = ""
+        normalized_confidence = max(normalized_confidence, 0.78)
+
     # 새 구매 탐색 intent에서는 이전 state 수량 인계 금지
     # (이전 상품 구매 때 남은 quantity가 새 상품에 그대로 쓰이는 문제 방지)
     _new_search_intents = {"buy", "reorder", "refine", "compare_platforms"}
@@ -240,7 +393,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
 
     result = {
         "intent": normalized_intent,
-        "keywords": parsed.keywords or state.get("keywords") or [],
+        "keywords": normalized_keywords or state.get("keywords") or [],
         "exclude_keywords": parsed.exclude_keywords,
         "negative_constraints": parsed.negative_constraints,
         "quantity": quantity,

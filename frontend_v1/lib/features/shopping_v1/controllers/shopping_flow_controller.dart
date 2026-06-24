@@ -214,10 +214,8 @@ class ShoppingFlowController extends ChangeNotifier {
     _voiceTurnState = VoiceTurnState.agentThinking;
     _errorMessage = null;
     final normalizedTranscript = transcript.trim();
-    if (_isIncompleteTranscript(normalizedTranscript)) {
-      debugPrint(
-        '[VAD] transcript_rejected_as_incomplete text="$normalizedTranscript"',
-      );
+    if (normalizedTranscript.isEmpty) {
+      debugPrint('[VAD] transcript_empty_after_stt');
       await _handleSttFailure();
       return;
     }
@@ -1523,34 +1521,6 @@ class ShoppingFlowController extends ChangeNotifier {
       );
       unawaited(_finishRecording());
     });
-  }
-
-  bool _isIncompleteTranscript(String transcript) {
-    final normalized = transcript.trim();
-    if (normalized.isEmpty) {
-      return true;
-    }
-    if (normalized.length < 2) {
-      return true;
-    }
-
-    final compact = normalized.replaceAll(RegExp(r'\s+'), '');
-    // 말줄임표/늘임표/대시로 끝나는 짧은 발화만 불완전 발화로 본다.
-    // 일반 마침표 문장("새우깡 사줘.")은 정상 발화일 수 있으므로 제외한다.
-    if (RegExp(r'(?:\.{2,}|…+|~+|-+)$').hasMatch(normalized) &&
-        compact.length <= 6) {
-      return true;
-    }
-
-    if (RegExp(r'^(어|음|아|그|저|응|네)[.!?…-]*$').hasMatch(compact)) {
-      return true;
-    }
-
-    if (RegExp(r'^[가-힣]{1,2}[.~…-]*$').hasMatch(compact)) {
-      return true;
-    }
-
-    return false;
   }
 
   bool _isRetryPromptText(String text) {
