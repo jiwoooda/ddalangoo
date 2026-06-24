@@ -1865,6 +1865,8 @@ def _prompt_message(kind: str, payload: object | None) -> str:
         normalized = re.sub(r"[?？!！.,~…-]+$", "", normalized).strip()
         suffix_patterns = [
             r"(사고\s*싶어요?|사줘요?|찾아줘요?|주문해줘요?|구매하고\s*싶어요?)$",
+            r"((?:먹고|마시고|드시고)\s*싶어요?)$",
+            r"((?:먹고|마시고|드시고)\s*싶어)$",
             r"(사고)$",
             r"(살래요?|살래|주세요|찾아봐요?|알아봐줘요?)$",
             r"(있어요?|있나(?:요)?|있을까요?|있)$",
@@ -1873,11 +1875,79 @@ def _prompt_message(kind: str, payload: object | None) -> str:
         ]
         for pattern in suffix_patterns:
             normalized = re.sub(pattern, "", normalized).strip()
+        normalized = re.sub(
+            r"\s+(사|사줘|사줘요|사라|주문해|주문해라|구매해|구매해라)$",
+            "",
+            normalized,
+        ).strip()
         normalized = re.sub(r"(있)[-~…]?$", "", normalized).strip()
         normalized = re.sub(r"\s+[-~…]+$", "", normalized).strip()
         normalized = re.sub(r"[-~…]+$", "", normalized).strip()
         normalized = normalized.strip(" '\"")
         return normalized
+
+    def _has_search_intent_cue(message: str) -> bool:
+        normalized = re.sub(r"\s+", " ", message).strip().lower()
+        if not normalized:
+            return False
+        return any(
+            cue in normalized
+            for cue in (
+                "사고",
+                "사고 싶",
+                "살래",
+                "살게",
+                "주문",
+                "구매",
+                "찾아",
+                "찾고",
+                "있어",
+                "있나",
+                "있을까",
+                "유행",
+            )
+        )
+
+    def _should_retry_search_prompt(message: str, keywords: str) -> bool:
+        normalized_message = re.sub(r"\s+", " ", message).strip()
+        normalized_keywords = re.sub(r"\s+", " ", keywords).strip()
+        compact_keywords = re.sub(r"\s+", "", normalized_keywords)
+        if not compact_keywords:
+            return True
+        if len(compact_keywords) <= 1:
+            return True
+
+        lowered_keywords = compact_keywords.lower()
+        retry_terms = {
+            "응",
+            "어",
+            "음",
+            "아",
+            "어어",
+            "그거",
+            "이거",
+            "저거",
+            "몰라",
+            "글쎄",
+            "다시",
+            "수다",
+        }
+        if lowered_keywords in retry_terms:
+            return True
+
+        if re.search(r"[-~…]$", normalized_message):
+            return True
+
+        message_tokens = normalized_message.split()
+        if (
+            len(message_tokens) <= 2
+            and message_tokens
+            and message_tokens[0] in {"나", "나는", "저", "저는", "전"}
+            and not _has_search_intent_cue(normalized_message)
+        ):
+            return True
+
+        return False
 
     def _object_particle(word: str) -> str:
         normalized = word.strip()
@@ -1897,6 +1967,8 @@ def _prompt_message(kind: str, payload: object | None) -> str:
             else "안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
         ),
         "searching_product": "상품을 찾는 중이에요.",
+        "searching_intro": "네, 잠시만 기다려주세요.",
+        "searching_refined": "상품을 고르는 중이에요.",
         "ask_quantity": "몇 개를 담을까요?",
         "confirm_address": "배송지를 확인해주세요.",
         "pin_prompt": "비밀번호 6자리를 입력해주세요.",
@@ -1908,7 +1980,7 @@ def _prompt_message(kind: str, payload: object | None) -> str:
         "stt_retry_gentle": "천천히 말씀해주셔도 괜찮아요. 다시 말씀해주세요.",
         "adding_to_cart": "상품을 장바구니에 담을게요.",
         "cart_completed": "상품을 모두 담았어요!",
-        "processing_payment": "결제를 진행 중이에요.",
+        "processing_payment": "확인 중이에요.",
         "payment_completed": completion_text or "결제가 완료되었어요.",
         "farewell_prompt": "오늘도 딸랑구를 이용해주셔서 감사해요. 다음에 또 봐요!",
     }
@@ -1919,10 +1991,21 @@ def _prompt_message(kind: str, payload: object | None) -> str:
         badge_phrase = badge_text or "리뷰가 좋고 30일 중 가장 싼 가격이에요!"
         return f"{title}가 {quantity_phrase} {price_phrase}이에요. {badge_phrase} 이 상품을 구매할까요?"
 
-    if kind == "searching_product":
+    if kind == "searching_intro":
+        return prompts["searching_intro"]
+
+    if kind in {"searching_product", "searching_refined"}:
         keywords = _search_keywords_from_message(raw_message)
+        if kind == "searching_product" and _should_retry_search_prompt(raw_message, keywords):
+            return prompts["stt_retry"]
         if keywords:
-            return f"{keywords}{_object_particle(keywords)} 찾고 있어요. 잠시만 기다려주세요."
-        return "상품을 찾고 있어요. 잠시만 기다려주세요."
+            if username:
+                return (
+                    f"{username} 님을 위한 {keywords}{_object_particle(keywords)} 고르는 중이에요."
+                )
+            return f"{keywords}{_object_particle(keywords)} 고르는 중이에요."
+        if username:
+            return f"{username} 님을 위한 상품을 고르는 중이에요."
+        return prompts["searching_refined"]
 
     return prompts.get(kind, completion_text or "잠시만요. 다시 확인해볼게요.")

@@ -108,6 +108,63 @@ def _extract_user_input(state: ShoppingState) -> str:
     return ""
 
 
+def _compact_korean_text(text: str) -> str:
+    return re.sub(r"[^\w가-힣]", "", "".join(str(text or "").split()))
+
+
+def _is_colloquial_confirm(
+    user_input: str,
+    pending_type: str | None,
+) -> bool:
+    if pending_type not in {
+        "product_confirm",
+        "quantity_confirm",
+        "continue_shopping",
+        "payment_method_confirm",
+        "address_confirm",
+    }:
+        return False
+
+    compact = _compact_korean_text(user_input)
+    if not compact:
+        return False
+
+    explicit_texts = {
+        "그래",
+        "그래라",
+        "그려",
+        "그렇지",
+        "좋아",
+        "맞아",
+        "맞지",
+        "맞아요",
+        "응",
+        "응그래",
+        "네",
+        "예",
+        "주문해",
+        "주문해라",
+        "주문하자",
+        "담아",
+        "담아라",
+        "담아줘",
+        "담아줘라",
+        "사",
+        "사라",
+        "사줘",
+        "사줘라",
+        "해",
+        "해라",
+    }
+    if compact in explicit_texts:
+        return True
+
+    return any(
+        token in compact
+        for token in ("주문", "담아", "결제", "진행", "해줘", "사줘")
+    )
+
+
 def intent_agent_node(state: ShoppingState) -> dict:
     """
     Intent Agent 호출.
@@ -162,14 +219,27 @@ def intent_agent_node(state: ShoppingState) -> dict:
         if direct is not None:
             quantity = direct
 
+    normalized_intent = parsed.intent
+    normalized_needs_clarification = parsed.needs_clarification
+    normalized_clarification_reason = parsed.clarification_reason
+    normalized_immediate_response = parsed.immediate_response
+    normalized_confidence = parsed.confidence if parsed.confidence > 0 else 0.9
+
+    if _is_colloquial_confirm(user_input, pending_type):
+        normalized_intent = "confirm"
+        normalized_needs_clarification = False
+        normalized_clarification_reason = None
+        normalized_immediate_response = ""
+        normalized_confidence = max(normalized_confidence, 0.95)
+
     # 새 구매 탐색 intent에서는 이전 state 수량 인계 금지
     # (이전 상품 구매 때 남은 quantity가 새 상품에 그대로 쓰이는 문제 방지)
     _new_search_intents = {"buy", "reorder", "refine", "compare_platforms"}
-    if quantity is None and parsed.intent not in _new_search_intents:
+    if quantity is None and normalized_intent not in _new_search_intents:
         quantity = state.get("quantity")
 
     result = {
-        "intent": parsed.intent,
+        "intent": normalized_intent,
         "keywords": parsed.keywords or state.get("keywords") or [],
         "exclude_keywords": parsed.exclude_keywords,
         "negative_constraints": parsed.negative_constraints,
@@ -179,10 +249,10 @@ def intent_agent_node(state: ShoppingState) -> dict:
         "override_platform": parsed.override_platform,
         "current_option_value": parsed.current_option_value,
         "address_text": parsed.address_text,
-        "needs_clarification": parsed.needs_clarification,
-        "clarification_reason": parsed.clarification_reason,
-        "confidence": parsed.confidence if parsed.confidence > 0 else 0.9,
-        "immediate_response": parsed.immediate_response,
+        "needs_clarification": normalized_needs_clarification,
+        "clarification_reason": normalized_clarification_reason,
+        "confidence": normalized_confidence,
+        "immediate_response": normalized_immediate_response,
         "last_agent": "intent_agent",
         "tool_calls": None,
         "tool_results": None,

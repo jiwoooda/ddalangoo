@@ -198,6 +198,14 @@ def _last_assistant_message(state: dict) -> str:
         content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
         if role in ("ai", "assistant"):
             return content
+
+    if state.get("needs_clarification") or state.get("intent") == "unclear":
+        return (
+            state.get("clarification_reason")
+            or state.get("immediate_response")
+            or "잘 못 들었어요. 구매하고 싶은 상품 이름을 다시 말씀해주세요."
+        )
+
     return "무엇을 도와드릴까요?"
 
 
