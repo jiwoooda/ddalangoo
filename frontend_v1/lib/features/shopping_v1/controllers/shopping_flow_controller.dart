@@ -3,24 +3,25 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
+import '../../../core/services/stt_vad_response_log_service.dart';
 import '../../../core/network/api_client.dart';
 import '../models/shopping_v1_models.dart';
 import '../services/shopping_agent_service.dart';
 import '../services/voice_turn_service.dart';
 
 class ShoppingFlowController extends ChangeNotifier {
-  static const Duration _ttsToUserDelay = Duration(milliseconds: 260);
+  static const Duration _ttsToUserDelay = Duration(milliseconds: 80);
   static const Duration _initialSpeechWaitTimeout = Duration(
     milliseconds: 6500,
   );
   static const Duration _maxRecordingDuration = Duration(seconds: 18);
-  static const Duration _endOfSpeechSilence = Duration(milliseconds: 3200);
-  static const Duration _silenceConfirmDuration = Duration(milliseconds: 1250);
-  static const Duration _minSpeechWindow = Duration(milliseconds: 2100);
-  static const Duration _firstSyllableProtection = Duration(milliseconds: 1400);
-  static const Duration _unreliableAmplitudeCapture = Duration(
-    milliseconds: 5600,
+  static const Duration _endOfSpeechSilence = Duration(milliseconds: 4000);
+  static const Duration _silenceConfirmDuration = Duration(milliseconds: 1700);
+  static const Duration _minSpeechWindow = Duration(milliseconds: 3200);
+  static const Duration _minimumRecordingDuration = Duration(
+    milliseconds: 3600,
   );
+  static const Duration _firstSyllableProtection = Duration(milliseconds: 2200);
   static const double _speechGuardRatio = 0.82;
   static const bool _forceSilentDemoTts = bool.fromEnvironment(
     'SHOPPING_V1_SILENT_TTS',
@@ -127,6 +128,7 @@ class ShoppingFlowController extends ChangeNotifier {
     }
     _userId = await _agentService.resolveUserId();
     _userName = await _agentService.resolveUserName(userId: _userId);
+    await SttVadResponseLogService.instance.init();
     await _voiceTurnService.init();
     _isInitialized = true;
     notifyListeners();
@@ -319,6 +321,7 @@ class ShoppingFlowController extends ChangeNotifier {
     ShoppingAgentResponse response,
     String transcript,
   ) async {
+    final previousStep = _step;
     final inferredStep = _inferStep(response);
     final responseCartItems = _agentService.extractCartItems(response);
     if (responseCartItems.isNotEmpty) {
@@ -335,6 +338,13 @@ class ShoppingFlowController extends ChangeNotifier {
     if (_shouldClearCurrentProduct(inferredStep, response)) {
       _currentProduct = null;
     }
+
+    await _logUnexpectedReaskIfNeeded(
+      transcript: transcript,
+      previousStep: previousStep,
+      inferredStep: inferredStep,
+      response: response,
+    );
 
     switch (inferredStep) {
       case ShoppingStep.showProduct:
@@ -941,6 +951,7 @@ class ShoppingFlowController extends ChangeNotifier {
     }
     final effectiveInitialWait = _currentInitialSpeechWaitTimeout();
     final effectiveMaxRecording = _currentMaxRecordingDuration();
+    final effectiveMinimumRecording = _currentMinimumRecordingDuration();
     _hasDetectedSpeech = false;
     _noiseSampleCount = 0;
     _speechNoiseFloor = -45;
@@ -959,7 +970,8 @@ class ShoppingFlowController extends ChangeNotifier {
       '[VAD] recording_started '
       'step=$_step epoch=$epoch '
       'initialSpeechWaitMs=${effectiveInitialWait.inMilliseconds} '
-      'maxRecordingMs=${effectiveMaxRecording.inMilliseconds}',
+      'maxRecordingMs=${effectiveMaxRecording.inMilliseconds} '
+      'minRecordingMs=${effectiveMinimumRecording.inMilliseconds}',
     );
     notifyListeners();
     try {
@@ -1212,6 +1224,8 @@ class ShoppingFlowController extends ChangeNotifier {
 
     final speechStartThreshold = (_speechNoiseFloor + 11).clamp(-34, -22);
     final speechContinueThreshold = (_speechNoiseFloor + 7).clamp(-40, -26);
+    final effectiveMinimumRecordingDuration =
+        _currentMinimumRecordingDuration();
     final effectiveEndOfSpeechSilence = _currentEndOfSpeechSilence();
     final effectiveSilenceConfirmDuration = _currentSilenceConfirmDuration();
     final now = DateTime.now();
@@ -1274,7 +1288,8 @@ class ShoppingFlowController extends ChangeNotifier {
     final speechElapsed = now.difference(recordingStartedAt);
     final firstSpeechElapsed = now.difference(firstSpeechAt);
     final silenceElapsed = now.difference(lastSpeechAt);
-    if (speechElapsed >= _minSpeechWindow &&
+    if (speechElapsed >= effectiveMinimumRecordingDuration &&
+        speechElapsed >= _minSpeechWindow &&
         firstSpeechElapsed >= _firstSyllableProtection &&
         silenceElapsed >= effectiveEndOfSpeechSilence &&
         !_isAwaitingSilenceConfirmation) {
@@ -1283,6 +1298,7 @@ class ShoppingFlowController extends ChangeNotifier {
       debugPrint(
         '[VAD] silence_candidate '
         'speechElapsedMs=${speechElapsed.inMilliseconds} '
+        'minimumRecordingMs=${effectiveMinimumRecordingDuration.inMilliseconds} '
         'firstSpeechElapsedMs=${firstSpeechElapsed.inMilliseconds} '
         'silenceElapsedMs=${silenceElapsed.inMilliseconds} '
         'requiredSilenceMs=${effectiveEndOfSpeechSilence.inMilliseconds} '
@@ -1334,9 +1350,9 @@ class ShoppingFlowController extends ChangeNotifier {
       case ShoppingStep.showProduct:
       case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.confirmAddress:
-        return const Duration(seconds: 10);
+        return const Duration(seconds: 13);
       case ShoppingStep.askQuantity:
-        return const Duration(seconds: 14);
+        return const Duration(seconds: 16);
       case ShoppingStep.askProduct:
         return _maxRecordingDuration;
       case ShoppingStep.searchingProduct:
@@ -1350,14 +1366,35 @@ class ShoppingFlowController extends ChangeNotifier {
     }
   }
 
+  Duration _currentMinimumRecordingDuration() {
+    switch (_step) {
+      case ShoppingStep.askProduct:
+        return const Duration(milliseconds: 4200);
+      case ShoppingStep.askQuantity:
+        return const Duration(milliseconds: 3800);
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askMoreOrCheckout:
+      case ShoppingStep.confirmAddress:
+        return const Duration(milliseconds: 3400);
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+      case ShoppingStep.error:
+        return _minimumRecordingDuration;
+    }
+  }
+
   Duration _currentEndOfSpeechSilence() {
     switch (_step) {
       case ShoppingStep.showProduct:
       case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.confirmAddress:
-        return const Duration(milliseconds: 2100);
+        return const Duration(milliseconds: 3000);
       case ShoppingStep.askQuantity:
-        return const Duration(milliseconds: 2500);
+        return const Duration(milliseconds: 3400);
       case ShoppingStep.askProduct:
       case ShoppingStep.searchingProduct:
       case ShoppingStep.addingToCart:
@@ -1375,9 +1412,9 @@ class ShoppingFlowController extends ChangeNotifier {
       case ShoppingStep.showProduct:
       case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.confirmAddress:
-        return const Duration(milliseconds: 900);
+        return const Duration(milliseconds: 1400);
       case ShoppingStep.askQuantity:
-        return const Duration(milliseconds: 1050);
+        return const Duration(milliseconds: 1500);
       case ShoppingStep.askProduct:
       case ShoppingStep.searchingProduct:
       case ShoppingStep.addingToCart:
@@ -1469,13 +1506,20 @@ class ShoppingFlowController extends ChangeNotifier {
 
   void _scheduleFallbackAutoStop() {
     _fallbackAutoStopTimer?.cancel();
-    _fallbackAutoStopTimer = Timer(_unreliableAmplitudeCapture, () {
+    final effectiveMaxRecording = _currentMaxRecordingDuration();
+    final fallbackDuration = Duration(
+      milliseconds: (effectiveMaxRecording.inMilliseconds - 800).clamp(
+        8500,
+        22000,
+      ),
+    );
+    _fallbackAutoStopTimer = Timer(fallbackDuration, () {
       if (_voiceTurnState != VoiceTurnState.userRecording) {
         return;
       }
       debugPrint(
         '[VAD] fallback_auto_stop '
-        'captureMs=${_unreliableAmplitudeCapture.inMilliseconds}',
+        'captureMs=${fallbackDuration.inMilliseconds}',
       );
       unawaited(_finishRecording());
     });
@@ -1514,6 +1558,55 @@ class ShoppingFlowController extends ChangeNotifier {
     return normalized.contains('다시 말씀') ||
         normalized.contains('천천히 말씀') ||
         normalized.contains('잘 못 들었');
+  }
+
+  Future<void> _logUnexpectedReaskIfNeeded({
+    required String transcript,
+    required ShoppingStep previousStep,
+    required ShoppingStep inferredStep,
+    required ShoppingAgentResponse response,
+  }) async {
+    final normalizedTranscript = transcript.trim();
+    if (normalizedTranscript.isEmpty) {
+      return;
+    }
+
+    final assistantMessage = response.assistantMessage.trim();
+    final isAskProductRetry = inferredStep == ShoppingStep.askProduct;
+    final isRepeatedQuantityQuestion =
+        previousStep == ShoppingStep.askQuantity &&
+        inferredStep == ShoppingStep.askQuantity;
+    final isRepeatedChoiceQuestion =
+        previousStep == ShoppingStep.askMoreOrCheckout &&
+        inferredStep == ShoppingStep.askMoreOrCheckout;
+
+    if (!isAskProductRetry &&
+        !isRepeatedQuantityQuestion &&
+        !isRepeatedChoiceQuestion) {
+      return;
+    }
+
+    await SttVadResponseLogService.instance.logEvent(
+      'non_empty_stt_reask',
+      payload: {
+        'conversationId': _conversationId,
+        'userId': _userId,
+        'userName': _userName,
+        'previousStep': previousStep.name,
+        'inferredStep': inferredStep.name,
+        'transcript': normalizedTranscript,
+        'assistantMessage': assistantMessage,
+        'responseStatus': response.status,
+        'responseStage': response.stage,
+        'pendingType': response.pendingConfirmation?['type']?.toString(),
+        'pendingSubType': response.pendingConfirmation?['payload'] is Map
+            ? (response.pendingConfirmation!['payload'] as Map)['subType']
+                  ?.toString()
+            : null,
+        'error': response.error?.toString(),
+        'raw': response.raw,
+      },
+    );
   }
 
   @override
