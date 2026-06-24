@@ -25,10 +25,8 @@ from dotenv import load_dotenv
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
 
-# vendor 경로를 Python path에 추가
-_VENDOR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../../vendor/ddalangoo-langgraph")
-)
+# vendor 경로를 절대 경로
+_VENDOR = os.environ.get("PROJECT_ROOT", "/app") + "/vendor/ddalangoo-langgraph"
 if _VENDOR not in sys.path:
     sys.path.insert(0, _VENDOR)
 

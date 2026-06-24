@@ -99,6 +99,7 @@ def _looks_like_quantity_reply(text: str) -> bool:
         "캔",
         "개요",
         "개라니까",
+        "개라고",
         "개만",
         "개로",
     )
