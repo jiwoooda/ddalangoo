@@ -15,20 +15,12 @@ class VoiceTurnService {
   Future<void> speakWithSegments(
     String text, {
     void Function(TtsSegmentData segment)? onSegmentStart,
-  }) => _voiceService.speakWithSegments(
-    text,
-    onSegmentStart: onSegmentStart,
-  );
+  }) => _voiceService.speakWithSegments(text, onSegmentStart: onSegmentStart);
 
   Future<void> stopSpeaking() => _voiceService.stopSpeaking();
 
-  Future<void> playAudioUrl(
-    String url, {
-    int? expectedDurationMs,
-  }) => _voiceService.playAudioUrl(
-    url,
-    expectedDurationMs: expectedDurationMs,
-  );
+  Future<void> playAudioUrl(String url, {int? expectedDurationMs}) =>
+      _voiceService.playAudioUrl(url, expectedDurationMs: expectedDurationMs);
 
   Future<void> startRecording() => _voiceService.startRecording();
 
@@ -38,6 +30,6 @@ class VoiceTurnService {
   Future<void> cancelRecording() => _voiceService.cancelRecording();
 
   Stream<Amplitude> onAmplitudeChanged({
-    Duration interval = const Duration(milliseconds: 180),
+    Duration interval = const Duration(milliseconds: 200),
   }) => _voiceService.onAmplitudeChanged(interval: interval);
 }

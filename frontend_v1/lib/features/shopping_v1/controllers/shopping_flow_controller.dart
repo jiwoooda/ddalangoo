@@ -206,8 +206,10 @@ class ShoppingFlowController extends ChangeNotifier {
       debugPrint(
         '⚠️ [ShoppingFlowController] agent fallback: $error\n$stackTrace',
       );
-      _isMockMode = true;
-      await _consumeMockFlow(transcript);
+      _isMockMode = false;
+      _errorMessage = 'agent_request_failed';
+      _voiceTurnState = VoiceTurnState.error;
+      notifyListeners();
     }
   }
 
@@ -219,24 +221,19 @@ class ShoppingFlowController extends ChangeNotifier {
     final parsedProduct = _agentService.extractProduct(response);
     if (parsedProduct != null) {
       _currentProduct = _mergeWithFallback(parsedProduct);
-    } else {
-      _currentProduct ??= ProductViewData.mock();
+    } else if (inferredStep == ShoppingStep.showProduct) {
+      _currentProduct = null;
     }
 
     switch (inferredStep) {
       case ShoppingStep.showProduct:
-        final productMessage = response.assistantMessage.trim().isNotEmpty
-            ? response.assistantMessage
-            : (await _agentService.fetchPrompt(
-                kind: 'mock_product',
-                conversationId: _conversationId,
-                payload: {
-                  'title': _currentProduct!.title,
-                  'quantityInfo': _currentProduct!.quantityInfo,
-                  'priceText': _currentProduct!.displayPrice,
-                  'badgeText': _currentProduct!.badgeText,
-                },
-              )).assistantMessage;
+        final productMessage = response.assistantMessage.trim();
+        if (productMessage.isEmpty) {
+          _errorMessage = 'empty_product_response';
+          _voiceTurnState = VoiceTurnState.error;
+          notifyListeners();
+          return;
+        }
         await _presentAssistant(
           productMessage,
           speechSegments: response.speechSegments,
@@ -245,13 +242,14 @@ class ShoppingFlowController extends ChangeNotifier {
         );
         return;
       case ShoppingStep.askQuantity:
+        if (response.assistantMessage.trim().isEmpty) {
+          _errorMessage = 'empty_quantity_response';
+          _voiceTurnState = VoiceTurnState.error;
+          notifyListeners();
+          return;
+        }
         await _presentAssistant(
-          response.assistantMessage.trim().isEmpty
-              ? (await _agentService.fetchPrompt(
-                  kind: 'ask_quantity',
-                  conversationId: _conversationId,
-                )).assistantMessage
-              : response.assistantMessage,
+          response.assistantMessage,
           speechSegments: response.speechSegments,
           nextStep: ShoppingStep.askQuantity,
           expectVoiceReply: true,
@@ -269,13 +267,14 @@ class ShoppingFlowController extends ChangeNotifier {
                 items: _cartItems,
                 deliveryAddress: response.deliveryAddress,
               );
+        if (response.assistantMessage.trim().isEmpty) {
+          _errorMessage = 'empty_address_response';
+          _voiceTurnState = VoiceTurnState.error;
+          notifyListeners();
+          return;
+        }
         await _presentAssistant(
-          response.assistantMessage.trim().isEmpty
-              ? (await _agentService.fetchPrompt(
-                  kind: 'confirm_address',
-                  conversationId: _conversationId,
-                )).assistantMessage
-              : response.assistantMessage,
+          response.assistantMessage,
           speechSegments: response.speechSegments,
           nextStep: ShoppingStep.confirmAddress,
           expectVoiceReply: false,
@@ -283,19 +282,17 @@ class ShoppingFlowController extends ChangeNotifier {
         return;
       case ShoppingStep.enterPassword:
         if (response.assistantMessage.trim().isEmpty) {
-          await _presentPrompt(
-            'pin_prompt',
-            nextStep: ShoppingStep.enterPassword,
-            expectVoiceReply: false,
-          );
-        } else {
-          await _presentAssistant(
-            response.assistantMessage,
-            speechSegments: response.speechSegments,
-            nextStep: ShoppingStep.enterPassword,
-            expectVoiceReply: false,
-          );
+          _errorMessage = 'empty_payment_password_response';
+          _voiceTurnState = VoiceTurnState.error;
+          notifyListeners();
+          return;
         }
+        await _presentAssistant(
+          response.assistantMessage,
+          speechSegments: response.speechSegments,
+          nextStep: ShoppingStep.enterPassword,
+          expectVoiceReply: false,
+        );
         return;
       case ShoppingStep.addingToCart:
         _lastWebviewTask =
@@ -314,19 +311,26 @@ class ShoppingFlowController extends ChangeNotifier {
         );
         return;
       case ShoppingStep.askMoreOrCheckout:
+        if (response.assistantMessage.trim().isEmpty) {
+          _errorMessage = 'empty_checkout_choice_response';
+          _voiceTurnState = VoiceTurnState.error;
+          notifyListeners();
+          return;
+        }
         await _presentAssistant(
-          response.assistantMessage.trim().isEmpty
-              ? (await _agentService.fetchPrompt(
-                  kind: 'ask_more_or_checkout',
-                  conversationId: _conversationId,
-                )).assistantMessage
-              : response.assistantMessage,
+          response.assistantMessage,
           speechSegments: response.speechSegments,
           nextStep: ShoppingStep.askMoreOrCheckout,
           expectVoiceReply: true,
         );
         return;
       case ShoppingStep.paymentCompleted:
+        if (response.assistantMessage.trim().isEmpty) {
+          _errorMessage = 'empty_payment_completed_response';
+          _voiceTurnState = VoiceTurnState.error;
+          notifyListeners();
+          return;
+        }
         await _showPaymentCompleted(
           response.assistantMessage,
           speechSegments: response.speechSegments,
@@ -334,123 +338,31 @@ class ShoppingFlowController extends ChangeNotifier {
         return;
       case ShoppingStep.searchingProduct:
         _step = ShoppingStep.searchingProduct;
-        _assistantText = response.assistantMessage;
+        if (response.assistantMessage.trim().isNotEmpty) {
+          _assistantText = response.assistantMessage;
+        }
+        _voiceTurnState = VoiceTurnState.agentThinking;
         notifyListeners();
-        await Future<void>.delayed(const Duration(milliseconds: 700));
-        await _consumeMockFlow(transcript);
         return;
       case ShoppingStep.error:
         _errorMessage = response.assistantMessage;
-        await _presentPrompt(
-          'error_retry',
-          nextStep: ShoppingStep.error,
-          expectVoiceReply: true,
-        );
+        if (response.assistantMessage.trim().isNotEmpty) {
+          await _presentAssistant(
+            response.assistantMessage,
+            speechSegments: response.speechSegments,
+            nextStep: ShoppingStep.error,
+            expectVoiceReply: true,
+          );
+          return;
+        }
+        _voiceTurnState = VoiceTurnState.error;
+        notifyListeners();
         return;
       case ShoppingStep.askProduct:
       case ShoppingStep.cartCompleted:
       case ShoppingStep.processingPayment:
         break;
     }
-
-    await _consumeMockFlow(transcript);
-  }
-
-  Future<void> _consumeMockFlow(String transcript) async {
-    final current = _step;
-    if (current == ShoppingStep.askProduct ||
-        current == ShoppingStep.searchingProduct) {
-      _currentProduct = _currentProduct ?? ProductViewData.mock();
-      await _presentAssistant(
-        (await _agentService.fetchPrompt(
-          kind: 'mock_product',
-          conversationId: _conversationId,
-          payload: {
-            'title': _currentProduct!.title,
-            'quantityInfo': _currentProduct!.quantityInfo,
-            'priceText': _currentProduct!.displayPrice,
-            'badgeText': _currentProduct!.badgeText,
-          },
-        )).assistantMessage,
-        nextStep: ShoppingStep.showProduct,
-        expectVoiceReply: true,
-      );
-      return;
-    }
-
-    if (current == ShoppingStep.showProduct) {
-      if (_isNegative(transcript)) {
-        await _presentPrompt(
-          'negative_restart',
-          nextStep: ShoppingStep.askProduct,
-          expectVoiceReply: true,
-        );
-        return;
-      }
-      await _presentPrompt(
-        'ask_quantity',
-        nextStep: ShoppingStep.askQuantity,
-        expectVoiceReply: true,
-      );
-      return;
-    }
-
-    if (current == ShoppingStep.askQuantity) {
-      _currentQuantity = _extractQuantity(transcript) ?? 1;
-      final product = _currentProduct ?? ProductViewData.mock();
-      final total = (product.price ?? 12900) * _currentQuantity;
-      _cartItems
-        ..clear()
-        ..add(
-          CartItemViewData(
-            product: product,
-            quantity: _currentQuantity,
-            totalPrice: total,
-            totalPriceText: '${_formatPrice(total)}원',
-          ),
-        );
-      await _startCartProgressFlow();
-      return;
-    }
-
-    if (current == ShoppingStep.askMoreOrCheckout ||
-        current == ShoppingStep.cartCompleted) {
-      if (_wantsMoreShopping(transcript)) {
-        await _presentPrompt(
-          'more_shopping',
-          nextStep: ShoppingStep.askProduct,
-          expectVoiceReply: true,
-        );
-        return;
-      }
-      _checkoutSummary = await _agentService.fetchCheckoutSummary(
-        userId: _userId,
-        items: _cartItems,
-      );
-      await _presentPrompt(
-        'confirm_address',
-        nextStep: ShoppingStep.confirmAddress,
-        expectVoiceReply: true,
-      );
-      return;
-    }
-
-    if (current == ShoppingStep.confirmAddress) {
-      _pin = '';
-      await _presentPrompt(
-        'pin_prompt',
-        nextStep: ShoppingStep.enterPassword,
-        expectVoiceReply: false,
-      );
-      return;
-    }
-
-    await _presentPrompt(
-      'initial_prompt',
-      payload: {'username': _userName},
-      nextStep: ShoppingStep.askProduct,
-      expectVoiceReply: true,
-    );
   }
 
   Future<void> _handleSttFailure() async {
@@ -557,21 +469,10 @@ class ShoppingFlowController extends ChangeNotifier {
       debugPrint(
         '⚠️ [ShoppingFlowController] webview result fallback: $error\n$stackTrace',
       );
-      if (result == 'cart_added') {
-        _cartProgress = 1;
-        _step = ShoppingStep.cartCompleted;
-        await _presentPrompt(
-          'cart_completed',
-          nextStep: ShoppingStep.askMoreOrCheckout,
-          expectVoiceReply: true,
-        );
-        return;
-      }
-      await _presentPrompt(
-        'error_retry',
-        nextStep: ShoppingStep.askMoreOrCheckout,
-        expectVoiceReply: true,
-      );
+      _pendingWebviewTask = task;
+      _voiceTurnState = VoiceTurnState.idle;
+      notifyListeners();
+      rethrow;
     }
   }
 
@@ -668,6 +569,10 @@ class ShoppingFlowController extends ChangeNotifier {
 
       final audioUrl = _resolveSegmentAudioUrl(segment.audioUrl);
       if (audioUrl == null) {
+        debugPrint(
+          '[TTS] missing_audio_url '
+          'runId=$runId epoch=$epoch index=${segment.index} text="${segment.text}"',
+        );
         await Future<void>.delayed(_estimateSilentSegmentDuration(segment.text));
         continue;
       }
@@ -684,7 +589,12 @@ class ShoppingFlowController extends ChangeNotifier {
             milliseconds: (segment.durationMs ?? 1600).clamp(900, 5000),
           ),
         );
-      } catch (_) {
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[TTS] segment_playback_failed '
+          'runId=$runId epoch=$epoch index=${segment.index} url="$audioUrl" '
+          'text="${segment.text}" error=$error\n$stackTrace',
+        );
         await Future<void>.delayed(_estimateSilentSegmentDuration(segment.text));
       }
     }
@@ -960,50 +870,11 @@ class ShoppingFlowController extends ChangeNotifier {
       imageUrl: source.imageUrl ?? fallback.imageUrl,
       title: source.title,
       subtitle: source.subtitle ?? fallback.subtitle,
-      quantityInfo: source.quantityInfo ?? fallback.quantityInfo,
+      quantityInfo: source.quantityInfo,
       price: source.price ?? fallback.price,
       priceText: source.priceText ?? fallback.priceText,
       badgeText: source.badgeText ?? fallback.badgeText,
     );
-  }
-
-  bool _isNegative(String text) {
-    return RegExp(r'아니|말고|다른|싫', caseSensitive: false).hasMatch(text);
-  }
-
-  bool _wantsMoreShopping(String text) {
-    return RegExp(r'응|네|더|하나 더|살래', caseSensitive: false).hasMatch(text) &&
-        !RegExp(r'결제|그만|아니', caseSensitive: false).hasMatch(text);
-  }
-
-  int? _extractQuantity(String text) {
-    final digitMatch = RegExp(r'(\d+)').firstMatch(text);
-    if (digitMatch != null) {
-      return int.tryParse(digitMatch.group(1)!);
-    }
-
-    const koreanNumbers = <String, int>{
-      '한': 1,
-      '하나': 1,
-      '두': 2,
-      '둘': 2,
-      '세': 3,
-      '셋': 3,
-      '네': 4,
-      '넷': 4,
-      '다섯': 5,
-      '여섯': 6,
-      '일곱': 7,
-      '여덟': 8,
-      '아홉': 9,
-      '열': 10,
-    };
-    for (final entry in koreanNumbers.entries) {
-      if (text.contains(entry.key)) {
-        return entry.value;
-      }
-    }
-    return null;
   }
 
   bool wantsCheckout(String text) {
@@ -1204,17 +1075,4 @@ class ShoppingFlowController extends ChangeNotifier {
     _paymentTimer?.cancel();
     super.dispose();
   }
-}
-
-String _formatPrice(int value) {
-  final source = value.toString();
-  final buffer = StringBuffer();
-  for (var i = 0; i < source.length; i++) {
-    final reversedIndex = source.length - i;
-    buffer.write(source[i]);
-    if (reversedIndex > 1 && reversedIndex % 3 == 1) {
-      buffer.write(',');
-    }
-  }
-  return buffer.toString();
 }

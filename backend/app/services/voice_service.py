@@ -491,6 +491,23 @@ async def build_agent_speech_segments(
             for index, segment_text in enumerate(segments)
         ]
     )
+    missing_audio_segments = [
+        segment for segment in built_segments if not segment.audioUrl
+    ]
+    if missing_audio_segments:
+        logger.warning(
+            "[voice.agent_speech] built_with_missing_audio request_id=%s missing=%s total=%s missing_indexes=%s",
+            effective_request_id,
+            len(missing_audio_segments),
+            len(built_segments),
+            [segment.index for segment in missing_audio_segments],
+        )
+    else:
+        logger.info(
+            "[voice.agent_speech] built_all_audio request_id=%s total=%s",
+            effective_request_id,
+            len(built_segments),
+        )
     return list(built_segments)
 
 

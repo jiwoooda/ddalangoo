@@ -61,6 +61,8 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   bool _automationDone = false;
   bool _didRetryCredentialLogin = false;
   bool _automationStarted = false;
+  String? _pendingSubmitResult;
+  Map<String, dynamic>? _pendingSubmitExtraData;
 
   bool get _usesExternalResultHandler => widget.onResult != null;
   bool get _supportsKurlyAutomation {
@@ -230,10 +232,18 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       _automationStep == 'login_failed' ||
       _automationStep == 'login_required' ||
       _automationStep == 'login_retry_required' ||
-      _automationStep == 'cart_failed';
+      _automationStep == 'cart_failed' ||
+      _automationStep == 'sync_failed';
 
   Future<void> _retryAutomation() async {
     if (_isSubmitting || _isInterrupting) return;
+    if (_automationStep == 'sync_failed' && _pendingSubmitResult != null) {
+      await _submitResult(
+        _pendingSubmitResult!,
+        extraData: _pendingSubmitExtraData,
+      );
+      return;
+    }
     setState(() {
       _automationStarted = false;
       _automationDone = false;
@@ -258,6 +268,8 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     setState(() => _isSubmitting = true);
     final navigator = Navigator.of(context);
     try {
+      _pendingSubmitResult = result;
+      _pendingSubmitExtraData = extraData;
       if (widget.onResult != null) {
         await widget.onResult!(result, extraData);
       } else {
@@ -270,11 +282,35 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
           awaitAssistantPresentation: false,
         );
       }
+      _pendingSubmitResult = null;
+      _pendingSubmitExtraData = null;
       if (navigator.mounted) {
         navigator.pop();
       }
+    } catch (error) {
+      if (!mounted) rethrow;
+      setState(() {
+        _automationDone = true;
+        _automationStep = 'sync_failed';
+        _automationMessage = _syncFailureMessage();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_syncFailureMessage())),
+      );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  String _syncFailureMessage() {
+    switch (widget.task) {
+      case 'address_check':
+        return '배송지 확인 결과를 서버에 전달하지 못했어요. 다시 시도해주세요.';
+      case 'payment':
+        return '결제 준비 결과를 서버에 전달하지 못했어요. 다시 시도해주세요.';
+      case 'add_to_cart':
+      default:
+        return '장바구니 진행 결과를 서버에 전달하지 못했어요. 다시 시도해주세요.';
     }
   }
 
@@ -617,6 +653,8 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         return '앱 안에서 컬리 로그인 정보를 한 번 저장하면 다음부터 자동으로 사용해요.';
       case 'manual_required':
         return '현재 플랫폼은 자동 탐색 대신 상품 페이지를 직접 보여드리고 있어요.';
+      case 'sync_failed':
+        return '웹뷰 작업은 끝났지만 서버 동기화가 되지 않았어요. 다시 시도해주세요.';
       default:
         return '실시간 진행 상황을 이곳에서 보여드리고 있어요.';
     }

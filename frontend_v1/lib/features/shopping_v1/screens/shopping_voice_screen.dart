@@ -284,12 +284,16 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           ),
         );
       case ShoppingStep.showProduct:
+        final product = _controller.currentProduct;
+        if (product == null) {
+          return const SizedBox(
+            key: ValueKey('show-product-empty'),
+          );
+        }
         return Padding(
           key: const ValueKey('show-product'),
           padding: const EdgeInsets.symmetric(horizontal: 0),
-          child: ProductCard(
-            product: _controller.currentProduct ?? ProductViewData.mock(),
-          ),
+          child: ProductCard(product: product),
         );
       case ShoppingStep.addingToCart:
         return CartProgressCard(

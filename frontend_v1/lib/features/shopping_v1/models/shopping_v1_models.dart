@@ -63,7 +63,7 @@ class ProductViewData {
   String get displayQuantityInfo =>
       (quantityInfo != null && quantityInfo!.trim().isNotEmpty)
       ? quantityInfo!.trim()
-      : (_extractQuantityFromTitle(title)?.trim() ?? '');
+      : (_extractQuantityLabelFromTitle(title)?.trim() ?? '');
 
   static ProductViewData mock({String? productUrl}) {
     return ProductViewData(
@@ -80,11 +80,40 @@ class ProductViewData {
 }
 
 String? _extractQuantityFromTitle(String text) {
-  final match = RegExp(r'\(([^()]*\d[^()]*)\)\s*$').firstMatch(text.trim());
-  if (match == null) {
+  final parenthesized = RegExp(r'\(([^()]*\d[^()]*)\)\s*$').firstMatch(text.trim());
+  if (parenthesized != null) {
+    return parenthesized.group(0);
+  }
+
+  final inline = _extractQuantityLabelFromTitle(text);
+  if (inline == null) {
     return null;
   }
-  return match.group(1);
+  final escaped = RegExp.escape(inline);
+  final inlineMatch = RegExp('$escaped\\s*\$').firstMatch(text.trim());
+  return inlineMatch?.group(0) ?? inline;
+}
+
+String? _extractQuantityLabelFromTitle(String text) {
+  final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final patterns = <RegExp>[
+    RegExp(r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입)\s*[,xX]\s*\d+\s*개)\s*$', caseSensitive: false),
+    RegExp(r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입)\s*,\s*\d+\s*개)\s*$', caseSensitive: false),
+    RegExp(r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입))\s*[,/]\s*(\d+\s*개)\s*$', caseSensitive: false),
+    RegExp(r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입))\s*$', caseSensitive: false),
+  ];
+
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(normalized);
+    if (match == null) {
+      continue;
+    }
+    if (match.groupCount >= 2 && match.group(2) != null) {
+      return '${match.group(1)!.trim()} x ${match.group(2)!.trim()}';
+    }
+    return match.group(1)?.trim();
+  }
+  return null;
 }
 
 String _ensureMarketPrefix(String title, String? shopName) {
