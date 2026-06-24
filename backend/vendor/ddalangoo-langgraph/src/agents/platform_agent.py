@@ -137,6 +137,13 @@ def _filter_results(
     return filtered
 
 
+def _no_results_message(keywords: list[str]) -> str:
+    keyword_text = " ".join(keyword for keyword in keywords if str(keyword).strip()).strip()
+    if keyword_text:
+        return f"{keyword_text} 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요."
+    return "찾으시는 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요."
+
+
 def platform_agent_node(state: ShoppingState) -> dict:
     """
     Platform Agent.
@@ -152,11 +159,17 @@ def platform_agent_node(state: ShoppingState) -> dict:
     intent = state.get("intent")
 
     if not keywords or all(k in ["그거", "저번에", "그것", "저것"] for k in keywords):
+        message = "어떤 상품을 찾으시는지 조금 더 자세히 말씀해 주세요."
         return {
             "search_results": [],
             "stage": "idle",
             "error": "invalid_keywords",
             "last_agent": "platform_agent",
+            "pending_action": {
+                "type": "clarification",
+                "message": message,
+                "payload": {"subType": "invalid_keywords"},
+            },
         }
 
     # ── 신선식품 키워드 감지 → 검색 없이 바로 컬리 제안 ──
@@ -225,7 +238,17 @@ def platform_agent_node(state: ShoppingState) -> dict:
     }
 
     if not search_results:
-        result = {**base, "search_results": [], "stage": "idle", "error": "no_results"}
+        result = {
+            **base,
+            "search_results": [],
+            "stage": "idle",
+            "error": "no_results",
+            "pending_action": {
+                "type": "clarification",
+                "message": _no_results_message(keywords),
+                "payload": {"subType": "no_results", "keywords": keywords},
+            },
+        }
     else:
         result = {**base, "search_results": search_results, "stage": "searching"}
 

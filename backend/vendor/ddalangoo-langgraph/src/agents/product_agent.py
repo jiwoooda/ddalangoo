@@ -78,6 +78,20 @@ def _format_preference(preference_context: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _missing_product_message(keywords: list[str]) -> str:
+    keyword_text = " ".join(keyword for keyword in keywords if str(keyword).strip()).strip()
+    if keyword_text:
+        return f"{keyword_text}에 맞는 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요."
+    return "조건에 맞는 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요."
+
+
+def _no_more_products_message(keywords: list[str]) -> str:
+    keyword_text = " ".join(keyword for keyword in keywords if str(keyword).strip()).strip()
+    if keyword_text:
+        return f"{keyword_text}로는 더 추천할 상품이 없어요. 다른 상품을 찾아볼까요?"
+    return "더 추천할 상품이 없어요. 다른 상품을 찾아볼까요?"
+
+
 def _make_rank_tool(candidates: list[dict[str, Any]]):
     """
     candidates를 레이블(A, B, C...)로 참조하는 rank_products 툴 생성.
@@ -119,7 +133,26 @@ def _generate_explanation(
         condition=condition or "없음",
         preference_context=_format_preference(preference_context or {}),
     )
-    return _get_llm().invoke([HumanMessage(content=prompt)]).content.strip()
+    try:
+        response = _get_llm().invoke([HumanMessage(content=prompt)])
+        content = (response.content or "").strip()
+        return content
+    except Exception as exc:
+        agent_logger.log(f"[product_agent] explanation generation failed: {exc}")
+        return ""
+
+
+def _fallback_explanation(product: dict[str, Any], keywords: list[str]) -> str:
+    product_name = str(product.get("product_name") or product.get("name") or "이 상품").strip()
+    price = product.get("price")
+    keyword_text = " ".join(keyword for keyword in keywords if str(keyword).strip()).strip()
+    if isinstance(price, int) and price > 0:
+        if keyword_text:
+            return f"{keyword_text}로 찾은 {product_name}이에요. 가격은 {price:,}원이에요. 주문할까요?"
+        return f"{product_name}이에요. 가격은 {price:,}원이에요. 주문할까요?"
+    if keyword_text:
+        return f"{keyword_text}로 찾은 {product_name}이에요. 주문할까요?"
+    return f"{product_name}이에요. 주문할까요?"
 
 
 def _extract_user_question(state: ShoppingState) -> str | None:
@@ -206,9 +239,20 @@ def product_agent_node(state: ShoppingState) -> dict:
 
             top_product = reranked[0] if reranked else None
             if not top_product:
-                return {"stage": "idle", "error": "no_relevant_products", "last_agent": "product_agent"}
+                return {
+                    "stage": "idle",
+                    "error": "no_relevant_products",
+                    "last_agent": "product_agent",
+                    "pending_action": {
+                        "type": "clarification",
+                        "message": _missing_product_message(keywords),
+                        "payload": {"subType": "no_relevant_products", "keywords": keywords},
+                    },
+                }
 
             explanation = _generate_explanation(top_product, keywords, condition, preference_context)
+            if not explanation:
+                explanation = _fallback_explanation(top_product, keywords)
             agent_logger.log_product_agent(
                 {"intent": intent, "rerank": True, "condition": condition},
                 {"selected_product": top_product},
@@ -219,7 +263,7 @@ def product_agent_node(state: ShoppingState) -> dict:
                 "recommended_products": reranked,
                 "current_product_index": 0,
                 "explanation": explanation,
-                "pending_action": {"type": "product_confirm"},
+                "pending_action": {"type": "product_confirm", "message": explanation},
                 "stage": "product_confirming",
                 "quantity": None,
                 "last_agent": "product_agent",
@@ -235,11 +279,13 @@ def product_agent_node(state: ShoppingState) -> dict:
                 "last_agent": "product_agent",
                 "pending_action": {
                     "type": "no_more_products",
-                    "message": "더 이상 추천할 상품이 없어요. 다른 검색어로 찾아볼까요?",
+                    "message": _no_more_products_message(keywords),
                 },
             }
         next_product = existing_ranked[next_idx]
         explanation = _generate_explanation(next_product, keywords, condition, preference_context)
+        if not explanation:
+            explanation = _fallback_explanation(next_product, keywords)
         agent_logger.log(f"[product_agent] next → idx={next_idx}: '{next_product.get('product_name')}'")
         agent_logger.log(f"[product_agent] 설명문: {explanation}")
         agent_logger.log_product_agent(
@@ -252,7 +298,7 @@ def product_agent_node(state: ShoppingState) -> dict:
             "recommended_products": existing_ranked,
             "current_product_index": next_idx,
             "explanation": explanation,
-            "pending_action": {"type": "product_confirm"},
+            "pending_action": {"type": "product_confirm", "message": explanation},
             "stage": "product_confirming",
             "quantity": None,
             "last_agent": "product_agent",
@@ -262,7 +308,16 @@ def product_agent_node(state: ShoppingState) -> dict:
     # ── 첫 검색: Phase 1 (ranking) + Phase 2 (explain) ──
     candidates = state.get("search_results") or existing_ranked
     if not candidates:
-        return {"stage": "idle", "error": "no_candidates", "last_agent": "product_agent"}
+        return {
+            "stage": "idle",
+            "error": "no_candidates",
+            "last_agent": "product_agent",
+            "pending_action": {
+                "type": "clarification",
+                "message": _missing_product_message(keywords),
+                "payload": {"subType": "no_candidates", "keywords": keywords},
+            },
+        }
 
     agent_logger.log(
         f"[product_agent] Phase1 랭킹 시작 | 후보 {len(candidates)}개  keywords={keywords}  condition={condition}"
@@ -300,7 +355,16 @@ def product_agent_node(state: ShoppingState) -> dict:
 
     top_product = ranked_products[0] if ranked_products else None
     if not top_product:
-        return {"stage": "idle", "error": "no_relevant_products", "last_agent": "product_agent"}
+        return {
+            "stage": "idle",
+            "error": "no_relevant_products",
+            "last_agent": "product_agent",
+            "pending_action": {
+                "type": "clarification",
+                "message": _missing_product_message(keywords),
+                "payload": {"subType": "no_relevant_products", "keywords": keywords},
+            },
+        }
 
     agent_logger.log(
         f"[product_agent] 1위 선택: '{top_product.get('product_name')}' "
@@ -311,6 +375,8 @@ def product_agent_node(state: ShoppingState) -> dict:
 
     # Phase 2: explanation 생성
     explanation = _generate_explanation(top_product, keywords, condition, preference_context)
+    if not explanation:
+        explanation = _fallback_explanation(top_product, keywords)
     agent_logger.log(f"[product_agent] 설명문: {explanation}")
 
     agent_logger.log_product_agent(
@@ -323,7 +389,7 @@ def product_agent_node(state: ShoppingState) -> dict:
         "recommended_products": ranked_products,
         "current_product_index": 0,
         "explanation": explanation,
-        "pending_action": {"type": "product_confirm"},
+        "pending_action": {"type": "product_confirm", "message": explanation},
         "stage": "product_confirming",
         "quantity": None,
         "last_agent": "product_agent",
