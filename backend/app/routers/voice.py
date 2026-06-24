@@ -65,9 +65,11 @@ async def text_to_speech(req: TtsRequest) -> TtsResponse:
             },
         )
 
-    audio_bytes = await voice_service.synthesize_speech(text)
+    audio_bytes, segments, total_duration_ms = await voice_service.synthesize_speech_bundle(text)
     logger.info("[voice.tts] response ready audio_size=%s", len(audio_bytes))
     return TtsResponse(
         audioBase64=voice_service.encode_audio_base64(audio_bytes),
         mimeType="audio/wav",
+        segments=segments,
+        totalDurationMs=total_duration_ms,
     )

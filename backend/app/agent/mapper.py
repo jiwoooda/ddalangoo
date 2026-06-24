@@ -318,6 +318,7 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
         status=_stage_to_status(stage),
         stage=stage,
         assistantMessage=_last_assistant_message(state),
+        message=_last_assistant_message(state),
         recommendationId=state.get("recommendation_id") or state.get("recommendationId"),
         recommendations=[_map_product(p) for p in candidates[:2]],
         selectedProduct=state.get("selected_product"),

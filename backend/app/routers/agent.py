@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Response, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.agent import ShoppingRequest, MessageRequest, ConfirmRequest, AgentResponse
+from app.schemas.agent import ShoppingRequest, MessageRequest, ConfirmRequest, PromptRequest, AgentResponse
 from app.schemas.payment import WebviewResultRequest
 from app.services import agent_service, payment_service, webview_progress_service
 
@@ -31,6 +31,10 @@ async def confirm_action(
     db: AsyncSession = Depends(get_db),
 ):
     return await agent_service.confirm_action(db, conversationId, req)
+
+@router.post("/prompts", response_model=AgentResponse)
+async def prompt_response(req: PromptRequest):
+    return await agent_service.generate_prompt_response(req)
 
 @router.post("/conversations/{conversationId}/payments/webview-result")
 async def webview_result(

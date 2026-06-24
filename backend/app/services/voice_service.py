@@ -6,6 +6,8 @@
 API Key는 환경변수 OPENAI_API_KEY / GEMINI_API_KEY에서 읽는다.
 """
 
+import asyncio
+from dataclasses import dataclass
 from io import BytesIO
 import os
 import re
@@ -13,11 +15,15 @@ import logging
 import base64
 import struct
 import time
+from pathlib import Path
+from uuid import uuid4
 
 from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 from fastapi import HTTPException
+from app.schemas.voice import TtsSegment
+from app.schemas.agent import SpeechSegment
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +58,15 @@ _MAX_TRANSCRIPT_LENGTH = 200
 _MIN_AUDIO_BYTES = 1000  # 너무 작은 파일은 무음으로 간주
 _MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB
 _MAX_TTS_TEXT_LENGTH = 1000
+_STATIC_TTS_ROOT = Path(__file__).resolve().parents[1] / "static" / "tts"
+_LEGACY_STATIC_TTS_ROOT = Path(__file__).resolve().parents[2] / "static" / "tts"
+
+
+@dataclass
+class _SynthesizedTtsSegment:
+    text: str
+    wav_bytes: bytes
+    duration_ms: int
 
 
 def _get_openai_client(feature: str = "stt") -> AsyncOpenAI:
@@ -235,6 +250,14 @@ def _normalize_transcript(raw: str) -> str:
 
 async def synthesize_speech(text: str) -> bytes:
     """텍스트를 Gemini TTS로 합성하고 WAV bytes를 반환한다."""
+    audio_bytes, _, _ = await synthesize_speech_bundle(text)
+    return audio_bytes
+
+
+async def synthesize_speech_bundle(
+    text: str,
+) -> tuple[bytes, list[TtsSegment], int]:
+    """텍스트를 내부적으로 문장 분리해 하나의 WAV와 문장 메타데이터로 반환한다."""
     normalized = text.strip()
     if not normalized:
         raise HTTPException(
@@ -257,6 +280,34 @@ async def synthesize_speech(text: str) -> bytes:
             },
         )
 
+    sentences = _split_tts_sentences(normalized)
+    synthesized_segments: list[_SynthesizedTtsSegment] = []
+
+    for sentence in sentences:
+        wav_bytes = await _synthesize_sentence_wav(sentence)
+        synthesized_segments.append(
+            _SynthesizedTtsSegment(
+                text=sentence,
+                wav_bytes=wav_bytes,
+                duration_ms=_estimate_wav_duration_ms(wav_bytes),
+            )
+        )
+
+    if len(synthesized_segments) == 1:
+        combined_audio = synthesized_segments[0].wav_bytes
+    else:
+        combined_audio = _concatenate_wav_segments(
+            [segment.wav_bytes for segment in synthesized_segments]
+        )
+    response_segments = [
+        TtsSegment(text=segment.text, durationMs=segment.duration_ms)
+        for segment in synthesized_segments
+    ]
+    total_duration_ms = sum(segment.duration_ms for segment in synthesized_segments)
+    return combined_audio, response_segments, total_duration_ms
+
+
+async def _synthesize_sentence_wav(normalized: str) -> bytes:
     client = _get_client("tts")
     models_to_try = list(dict.fromkeys([_TTS_MODEL, *_TTS_FALLBACK_MODELS]))
     last_error: Exception | None = None
@@ -346,6 +397,127 @@ async def synthesize_speech(text: str) -> bytes:
 def encode_audio_base64(audio_bytes: bytes) -> str:
     """프론트가 JSON으로 받기 쉽게 audio bytes를 base64 문자열로 변환한다."""
     return base64.b64encode(audio_bytes).decode("ascii")
+
+
+def split_agent_speech_segments(text: str) -> list[str]:
+    """Agent assistant message를 TTS 친화적인 문장 단위로 분할한다."""
+    normalized = re.sub(r"\s+", " ", str(text or "").replace("\n", " ")).strip()
+    if not normalized:
+        return []
+
+    sentences = _split_tts_sentences(normalized)
+    if not sentences:
+        sentences = [normalized]
+
+    segments: list[str] = []
+    for sentence in sentences:
+        segments.extend(_split_long_tts_segment(sentence))
+    return [segment for segment in segments if segment.strip()]
+
+
+def _split_tts_sentences(text: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
+    if not normalized:
+        return []
+
+    sentences: list[str] = []
+    start = 0
+    for index, char in enumerate(normalized):
+        if char not in ".!?。！？":
+            continue
+
+        prev_char = normalized[index - 1] if index > 0 else ""
+        next_char = normalized[index + 1] if index + 1 < len(normalized) else ""
+
+        # "토마토 1.4kg" 같은 숫자 소수점은 문장 경계로 취급하지 않는다.
+        if char == "." and prev_char.isdigit() and next_char.isdigit():
+            continue
+
+        sentences.append(normalized[start : index + 1].strip())
+        start = index + 1
+
+    if start < len(normalized):
+        sentences.append(normalized[start:].strip())
+
+    return [sentence for sentence in sentences if sentence]
+
+
+async def build_agent_speech_segments(
+    text: str,
+    *,
+    request_id: str | None = None,
+) -> list[SpeechSegment]:
+    """Agent assistant text를 문장 단위 speech segment + 접근 가능한 audioUrl로 변환한다."""
+    segments = split_agent_speech_segments(text)
+    if not segments:
+        return []
+
+    effective_request_id = request_id or uuid4().hex
+    segment_dirs = [
+        root / effective_request_id
+        for root in dict.fromkeys([_STATIC_TTS_ROOT, _LEGACY_STATIC_TTS_ROOT])
+    ]
+    for segment_dir in segment_dirs:
+        segment_dir.mkdir(parents=True, exist_ok=True)
+
+    async def _build_single_segment(index: int, segment_text: str) -> SpeechSegment:
+        try:
+            audio_bytes = await synthesize_speech(segment_text)
+            file_name = f"segment_{index}.wav"
+            await asyncio.gather(
+                *[
+                    asyncio.to_thread((segment_dir / file_name).write_bytes, audio_bytes)
+                    for segment_dir in segment_dirs
+                ]
+            )
+            return SpeechSegment(
+                index=index,
+                text=segment_text,
+                audioUrl=f"/static/tts/{effective_request_id}/{file_name}",
+                durationMs=_estimate_wav_duration_ms(audio_bytes),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[voice.agent_speech] segment tts failed index=%s text=%s error=%s",
+                index,
+                segment_text,
+                exc,
+            )
+            return SpeechSegment(index=index, text=segment_text, audioUrl=None)
+
+    built_segments = await asyncio.gather(
+        *[
+            _build_single_segment(index, segment_text)
+            for index, segment_text in enumerate(segments)
+        ]
+    )
+    return list(built_segments)
+
+
+def _split_long_tts_segment(text: str, *, max_length: int = 64) -> list[str]:
+    compact = text.strip()
+    if len(compact) <= max_length:
+        return [compact]
+
+    segments: list[str] = []
+    remaining = compact
+    split_pattern = re.compile(r"[,，·:：]\s*|\s+")
+    while len(remaining) > max_length:
+      window = remaining[:max_length + 8]
+      split_at = -1
+      for match in split_pattern.finditer(window):
+          split_at = match.end()
+      if split_at <= 0:
+          split_at = max_length
+      head = remaining[:split_at].strip()
+      if head:
+          segments.append(head)
+      remaining = remaining[split_at:].strip()
+      if not remaining:
+          break
+    if remaining:
+        segments.append(remaining)
+    return segments
 
 
 def _tts_prompt(text: str) -> str:
@@ -443,3 +615,40 @@ def _wrap_pcm16_as_wav(
         ]
     )
     return header + pcm_bytes
+
+
+def _concatenate_wav_segments(wav_segments: list[bytes]) -> bytes:
+    if not wav_segments:
+        return _wrap_pcm16_as_wav(b"")
+
+    pcm_chunks = [_extract_pcm16_from_wav(wav_bytes) for wav_bytes in wav_segments]
+    return _wrap_pcm16_as_wav(b"".join(pcm_chunks))
+
+
+def _extract_pcm16_from_wav(wav_bytes: bytes) -> bytes:
+    if len(wav_bytes) < 12 or wav_bytes[0:4] != b"RIFF" or wav_bytes[8:12] != b"WAVE":
+        return b""
+
+    offset = 12
+    total_length = len(wav_bytes)
+    while offset + 8 <= total_length:
+        chunk_id = wav_bytes[offset:offset + 4]
+        chunk_size = struct.unpack("<I", wav_bytes[offset + 4:offset + 8])[0]
+        data_start = offset + 8
+        data_end = data_start + chunk_size
+        if data_end > total_length:
+            return b""
+        if chunk_id == b"data":
+            return wav_bytes[data_start:data_end]
+        offset = data_end + (chunk_size % 2)
+
+    return b""
+
+
+def _estimate_wav_duration_ms(wav_bytes: bytes) -> int:
+    pcm_bytes = max(0, len(_extract_pcm16_from_wav(wav_bytes)))
+    bytes_per_second = _TTS_SAMPLE_RATE * 2
+    if bytes_per_second <= 0:
+        return 1000
+    duration_ms = round((pcm_bytes / bytes_per_second) * 1000)
+    return max(700, duration_ms)

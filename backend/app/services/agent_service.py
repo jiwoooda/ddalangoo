@@ -2,11 +2,12 @@ import os
 import re
 import threading
 from dataclasses import dataclass
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.agent import AgentResponse, ShoppingRequest, MessageRequest, ConfirmRequest
+from app.schemas.agent import AgentResponse, ShoppingRequest, MessageRequest, ConfirmRequest, PromptRequest
 from app.repositories import (
     address_repository,
     agent_event_repository,
@@ -19,7 +20,7 @@ from app.repositories import (
     user_repository,
 )
 from app.agent import runtime, mapper, actions, product_data_layer, recommendation_sync
-from app.services import webview_progress_service
+from app.services import webview_progress_service, voice_service
 from app.utils.product_url_contract import is_kurly_goods_url
 
 try:
@@ -1595,7 +1596,8 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         stage_before="idle",
         pending_action_before=None,
     )
-    return mapper.state_to_response(state, conv["id"])
+    response = mapper.state_to_response(state, conv["id"])
+    return await _with_speech_segments(response)
 
 
 async def get_conversation(db: AsyncSession, conversation_id: int) -> AgentResponse:
@@ -1616,6 +1618,7 @@ async def get_conversation(db: AsyncSession, conversation_id: int) -> AgentRespo
             status=conversation["status"],
             stage=conversation["stage"],
             assistantMessage=conversation.get("summary") or "이전 대화 상태를 불러왔습니다.",
+            message=conversation.get("summary") or "이전 대화 상태를 불러왔습니다.",
             recommendationId=None,
             recommendations=[],
             selectedProduct=None,
@@ -1639,7 +1642,8 @@ async def get_conversation(db: AsyncSession, conversation_id: int) -> AgentRespo
         event_type="conversation_recovered",
         output_summary={"stage": snapshot.values.get("stage"), "intent": snapshot.values.get("intent")},
     )
-    return mapper.state_to_response(snapshot.values, conversation_id)
+    response = mapper.state_to_response(snapshot.values, conversation_id)
+    return await _with_speech_segments(response)
 
 
 async def send_message(db: AsyncSession, conversation_id: int, req: MessageRequest) -> AgentResponse:
@@ -1670,7 +1674,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
-        return response
+        return await _with_speech_segments(response)
 
     if _is_address_confirmation_stage(snapshot.values, pending_action_before) and (
         _is_explicit_payment_confirmation(req.message)
@@ -1681,7 +1685,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
-        return response
+        return await _with_speech_segments(response)
 
     if pending_action_before == "payment_password" and _is_payment_password_entry(req.message):
         response = await _payment_completed_response(db, conversation_id, snapshot.values)
@@ -1690,7 +1694,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
-        return response
+        return await _with_speech_segments(response)
 
     state = await runtime.resume(conversation_id=conversation_id, message=req.message)
     if _is_address_confirmation_stage(snapshot.values, pending_action_before) and (
@@ -1709,7 +1713,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
-        return response
+        return await _with_speech_segments(response)
 
     user_id = int(snapshot.values["user_id"])
     state = await _run_post_graph_persistence(
@@ -1743,7 +1747,8 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
                 recommendation_item_id=int(recommendation_item_id),
                 state=state,
             )
-    return mapper.state_to_response(state, conversation_id)
+    response = mapper.state_to_response(state, conversation_id)
+    return await _with_speech_segments(response)
 
 
 async def confirm_action(db: AsyncSession, conversation_id: int, req: ConfirmRequest) -> AgentResponse:
@@ -1790,4 +1795,93 @@ async def confirm_action(db: AsyncSession, conversation_id: int, req: ConfirmReq
             recommendation_item_id=int(recommendation_item_id),
             state=state,
         )
-    return mapper.state_to_response(state, conversation_id)
+    response = mapper.state_to_response(state, conversation_id)
+    return await _with_speech_segments(response)
+
+
+async def _with_speech_segments(response: AgentResponse) -> AgentResponse:
+    message = (response.assistantMessage or response.message or "").strip()
+    if not message:
+        return response
+
+    request_id = f"agent_{response.conversationId}_{uuid4().hex}"
+    speech_segments = await voice_service.build_agent_speech_segments(
+        message,
+        request_id=request_id,
+    )
+    return response.model_copy(
+        update={
+            "message": response.message or message,
+            "speechMode": "segmented" if speech_segments else None,
+            "speechSegments": speech_segments or None,
+        }
+    )
+
+
+async def generate_prompt_response(req: PromptRequest) -> AgentResponse:
+    message = _prompt_message(req.kind, req.payload)
+    response = AgentResponse(
+        conversationId=req.conversationId or 0,
+        status="prompt",
+        stage=req.kind,
+        assistantMessage=message,
+        message=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=None,
+        pendingConfirmation=None,
+        availableOptions=None,
+        deliveryAddress=None,
+        cart=None,
+        order=None,
+        payment=None,
+        uiCommand=None,
+        asyncStatus=None,
+        error=None,
+    )
+    return await _with_speech_segments(response)
+
+
+def _prompt_message(kind: str, payload: object | None) -> str:
+    data = payload if isinstance(payload, dict) else {}
+    username = str(
+        data.get("username")
+        or data.get("userName")
+        or data.get("name")
+        or ""
+    ).strip()
+    title = str(data.get("title") or "").strip()
+    quantity_info = str(data.get("quantityInfo") or data.get("quantity_info") or "").strip()
+    price_text = str(data.get("priceText") or data.get("price_text") or "").strip()
+    badge_text = str(data.get("badgeText") or data.get("badge_text") or "").strip()
+    completion_text = str(data.get("text") or "").strip()
+
+    prompts = {
+        "initial_prompt": (
+            f"{username} 님 안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
+            if username
+            else "안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
+        ),
+        "searching_product": "상품을 찾는 중이에요.",
+        "ask_quantity": "몇 개를 담을까요?",
+        "confirm_address": "배송지를 확인해주세요.",
+        "pin_prompt": "비밀번호 6자리를 입력해주세요.",
+        "ask_more_or_checkout": "다른 상품을 더 구매하실래요? 아니면 결제를 진행할까요?",
+        "error_retry": "잠시 문제가 생겼어요. 다시 시도해볼게요.",
+        "negative_restart": "다른 상품을 찾아볼게요. 어떤 상품을 구매하고 싶으신가요?",
+        "more_shopping": "좋아요. 어떤 상품을 더 구매하고 싶으신가요?",
+        "stt_retry": "잘 못 들었어요. 다시 말씀해주세요.",
+        "stt_retry_gentle": "천천히 말씀해주셔도 괜찮아요. 다시 말씀해주세요.",
+        "adding_to_cart": "상품을 장바구니에 담을게요.",
+        "cart_completed": "상품을 모두 담았어요!",
+        "processing_payment": "결제를 진행 중이에요.",
+        "payment_completed": completion_text or "결제가 완료되었어요.",
+    }
+
+    if kind == "mock_product" and title:
+        quantity_phrase = quantity_info or "1개"
+        price_phrase = price_text or "가격을 확인했어요."
+        badge_phrase = badge_text or "리뷰가 좋고 30일 중 가장 싼 가격이에요!"
+        return f"{title}가 {quantity_phrase} {price_phrase}이에요. {badge_phrase} 이 상품을 구매할까요?"
+
+    return prompts.get(kind, completion_text or "잠시만요. 다시 확인해볼게요.")
