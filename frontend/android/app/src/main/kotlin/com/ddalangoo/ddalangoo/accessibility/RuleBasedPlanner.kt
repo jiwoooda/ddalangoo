@@ -27,6 +27,7 @@ enum class RuleReasonCode(val value: String) {
     ORDER_HISTORY("order_history"),
     PURCHASE_HISTORY_DUMP("purchase_history_dump"),
     PURCHASE_HISTORY_SCROLL("purchase_history_scroll"),
+    PURCHASE_HISTORY_FINISH("purchase_history_finish"),
     REORDER_BUTTON("reorder_button"),
     POPUP_DISMISS("popup_dismiss"),
     SENSITIVE_SCREEN("sensitive_screen"),
@@ -86,6 +87,9 @@ class RuleBasedPlanner {
             "open_my_kurly" -> planMyKurly(filteredNodes)
             "open_order_history" -> planOrderHistory(filteredNodes)
             "dump_purchase_history" -> planPurchaseHistoryDump()
+            "extract_purchase_history" -> planPurchaseHistoryDump()
+            "finish_purchase_history" -> planPurchaseHistoryFinish()
+            "complete_purchase_history_collection" -> planPurchaseHistoryFinish()
             "scroll_purchase_history" -> planPurchaseHistoryScroll(filteredNodes)
             "click_reorder" -> planReorder(filteredNodes)
             "search_input" -> planSearchInput(filteredNodes, task)
@@ -121,6 +125,16 @@ class RuleBasedPlanner {
             targetNodeId = null,
             textToInput = null,
             reasonCode = RuleReasonCode.PURCHASE_HISTORY_DUMP.value,
+            confidence = 1.0
+        )
+    }
+
+    private fun planPurchaseHistoryFinish(): ActionPlan {
+        return ActionPlan(
+            actionType = AutomationActionType.DUMP_PURCHASE_HISTORY.value,
+            targetNodeId = null,
+            textToInput = null,
+            reasonCode = RuleReasonCode.PURCHASE_HISTORY_FINISH.value,
             confidence = 1.0
         )
     }

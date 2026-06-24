@@ -75,4 +75,43 @@ object AutomationLogger {
             )
         }
     }
+
+    fun parsedPurchaseHistory(
+        platform: String?,
+        packageName: String?,
+        candidates: List<PurchaseHistoryCandidate>
+    ) {
+        info(
+            "parsedPurchaseHistory platform=${platform.orEmpty()} packageName=${packageName.orEmpty()} " +
+                "orderGroupCount=${candidates.size} json=${PurchaseHistoryCandidateJsonSerializer.toJson(candidates)}"
+        )
+    }
+
+    fun accumulatedPurchaseHistory(
+        platform: String?,
+        packageName: String?,
+        mergeResult: PurchaseHistoryMergeResult
+    ) {
+        info(
+            "accumulatedPurchaseHistory platform=${platform.orEmpty()} packageName=${packageName.orEmpty()} " +
+                "currentExtractCount=${mergeResult.currentExtractCount} " +
+                "accumulatedOrderCount=${mergeResult.accumulatedOrderCount} " +
+                "newOrderCount=${mergeResult.newOrderCount} " +
+                "duplicateOrderCount=${mergeResult.duplicateOrderCount} " +
+                "orderNumbers=${mergeResult.orderNumbers.joinToString(prefix = "[", postfix = "]")} " +
+                "json=${PurchaseHistoryCandidateJsonSerializer.toJson(mergeResult.accumulatedCandidates)}"
+        )
+    }
+
+    fun accumulatedPurchaseHistoryFinal(
+        platform: String?,
+        packageName: String?,
+        accumulatedCandidates: List<PurchaseHistoryCandidate>
+    ) {
+        info(
+            "accumulatedPurchaseHistory final=true platform=${platform.orEmpty()} " +
+                "packageName=${packageName.orEmpty()} accumulatedOrderCount=${accumulatedCandidates.size} " +
+                "json=${PurchaseHistoryCandidateJsonSerializer.toJson(accumulatedCandidates)}"
+        )
+    }
 }

@@ -157,7 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
           'quantity': 1,
           'platform': 'kurly',
           'packageName': 'com.dbs.kurly.m2',
-          'currentStep': 'dump_purchase_history',
+          'currentStep': 'extract_purchase_history',
         },
       );
       if (!mounted) return;

@@ -7,6 +7,8 @@ class DdalangooAccessibilityService : AccessibilityService() {
     private val uiTreeCollector = UiTreeCollector()
     private val uiNodeSerializer = UiNodeSerializer()
     private val ruleBasedPlanner = RuleBasedPlanner()
+    private val kurlyPurchaseHistoryExtractor = KurlyPurchaseHistoryExtractor()
+    private val coupangPurchaseHistoryExtractor = CoupangPurchaseHistoryExtractor()
     private lateinit var actionExecutor: ActionExecutor
 
     override fun onServiceConnected() {
@@ -70,12 +72,40 @@ class DdalangooAccessibilityService : AccessibilityService() {
             filteredNodes.firstOrNull { node -> node.id == targetNodeId }
         }
         if (actionPlan.actionType == AutomationActionType.DUMP_PURCHASE_HISTORY.value) {
+            val shouldExtractPurchaseHistory = actionPlan.reasonCode != RuleReasonCode.PURCHASE_HISTORY_FINISH.value
+            val parsedPurchaseHistory = if (shouldExtractPurchaseHistory) {
+                purchaseHistoryExtractorFor(task.platform).extract(filteredNodes)
+            } else {
+                emptyList()
+            }
             AutomationLogger.purchaseHistoryDump(
                 packageName = task.packageName ?: eventPackageName,
                 rawNodeCount = rawNodes.size,
                 filteredNodeCount = filteredNodes.size,
                 candidateNodes = findPurchaseHistoryCandidates(filteredNodes)
             )
+            if (shouldExtractPurchaseHistory) {
+                val mergeResult = PurchaseHistoryExtractionStore.merge(parsedPurchaseHistory)
+                AutomationLogger.parsedPurchaseHistory(
+                    platform = task.platform,
+                    packageName = task.packageName ?: eventPackageName,
+                    candidates = parsedPurchaseHistory
+                )
+                AutomationLogger.accumulatedPurchaseHistory(
+                    platform = task.platform,
+                    packageName = task.packageName ?: eventPackageName,
+                    mergeResult = mergeResult
+                )
+                if (task.currentStep == "extract_purchase_history" && mergeResult.newOrderCount == 0) {
+                    AutomationTaskStore.updateCurrentStep("finish_purchase_history")
+                }
+            } else {
+                AutomationLogger.accumulatedPurchaseHistoryFinal(
+                    platform = task.platform,
+                    packageName = task.packageName ?: eventPackageName,
+                    accumulatedCandidates = PurchaseHistoryExtractionStore.accumulatedCandidates()
+                )
+            }
         }
         AutomationLogger.info(
             "plan actionType=${actionPlan.actionType} targetNodeId=${actionPlan.targetNodeId} " +
@@ -90,7 +120,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
 
         if (actionPlan.actionType == AutomationActionType.STOP_FOR_SENSITIVE_SCREEN.value) {
             AutomationTaskStore.clearTask()
-        } else if (actionResult.success) {
+        } else if (actionResult.success && AutomationTaskStore.getTask()?.currentStep == task.currentStep) {
             AutomationTaskStore.advanceAfterSuccess(actionPlan)
         }
 
@@ -142,5 +172,17 @@ class DdalangooAccessibilityService : AccessibilityService() {
                 purchaseHistoryKeywords.any { keyword -> nodeText.contains(keyword.lowercase()) }
             }
             .take(80)
+    }
+
+    private fun purchaseHistoryExtractorFor(platform: String): PurchaseHistoryExtractor {
+        return when (platform.lowercase()) {
+            "kurly" -> kurlyPurchaseHistoryExtractor
+            "coupang" -> coupangPurchaseHistoryExtractor
+            else -> object : PurchaseHistoryExtractor {
+                override fun extract(filteredNodes: List<UiNode>): List<PurchaseHistoryCandidate> {
+                    return emptyList()
+                }
+            }
+        }
     }
 }
