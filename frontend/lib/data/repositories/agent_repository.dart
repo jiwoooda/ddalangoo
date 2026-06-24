@@ -109,7 +109,7 @@ class AgentRepository {
   AgentResponse _parseAgentResponse(dynamic data, {required String label}) {
     final agentResponse = AgentResponse.fromJson(data);
     debugPrint(
-      '📥 [$label]\n${_jsonEncoder.convert({'conversationId': agentResponse.conversationId, 'status': agentResponse.status, 'stage': agentResponse.stage, 'assistantMessage': agentResponse.assistantMessage, 'recommendationCount': agentResponse.recommendations.length, 'pendingConfirmation': agentResponse.pendingConfirmation, 'availableOptions': agentResponse.availableOptions, 'uiCommand': agentResponse.uiCommand, 'asyncStatus': agentResponse.asyncStatus, 'error': agentResponse.error})}',
+      '📥 [$label]\n${_jsonEncoder.convert({'conversationId': agentResponse.conversationId, 'status': agentResponse.status, 'stage': agentResponse.stage, 'assistantMessage': agentResponse.assistantMessage, 'recommendationCount': agentResponse.recommendations.length, 'pendingConfirmation': agentResponse.pendingConfirmation, 'availableOptions': agentResponse.availableOptions, 'deliveryAddress': agentResponse.deliveryAddress, 'uiCommand': agentResponse.uiCommand, 'asyncStatus': agentResponse.asyncStatus, 'error': agentResponse.error})}',
     );
 
     if (agentResponse.stage == 'idle') {

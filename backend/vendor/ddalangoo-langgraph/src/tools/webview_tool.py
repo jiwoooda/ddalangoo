@@ -678,13 +678,22 @@ def _click_purchase_button(page: Page) -> bool:
     print("[webview] 구매하기 버튼 탐색...")
 
     # DOM 우선: 텍스트 기반 locator
-    try:
-        page.locator("text=구매하기").last.click(timeout=3000)
-        page.wait_for_timeout(2500)
-        print("[webview:DOM] 구매하기 버튼 클릭 성공")
-        return True
-    except Exception:
-        print("[webview:DOM] 실패 → VLM 폴백")
+    for selector in [
+        "button:has-text('구매하기')",
+        "button:has-text('바로구매')",
+        "button:has-text('장바구니 담기')",
+        "button:has-text('담기')",
+        "text=구매하기",
+    ]:
+        try:
+            page.locator(selector).last.click(timeout=2500)
+            page.wait_for_timeout(2500)
+            print(f"[webview:DOM] 구매/담기 버튼 클릭 성공: {selector}")
+            return True
+        except Exception:
+            continue
+
+    print("[webview:DOM] 실패 → VLM 폴백")
 
     # VLM 폴백
     result = _screenshot_and_ask(
@@ -700,6 +709,28 @@ def _click_purchase_button(page: Page) -> bool:
     page.wait_for_timeout(2500)
     print(f"[webview:VLM] 구매하기 버튼 클릭 ({result['x']}, {result['y']})")
     return True
+
+
+def _cart_added_confirmation_visible(page: Page) -> bool:
+    """상품이 이미 장바구니에 담겼는지 토스트/문구 기준으로 확인한다."""
+    try:
+        text = page.evaluate("""() => document.body ? document.body.innerText : """)
+    except Exception as e:
+        print(f"[webview:DOM] 장바구니 담김 확인 실패: {e}")
+        return False
+
+    normalized = " ".join(str(text or "").split())
+    confirmation_tokens = [
+        "장바구니에 상품을 담았습니다",
+        "장바구니에 담았습니다",
+        "장바구니에 담겼습니다",
+        "상품을 담았습니다",
+        "담겼어요",
+    ]
+    found = any(token in normalized for token in confirmation_tokens)
+    if found:
+        print("[webview:DOM] 장바구니 담김 문구 확인")
+    return found
 
 
 # ══════════════════════════════════════════════
@@ -887,6 +918,9 @@ def _click_cart_add_button(page: Page) -> bool:
             page.touchscreen.tap(result["x"], result["y"])
             page.wait_for_timeout(2000)
             print(f"[webview:VLM] 담기 버튼 tap ({result['x']}, {result['y']})")
+        else:
+            print("[webview:VLM] 담기 버튼 미발견")
+            return False
 
     # 담기 버튼 tap 후 팝업은 자동으로 닫힘 — 별도 close 불필요
     print("[webview] 장바구니 팝업 처리 완료")
@@ -1285,43 +1319,49 @@ def run_kurly_purchase(
             return {"cart_added": False, "storage_state_path": None,
                     "delivery_info": delivery_info, "error": "purchase_button_not_found"}
 
-        # ── Step 5b. 팝업 단가 읽기 + 가격 변동 확인 (수량 설정 전, quantity=1 상태) ──
-        if history_price:
-            page.wait_for_timeout(800)  # 팝업 애니메이션 완료 대기
-            current_price = _read_cart_popup_price(page)  # quantity=1이므로 = 단가
-            if current_price and history_price > 0:
-                diff = abs(current_price - history_price)
-                ratio = diff / history_price
-                if diff >= 500 or ratio >= 0.1:
-                    direction = "올랐어요" if current_price > history_price else "내렸어요"
-                    print(f"[webview] 가격 변동 감지: {history_price:,}원 → {current_price:,}원 ({direction})")
-                    _close_popup(page)
-                    context.storage_state(path=storage_state_path)
-                    return {
-                        "cart_added": False,
-                        "price_changed": True,
-                        "current_price": current_price,
-                        "history_price": history_price,
-                        "storage_state_path": storage_state_path,
-                        "delivery_info": delivery_info,
-                        "product_url": product_url,
-                        "error": None,
-                    }
+        if _cart_added_confirmation_visible(page):
+            print("[webview] 옵션/수량 팝업 없이 바로 장바구니 담김")
+        else:
+            # ── Step 5b. 팝업 단가 읽기 + 가격 변동 확인 (수량 설정 전, quantity=1 상태) ──
+            if history_price:
+                page.wait_for_timeout(800)  # 팝업 애니메이션 완료 대기
+                current_price = _read_cart_popup_price(page)  # quantity=1이므로 = 단가
+                if current_price and history_price > 0:
+                    diff = abs(current_price - history_price)
+                    ratio = diff / history_price
+                    if diff >= 500 or ratio >= 0.1:
+                        direction = "올랐어요" if current_price > history_price else "내렸어요"
+                        print(f"[webview] 가격 변동 감지: {history_price:,}원 → {current_price:,}원 ({direction})")
+                        _close_popup(page)
+                        context.storage_state(path=storage_state_path)
+                        return {
+                            "cart_added": False,
+                            "price_changed": True,
+                            "current_price": current_price,
+                            "history_price": history_price,
+                            "storage_state_path": storage_state_path,
+                            "delivery_info": delivery_info,
+                            "product_url": product_url,
+                            "error": None,
+                        }
 
-        # ── Step 6. 수량 설정 ──
-        _check_cancel()
-        print("[webview] Step 6. 장바구니 팝업 처리")
-        _emit_progress(
-            progress_callback,
-            flow=flow,
-            step="adding_to_cart",
-            message="장바구니에 담고 있어요.",
-            page=page,
-        )
-        _confirm_cart(page, quantity=quantity)
+            # ── Step 6. 수량 설정 ──
+            _check_cancel()
+            print("[webview] Step 6. 장바구니 팝업 처리")
+            _emit_progress(
+                progress_callback,
+                flow=flow,
+                step="adding_to_cart",
+                message="장바구니에 담고 있어요.",
+                page=page,
+            )
+            _confirm_cart(page, quantity=quantity)
 
-        # ── Step 6b. 담기 버튼 클릭 ──
-        _click_cart_add_button(page)
+            # ── Step 6b. 담기 버튼 클릭 ──
+            if not _click_cart_add_button(page):
+                return {"cart_added": False, "storage_state_path": None,
+                        "delivery_info": delivery_info, "product_url": product_url,
+                        "error": "cart_add_button_not_found"}
 
         # ── Step 7. 세션 저장 ──
         print("[webview] Step 7. 세션 저장")

@@ -80,6 +80,18 @@ async def get_reorder_candidates_from_db(
                 break
 
     candidates = [purchase_history_to_candidate(history) for history in histories[:limit]]
+    for candidate in candidates:
+        product_id = candidate.get("product_id")
+        if not product_id:
+            continue
+        product = await product_repository.get_product_by_id_db(db, product_id)
+        if not product:
+            continue
+        candidate["image_url"] = product.get("image_url")
+        candidate["delivery_info"] = product.get("current_delivery_info")
+        candidate["delivery_type"] = product.get("delivery_type")
+        candidate["rating"] = product.get("rating")
+        candidate["review_count"] = product.get("review_count")
     return await recommendation_scoring_service.rank_candidates(
         candidates,
         keywords=keywords,
@@ -125,6 +137,8 @@ def build_product_confirm_patch(candidate: dict, *, message_prefix: str | None =
     return {
         "selected_product": candidate,
         "product_url": product_url,
+        "messages": [{"role": "assistant", "content": message}],
+        "explanation": message,
         "pending_action": {
             "type": "product_confirm",
             "message": message,
@@ -194,7 +208,7 @@ async def hydrate_state_with_db_candidates(
             }
 
     should_try_product_pool = (
-        intent in {"buy", "refine", "compare_platforms"}
+        intent in {"buy", "ask", "refine", "compare_platforms"}
         and not existing_candidates
         and state.get("error") in {None, "no_results", "product_agent_parse_error"}
     )

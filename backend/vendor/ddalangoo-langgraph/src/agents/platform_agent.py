@@ -43,6 +43,7 @@ PLATFORM_DEFAULTS_BY_KEYWORD = {
     "과일": "kurly", "딸기": "kurly", "채소": "kurly", "정육": "kurly",
     "아보카도": "kurly", "블루베리": "kurly", "두부": "kurly",
     "달걀": "kurly", "계란": "kurly", "식재료": "kurly", "신선": "kurly",
+    "떡": "kurly", "버터떡": "kurly", "디저트": "kurly",
     "화장품": "oliveyoung", "뷰티": "oliveyoung",
     "패션": "musinsa", "의류": "musinsa", "신발": "musinsa",
 }
@@ -111,6 +112,11 @@ def _should_suggest_kurly_early(keywords: list[str], tried_platforms: list[str])
     return "kurly" not in tried_platforms
 
 
+def _should_search_directly(intent: str | None) -> bool:
+    """상품 요청이 명확한 경우에는 플랫폼 확인보다 실제 검색을 먼저 한다."""
+    return intent in {"buy", "reorder", "refine", "ask"}
+
+
 def _filter_results(
     products: list[dict[str, Any]],
     exclude_keywords: list[str],
@@ -156,6 +162,7 @@ def platform_agent_node(state: ShoppingState) -> dict:
     # ── 신선식품 키워드 감지 → 검색 없이 바로 컬리 제안 ──
     if (
         not _kurly_mvp_mode()
+        and not _should_search_directly(intent)
         and pending_action.get("type") != "platform_suggest"
         and _should_suggest_kurly_early(keywords, tried_platforms)
     ):

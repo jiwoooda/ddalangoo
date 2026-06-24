@@ -251,8 +251,11 @@ async def test_webview_address_checked_returns_address_confirming(monkeypatch):
 
     assert result["stage"] == "address_confirming"
     assert result["uiCommand"] == {"type": "close_webview"}
-    assert result["pendingConfirmation"]["type"] == "address_confirm"
-    assert "서울시 강남구 테헤란로 101호" in result["assistantMessage"]
+    assert result["pendingConfirmation"]["type"] == "address"
+    assert result["pendingConfirmation"]["payload"]["address"]["address_line1"] == "서울시 강남구 테헤란로"
+    assert result["pendingConfirmation"]["payload"]["address"]["address_line2"] == "101호"
+    assert "배송지" in result["assistantMessage"]
+    assert "맞으세요" in result["assistantMessage"]
     assert calls == {"created": 0, "set_default": 0}
 
 
@@ -334,7 +337,10 @@ async def test_webview_address_checked_creates_default_address_when_missing(monk
     assert calls["created_payload"]["is_default"] is True
     assert calls["created_payload"]["address_line1"] == "서울시 용산구 서빙고로 17"
     assert calls["created_payload"]["address_line2"] == "301호"
-    assert "서울시 용산구 서빙고로 17 301호" in result["assistantMessage"]
+    assert result["pendingConfirmation"]["payload"]["address"]["address_line1"] == "서울시 용산구 서빙고로 17"
+    assert result["pendingConfirmation"]["payload"]["address"]["address_line2"] == "301호"
+    assert "배송지" in result["assistantMessage"]
+    assert "맞으세요" in result["assistantMessage"]
 
 
 @pytest.mark.anyio
@@ -412,7 +418,10 @@ async def test_webview_address_checked_promotes_matching_saved_address(monkeypat
     assert calls["created"] == 0
     assert calls["set_default_id"] == 2
     assert result["deliveryAddress"]["is_default"] is True
-    assert "서울시 용산구 서빙고로 17 301호" in result["assistantMessage"]
+    assert result["deliveryAddress"]["address_line1"] == "서울시 용산구 서빙고로 17"
+    assert result["deliveryAddress"]["address_line2"] == "301호"
+    assert "배송지" in result["assistantMessage"]
+    assert "맞으세요" in result["assistantMessage"]
 
 
 @pytest.mark.anyio

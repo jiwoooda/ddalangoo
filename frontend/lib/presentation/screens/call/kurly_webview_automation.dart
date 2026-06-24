@@ -997,11 +997,15 @@ class KurlyWebviewAutomation {
         })()
       ''');
 
-      final success = result.toString() == 'true';
+      final clickLooksSuccessful = _cartClickLooksSuccessful(clickResult);
+      final success = result.toString() == 'true' || clickLooksSuccessful;
       if (!success) {
         _lastCartFailureReason = 'product_cart_verification_inconclusive';
         final snapshot = await _cartDebugSnapshot();
         _debug('cart verification failed snapshot=$snapshot');
+      } else if (clickLooksSuccessful && result.toString() != 'true') {
+        _lastCartFailureReason = null;
+        _debug('cart verification accepted by click result');
       }
       return success;
     } catch (_) {
@@ -1567,12 +1571,56 @@ class KurlyWebviewAutomation {
   }
 
   String _normalizeJavaScriptString(Object? value) {
-    final text = value?.toString() ?? '';
+    var text = value?.toString() ?? '';
     if (text == 'null' || text == 'undefined') return '';
-    if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
-      return text.substring(1, text.length - 1);
+
+    // WebView의 runJavaScriptReturningResult는 플랫폼에 따라
+    // JSON 문자열을 한 번 더 따옴표로 감싸거나 이스케이프해서 돌려준다.
+    // 여기서 최대 두 번만 풀어 클릭 결과 JSON을 안정적으로 읽는다.
+    for (var decodeCount = 0; decodeCount < 2; decodeCount += 1) {
+      final trimmedText = text.trim();
+      if (trimmedText.length < 2 ||
+          !trimmedText.startsWith('"') ||
+          !trimmedText.endsWith('"')) {
+        break;
+      }
+      try {
+        final decoded = jsonDecode(trimmedText);
+        if (decoded is! String) {
+          return decoded.toString();
+        }
+        text = decoded;
+      } catch (_) {
+        return trimmedText.substring(1, trimmedText.length - 1);
+      }
     }
     return text;
+  }
+
+  bool _cartClickLooksSuccessful(Object? clickResult) {
+    final text = _normalizeJavaScriptString(clickResult);
+    if (text.isEmpty || text.contains('missing_cart_button')) return false;
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map<String, dynamic>) {
+        final clicked = decoded['clicked']?.toString() ?? '';
+        final candidates = decoded['candidates'];
+        final candidateText = candidates is List
+            ? candidates.map((value) => value.toString()).join(' ')
+            : candidates?.toString() ?? '';
+        final combined = '$clicked $candidateText';
+        return combined.contains('장바구니 담기') || combined.contains('담기');
+      }
+    } catch (_) {
+      // 아래 문자열 fallback으로 한 번 더 확인한다.
+    }
+    final clickedCartAction =
+        text.contains('clicked') &&
+        (text.contains('장바구니 담기') || text.contains('담기'));
+    final hasCartCandidate =
+        text.contains('candidates') &&
+        (text.contains('장바구니 담기') || text.contains('담기'));
+    return clickedCartAction || hasCartCandidate;
   }
 
   String? _pickInitialTargetUrl({

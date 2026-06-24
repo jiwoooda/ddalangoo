@@ -44,6 +44,7 @@ class CallProvider extends ChangeNotifier {
   bool _isAwaitingCartWebviewProgress = false;
   bool _isAutoConfirmingPaymentMethod = false;
   int _responseEpoch = 0;
+  Future<void> _responsePresentationQueue = Future.value();
   final List<Map<String, dynamic>> _messages = [];
   LatencyRequestContext? _activeLatencyContext;
 
@@ -639,10 +640,18 @@ class CallProvider extends ChangeNotifier {
     AgentResponse response, {
     LatencyRequestContext? latencyContext,
   }) async {
+    final queuedResponse = _responsePresentationQueue.then(
+      (_) => _handleResponseNow(response, latencyContext: latencyContext),
+    );
+    _responsePresentationQueue = queuedResponse.catchError((_) {});
+    await queuedResponse;
+  }
+
+  Future<void> _handleResponseNow(
+    AgentResponse response, {
+    LatencyRequestContext? latencyContext,
+  }) async {
     final responseEpoch = ++_responseEpoch;
-    if (_isSpeaking) {
-      await _voiceService.stopSpeaking();
-    }
 
     final oldStage = _stage;
     final nextStage = _mapResponseStage(response);

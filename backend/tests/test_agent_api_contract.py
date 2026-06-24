@@ -12,6 +12,7 @@ from app.utils.product_url_contract import (
 )
 from src.agents import platform_agent
 from src.tools import meta_mcp_client
+from src.tools import webview_tool
 
 
 def test_webview_status_default_matches_frontend_contract():
@@ -461,6 +462,41 @@ def test_webview_credential_debug_summary_hides_secret_values(monkeypatch):
     }
     assert "user@example.com" not in str(summary)
     assert "secret-password" not in str(summary)
+
+
+def test_webview_cart_added_confirmation_detects_direct_add():
+    """옵션 팝업 없이 바로 담기는 상품은 장바구니 담김 문구로 성공을 감지한다."""
+
+    class FakePage:
+        def evaluate(self, _script):
+            return "장바구니에 상품을 담았습니다."
+
+    assert webview_tool._cart_added_confirmation_visible(FakePage()) is True
+
+
+def test_webview_cart_add_button_returns_false_when_missing(monkeypatch):
+    """최종 담기 버튼을 못 찾았으면 성공으로 속이지 않고 실패를 반환한다."""
+
+    class FakeTouchscreen:
+        def tap(self, _x, _y):
+            raise AssertionError("담기 버튼이 없으면 tap을 호출하면 안 된다.")
+
+    class FakePage:
+        touchscreen = FakeTouchscreen()
+
+        def evaluate(self, _script):
+            return {"found": False}
+
+        def wait_for_timeout(self, _timeout):
+            return None
+
+    monkeypatch.setattr(
+        webview_tool,
+        "_screenshot_and_ask",
+        lambda _page, _question: {"found": False},
+    )
+
+    assert webview_tool._click_cart_add_button(FakePage()) is False
 
 
 def test_kurly_mvp_mode_selects_kurly_first(monkeypatch):
