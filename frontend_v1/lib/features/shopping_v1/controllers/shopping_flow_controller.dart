@@ -110,6 +110,12 @@ class ShoppingFlowController extends ChangeNotifier {
   bool get isMockMode => _isMockMode;
   WebviewTaskViewData? get pendingWebviewTask => _pendingWebviewTask;
   bool get _shouldBypassTtsForDemo => _forceSilentDemoTts;
+  bool _isActiveEpoch(int epoch) => epoch == _speakEpoch;
+  bool _canContinueUserRecording(int epoch) {
+    return _isActiveEpoch(epoch) &&
+        _voiceTurnState == VoiceTurnState.userRecording;
+  }
+
   bool get closeAppRequested => _closeAppRequested;
   String get cartOwnerName =>
       (_userName?.trim().isNotEmpty ?? false) ? _userName!.trim() : '김영희';
@@ -947,9 +953,11 @@ class ShoppingFlowController extends ChangeNotifier {
         _voiceTurnState != VoiceTurnState.userCanSpeak) {
       return;
     }
+
     final effectiveInitialWait = _currentInitialSpeechWaitTimeout();
     final effectiveMaxRecording = _currentMaxRecordingDuration();
     final effectiveMinimumRecording = _currentMinimumRecordingDuration();
+
     _hasDetectedSpeech = false;
     _noiseSampleCount = 0;
     _speechNoiseFloor = -45;
@@ -964,32 +972,34 @@ class ShoppingFlowController extends ChangeNotifier {
     _zeroishAmplitudeCount = 0;
     _voiceTurnState = VoiceTurnState.userRecording;
     _voiceLevel = 0.34;
-    debugPrint(
-      '[VAD] recording_started '
-      'step=$_step epoch=$epoch '
-      'initialSpeechWaitMs=${effectiveInitialWait.inMilliseconds} '
-      'maxRecordingMs=${effectiveMaxRecording.inMilliseconds} '
-      'minRecordingMs=${effectiveMinimumRecording.inMilliseconds}',
-    );
+
     notifyListeners();
+
     try {
       await _voiceTurnService.startRecording();
-      _listenAmplitude();
+
+      if (!_canContinueUserRecording(epoch)) {
+        await _voiceTurnService.cancelRecording();
+        return;
+      }
+
+      _listenAmplitude(epoch);
+
       _recordingTimeoutTimer = Timer(effectiveMaxRecording, () {
-        unawaited(_finishRecording());
+        if (!_canContinueUserRecording(epoch)) return;
+        unawaited(_finishRecording(epoch: epoch));
       });
+
       _speechSilenceTimer = Timer(effectiveInitialWait, () async {
-        if (_hasDetectedSpeech ||
-            _voiceTurnState != VoiceTurnState.userRecording) {
+        if (!_canContinueUserRecording(epoch) || _hasDetectedSpeech) {
           return;
         }
-        debugPrint(
-          '[VAD] initial_silence_timeout '
-          'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)} '
-          'samples=$_noiseSampleCount',
-        );
+
         await _voiceTurnService.cancelRecording();
         _cancelVoiceTimers(keepCartAndPaymentTimers: true);
+
+        if (!_isActiveEpoch(epoch)) return;
+
         await _presentPrompt(
           'stt_retry_gentle',
           nextStep: _step,
@@ -1001,22 +1011,30 @@ class ShoppingFlowController extends ChangeNotifier {
         '⚠️ [VAD] recording_start_failed '
         'step=$_step epoch=$epoch error=$error\n$stackTrace',
       );
+
+      _cancelVoiceTimers(keepCartAndPaymentTimers: true);
+      await _voiceTurnService.cancelRecording();
+      if (!_isActiveEpoch(epoch)) return;
+
       await _handleSttFailure();
     }
   }
 
-  void _listenAmplitude() {
+  void _listenAmplitude(int epoch) {
     _amplitudeSubscription?.cancel();
+
     try {
       _amplitudeSubscription = _voiceTurnService
           .onAmplitudeChanged(interval: const Duration(milliseconds: 160))
           .listen((amplitude) {
+            if (!_canContinueUserRecording(epoch)) return;
+
             final current = amplitude.current;
             final normalized = _normalizeAmplitude(current);
             _voiceLevel = normalized;
-            if (_voiceTurnState == VoiceTurnState.userRecording) {
-              _updateVoiceActivity(current);
-            }
+
+            _updateVoiceActivity(current, epoch);
+
             notifyListeners();
           });
     } catch (_) {
@@ -1024,14 +1042,16 @@ class ShoppingFlowController extends ChangeNotifier {
     }
   }
 
-  Future<void> _finishRecording() async {
-    if (_voiceTurnState != VoiceTurnState.userRecording) {
+  Future<void> _finishRecording({required int epoch}) async {
+    if (!_canContinueUserRecording(epoch)) {
       return;
     }
+
     final recordingStartedAt = _recordingStartedAt;
     final elapsedMs = recordingStartedAt == null
         ? null
         : DateTime.now().difference(recordingStartedAt).inMilliseconds;
+
     debugPrint(
       '[VAD] recording_stopped '
       'elapsedMs=${elapsedMs ?? -1} '
@@ -1039,37 +1059,49 @@ class ShoppingFlowController extends ChangeNotifier {
       'lastSpeechAt=${_lastSpeechDetectedAt?.toIso8601String()} '
       'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)}',
     );
+
     _voiceTurnState = VoiceTurnState.transcribing;
     _voiceLevel = 0.4;
     notifyListeners();
+
     _recordingTimeoutTimer?.cancel();
     _speechSilenceTimer?.cancel();
     _fallbackAutoStopTimer?.cancel();
+
     _firstSpeechDetectedAt = null;
     _lastSpeechDetectedAt = null;
     _recordingStartedAt = null;
     _silenceCandidateStartedAt = null;
     _isAwaitingSilenceConfirmation = false;
+
     try {
       final transcript = await _voiceTurnService.stopRecordingAndTranscribe();
+
+      if (!_isActiveEpoch(epoch)) return;
+
       debugPrint(
         '[VAD] stt_result '
         'length=${transcript.trim().length} '
         'text="${transcript.trim()}"',
       );
+
       if (transcript.trim().isEmpty || transcript.trim().length < 2) {
         await _handleSttFailure();
         return;
       }
+
       _latestTranscript = transcript.trim();
       _voiceLevel = 0.32;
       notifyListeners();
+
       await _handleUserTranscript(_latestTranscript!);
     } catch (error, stackTrace) {
       debugPrint(
         '⚠️ [VAD] stop_or_transcribe_failed '
         'step=$_step error=$error\n$stackTrace',
       );
+
+      if (!_isActiveEpoch(epoch)) return;
       await _handleSttFailure();
     }
   }
@@ -1192,7 +1224,8 @@ class ShoppingFlowController extends ChangeNotifier {
     return 0.22 + (clamped * 0.78);
   }
 
-  void _updateVoiceActivity(double amplitude) {
+  void _updateVoiceActivity(double amplitude, int epoch) {
+    if (!_canContinueUserRecording(epoch)) return;
     _amplitudeSampleCount += 1;
     final zeroishAmplitude = amplitude <= -159.0 || amplitude.abs() < 0.1;
     if (zeroishAmplitude) {
@@ -1204,7 +1237,7 @@ class ShoppingFlowController extends ChangeNotifier {
         _zeroishAmplitudeCount >= _amplitudeSampleCount - 1) {
       _isAmplitudeTelemetryUnreliable = true;
       _speechSilenceTimer?.cancel();
-      _scheduleFallbackAutoStop();
+      _scheduleFallbackAutoStop(epoch);
       debugPrint(
         '[VAD] amplitude_unreliable '
         'samples=$_amplitudeSampleCount '
@@ -1306,19 +1339,22 @@ class ShoppingFlowController extends ChangeNotifier {
       );
       _speechSilenceTimer?.cancel();
       _speechSilenceTimer = Timer(effectiveSilenceConfirmDuration, () {
-        if (_voiceTurnState != VoiceTurnState.userRecording) {
+        if (!_canContinueUserRecording(epoch)) {
           return;
         }
+
         final confirmFrom = _silenceCandidateStartedAt ?? now;
         final confirmedSilenceMs = DateTime.now()
             .difference(confirmFrom)
             .inMilliseconds;
+
         debugPrint(
           '[VAD] speech_ended_confirmed '
           'confirmMs=$confirmedSilenceMs '
           'extraConfirmMs=${effectiveSilenceConfirmDuration.inMilliseconds}',
         );
-        unawaited(_finishRecording());
+
+        unawaited(_finishRecording(epoch: epoch));
       });
     }
   }
@@ -1502,8 +1538,9 @@ class ShoppingFlowController extends ChangeNotifier {
     );
   }
 
-  void _scheduleFallbackAutoStop() {
+  void _scheduleFallbackAutoStop(int epoch) {
     _fallbackAutoStopTimer?.cancel();
+
     final effectiveMaxRecording = _currentMaxRecordingDuration();
     final fallbackDuration = Duration(
       milliseconds: (effectiveMaxRecording.inMilliseconds - 800).clamp(
@@ -1511,15 +1548,18 @@ class ShoppingFlowController extends ChangeNotifier {
         22000,
       ),
     );
+
     _fallbackAutoStopTimer = Timer(fallbackDuration, () {
-      if (_voiceTurnState != VoiceTurnState.userRecording) {
+      if (!_canContinueUserRecording(epoch)) {
         return;
       }
+
       debugPrint(
         '[VAD] fallback_auto_stop '
         'captureMs=${fallbackDuration.inMilliseconds}',
       );
-      unawaited(_finishRecording());
+
+      unawaited(_finishRecording(epoch: epoch));
     });
   }
 
