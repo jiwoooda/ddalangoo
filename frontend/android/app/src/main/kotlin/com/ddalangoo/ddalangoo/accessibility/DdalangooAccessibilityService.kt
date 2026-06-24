@@ -47,6 +47,24 @@ class DdalangooAccessibilityService : AccessibilityService() {
             return
         }
 
+        if (!task.packageName.isNullOrBlank() && task.packageName != eventPackageName) {
+            AutomationLogger.debug(
+                "task waiting targetPackage=${task.packageName} currentPackage=${eventPackageName.orEmpty()} " +
+                    "currentStep=${task.currentStep}"
+            )
+            AutomationLogger.validation(
+                platform = task.platform,
+                packageName = eventPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                actionPlan = null,
+                actionResult = null,
+                selectedNode = null
+            )
+            return
+        }
+
         val actionPlan = ruleBasedPlanner.plan(filteredNodes, task)
         val selectedNode = actionPlan.targetNodeId?.let { targetNodeId ->
             filteredNodes.firstOrNull { node -> node.id == targetNodeId }
@@ -103,8 +121,19 @@ class DdalangooAccessibilityService : AccessibilityService() {
             "다시 구매",
             "배송조회",
             "배송",
+            "배송완료",
+            "배송 완료",
+            "주문완료",
+            "주문 완료",
+            "결제완료",
+            "결제 완료",
+            "결제금액",
             "장바구니",
-            "장바구니 담기"
+            "장바구니 담기",
+            "재구매",
+            "다시구매",
+            "다시 구매",
+            "담기"
         )
 
         return filteredNodes

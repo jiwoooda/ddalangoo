@@ -23,6 +23,7 @@ enum class RuleReasonCode(val value: String) {
     PRODUCT_CARD("product_card"),
     CART_BUTTON("cart_button"),
     MY_COUPANG("my_coupang"),
+    MY_KURLY("my_kurly"),
     ORDER_HISTORY("order_history"),
     PURCHASE_HISTORY_DUMP("purchase_history_dump"),
     PURCHASE_HISTORY_SCROLL("purchase_history_scroll"),
@@ -50,8 +51,18 @@ class RuleBasedPlanner {
     private val cartKeywords = listOf("장바구니 담기", "장바구니", "담기", "카트에 담기")
     private val popupDismissKeywords = listOf("닫기", "확인", "취소", "나중에 하기", "오늘 하루 보지 않기", "건너뛰기")
     private val myCoupangKeywords = listOf("마이쿠팡")
-    private val orderHistoryKeywords = listOf("주문목록", "주문내역", "구매내역", "주문/배송")
-    private val reorderKeywords = listOf("재구매", "다시 구매", "장바구니 담기")
+    private val myKurlyKeywords = listOf("마이컬리", "마이 컬리", "MY컬리", "MY 컬리")
+    private val orderHistoryKeywords = listOf(
+        "주문목록",
+        "주문내역",
+        "주문 내역",
+        "구매내역",
+        "구매 내역",
+        "주문/배송",
+        "주문배송",
+        "배송조회"
+    )
+    private val reorderKeywords = listOf("재구매", "다시 구매", "다시구매", "장바구니 담기", "담기")
 
     fun plan(filteredNodes: List<UiNode>, task: AutomationTask): ActionPlan {
         // 결제/인증처럼 민감한 화면은 어떤 자동화 단계보다 먼저 중단한다.
@@ -72,6 +83,7 @@ class RuleBasedPlanner {
 
         return when (task.currentStep) {
             "open_my_coupang" -> planMyCoupang(filteredNodes)
+            "open_my_kurly" -> planMyKurly(filteredNodes)
             "open_order_history" -> planOrderHistory(filteredNodes)
             "dump_purchase_history" -> planPurchaseHistoryDump()
             "scroll_purchase_history" -> planPurchaseHistoryScroll(filteredNodes)
@@ -89,6 +101,12 @@ class RuleBasedPlanner {
         val myCoupangNode = filteredNodes.firstOrNull { node -> containsAny(node, myCoupangKeywords) }
         return myCoupangNode?.let { clickPlan(it, RuleReasonCode.MY_COUPANG, 0.92) }
             ?: noTarget(RuleReasonCode.MY_COUPANG.value)
+    }
+
+    private fun planMyKurly(filteredNodes: List<UiNode>): ActionPlan {
+        val myKurlyNode = filteredNodes.firstOrNull { node -> containsAny(node, myKurlyKeywords) }
+        return myKurlyNode?.let { clickPlan(it, RuleReasonCode.MY_KURLY, 0.92) }
+            ?: noTarget(RuleReasonCode.MY_KURLY.value)
     }
 
     private fun planOrderHistory(filteredNodes: List<UiNode>): ActionPlan {
