@@ -1808,6 +1808,7 @@ async def _with_speech_segments(response: AgentResponse) -> AgentResponse:
     speech_segments = await voice_service.build_agent_speech_segments(
         message,
         request_id=request_id,
+        prefer_persistent_cache=True,
     )
     return response.model_copy(
         update={
@@ -1855,10 +1856,39 @@ def _prompt_message(kind: str, payload: object | None) -> str:
     price_text = str(data.get("priceText") or data.get("price_text") or "").strip()
     badge_text = str(data.get("badgeText") or data.get("badge_text") or "").strip()
     completion_text = str(data.get("text") or "").strip()
+    raw_message = str(data.get("message") or data.get("query") or "").strip()
+
+    def _search_keywords_from_message(message: str) -> str:
+        normalized = re.sub(r"\s+", " ", message).strip()
+        if not normalized:
+            return ""
+        normalized = re.sub(r"[?？!！.,]+$", "", normalized).strip()
+        suffix_patterns = [
+            r"(사고\s*싶어요?|사줘요?|찾아줘요?|주문해줘요?|구매하고\s*싶어요?)$",
+            r"(사고)$",
+            r"(살래요?|살래|주세요|찾아봐요?|알아봐줘요?)$",
+            r"(요즘\s*유행하는)\s+",
+            r"^(나는|전|저는|저|나)\s+",
+        ]
+        for pattern in suffix_patterns:
+            normalized = re.sub(pattern, "", normalized).strip()
+        normalized = normalized.strip(" '\"")
+        return normalized
+
+    def _object_particle(word: str) -> str:
+        normalized = word.strip()
+        if not normalized:
+            return "을"
+        last_char = normalized[-1]
+        code = ord(last_char)
+        if 0xAC00 <= code <= 0xD7A3:
+            has_batchim = (code - 0xAC00) % 28 != 0
+            return "을" if has_batchim else "를"
+        return "를"
 
     prompts = {
         "initial_prompt": (
-            f"{username} 님 안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
+            f"{username} 님. 안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
             if username
             else "안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
         ),
@@ -1876,6 +1906,7 @@ def _prompt_message(kind: str, payload: object | None) -> str:
         "cart_completed": "상품을 모두 담았어요!",
         "processing_payment": "결제를 진행 중이에요.",
         "payment_completed": completion_text or "결제가 완료되었어요.",
+        "farewell_prompt": "오늘도 딸랑구를 이용해주셔서 감사해요. 다음에 또 봐요!",
     }
 
     if kind == "mock_product" and title:
@@ -1883,5 +1914,11 @@ def _prompt_message(kind: str, payload: object | None) -> str:
         price_phrase = price_text or "가격을 확인했어요."
         badge_phrase = badge_text or "리뷰가 좋고 30일 중 가장 싼 가격이에요!"
         return f"{title}가 {quantity_phrase} {price_phrase}이에요. {badge_phrase} 이 상품을 구매할까요?"
+
+    if kind == "searching_product":
+        keywords = _search_keywords_from_message(raw_message)
+        if keywords:
+            return f"{keywords}{_object_particle(keywords)} 찾고 있어요. 잠시만 기다려주세요."
+        return "상품을 찾고 있어요. 잠시만 기다려주세요."
 
     return prompts.get(kind, completion_text or "잠시만요. 다시 확인해볼게요.")

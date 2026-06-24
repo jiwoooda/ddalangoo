@@ -10,15 +10,18 @@ import '../services/voice_turn_service.dart';
 
 class ShoppingFlowController extends ChangeNotifier {
   static const Duration _ttsToUserDelay = Duration(milliseconds: 260);
-  static const Duration _initialSpeechWaitTimeout = Duration(seconds: 5);
-  static const Duration _maxRecordingDuration = Duration(seconds: 10);
-  static const Duration _endOfSpeechSilence = Duration(milliseconds: 1700);
-  static const Duration _silenceConfirmDuration = Duration(milliseconds: 700);
-  static const Duration _minSpeechWindow = Duration(milliseconds: 900);
+  static const Duration _initialSpeechWaitTimeout = Duration(
+    milliseconds: 6500,
+  );
+  static const Duration _maxRecordingDuration = Duration(seconds: 30);
+  static const Duration _endOfSpeechSilence = Duration(milliseconds: 2300);
+  static const Duration _silenceConfirmDuration = Duration(milliseconds: 900);
+  static const Duration _minSpeechWindow = Duration(milliseconds: 1200);
   static const Duration _unreliableAmplitudeCapture = Duration(seconds: 4);
   static const double _speechGuardRatio = 0.82;
-  static const bool _forceSilentDemoTts =
-      bool.fromEnvironment('SHOPPING_V1_SILENT_TTS');
+  static const bool _forceSilentDemoTts = bool.fromEnvironment(
+    'SHOPPING_V1_SILENT_TTS',
+  );
 
   ShoppingFlowController({
     ShoppingAgentService? agentService,
@@ -56,6 +59,7 @@ class ShoppingFlowController extends ChangeNotifier {
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   Timer? _cartTimer;
   Timer? _paymentTimer;
+  Timer? _completionSequenceTimer;
   Timer? _userTurnTimer;
   Timer? _recordingTimeoutTimer;
   Timer? _speechSilenceTimer;
@@ -71,6 +75,7 @@ class ShoppingFlowController extends ChangeNotifier {
   bool _isAwaitingSilenceConfirmation = false;
   int _amplitudeSampleCount = 0;
   int _zeroishAmplitudeCount = 0;
+  bool _closeAppRequested = false;
 
   ShoppingStep get step => _step;
   VoiceTurnState get voiceTurnState => _voiceTurnState;
@@ -98,6 +103,7 @@ class ShoppingFlowController extends ChangeNotifier {
   bool get isMockMode => _isMockMode;
   WebviewTaskViewData? get pendingWebviewTask => _pendingWebviewTask;
   bool get _shouldBypassTtsForDemo => _forceSilentDemoTts;
+  bool get closeAppRequested => _closeAppRequested;
 
   Future<void> initialize() async {
     if (_isInitialized) {
@@ -122,6 +128,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _speechRunId += 1;
     _cartTimer?.cancel();
     _paymentTimer?.cancel();
+    _completionSequenceTimer?.cancel();
     _conversationId = null;
     _userName ??= await _agentService.resolveUserName(userId: _userId);
     _currentProduct = null;
@@ -133,6 +140,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _pin = '';
     _cartProgress = 0.18;
     _voiceLevel = 0.22;
+    _closeAppRequested = false;
     _lastWebviewTask = null;
     _pendingWebviewTask = null;
     _cancelVoiceTimers();
@@ -186,6 +194,7 @@ class ShoppingFlowController extends ChangeNotifier {
     if (_step == ShoppingStep.askProduct) {
       _step = ShoppingStep.searchingProduct;
       notifyListeners();
+      unawaited(_showSearchingPrompt(transcript));
     } else {
       notifyListeners();
     }
@@ -210,6 +219,37 @@ class ShoppingFlowController extends ChangeNotifier {
       _errorMessage = 'agent_request_failed';
       _voiceTurnState = VoiceTurnState.error;
       notifyListeners();
+    }
+  }
+
+  Future<void> _showSearchingPrompt(String transcript) async {
+    try {
+      final prompt = await _agentService.fetchPrompt(
+        kind: 'searching_product',
+        conversationId: _conversationId,
+        payload: {'message': transcript},
+      );
+      if (_step != ShoppingStep.searchingProduct ||
+          prompt.assistantMessage.trim().isEmpty) {
+        return;
+      }
+      await _presentAssistant(
+        prompt.assistantMessage,
+        speechSegments: prompt.speechSegments,
+        nextStep: ShoppingStep.searchingProduct,
+        expectVoiceReply: false,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '⚠️ [ShoppingFlowController] searching prompt fallback: $error\n$stackTrace',
+      );
+      if (_step == ShoppingStep.searchingProduct) {
+        await _presentAssistant(
+          '상품을 찾고 있어요. 잠시만 기다려주세요.',
+          nextStep: ShoppingStep.searchingProduct,
+          expectVoiceReply: false,
+        );
+      }
     }
   }
 
@@ -478,6 +518,7 @@ class ShoppingFlowController extends ChangeNotifier {
 
   Future<void> _startPaymentProcessingFlow() async {
     _paymentTimer?.cancel();
+    _completionSequenceTimer?.cancel();
     await _presentPrompt(
       'processing_payment',
       nextStep: ShoppingStep.processingPayment,
@@ -492,12 +533,14 @@ class ShoppingFlowController extends ChangeNotifier {
     String text, {
     List<SpeechSegmentViewData> speechSegments = const [],
   }) async {
+    _completionSequenceTimer?.cancel();
     if (text.trim().isEmpty) {
       await _presentPrompt(
         'payment_completed',
         nextStep: ShoppingStep.paymentCompleted,
         expectVoiceReply: false,
       );
+      _scheduleFarewellSequence();
       return;
     }
     await _presentAssistant(
@@ -506,6 +549,46 @@ class ShoppingFlowController extends ChangeNotifier {
       nextStep: ShoppingStep.paymentCompleted,
       expectVoiceReply: false,
     );
+    _scheduleFarewellSequence();
+  }
+
+  void consumeCloseAppRequest() {
+    _closeAppRequested = false;
+  }
+
+  void _scheduleFarewellSequence() {
+    final sequenceEpoch = _speakEpoch;
+    _completionSequenceTimer = Timer(const Duration(milliseconds: 2300), () {
+      unawaited(_runFarewellSequence(sequenceEpoch));
+    });
+  }
+
+  Future<void> _runFarewellSequence(int sequenceEpoch) async {
+    if (sequenceEpoch != _speakEpoch ||
+        _step != ShoppingStep.paymentCompleted) {
+      return;
+    }
+    try {
+      await _presentPrompt(
+        'farewell_prompt',
+        nextStep: ShoppingStep.paymentCompleted,
+        expectVoiceReply: false,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '⚠️ [ShoppingFlowController] farewell prompt failed: $error\n$stackTrace',
+      );
+      await _presentAssistant(
+        '오늘도 딸랑구를 이용해주셔서 감사해요. 다음에 또 봐요!',
+        nextStep: ShoppingStep.paymentCompleted,
+        expectVoiceReply: false,
+      );
+    }
+    if (_step != ShoppingStep.paymentCompleted) {
+      return;
+    }
+    _closeAppRequested = true;
+    notifyListeners();
   }
 
   Future<void> _presentAssistant(
@@ -522,11 +605,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _voiceLevel = 0.22;
     notifyListeners();
     if (speechSegments.isNotEmpty && !_shouldBypassTtsForDemo) {
-      await _presentAssistantSpeechQueue(
-        text,
-        speechSegments,
-        epoch,
-      );
+      await _presentAssistantSpeechQueue(text, speechSegments, epoch);
     } else if (_shouldBypassTtsForDemo) {
       await _presentAssistantSilently(text, epoch);
     } else {
@@ -557,6 +636,29 @@ class ShoppingFlowController extends ChangeNotifier {
     List<SpeechSegmentViewData> speechSegments,
     int epoch,
   ) async {
+    final playableSegments = speechSegments
+        .where((segment) => _resolveSegmentAudioUrl(segment.audioUrl) != null)
+        .length;
+    if (playableSegments < speechSegments.length) {
+      debugPrint(
+        '[TTS] segmented_queue_incomplete '
+        'epoch=$epoch playable=$playableSegments total=${speechSegments.length} '
+        'fallback_to_full_message=true',
+      );
+      _assistantText = fallbackText;
+      notifyListeners();
+      try {
+        await _voiceTurnService.speak(fallbackText);
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[TTS] full_message_fallback_failed '
+          'epoch=$epoch text="$fallbackText" error=$error\n$stackTrace',
+        );
+        await _presentAssistantSilently(fallbackText, epoch);
+      }
+      return;
+    }
+
     final runId = ++_speechRunId;
     for (final segment in speechSegments) {
       if (epoch != _speakEpoch || runId != _speechRunId) {
@@ -573,7 +675,9 @@ class ShoppingFlowController extends ChangeNotifier {
           '[TTS] missing_audio_url '
           'runId=$runId epoch=$epoch index=${segment.index} text="${segment.text}"',
         );
-        await Future<void>.delayed(_estimateSilentSegmentDuration(segment.text));
+        await Future<void>.delayed(
+          _estimateSilentSegmentDuration(segment.text),
+        );
         continue;
       }
 
@@ -595,7 +699,9 @@ class ShoppingFlowController extends ChangeNotifier {
           'runId=$runId epoch=$epoch index=${segment.index} url="$audioUrl" '
           'text="${segment.text}" error=$error\n$stackTrace',
         );
-        await Future<void>.delayed(_estimateSilentSegmentDuration(segment.text));
+        await Future<void>.delayed(
+          _estimateSilentSegmentDuration(segment.text),
+        );
       }
     }
 
@@ -636,7 +742,9 @@ class ShoppingFlowController extends ChangeNotifier {
         .map((match) => match.group(0)?.trim() ?? '')
         .where((segment) => segment.isNotEmpty)
         .toList();
-    final baseSegments = sentenceSegments.isEmpty ? [normalized] : sentenceSegments;
+    final baseSegments = sentenceSegments.isEmpty
+        ? [normalized]
+        : sentenceSegments;
     return baseSegments;
   }
 
@@ -689,8 +797,9 @@ class ShoppingFlowController extends ChangeNotifier {
     required DateTime startedAt,
     required Duration expected,
   }) async {
-    final minimumMs =
-        (expected.inMilliseconds * _speechGuardRatio).round().clamp(700, 4200);
+    final minimumMs = (expected.inMilliseconds * _speechGuardRatio)
+        .round()
+        .clamp(700, 4200);
     final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
     final remainingMs = minimumMs - elapsedMs;
     if (remainingMs > 0) {
@@ -924,8 +1033,7 @@ class ShoppingFlowController extends ChangeNotifier {
     }
 
     final speechStartThreshold = (_speechNoiseFloor + 11).clamp(-34, -22);
-    final speechContinueThreshold =
-        (_speechNoiseFloor + 7).clamp(-40, -26);
+    final speechContinueThreshold = (_speechNoiseFloor + 7).clamp(-40, -26);
     final now = DateTime.now();
 
     if (_lastVadDebugAt == null ||
@@ -999,8 +1107,9 @@ class ShoppingFlowController extends ChangeNotifier {
           return;
         }
         final confirmFrom = _silenceCandidateStartedAt ?? now;
-        final confirmedSilenceMs =
-            DateTime.now().difference(confirmFrom).inMilliseconds;
+        final confirmedSilenceMs = DateTime.now()
+            .difference(confirmFrom)
+            .inMilliseconds;
         debugPrint(
           '[VAD] speech_ended_confirmed '
           'confirmMs=$confirmedSilenceMs '
@@ -1073,6 +1182,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _cancelVoiceTimers();
     _cartTimer?.cancel();
     _paymentTimer?.cancel();
+    _completionSequenceTimer?.cancel();
     super.dispose();
   }
 }

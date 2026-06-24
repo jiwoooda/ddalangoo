@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
@@ -49,9 +50,27 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
 
   void _onControllerChanged() {
     _handlePendingWebviewTask();
+    _handleCloseAppRequest();
     if (mounted) {
       setState(() {});
     }
+  }
+
+  void _handleCloseAppRequest() {
+    if (!_controller.closeAppRequested || !mounted) {
+      return;
+    }
+    _controller.consumeCloseAppRequest();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        return;
+      }
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        await SystemNavigator.pop();
+        return;
+      }
+      await _controller.resetConversation();
+    });
   }
 
   void _handlePendingWebviewTask() {

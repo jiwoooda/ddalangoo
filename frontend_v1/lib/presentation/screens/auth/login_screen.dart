@@ -64,6 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       await LocalStorage.saveUserId(user.userId);
+      debugPrint('ℹ️ [LoginScreen] saved userId=${user.userId}');
 
       if (!mounted) return;
       context.go('/home');

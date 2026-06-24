@@ -13,11 +13,13 @@ from app.routers import (
 )
 from app.agent import runtime
 from app.core.migrations import run_migrations
+from app.services import voice_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await run_migrations()
+    await voice_service.cleanup_tts_storage()
     await runtime.init()
     yield
     await runtime.shutdown()
