@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,3 +45,7 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(dev.router, prefix="/api")
 app.include_router(cart.router, prefix="/api")
 app.include_router(voice.router, prefix="/api")
+
+_static_dir = Path(__file__).resolve().parent / "app" / "static"
+_static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
