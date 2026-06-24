@@ -70,6 +70,7 @@ dependencies:
   crypto: ^3.0.6
   webview_flutter: ^4.13.1
   flutter_secure_storage: ^9.2.2
+  liquid_glass_renderer: ^0.2.0-dev.4
 
 dev_dependencies:
   flutter_test:

@@ -70,9 +70,9 @@ class GptVoiceService {
           encoder: AudioEncoder.wav,
           sampleRate: _sampleRate,
           numChannels: _numChannels,
-          autoGain: false,
-          echoCancel: false,
-          noiseSuppress: false,
+          autoGain: true,
+          echoCancel: true,
+          noiseSuppress: true,
         ),
         path: path,
       );
@@ -203,8 +203,42 @@ class GptVoiceService {
     );
   }
 
+  Future<void> speakWithSegments(
+    String text, {
+    LatencyRequestContext? latencyContext,
+    VoidCallback? onPlaybackStart,
+    ValueChanged<TtsSegmentData>? onSegmentStart,
+  }) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      throw Exception('음성으로 읽을 텍스트가 비어 있습니다.');
+    }
+    await _geminiTts.speakWithSegments(
+      normalized,
+      latencyContext: latencyContext,
+      onPlaybackStart: onPlaybackStart,
+      onSegmentStart: onSegmentStart,
+    );
+  }
+
   Future<void> stopSpeaking() async {
     await _geminiTts.stopSpeaking();
+  }
+
+  Future<void> playAudioUrl(
+    String url, {
+    int? expectedDurationMs,
+    VoidCallback? onPlaybackStart,
+  }) async {
+    final normalized = url.trim();
+    if (normalized.isEmpty) {
+      throw Exception('재생할 오디오 URL이 비어 있습니다.');
+    }
+    await _geminiTts.playAudioUrl(
+      normalized,
+      expectedDurationMs: expectedDurationMs,
+      onPlaybackStart: onPlaybackStart,
+    );
   }
 
   Future<void> dispose() async {

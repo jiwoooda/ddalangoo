@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'features/shopping_v1/screens/shopping_splash_screen.dart';
 import 'features/shopping_v1/screens/shopping_voice_screen.dart';
 
 Future<void> main() async {
@@ -26,10 +27,10 @@ class DdalangooV1App extends StatelessWidget {
         ),
       ),
       routes: {
-        '/': (_) => const ShoppingVoiceScreen(),
+        '/': (_) => const ShoppingSplashScreen(),
         '/shopping-v1': (_) => const ShoppingVoiceScreen(),
       },
-      initialRoute: '/shopping-v1',
+      initialRoute: '/',
     );
   }
 }

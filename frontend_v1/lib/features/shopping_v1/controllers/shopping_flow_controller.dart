@@ -3,15 +3,22 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
+import '../../../core/network/api_client.dart';
 import '../models/shopping_v1_models.dart';
 import '../services/shopping_agent_service.dart';
 import '../services/voice_turn_service.dart';
 
 class ShoppingFlowController extends ChangeNotifier {
-  static const Duration _ttsToUserDelay = Duration(milliseconds: 500);
-  static const Duration _initialSpeechWaitTimeout = Duration(seconds: 8);
-  static const Duration _maxRecordingDuration = Duration(seconds: 14);
-  static const Duration _endOfSpeechSilence = Duration(milliseconds: 1800);
+  static const Duration _ttsToUserDelay = Duration(milliseconds: 260);
+  static const Duration _initialSpeechWaitTimeout = Duration(seconds: 5);
+  static const Duration _maxRecordingDuration = Duration(seconds: 10);
+  static const Duration _endOfSpeechSilence = Duration(milliseconds: 1700);
+  static const Duration _silenceConfirmDuration = Duration(milliseconds: 700);
+  static const Duration _minSpeechWindow = Duration(milliseconds: 900);
+  static const Duration _unreliableAmplitudeCapture = Duration(seconds: 4);
+  static const double _speechGuardRatio = 0.82;
+  static const bool _forceSilentDemoTts =
+      bool.fromEnvironment('SHOPPING_V1_SILENT_TTS');
 
   ShoppingFlowController({
     ShoppingAgentService? agentService,
@@ -19,14 +26,12 @@ class ShoppingFlowController extends ChangeNotifier {
   }) : _agentService = agentService ?? ShoppingAgentService(),
        _voiceTurnService = voiceTurnService ?? VoiceTurnService();
 
-  static const String initialPrompt = '어떤 상품을 구매하고 싶으신가요?';
-
   final ShoppingAgentService _agentService;
   final VoiceTurnService _voiceTurnService;
 
   ShoppingStep _step = ShoppingStep.askProduct;
   VoiceTurnState _voiceTurnState = VoiceTurnState.idle;
-  String _assistantText = initialPrompt;
+  String _assistantText = '';
   String? _latestTranscript;
   ProductViewData? _currentProduct;
   final List<CartItemViewData> _cartItems = [];
@@ -36,7 +41,9 @@ class ShoppingFlowController extends ChangeNotifier {
   bool _isMockMode = false;
   int? _conversationId;
   int _userId = 1;
+  String? _userName;
   int _speakEpoch = 0;
+  int _speechRunId = 0;
   int _currentQuantity = 1;
   String _cartStatusTitle = '장바구니 작업';
   String _cartStatusText = '컬리 페이지를 열고 있어요.';
@@ -45,13 +52,25 @@ class ShoppingFlowController extends ChangeNotifier {
   String _pin = '';
   double _voiceLevel = 0.22;
   String? _lastWebviewTask;
+  WebviewTaskViewData? _pendingWebviewTask;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   Timer? _cartTimer;
   Timer? _paymentTimer;
   Timer? _userTurnTimer;
   Timer? _recordingTimeoutTimer;
   Timer? _speechSilenceTimer;
+  Timer? _fallbackAutoStopTimer;
   bool _hasDetectedSpeech = false;
+  double _speechNoiseFloor = -45;
+  int _noiseSampleCount = 0;
+  DateTime? _recordingStartedAt;
+  DateTime? _lastSpeechDetectedAt;
+  DateTime? _lastVadDebugAt;
+  DateTime? _silenceCandidateStartedAt;
+  bool _isAmplitudeTelemetryUnreliable = false;
+  bool _isAwaitingSilenceConfirmation = false;
+  int _amplitudeSampleCount = 0;
+  int _zeroishAmplitudeCount = 0;
 
   ShoppingStep get step => _step;
   VoiceTurnState get voiceTurnState => _voiceTurnState;
@@ -70,8 +89,6 @@ class ShoppingFlowController extends ChangeNotifier {
   bool get shouldShowVoiceButton =>
       _voiceTurnState == VoiceTurnState.userCanSpeak ||
       _voiceTurnState == VoiceTurnState.userRecording ||
-      _voiceTurnState == VoiceTurnState.transcribing ||
-      _voiceTurnState == VoiceTurnState.agentThinking ||
       _voiceTurnState == VoiceTurnState.error;
   String get cartStatusTitle => _cartStatusTitle;
   String get cartStatusText => _cartStatusText;
@@ -79,26 +96,34 @@ class ShoppingFlowController extends ChangeNotifier {
   double get cartProgress => _cartProgress;
   String get pin => _pin;
   bool get isMockMode => _isMockMode;
+  WebviewTaskViewData? get pendingWebviewTask => _pendingWebviewTask;
+  bool get _shouldBypassTtsForDemo => _forceSilentDemoTts;
 
   Future<void> initialize() async {
     if (_isInitialized) {
       return;
     }
     _userId = await _agentService.resolveUserId();
+    _userName = await _agentService.resolveUserName(userId: _userId);
     await _voiceTurnService.init();
     _isInitialized = true;
     notifyListeners();
-    await _presentAssistant(
-      initialPrompt,
+    await _presentPrompt(
+      'initial_prompt',
+      payload: {'username': _userName},
       nextStep: ShoppingStep.askProduct,
       expectVoiceReply: true,
     );
   }
 
   Future<void> resetConversation() async {
+    final activeConversationId = _conversationId;
+    _speakEpoch += 1;
+    _speechRunId += 1;
     _cartTimer?.cancel();
     _paymentTimer?.cancel();
     _conversationId = null;
+    _userName ??= await _agentService.resolveUserName(userId: _userId);
     _currentProduct = null;
     _cartItems.clear();
     _checkoutSummary = null;
@@ -109,17 +134,29 @@ class ShoppingFlowController extends ChangeNotifier {
     _cartProgress = 0.18;
     _voiceLevel = 0.22;
     _lastWebviewTask = null;
+    _pendingWebviewTask = null;
     _cancelVoiceTimers();
+    await _voiceTurnService.stopSpeaking();
     await _voiceTurnService.cancelRecording();
-    await _presentAssistant(
-      initialPrompt,
+    if (activeConversationId != null) {
+      try {
+        await _agentService.cancelConversation(activeConversationId);
+      } catch (error, stackTrace) {
+        debugPrint(
+          '⚠️ [ShoppingFlowController] cancel conversation failed: $error\n$stackTrace',
+        );
+      }
+    }
+    await _presentPrompt(
+      'initial_prompt',
+      payload: {'username': _userName},
       nextStep: ShoppingStep.askProduct,
       expectVoiceReply: true,
     );
   }
 
   Future<void> onVoiceButtonTap() async {
-    // Voice orb는 상태 인디케이터이므로 수동 탭 입력은 사용하지 않는다.
+    // V1 자동 turn-taking에서는 사용자 탭으로 녹음을 제어하지 않는다.
   }
 
   Future<void> onPasswordDigit(int digit) async {
@@ -148,7 +185,6 @@ class ShoppingFlowController extends ChangeNotifier {
     _errorMessage = null;
     if (_step == ShoppingStep.askProduct) {
       _step = ShoppingStep.searchingProduct;
-      _assistantText = '상품을 찾는 중이에요';
       notifyListeners();
     } else {
       notifyListeners();
@@ -189,11 +225,21 @@ class ShoppingFlowController extends ChangeNotifier {
 
     switch (inferredStep) {
       case ShoppingStep.showProduct:
+        final productMessage = response.assistantMessage.trim().isNotEmpty
+            ? response.assistantMessage
+            : (await _agentService.fetchPrompt(
+                kind: 'mock_product',
+                conversationId: _conversationId,
+                payload: {
+                  'title': _currentProduct!.title,
+                  'quantityInfo': _currentProduct!.quantityInfo,
+                  'priceText': _currentProduct!.displayPrice,
+                  'badgeText': _currentProduct!.badgeText,
+                },
+              )).assistantMessage;
         await _presentAssistant(
-          _normalizedProductMessage(
-            response.assistantMessage,
-            _currentProduct!,
-          ),
+          productMessage,
+          speechSegments: response.speechSegments,
           nextStep: ShoppingStep.showProduct,
           expectVoiceReply: true,
         );
@@ -201,8 +247,12 @@ class ShoppingFlowController extends ChangeNotifier {
       case ShoppingStep.askQuantity:
         await _presentAssistant(
           response.assistantMessage.trim().isEmpty
-              ? '몇 개를 담을까요?'
+              ? (await _agentService.fetchPrompt(
+                  kind: 'ask_quantity',
+                  conversationId: _conversationId,
+                )).assistantMessage
               : response.assistantMessage,
+          speechSegments: response.speechSegments,
           nextStep: ShoppingStep.askQuantity,
           expectVoiceReply: true,
         );
@@ -221,38 +271,66 @@ class ShoppingFlowController extends ChangeNotifier {
               );
         await _presentAssistant(
           response.assistantMessage.trim().isEmpty
-              ? '배송지를 확인해주세요.'
+              ? (await _agentService.fetchPrompt(
+                  kind: 'confirm_address',
+                  conversationId: _conversationId,
+                )).assistantMessage
               : response.assistantMessage,
+          speechSegments: response.speechSegments,
           nextStep: ShoppingStep.confirmAddress,
           expectVoiceReply: false,
         );
         return;
       case ShoppingStep.enterPassword:
-        _step = ShoppingStep.enterPassword;
-        _assistantText = response.assistantMessage.trim().isEmpty
-            ? '비밀번호 6자리를 입력해주세요.'
-            : response.assistantMessage;
-        _voiceTurnState = VoiceTurnState.idle;
-        notifyListeners();
+        if (response.assistantMessage.trim().isEmpty) {
+          await _presentPrompt(
+            'pin_prompt',
+            nextStep: ShoppingStep.enterPassword,
+            expectVoiceReply: false,
+          );
+        } else {
+          await _presentAssistant(
+            response.assistantMessage,
+            speechSegments: response.speechSegments,
+            nextStep: ShoppingStep.enterPassword,
+            expectVoiceReply: false,
+          );
+        }
         return;
       case ShoppingStep.addingToCart:
         _lastWebviewTask =
             response.pendingConfirmation?['type']?.toString() == 'webview_task'
             ? response.pendingConfirmation?['payload']?['task']?.toString()
             : response.uiCommand?['task']?.toString();
-        await _startCartProgressFlow();
+        _pendingWebviewTask = _agentService.extractWebviewTask(
+          response,
+          fallbackProduct: _currentProduct,
+          defaultQuantity: _currentQuantity,
+        );
+        await _startCartProgressFlow(
+          waitForWebview: _pendingWebviewTask != null,
+          introText: response.assistantMessage,
+          introSpeechSegments: response.speechSegments,
+        );
         return;
       case ShoppingStep.askMoreOrCheckout:
         await _presentAssistant(
           response.assistantMessage.trim().isEmpty
-              ? '다른 상품을 더 구매하실래요?'
+              ? (await _agentService.fetchPrompt(
+                  kind: 'ask_more_or_checkout',
+                  conversationId: _conversationId,
+                )).assistantMessage
               : response.assistantMessage,
+          speechSegments: response.speechSegments,
           nextStep: ShoppingStep.askMoreOrCheckout,
           expectVoiceReply: true,
         );
         return;
       case ShoppingStep.paymentCompleted:
-        await _showPaymentCompleted(response.assistantMessage);
+        await _showPaymentCompleted(
+          response.assistantMessage,
+          speechSegments: response.speechSegments,
+        );
         return;
       case ShoppingStep.searchingProduct:
         _step = ShoppingStep.searchingProduct;
@@ -263,8 +341,8 @@ class ShoppingFlowController extends ChangeNotifier {
         return;
       case ShoppingStep.error:
         _errorMessage = response.assistantMessage;
-        await _presentAssistant(
-          '잠시 문제가 생겼어요. 다시 시도해볼게요.',
+        await _presentPrompt(
+          'error_retry',
           nextStep: ShoppingStep.error,
           expectVoiceReply: true,
         );
@@ -284,7 +362,16 @@ class ShoppingFlowController extends ChangeNotifier {
         current == ShoppingStep.searchingProduct) {
       _currentProduct = _currentProduct ?? ProductViewData.mock();
       await _presentAssistant(
-        _mockProductMessage(_currentProduct!),
+        (await _agentService.fetchPrompt(
+          kind: 'mock_product',
+          conversationId: _conversationId,
+          payload: {
+            'title': _currentProduct!.title,
+            'quantityInfo': _currentProduct!.quantityInfo,
+            'priceText': _currentProduct!.displayPrice,
+            'badgeText': _currentProduct!.badgeText,
+          },
+        )).assistantMessage,
         nextStep: ShoppingStep.showProduct,
         expectVoiceReply: true,
       );
@@ -293,15 +380,15 @@ class ShoppingFlowController extends ChangeNotifier {
 
     if (current == ShoppingStep.showProduct) {
       if (_isNegative(transcript)) {
-        await _presentAssistant(
-          '다른 상품을 찾아볼게요. 어떤 상품을 구매하고 싶으신가요?',
+        await _presentPrompt(
+          'negative_restart',
           nextStep: ShoppingStep.askProduct,
           expectVoiceReply: true,
         );
         return;
       }
-      await _presentAssistant(
-        '몇 개를 담을까요?',
+      await _presentPrompt(
+        'ask_quantity',
         nextStep: ShoppingStep.askQuantity,
         expectVoiceReply: true,
       );
@@ -329,8 +416,8 @@ class ShoppingFlowController extends ChangeNotifier {
     if (current == ShoppingStep.askMoreOrCheckout ||
         current == ShoppingStep.cartCompleted) {
       if (_wantsMoreShopping(transcript)) {
-        await _presentAssistant(
-          '좋아요. 어떤 상품을 더 구매하고 싶으신가요?',
+        await _presentPrompt(
+          'more_shopping',
           nextStep: ShoppingStep.askProduct,
           expectVoiceReply: true,
         );
@@ -340,8 +427,8 @@ class ShoppingFlowController extends ChangeNotifier {
         userId: _userId,
         items: _cartItems,
       );
-      await _presentAssistant(
-        '배송지를 확인해주세요.',
+      await _presentPrompt(
+        'confirm_address',
         nextStep: ShoppingStep.confirmAddress,
         expectVoiceReply: true,
       );
@@ -349,16 +436,18 @@ class ShoppingFlowController extends ChangeNotifier {
     }
 
     if (current == ShoppingStep.confirmAddress) {
-      _step = ShoppingStep.enterPassword;
-      _assistantText = '비밀번호 6자리를 입력해주세요.';
-      _voiceTurnState = VoiceTurnState.idle;
       _pin = '';
-      notifyListeners();
+      await _presentPrompt(
+        'pin_prompt',
+        nextStep: ShoppingStep.enterPassword,
+        expectVoiceReply: false,
+      );
       return;
     }
 
-    await _presentAssistant(
-      '어떤 상품을 구매하고 싶으신가요?',
+    await _presentPrompt(
+      'initial_prompt',
+      payload: {'username': _userName},
       nextStep: ShoppingStep.askProduct,
       expectVoiceReply: true,
     );
@@ -368,8 +457,8 @@ class ShoppingFlowController extends ChangeNotifier {
     _voiceTurnState = VoiceTurnState.error;
     notifyListeners();
     await Future<void>.delayed(const Duration(milliseconds: 420));
-    await _presentAssistant(
-      '잘 못 들었어요. 다시 말씀해주세요.',
+    await _presentPrompt(
+      'stt_retry',
       nextStep: _step == ShoppingStep.searchingProduct
           ? ShoppingStep.askProduct
           : _step,
@@ -377,16 +466,38 @@ class ShoppingFlowController extends ChangeNotifier {
     );
   }
 
-  Future<void> _startCartProgressFlow() async {
+  Future<void> _startCartProgressFlow({
+    bool waitForWebview = false,
+    String? introText,
+    List<SpeechSegmentViewData> introSpeechSegments = const [],
+  }) async {
     _cartTimer?.cancel();
     _step = ShoppingStep.addingToCart;
     _voiceTurnState = VoiceTurnState.idle;
-    _assistantText = '상품을 장바구니에 담을게요.';
+    final effectiveIntroText = introText?.trim();
+    if (effectiveIntroText != null && effectiveIntroText.isNotEmpty) {
+      await _presentAssistant(
+        effectiveIntroText,
+        speechSegments: introSpeechSegments,
+        nextStep: ShoppingStep.addingToCart,
+        expectVoiceReply: false,
+      );
+    } else {
+      _assistantText = (await _agentService.fetchPrompt(
+        kind: 'adding_to_cart',
+        conversationId: _conversationId,
+      )).assistantMessage;
+    }
     _cartStatusTitle = '장바구니 작업';
     _cartStatusText = _cartStatusTextForTask();
     _cartHelperText = _cartHelperTextForTask();
     _cartProgress = 0.2;
     notifyListeners();
+
+    if (waitForWebview) {
+      return;
+    }
+
     _cartTimer = Timer.periodic(const Duration(milliseconds: 650), (timer) {
       _cartProgress = (_cartProgress + 0.16).clamp(0.0, 0.96);
       if (timer.tick == 1) {
@@ -403,39 +514,102 @@ class ShoppingFlowController extends ChangeNotifier {
     _cartTimer?.cancel();
     _cartProgress = 1;
     _step = ShoppingStep.cartCompleted;
-    _assistantText = '상품을 담았어요! 다른 상품을 더 구매하실래요?';
+    _assistantText = (await _agentService.fetchPrompt(
+      kind: 'cart_completed',
+      conversationId: _conversationId,
+    )).assistantMessage;
     notifyListeners();
-    await _presentAssistant(
-      '상품을 담았어요! 다른 상품을 더 구매하실래요?',
+    await _presentPrompt(
+      'cart_completed',
       nextStep: ShoppingStep.askMoreOrCheckout,
       expectVoiceReply: true,
     );
   }
 
+  Future<void> handleWebviewResult(
+    WebviewTaskViewData task, {
+    required String result,
+    Map<String, dynamic>? extraData,
+  }) async {
+    if (_conversationId == null) {
+      return;
+    }
+    _pendingWebviewTask = null;
+    _cartTimer?.cancel();
+    _voiceTurnState = VoiceTurnState.agentThinking;
+    _cartStatusText = result == 'cart_added'
+        ? '장바구니 결과를 확인하고 있어요.'
+        : '쇼핑 진행 상태를 확인하고 있어요.';
+    _cartHelperText = '잠시만 기다려주세요.';
+    notifyListeners();
+
+    try {
+      final response = await _agentService.sendWebviewResult(
+        conversationId: _conversationId!,
+        orderId: task.orderId,
+        paymentId: task.paymentId,
+        result: result,
+        extraData: extraData,
+      );
+      _conversationId = response.conversationId ?? _conversationId;
+      await _consumeAgentResponse(response, _latestTranscript ?? '');
+    } catch (error, stackTrace) {
+      debugPrint(
+        '⚠️ [ShoppingFlowController] webview result fallback: $error\n$stackTrace',
+      );
+      if (result == 'cart_added') {
+        _cartProgress = 1;
+        _step = ShoppingStep.cartCompleted;
+        await _presentPrompt(
+          'cart_completed',
+          nextStep: ShoppingStep.askMoreOrCheckout,
+          expectVoiceReply: true,
+        );
+        return;
+      }
+      await _presentPrompt(
+        'error_retry',
+        nextStep: ShoppingStep.askMoreOrCheckout,
+        expectVoiceReply: true,
+      );
+    }
+  }
+
   Future<void> _startPaymentProcessingFlow() async {
     _paymentTimer?.cancel();
-    _voiceTurnState = VoiceTurnState.idle;
-    _assistantText = '결제를 진행 중이에요.';
-    notifyListeners();
+    await _presentPrompt(
+      'processing_payment',
+      nextStep: ShoppingStep.processingPayment,
+      expectVoiceReply: false,
+    );
     _paymentTimer = Timer(const Duration(milliseconds: 1600), () {
-      unawaited(_showPaymentCompleted('결제가 완료되었어요.'));
+      unawaited(_showPaymentCompleted(''));
     });
   }
 
-  Future<void> _showPaymentCompleted(String text) async {
-    _step = ShoppingStep.paymentCompleted;
-    _assistantText = text.trim().isEmpty ? '결제가 완료되었어요.' : text;
-    _voiceTurnState = VoiceTurnState.idle;
-    notifyListeners();
-    try {
-      await _voiceTurnService.speak(_assistantText);
-    } catch (_) {
-      notifyListeners();
+  Future<void> _showPaymentCompleted(
+    String text, {
+    List<SpeechSegmentViewData> speechSegments = const [],
+  }) async {
+    if (text.trim().isEmpty) {
+      await _presentPrompt(
+        'payment_completed',
+        nextStep: ShoppingStep.paymentCompleted,
+        expectVoiceReply: false,
+      );
+      return;
     }
+    await _presentAssistant(
+      text,
+      speechSegments: speechSegments,
+      nextStep: ShoppingStep.paymentCompleted,
+      expectVoiceReply: false,
+    );
   }
 
   Future<void> _presentAssistant(
     String text, {
+    List<SpeechSegmentViewData> speechSegments = const [],
     required ShoppingStep nextStep,
     required bool expectVoiceReply,
   }) async {
@@ -446,17 +620,27 @@ class ShoppingFlowController extends ChangeNotifier {
     _voiceTurnState = VoiceTurnState.agentSpeaking;
     _voiceLevel = 0.22;
     notifyListeners();
-    try {
-      await _voiceTurnService.speak(text);
-    } catch (_) {
-      // TTS 실패 시에도 텍스트 UI는 유지하고 다음 턴으로 넘어간다.
+    if (speechSegments.isNotEmpty && !_shouldBypassTtsForDemo) {
+      await _presentAssistantSpeechQueue(
+        text,
+        speechSegments,
+        epoch,
+      );
+    } else if (_shouldBypassTtsForDemo) {
+      await _presentAssistantSilently(text, epoch);
+    } else {
+      try {
+        await _voiceTurnService.speak(text);
+      } catch (_) {
+        await Future<void>.delayed(_estimateSilentSegmentDuration(text));
+      }
     }
     if (epoch != _speakEpoch) {
       return;
     }
     if (expectVoiceReply) {
       _voiceTurnState = VoiceTurnState.userCanSpeak;
-      _voiceLevel = 0.28;
+      _voiceLevel = 0.26;
       notifyListeners();
       _userTurnTimer = Timer(_ttsToUserDelay, () {
         unawaited(_beginAutomaticListening(epoch));
@@ -467,14 +651,167 @@ class ShoppingFlowController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _presentAssistantSpeechQueue(
+    String fallbackText,
+    List<SpeechSegmentViewData> speechSegments,
+    int epoch,
+  ) async {
+    final runId = ++_speechRunId;
+    for (final segment in speechSegments) {
+      if (epoch != _speakEpoch || runId != _speechRunId) {
+        await _voiceTurnService.stopSpeaking();
+        return;
+      }
+
+      _assistantText = segment.text;
+      notifyListeners();
+
+      final audioUrl = _resolveSegmentAudioUrl(segment.audioUrl);
+      if (audioUrl == null) {
+        await Future<void>.delayed(_estimateSilentSegmentDuration(segment.text));
+        continue;
+      }
+
+      try {
+        final startedAt = DateTime.now();
+        await _voiceTurnService.playAudioUrl(
+          audioUrl,
+          expectedDurationMs: segment.durationMs,
+        );
+        await _ensureMinimumSpeechWindow(
+          startedAt: startedAt,
+          expected: Duration(
+            milliseconds: (segment.durationMs ?? 1600).clamp(900, 5000),
+          ),
+        );
+      } catch (_) {
+        await Future<void>.delayed(_estimateSilentSegmentDuration(segment.text));
+      }
+    }
+
+    if (epoch == _speakEpoch &&
+        runId == _speechRunId &&
+        speechSegments.isEmpty &&
+        fallbackText.isNotEmpty) {
+      _assistantText = fallbackText;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _presentAssistantSilently(String text, int epoch) async {
+    final segments = _splitDisplaySegments(text);
+    for (final segment in segments) {
+      if (epoch != _speakEpoch) {
+        return;
+      }
+      _assistantText = segment;
+      notifyListeners();
+      await Future.delayed(_estimateSilentSegmentDuration(segment));
+    }
+  }
+
+  List<String> _splitDisplaySegments(String text) {
+    final normalized = text
+        .replaceAll('\n', ' ')
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .join(' ')
+        .trim();
+    if (normalized.isEmpty) {
+      return const [''];
+    }
+
+    final matches = RegExp(r'[^.!?。！？]+[.!?。！？]?').allMatches(normalized);
+    final sentenceSegments = matches
+        .map((match) => match.group(0)?.trim() ?? '')
+        .where((segment) => segment.isNotEmpty)
+        .toList();
+    final baseSegments = sentenceSegments.isEmpty ? [normalized] : sentenceSegments;
+    return baseSegments;
+  }
+
+  Duration _estimateSilentSegmentDuration(String segment) {
+    final runeLength = segment.runes.length;
+    final estimatedMs = 900 + (runeLength * 70);
+    return Duration(milliseconds: estimatedMs.clamp(1100, 3200));
+  }
+
+  String? _resolveSegmentAudioUrl(String? rawUrl) {
+    final trimmed = rawUrl?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+
+    final base = ApiClient.baseUrl.trim();
+    if (base.isEmpty) {
+      return trimmed;
+    }
+    final normalizedBase = base.endsWith('/')
+        ? base.substring(0, base.length - 1)
+        : base;
+    final normalizedPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return '$normalizedBase$normalizedPath';
+  }
+
+  Future<void> _presentPrompt(
+    String kind, {
+    Map<String, dynamic>? payload,
+    required ShoppingStep nextStep,
+    required bool expectVoiceReply,
+  }) async {
+    final response = await _agentService.fetchPrompt(
+      kind: kind,
+      conversationId: _conversationId,
+      payload: payload,
+    );
+    await _presentAssistant(
+      response.assistantMessage,
+      speechSegments: response.speechSegments,
+      nextStep: nextStep,
+      expectVoiceReply: expectVoiceReply,
+    );
+  }
+
+  Future<void> _ensureMinimumSpeechWindow({
+    required DateTime startedAt,
+    required Duration expected,
+  }) async {
+    final minimumMs =
+        (expected.inMilliseconds * _speechGuardRatio).round().clamp(700, 4200);
+    final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+    final remainingMs = minimumMs - elapsedMs;
+    if (remainingMs > 0) {
+      await Future<void>.delayed(Duration(milliseconds: remainingMs));
+    }
+  }
+
   Future<void> _beginAutomaticListening(int epoch) async {
     if (epoch != _speakEpoch ||
         _voiceTurnState != VoiceTurnState.userCanSpeak) {
       return;
     }
     _hasDetectedSpeech = false;
+    _noiseSampleCount = 0;
+    _speechNoiseFloor = -45;
+    _recordingStartedAt = DateTime.now();
+    _lastSpeechDetectedAt = null;
+    _lastVadDebugAt = null;
+    _silenceCandidateStartedAt = null;
+    _isAmplitudeTelemetryUnreliable = false;
+    _isAwaitingSilenceConfirmation = false;
+    _amplitudeSampleCount = 0;
+    _zeroishAmplitudeCount = 0;
     _voiceTurnState = VoiceTurnState.userRecording;
     _voiceLevel = 0.34;
+    debugPrint(
+      '[VAD] recording_started '
+      'step=$_step epoch=$epoch '
+      'initialSpeechWaitMs=${_initialSpeechWaitTimeout.inMilliseconds} '
+      'maxRecordingMs=${_maxRecordingDuration.inMilliseconds}',
+    );
     notifyListeners();
     try {
       await _voiceTurnService.startRecording();
@@ -487,10 +824,15 @@ class ShoppingFlowController extends ChangeNotifier {
             _voiceTurnState != VoiceTurnState.userRecording) {
           return;
         }
+        debugPrint(
+          '[VAD] initial_silence_timeout '
+          'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)} '
+          'samples=$_noiseSampleCount',
+        );
         await _voiceTurnService.cancelRecording();
         _cancelVoiceTimers(keepCartAndPaymentTimers: true);
-        await _presentAssistant(
-          '천천히 말씀해주셔도 괜찮아요. 다시 말씀해주세요.',
+        await _presentPrompt(
+          'stt_retry_gentle',
           nextStep: _step,
           expectVoiceReply: true,
         );
@@ -506,15 +848,11 @@ class ShoppingFlowController extends ChangeNotifier {
       _amplitudeSubscription = _voiceTurnService
           .onAmplitudeChanged(interval: const Duration(milliseconds: 160))
           .listen((amplitude) {
-            final normalized = _normalizeAmplitude(amplitude.current);
+            final current = amplitude.current;
+            final normalized = _normalizeAmplitude(current);
             _voiceLevel = normalized;
-            if (_voiceTurnState == VoiceTurnState.userRecording &&
-                amplitude.current > -33) {
-              _hasDetectedSpeech = true;
-              _speechSilenceTimer?.cancel();
-              _speechSilenceTimer = Timer(_endOfSpeechSilence, () {
-                unawaited(_finishRecording());
-              });
+            if (_voiceTurnState == VoiceTurnState.userRecording) {
+              _updateVoiceActivity(current);
             }
             notifyListeners();
           });
@@ -527,13 +865,34 @@ class ShoppingFlowController extends ChangeNotifier {
     if (_voiceTurnState != VoiceTurnState.userRecording) {
       return;
     }
+    final recordingStartedAt = _recordingStartedAt;
+    final elapsedMs = recordingStartedAt == null
+        ? null
+        : DateTime.now().difference(recordingStartedAt).inMilliseconds;
+    debugPrint(
+      '[VAD] recording_stopped '
+      'elapsedMs=${elapsedMs ?? -1} '
+      'hasDetectedSpeech=$_hasDetectedSpeech '
+      'lastSpeechAt=${_lastSpeechDetectedAt?.toIso8601String()} '
+      'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)}',
+    );
     _voiceTurnState = VoiceTurnState.transcribing;
     _voiceLevel = 0.4;
     notifyListeners();
     _recordingTimeoutTimer?.cancel();
     _speechSilenceTimer?.cancel();
+    _fallbackAutoStopTimer?.cancel();
+    _lastSpeechDetectedAt = null;
+    _recordingStartedAt = null;
+    _silenceCandidateStartedAt = null;
+    _isAwaitingSilenceConfirmation = false;
     try {
       final transcript = await _voiceTurnService.stopRecordingAndTranscribe();
+      debugPrint(
+        '[VAD] stt_result '
+        'length=${transcript.trim().length} '
+        'text="${transcript.trim()}"',
+      );
       if (transcript.trim().isEmpty || transcript.trim().length < 2) {
         await _handleSttFailure();
         return;
@@ -596,6 +955,7 @@ class ShoppingFlowController extends ChangeNotifier {
     final fallback = ProductViewData.mock(productUrl: source.productUrl);
     return ProductViewData(
       platform: source.platform ?? fallback.platform,
+      shopName: source.shopName ?? fallback.shopName,
       productUrl: source.productUrl ?? fallback.productUrl,
       imageUrl: source.imageUrl ?? fallback.imageUrl,
       title: source.title,
@@ -605,21 +965,6 @@ class ShoppingFlowController extends ChangeNotifier {
       priceText: source.priceText ?? fallback.priceText,
       badgeText: source.badgeText ?? fallback.badgeText,
     );
-  }
-
-  String _normalizedProductMessage(
-    String assistantMessage,
-    ProductViewData product,
-  ) {
-    final normalized = assistantMessage.trim();
-    if (normalized.isNotEmpty && normalized != '무엇을 도와드릴까요?') {
-      return normalized;
-    }
-    return _mockProductMessage(product);
-  }
-
-  String _mockProductMessage(ProductViewData product) {
-    return '${product.title}가 ${product.quantityInfo ?? '1개'} ${product.displayPrice}이에요. ${product.badgeText ?? '리뷰가 좋고 30일 중 가장 싼 가격이에요!'} 이 상품을 구매할까요?';
   }
 
   bool _isNegative(String text) {
@@ -666,19 +1011,133 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   Future<void> confirmAddressStep() async {
-    _step = ShoppingStep.enterPassword;
     _pin = '';
-    _assistantText = '비밀번호 6자리를 입력해주세요.';
-    _voiceTurnState = VoiceTurnState.idle;
-    notifyListeners();
-    try {
-      await _voiceTurnService.speak(_assistantText);
-    } catch (_) {}
+    await _presentPrompt(
+      'pin_prompt',
+      nextStep: ShoppingStep.enterPassword,
+      expectVoiceReply: false,
+    );
   }
 
   double _normalizeAmplitude(double amplitude) {
     final clamped = ((amplitude + 45) / 45).clamp(0.0, 1.0);
     return 0.22 + (clamped * 0.78);
+  }
+
+  void _updateVoiceActivity(double amplitude) {
+    _amplitudeSampleCount += 1;
+    final zeroishAmplitude = amplitude <= -159.0 || amplitude.abs() < 0.1;
+    if (zeroishAmplitude) {
+      _zeroishAmplitudeCount += 1;
+    }
+
+    if (!_isAmplitudeTelemetryUnreliable &&
+        _amplitudeSampleCount >= 6 &&
+        _zeroishAmplitudeCount >= _amplitudeSampleCount - 1) {
+      _isAmplitudeTelemetryUnreliable = true;
+      _speechSilenceTimer?.cancel();
+      _scheduleFallbackAutoStop();
+      debugPrint(
+        '[VAD] amplitude_unreliable '
+        'samples=$_amplitudeSampleCount '
+        'zeroish=$_zeroishAmplitudeCount '
+        'amp=${amplitude.toStringAsFixed(1)}',
+      );
+    }
+
+    if (!_hasDetectedSpeech && _noiseSampleCount < 6) {
+      _speechNoiseFloor =
+          ((_speechNoiseFloor * _noiseSampleCount) + amplitude) /
+          (_noiseSampleCount + 1);
+      _noiseSampleCount += 1;
+    }
+
+    final speechStartThreshold = (_speechNoiseFloor + 11).clamp(-34, -22);
+    final speechContinueThreshold =
+        (_speechNoiseFloor + 7).clamp(-40, -26);
+    final now = DateTime.now();
+
+    if (_lastVadDebugAt == null ||
+        now.difference(_lastVadDebugAt!) >= const Duration(milliseconds: 480)) {
+      _lastVadDebugAt = now;
+      debugPrint(
+        '[VAD] sample '
+        'amp=${amplitude.toStringAsFixed(1)} '
+        'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)} '
+        'startThreshold=${speechStartThreshold.toStringAsFixed(1)} '
+        'continueThreshold=${speechContinueThreshold.toStringAsFixed(1)} '
+        'hasSpeech=$_hasDetectedSpeech '
+        'unreliable=$_isAmplitudeTelemetryUnreliable',
+      );
+    }
+
+    if (_isAmplitudeTelemetryUnreliable) {
+      return;
+    }
+
+    if (!_hasDetectedSpeech &&
+        !zeroishAmplitude &&
+        amplitude >= speechStartThreshold) {
+      _hasDetectedSpeech = true;
+      _lastSpeechDetectedAt = now;
+      _speechSilenceTimer?.cancel();
+      debugPrint(
+        '[VAD] speech_started '
+        'amp=${amplitude.toStringAsFixed(1)} '
+        'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)} '
+        'threshold=${speechStartThreshold.toStringAsFixed(1)}',
+      );
+      return;
+    }
+
+    if (!_hasDetectedSpeech) {
+      return;
+    }
+
+    if (!zeroishAmplitude && amplitude >= speechContinueThreshold) {
+      _lastSpeechDetectedAt = now;
+      _silenceCandidateStartedAt = null;
+      _isAwaitingSilenceConfirmation = false;
+      _speechSilenceTimer?.cancel();
+      return;
+    }
+
+    final lastSpeechAt = _lastSpeechDetectedAt;
+    final recordingStartedAt = _recordingStartedAt;
+    if (lastSpeechAt == null || recordingStartedAt == null) {
+      return;
+    }
+
+    final speechElapsed = now.difference(recordingStartedAt);
+    final silenceElapsed = now.difference(lastSpeechAt);
+    if (speechElapsed >= _minSpeechWindow &&
+        silenceElapsed >= _endOfSpeechSilence &&
+        !_isAwaitingSilenceConfirmation) {
+      _isAwaitingSilenceConfirmation = true;
+      _silenceCandidateStartedAt = now;
+      debugPrint(
+        '[VAD] silence_candidate '
+        'speechElapsedMs=${speechElapsed.inMilliseconds} '
+        'silenceElapsedMs=${silenceElapsed.inMilliseconds} '
+        'continueThreshold=${speechContinueThreshold.toStringAsFixed(1)} '
+        'amp=${amplitude.toStringAsFixed(1)}',
+      );
+      _speechSilenceTimer?.cancel();
+      _speechSilenceTimer = Timer(_silenceConfirmDuration, () {
+        if (_voiceTurnState != VoiceTurnState.userRecording) {
+          return;
+        }
+        final confirmFrom = _silenceCandidateStartedAt ?? now;
+        final confirmedSilenceMs =
+            DateTime.now().difference(confirmFrom).inMilliseconds;
+        debugPrint(
+          '[VAD] speech_ended_confirmed '
+          'confirmMs=$confirmedSilenceMs '
+          'extraConfirmMs=${_silenceConfirmDuration.inMilliseconds}',
+        );
+        unawaited(_finishRecording());
+      });
+    }
   }
 
   String _cartStatusTextForTask() {
@@ -712,12 +1171,30 @@ class ShoppingFlowController extends ChangeNotifier {
     _recordingTimeoutTimer = null;
     _speechSilenceTimer?.cancel();
     _speechSilenceTimer = null;
+    _fallbackAutoStopTimer?.cancel();
+    _fallbackAutoStopTimer = null;
+    _silenceCandidateStartedAt = null;
+    _isAwaitingSilenceConfirmation = false;
     _amplitudeSubscription?.cancel();
     _amplitudeSubscription = null;
     if (!keepCartAndPaymentTimers) {
       _cartTimer?.cancel();
       _paymentTimer?.cancel();
     }
+  }
+
+  void _scheduleFallbackAutoStop() {
+    _fallbackAutoStopTimer?.cancel();
+    _fallbackAutoStopTimer = Timer(_unreliableAmplitudeCapture, () {
+      if (_voiceTurnState != VoiceTurnState.userRecording) {
+        return;
+      }
+      debugPrint(
+        '[VAD] fallback_auto_stop '
+        'captureMs=${_unreliableAmplitudeCapture.inMilliseconds}',
+      );
+      unawaited(_finishRecording());
+    });
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/shopping_v1_models.dart';
+import 'glass_button.dart';
 import 'glass_card.dart';
 
 class AddressConfirmCard extends StatelessWidget {
@@ -62,7 +63,7 @@ class AddressConfirmCard extends StatelessWidget {
                       fontFamily: 'Pretendard',
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFFFF5B98),
+                      color: Color(0xFFD77B9E),
                     ),
                   ),
                 ],
@@ -88,7 +89,7 @@ class AddressConfirmCard extends StatelessWidget {
                   fontFamily: 'Pretendard',
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
-                  color: Color(0xFFFF5B98),
+                  color: Color(0xFFD77B9E),
                 ),
               ),
             ],
@@ -97,24 +98,10 @@ class AddressConfirmCard extends StatelessWidget {
             const SizedBox(height: 22),
             SizedBox(
               width: double.infinity,
-              child: FilledButton(
+              child: GlassButton(
+                label: '이 배송지로 진행할게요',
                 onPressed: onConfirm,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF6FAE),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                ),
-                child: const Text(
-                  '이 배송지로 진행할게요',
-                  style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+                foregroundColor: const Color(0xFFD77B9E),
               ),
             ),
           ],

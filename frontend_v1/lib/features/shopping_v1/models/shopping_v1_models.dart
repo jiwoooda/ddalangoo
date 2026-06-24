@@ -26,6 +26,7 @@ enum VoiceTurnState {
 class ProductViewData {
   const ProductViewData({
     this.platform,
+    this.shopName,
     this.productUrl,
     this.imageUrl,
     required this.title,
@@ -37,6 +38,7 @@ class ProductViewData {
   });
 
   final String? platform;
+  final String? shopName;
   final String? productUrl;
   final String? imageUrl;
   final String? subtitle;
@@ -49,9 +51,24 @@ class ProductViewData {
   String get displayPrice =>
       priceText ?? (price != null ? '${_formatPrice(price!)}원' : '');
 
+  String get displayTitle {
+    final normalized = _ensureMarketPrefix(title, shopName);
+    final extracted = _extractQuantityFromTitle(normalized);
+    if (extracted == null) {
+      return normalized.trim();
+    }
+    return normalized.replaceFirst(extracted, '').trim();
+  }
+
+  String get displayQuantityInfo =>
+      (quantityInfo != null && quantityInfo!.trim().isNotEmpty)
+      ? quantityInfo!.trim()
+      : (_extractQuantityFromTitle(title)?.trim() ?? '');
+
   static ProductViewData mock({String? productUrl}) {
     return ProductViewData(
       platform: 'Kurly',
+      shopName: '컬리N마트',
       productUrl: productUrl,
       title: '[김재규우리떡연구소] 흑임자 쑥 인절미',
       quantityInfo: '70g x 7개',
@@ -60,6 +77,26 @@ class ProductViewData {
       badgeText: '리뷰가 좋고 30일 중 가장 싼 가격이에요',
     );
   }
+}
+
+String? _extractQuantityFromTitle(String text) {
+  final match = RegExp(r'\(([^()]*\d[^()]*)\)\s*$').firstMatch(text.trim());
+  if (match == null) {
+    return null;
+  }
+  return match.group(1);
+}
+
+String _ensureMarketPrefix(String title, String? shopName) {
+  final trimmedTitle = title.trim();
+  final trimmedShopName = shopName?.trim();
+  if (trimmedShopName == null || trimmedShopName.isEmpty) {
+    return trimmedTitle;
+  }
+  if (RegExp(r'^\[[^\]]+\]').hasMatch(trimmedTitle)) {
+    return trimmedTitle;
+  }
+  return '[$trimmedShopName] $trimmedTitle';
 }
 
 class CartItemViewData {
@@ -125,10 +162,53 @@ class CheckoutSummary {
   }
 }
 
+class SpeechSegmentViewData {
+  const SpeechSegmentViewData({
+    required this.index,
+    required this.text,
+    this.audioUrl,
+    this.durationMs,
+  });
+
+  final int index;
+  final String text;
+  final String? audioUrl;
+  final int? durationMs;
+}
+
+class WebviewTaskViewData {
+  const WebviewTaskViewData({
+    required this.commandKey,
+    required this.url,
+    this.platform,
+    this.shopName,
+    this.task,
+    this.orderId,
+    this.paymentId,
+    this.productName,
+    this.quantity = 1,
+    this.canonicalProductUrl,
+  });
+
+  final String commandKey;
+  final String url;
+  final String? platform;
+  final String? shopName;
+  final String? task;
+  final int? orderId;
+  final int? paymentId;
+  final String? productName;
+  final int quantity;
+  final String? canonicalProductUrl;
+}
+
 class ShoppingAgentResponse {
   const ShoppingAgentResponse({
     this.conversationId,
     required this.assistantMessage,
+    this.message,
+    this.speechMode,
+    this.speechSegments = const [],
     this.status,
     this.stage,
     this.pendingConfirmation,
@@ -146,6 +226,9 @@ class ShoppingAgentResponse {
 
   final int? conversationId;
   final String assistantMessage;
+  final String? message;
+  final String? speechMode;
+  final List<SpeechSegmentViewData> speechSegments;
   final String? status;
   final String? stage;
   final Map<String, dynamic>? pendingConfirmation;

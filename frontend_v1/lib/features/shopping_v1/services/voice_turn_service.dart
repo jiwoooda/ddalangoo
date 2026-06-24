@@ -1,4 +1,5 @@
 import '../../../core/services/gpt_voice_service.dart';
+import '../../../core/services/gemini_voice_service.dart';
 import 'package:record/record.dart';
 
 class VoiceTurnService {
@@ -11,7 +12,23 @@ class VoiceTurnService {
 
   Future<void> speak(String text) => _voiceService.speak(text);
 
+  Future<void> speakWithSegments(
+    String text, {
+    void Function(TtsSegmentData segment)? onSegmentStart,
+  }) => _voiceService.speakWithSegments(
+    text,
+    onSegmentStart: onSegmentStart,
+  );
+
   Future<void> stopSpeaking() => _voiceService.stopSpeaking();
+
+  Future<void> playAudioUrl(
+    String url, {
+    int? expectedDurationMs,
+  }) => _voiceService.playAudioUrl(
+    url,
+    expectedDurationMs: expectedDurationMs,
+  );
 
   Future<void> startRecording() => _voiceService.startRecording();
 

@@ -87,6 +87,9 @@ class ApiClient {
     Map<String, dynamic> payload,
   ) {
     final url = payload['url']?.toString() ?? '';
+    if (url.contains('/static/tts/')) {
+      return _summarizeStaticAudioLog(phase, payload, url);
+    }
     if (url.contains('/voice/tts')) {
       return _summarizeTtsLog(phase, payload, url);
     }
@@ -136,6 +139,46 @@ class ApiClient {
 
     if (phase == 'ERROR') {
       _lastSuppressedWebviewStatusLogKey = null;
+    }
+
+    return payload;
+  }
+
+  static Map<String, dynamic>? _summarizeStaticAudioLog(
+    String phase,
+    Map<String, dynamic> payload,
+    String url,
+  ) {
+    if (phase == 'REQUEST') {
+      return {
+        'method': payload['method'],
+        'url': url,
+      };
+    }
+
+    if (phase == 'RESPONSE') {
+      final data = payload['data'];
+      final byteLength = data is List ? data.length : null;
+      return {
+        'statusCode': payload['statusCode'],
+        'url': url,
+        'data': {
+          'byteLength': byteLength,
+        },
+      };
+    }
+
+    if (phase == 'ERROR') {
+      final data = payload['data'];
+      return {
+        'url': url,
+        'message': payload['message'],
+        'type': payload['type'],
+        'statusCode': payload['statusCode'],
+        'dataPreview': data is List
+            ? utf8.decode(data.whereType<int>().toList(), allowMalformed: true)
+            : data,
+      };
     }
 
     return payload;

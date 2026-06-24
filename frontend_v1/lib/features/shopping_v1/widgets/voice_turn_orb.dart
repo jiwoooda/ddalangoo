@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
 import '../models/shopping_v1_models.dart';
 
@@ -136,35 +137,51 @@ class _VoiceTurnOrbState extends State<VoiceTurnOrb>
                     ),
                   ),
                   Container(
-                    width: baseSize,
-                    height: baseSize,
+                    width: baseSize + 10,
+                    height: baseSize + 10,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFFFFFFFF).withValues(alpha: 0.96),
-                          _coreColor().withValues(alpha: 0.94),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.84),
-                        width: 2,
-                      ),
                       boxShadow: [
                         BoxShadow(
-                          color: glowColor.withValues(alpha: 0.28),
+                          color: Colors.white.withValues(alpha: 0.36),
+                          blurRadius: 28,
+                          offset: const Offset(0, 10),
+                        ),
+                        BoxShadow(
+                          color: glowColor.withValues(alpha: 0.16),
                           blurRadius: 34,
                           offset: const Offset(0, 16),
                         ),
                       ],
                     ),
-                    child: CustomPaint(
-                      painter: _OrbPainter(
-                        state: widget.state,
-                        level: widget.level,
-                        rotationValue: _rotationController.value,
+                    child: LiquidGlass.grouped(
+                      shape: const LiquidOval(),
+                      clipBehavior: Clip.antiAlias,
+                      child: Container(
+                        width: baseSize,
+                        height: baseSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            colors: [
+                              const Color(0xFFFFFFFF).withValues(alpha: 0.88),
+                              _coreColor().withValues(alpha: 0.42),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            width: 1.4,
+                          ),
+                        ),
+                        child: CustomPaint(
+                          painter: _OrbPainter(
+                            state: widget.state,
+                            level: widget.level,
+                            rotationValue: _rotationController.value,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -179,19 +196,19 @@ class _VoiceTurnOrbState extends State<VoiceTurnOrb>
 
   Color _glowColor() {
     return switch (widget.state) {
-      VoiceTurnState.error => const Color(0xFFFF8C9E),
-      VoiceTurnState.transcribing => const Color(0xFFFF87B9),
-      VoiceTurnState.agentThinking => const Color(0xFFFF79A8),
-      _ => const Color(0xFFFF6FAE),
+      VoiceTurnState.error => const Color(0xFFDE8C9E),
+      VoiceTurnState.transcribing => const Color(0xFFD993B0),
+      VoiceTurnState.agentThinking => const Color(0xFFD487A7),
+      _ => const Color(0xFFD77B9E),
     };
   }
 
   Color _coreColor() {
     return switch (widget.state) {
-      VoiceTurnState.error => const Color(0xFFFFD4DC),
-      VoiceTurnState.transcribing => const Color(0xFFFFDDF0),
-      VoiceTurnState.agentThinking => const Color(0xFFFFD2EA),
-      _ => const Color(0xFFFFCEE5),
+      VoiceTurnState.error => const Color(0xFFF7E2E8),
+      VoiceTurnState.transcribing => const Color(0xFFF6EAF1),
+      VoiceTurnState.agentThinking => const Color(0xFFF6E8F0),
+      _ => const Color(0xFFF8EEF4),
     };
   }
 }
@@ -215,7 +232,7 @@ class _OrbPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeWidth = state == VoiceTurnState.userRecording ? 3.6 : 2.6
-      ..color = const Color(0xFFEF5E9A);
+      ..color = const Color(0xFFD77B9E);
 
     if (state == VoiceTurnState.userRecording) {
       final path = Path();
@@ -238,7 +255,7 @@ class _OrbPainter extends CustomPainter {
     final ringPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3
-      ..color = const Color(0xFFEF5E9A).withValues(alpha: 0.42);
+      ..color = const Color(0xFFD77B9E).withValues(alpha: 0.34);
 
     if (state == VoiceTurnState.transcribing ||
         state == VoiceTurnState.agentThinking) {
@@ -249,7 +266,7 @@ class _OrbPainter extends CustomPainter {
           center.dy + math.sin(angle) * (radius - 18),
         );
         final dotPaint = Paint()
-          ..color = const Color(0xFFFF6FAE).withValues(
+          ..color = const Color(0xFFD77B9E).withValues(
             alpha: 0.18 + (((i + rotationValue * 8) % 8) / 8) * 0.62,
           );
         canvas.drawCircle(point, 4.5, dotPaint);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
 import 'glass_card.dart';
 
@@ -30,8 +31,8 @@ class PinKeypad extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: index < pin.length
-                      ? const Color(0xFFFF6FAE)
-                      : const Color(0xFFFFE4EF),
+                      ? const Color(0xFFD77B9E)
+                      : Colors.white.withValues(alpha: 0.72),
                 ),
               ),
             ),
@@ -86,16 +87,23 @@ class _KeypadButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
-      child: Ink(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.72),
+    return LiquidGlass.grouped(
+      shape: const LiquidRoundedSuperellipse(borderRadius: 22),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.16),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: const Color(0xFFFFD0E1)),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+            ),
+            child: Center(child: child),
+          ),
         ),
-        child: Center(child: child),
       ),
     );
   }

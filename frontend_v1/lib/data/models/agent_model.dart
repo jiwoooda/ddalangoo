@@ -108,6 +108,9 @@ class AgentResponse {
   final String status;
   final String stage;
   final String assistantMessage;
+  final String? message;
+  final String? speechMode;
+  final List<SpeechSegmentModel> speechSegments;
   final int? recommendationId;
   final List<RecommendationItemInAgent> recommendations;
   final dynamic selectedProduct;
@@ -126,6 +129,9 @@ class AgentResponse {
     required this.status,
     required this.stage,
     required this.assistantMessage,
+    this.message,
+    this.speechMode,
+    this.speechSegments = const [],
     this.recommendationId,
     this.recommendations = const [],
     this.selectedProduct,
@@ -144,7 +150,15 @@ class AgentResponse {
     conversationId: json['conversationId'],
     status: json['status'],
     stage: json['stage'],
-    assistantMessage: json['assistantMessage'],
+    assistantMessage: json['assistantMessage'] ?? json['message'] ?? '',
+    message: json['message'],
+    speechMode: json['speechMode'],
+    speechSegments:
+        ((json['speechSegments'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map(SpeechSegmentModel.fromJson)
+            .toList()
+          ..sort((a, b) => a.index.compareTo(b.index))),
     recommendationId: json['recommendationId'],
     recommendations:
         ((json['recommendations'] as List? ?? [])
@@ -162,4 +176,26 @@ class AgentResponse {
     asyncStatus: json['asyncStatus'],
     error: json['error'],
   );
+}
+
+class SpeechSegmentModel {
+  final int index;
+  final String text;
+  final String? audioUrl;
+  final int? durationMs;
+
+  const SpeechSegmentModel({
+    required this.index,
+    required this.text,
+    this.audioUrl,
+    this.durationMs,
+  });
+
+  factory SpeechSegmentModel.fromJson(Map<String, dynamic> json) =>
+      SpeechSegmentModel(
+        index: json['index'] ?? 0,
+        text: json['text'] ?? '',
+        audioUrl: json['audioUrl'],
+        durationMs: json['durationMs'],
+      );
 }

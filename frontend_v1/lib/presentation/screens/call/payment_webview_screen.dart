@@ -11,6 +11,8 @@ class PaymentWebViewScreen extends StatefulWidget {
   const PaymentWebViewScreen({
     super.key,
     required this.url,
+    this.platform,
+    this.shopName,
     this.task,
     this.orderId,
     this.paymentId,
@@ -23,9 +25,12 @@ class PaymentWebViewScreen extends StatefulWidget {
     this.previewHelperText,
     this.previewStep,
     this.previewMessage,
+    this.onResult,
   });
 
   final String url;
+  final String? platform;
+  final String? shopName;
   final String? task;
   final int? orderId;
   final int? paymentId;
@@ -38,6 +43,8 @@ class PaymentWebViewScreen extends StatefulWidget {
   final String? previewHelperText;
   final String? previewStep;
   final String? previewMessage;
+  final Future<void> Function(String result, Map<String, dynamic>? extraData)?
+  onResult;
 
   @override
   State<PaymentWebViewScreen> createState() => _PaymentWebViewScreenState();
@@ -54,6 +61,14 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   bool _automationDone = false;
   bool _didRetryCredentialLogin = false;
   bool _automationStarted = false;
+
+  bool get _usesExternalResultHandler => widget.onResult != null;
+  bool get _supportsKurlyAutomation {
+    if (_isKurlyUrl(widget.canonicalProductUrl) || _isKurlyUrl(widget.url)) {
+      return true;
+    }
+    return false;
+  }
 
   @override
   void initState() {
@@ -102,6 +117,17 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     final controller = _controller;
     if (controller == null || widget.previewMode || _automationStarted) return;
     _automationStarted = true;
+
+    if (!_supportsKurlyAutomation) {
+      final label = _manualPlatformLabel();
+      setState(() {
+        _automationStep = 'manual_required';
+        _automationMessage =
+            '$label 상품은 자동 장바구니 담기를 아직 지원하지 않아요. 화면에서 직접 확인해주세요.';
+        _automationDone = true;
+      });
+      return;
+    }
 
     if (widget.task == 'address_check') {
       await Future.delayed(const Duration(seconds: 2));
@@ -230,16 +256,20 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     }
     if (_isSubmitting) return;
     setState(() => _isSubmitting = true);
-    final callProvider = context.read<CallProvider>();
     final navigator = Navigator.of(context);
     try {
-      await callProvider.handlePaymentResult(
-        orderId: widget.orderId,
-        paymentId: widget.paymentId,
-        result: result,
-        extraData: extraData,
-        awaitAssistantPresentation: false,
-      );
+      if (widget.onResult != null) {
+        await widget.onResult!(result, extraData);
+      } else {
+        final callProvider = context.read<CallProvider>();
+        await callProvider.handlePaymentResult(
+          orderId: widget.orderId,
+          paymentId: widget.paymentId,
+          result: result,
+          extraData: extraData,
+          awaitAssistantPresentation: false,
+        );
+      }
       if (navigator.mounted) {
         navigator.pop();
       }
@@ -547,6 +577,10 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     if (widget.previewMode || _isInterrupting) return;
     setState(() => _isInterrupting = true);
     try {
+      if (_usesExternalResultHandler) {
+        await _submitResult('cancelled');
+        return;
+      }
       await context.read<CallProvider>().interruptWebviewProgress();
       if (mounted) Navigator.of(context).pop();
     } catch (_) {
@@ -581,26 +615,76 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         return '저장된 로그인 정보가 맞지 않아 새 로그인 정보를 입력받고 있어요.';
       case 'login_required':
         return '앱 안에서 컬리 로그인 정보를 한 번 저장하면 다음부터 자동으로 사용해요.';
+      case 'manual_required':
+        return '현재 플랫폼은 자동 탐색 대신 상품 페이지를 직접 보여드리고 있어요.';
       default:
         return '실시간 진행 상황을 이곳에서 보여드리고 있어요.';
     }
   }
 
+  String _platformLabel(String? platform) {
+    switch (platform?.trim().toLowerCase()) {
+      case 'naver':
+      case '네이버':
+        return '네이버';
+      case 'coupang':
+        return '쿠팡';
+      case 'kurly':
+        return '컬리';
+      case 'kurlynmart':
+        return '컬리N마트';
+      default:
+        return '현재';
+    }
+  }
+
+  String _manualPlatformLabel() {
+    final shopName = widget.shopName?.trim();
+    if (shopName != null && shopName.isNotEmpty) {
+      return shopName;
+    }
+    return _platformLabel(widget.platform);
+  }
+
+  bool _isKurlyUrl(String? url) {
+    final normalized = url?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) {
+      return false;
+    }
+    return normalized.contains('kurly.com/');
+  }
+
+  String _targetLabel() {
+    if (widget.previewTitle != null) {
+      return widget.previewTitle!;
+    }
+    if (widget.previewMode) {
+      return '웹 진행 상황';
+    }
+    if (_usesExternalResultHandler) {
+      switch (widget.task) {
+        case 'address_check':
+          return '배송지 확인';
+        case 'payment':
+          return '결제 진행';
+        case 'add_to_cart':
+        default:
+          return '장바구니 작업';
+      }
+    }
+    return context.read<CallProvider>().webviewTargetLabel;
+  }
+
   @override
   Widget build(BuildContext context) {
     final canSubmitResult =
-        !widget.previewMode &&
-        widget.orderId != null &&
-        widget.paymentId != null;
+        widget.previewMode ||
+        _usesExternalResultHandler ||
+        (widget.orderId != null && widget.paymentId != null);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.previewTitle ??
-              (widget.previewMode
-                  ? '웹 진행 상황'
-                  : context.read<CallProvider>().webviewTargetLabel),
-        ),
+        title: Text(_targetLabel()),
         actions: [
           TextButton(
             onPressed: _isSubmitting
@@ -679,11 +763,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   }
 
   Widget _buildStatusCard(BuildContext context) {
-    final targetLabel =
-        widget.previewTitle ??
-        (widget.previewMode
-            ? '웹 진행 상황'
-            : context.read<CallProvider>().webviewTargetLabel);
+    final targetLabel = _targetLabel();
     final statusText = widget.previewStatusText ?? _automationMessage;
     final helperText = widget.previewHelperText ?? _helperTextForStep();
 
