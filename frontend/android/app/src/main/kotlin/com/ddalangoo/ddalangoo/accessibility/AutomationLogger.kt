@@ -53,4 +53,26 @@ object AutomationLogger {
             ).joinToString(prefix = "validation ", separator = " ")
         )
     }
+
+    fun purchaseHistoryDump(
+        packageName: String?,
+        rawNodeCount: Int,
+        filteredNodeCount: Int,
+        candidateNodes: List<UiNode>
+    ) {
+        info(
+            "purchase_history_dump packageName=${packageName.orEmpty()} " +
+                "rawNodeCount=$rawNodeCount filteredNodeCount=$filteredNodeCount " +
+                "purchaseHistoryCandidateCount=${candidateNodes.size}"
+        )
+        candidateNodes.forEach { node ->
+            info(
+                "purchase_history_candidate nodeId=${node.id} " +
+                    "text=${node.primaryText()} role=${node.role.orEmpty()} " +
+                    "clickable=${node.clickable} " +
+                    "bounds=${node.boundsLeft},${node.boundsTop},${node.boundsRight},${node.boundsBottom} " +
+                    "centerX=${node.centerX} centerY=${node.centerY}"
+            )
+        }
+    }
 }

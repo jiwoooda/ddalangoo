@@ -51,6 +51,14 @@ class DdalangooAccessibilityService : AccessibilityService() {
         val selectedNode = actionPlan.targetNodeId?.let { targetNodeId ->
             filteredNodes.firstOrNull { node -> node.id == targetNodeId }
         }
+        if (actionPlan.actionType == AutomationActionType.DUMP_PURCHASE_HISTORY.value) {
+            AutomationLogger.purchaseHistoryDump(
+                packageName = task.packageName ?: eventPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                candidateNodes = findPurchaseHistoryCandidates(filteredNodes)
+            )
+        }
         AutomationLogger.info(
             "plan actionType=${actionPlan.actionType} targetNodeId=${actionPlan.targetNodeId} " +
                 "reasonCode=${actionPlan.reasonCode} confidence=${actionPlan.confidence}"
@@ -82,5 +90,28 @@ class DdalangooAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         AutomationLogger.warn("service interrupted")
+    }
+
+    private fun findPurchaseHistoryCandidates(filteredNodes: List<UiNode>): List<UiNode> {
+        val purchaseHistoryKeywords = listOf(
+            "주문",
+            "주문일",
+            "결제",
+            "가격",
+            "원",
+            "재구매",
+            "다시 구매",
+            "배송조회",
+            "배송",
+            "장바구니",
+            "장바구니 담기"
+        )
+
+        return filteredNodes
+            .filter { node ->
+                val nodeText = node.searchableText()
+                purchaseHistoryKeywords.any { keyword -> nodeText.contains(keyword.lowercase()) }
+            }
+            .take(80)
     }
 }

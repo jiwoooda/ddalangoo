@@ -12,6 +12,7 @@ enum class AutomationActionType(val value: String) {
     INPUT_TEXT("input_text"),
     CLICK("click"),
     SCROLL("scroll"),
+    DUMP_PURCHASE_HISTORY("dump_purchase_history"),
     STOP_FOR_SENSITIVE_SCREEN("stop_for_sensitive_screen"),
     NO_TARGET_FOUND("no_target_found")
 }
@@ -21,6 +22,11 @@ enum class RuleReasonCode(val value: String) {
     SEARCH_BUTTON("search_button"),
     PRODUCT_CARD("product_card"),
     CART_BUTTON("cart_button"),
+    MY_COUPANG("my_coupang"),
+    ORDER_HISTORY("order_history"),
+    PURCHASE_HISTORY_DUMP("purchase_history_dump"),
+    PURCHASE_HISTORY_SCROLL("purchase_history_scroll"),
+    REORDER_BUTTON("reorder_button"),
     POPUP_DISMISS("popup_dismiss"),
     SENSITIVE_SCREEN("sensitive_screen"),
     SCROLL_CONTAINER("scroll_container"),
@@ -29,6 +35,8 @@ enum class RuleReasonCode(val value: String) {
 
 class RuleBasedPlanner {
     private val sensitiveKeywords = listOf(
+        "로그인",
+        "비밀번호",
         "결제 비밀번호",
         "본인인증",
         "인증번호",
@@ -41,6 +49,9 @@ class RuleBasedPlanner {
     private val searchInputKeywords = listOf("검색", "검색어", "무엇을 찾고 계신가요", "상품을 검색")
     private val cartKeywords = listOf("장바구니 담기", "장바구니", "담기", "카트에 담기")
     private val popupDismissKeywords = listOf("닫기", "확인", "취소", "나중에 하기", "오늘 하루 보지 않기", "건너뛰기")
+    private val myCoupangKeywords = listOf("마이쿠팡")
+    private val orderHistoryKeywords = listOf("주문목록", "주문내역", "구매내역", "주문/배송")
+    private val reorderKeywords = listOf("재구매", "다시 구매", "장바구니 담기")
 
     fun plan(filteredNodes: List<UiNode>, task: AutomationTask): ActionPlan {
         // 결제/인증처럼 민감한 화면은 어떤 자동화 단계보다 먼저 중단한다.
@@ -60,6 +71,11 @@ class RuleBasedPlanner {
         }
 
         return when (task.currentStep) {
+            "open_my_coupang" -> planMyCoupang(filteredNodes)
+            "open_order_history" -> planOrderHistory(filteredNodes)
+            "dump_purchase_history" -> planPurchaseHistoryDump()
+            "scroll_purchase_history" -> planPurchaseHistoryScroll(filteredNodes)
+            "click_reorder" -> planReorder(filteredNodes)
             "search_input" -> planSearchInput(filteredNodes, task)
             "search_submit" -> planSearchButton(filteredNodes)
             "select_product" -> planProductCard(filteredNodes, task)
@@ -67,6 +83,49 @@ class RuleBasedPlanner {
             "completed" -> noTarget("task_completed")
             else -> planSearchInput(filteredNodes, task)
         }
+    }
+
+    private fun planMyCoupang(filteredNodes: List<UiNode>): ActionPlan {
+        val myCoupangNode = filteredNodes.firstOrNull { node -> containsAny(node, myCoupangKeywords) }
+        return myCoupangNode?.let { clickPlan(it, RuleReasonCode.MY_COUPANG, 0.92) }
+            ?: noTarget(RuleReasonCode.MY_COUPANG.value)
+    }
+
+    private fun planOrderHistory(filteredNodes: List<UiNode>): ActionPlan {
+        val orderHistoryNode = filteredNodes.firstOrNull { node -> containsAny(node, orderHistoryKeywords) }
+        return orderHistoryNode?.let { clickPlan(it, RuleReasonCode.ORDER_HISTORY, 0.9) }
+            ?: noTarget(RuleReasonCode.ORDER_HISTORY.value)
+    }
+
+    private fun planPurchaseHistoryDump(): ActionPlan {
+        return ActionPlan(
+            actionType = AutomationActionType.DUMP_PURCHASE_HISTORY.value,
+            targetNodeId = null,
+            textToInput = null,
+            reasonCode = RuleReasonCode.PURCHASE_HISTORY_DUMP.value,
+            confidence = 1.0
+        )
+    }
+
+    private fun planPurchaseHistoryScroll(filteredNodes: List<UiNode>): ActionPlan {
+        val scrollNode = filteredNodes.firstOrNull { node -> node.scrollable || node.role == "scroll_container" }
+        return if (scrollNode != null) {
+            ActionPlan(
+                actionType = AutomationActionType.SCROLL.value,
+                targetNodeId = scrollNode.id,
+                textToInput = null,
+                reasonCode = RuleReasonCode.PURCHASE_HISTORY_SCROLL.value,
+                confidence = 0.72
+            )
+        } else {
+            noTarget(RuleReasonCode.PURCHASE_HISTORY_SCROLL.value)
+        }
+    }
+
+    private fun planReorder(filteredNodes: List<UiNode>): ActionPlan {
+        val reorderNode = filteredNodes.firstOrNull { node -> containsAny(node, reorderKeywords) }
+        return reorderNode?.let { clickPlan(it, RuleReasonCode.REORDER_BUTTON, 0.88) }
+            ?: noTarget(RuleReasonCode.REORDER_BUTTON.value)
     }
 
     private fun planSearchInput(filteredNodes: List<UiNode>, task: AutomationTask): ActionPlan {

@@ -32,6 +32,12 @@ class ActionExecutor(private val service: AccessibilityService) {
             AutomationActionType.CLICK.value -> executeClick(targetNode)
             AutomationActionType.INPUT_TEXT.value -> executeInputText(targetNode, actionPlan.textToInput.orEmpty())
             AutomationActionType.SCROLL.value -> executeScroll(targetNode)
+            AutomationActionType.DUMP_PURCHASE_HISTORY.value -> ActionResult(
+                success = true,
+                method = ActionExecutionMethod.NONE.value,
+                errorCode = null,
+                message = "Purchase history candidates dumped"
+            )
             AutomationActionType.STOP_FOR_SENSITIVE_SCREEN.value -> ActionResult(
                 success = false,
                 method = ActionExecutionMethod.NONE.value,

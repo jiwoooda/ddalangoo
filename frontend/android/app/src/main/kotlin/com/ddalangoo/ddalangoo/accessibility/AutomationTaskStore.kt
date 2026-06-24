@@ -39,6 +39,8 @@ object AutomationTaskStore {
             RuleReasonCode.SEARCH_BUTTON.value -> "select_product"
             RuleReasonCode.PRODUCT_CARD.value -> "add_to_cart"
             RuleReasonCode.CART_BUTTON.value -> "completed"
+            RuleReasonCode.MY_COUPANG.value -> "open_order_history"
+            RuleReasonCode.ORDER_HISTORY.value -> "dump_purchase_history"
             else -> task.currentStep
         }
         currentTask = task.copy(currentStep = nextStep)
