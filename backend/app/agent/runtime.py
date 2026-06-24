@@ -19,6 +19,7 @@ thread_id = conversation_id 로 사용한다.
 import sys
 import os
 import uuid
+import asyncio
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
@@ -43,6 +44,7 @@ _PG_CONNINFO = _RAW_DB_URL.replace("postgresql+asyncpg://", "postgresql://")
 
 _graph = None
 _pool: AsyncConnectionPool | None = None
+_init_lock = asyncio.Lock()
 
 
 async def init():
@@ -56,6 +58,15 @@ async def init():
     await _pool.open()
     checkpointer = AsyncPostgresSaver(_pool)
     _graph = build_graph(checkpointer=checkpointer)
+
+
+async def ensure_initialized():
+    """lifespan이 실행되지 않은 로컬 실행에서도 그래프를 한 번만 초기화한다."""
+    if _graph is not None:
+        return
+    async with _init_lock:
+        if _graph is None:
+            await init()
 
 
 async def shutdown():
@@ -77,6 +88,7 @@ def _config(conversation_id: int) -> dict:
 
 
 async def update_state(conversation_id: int, patch: dict) -> dict:
+    await ensure_initialized()
     graph = get_graph()
     config = _config(conversation_id)
     await graph.aupdate_state(config, patch)
@@ -86,6 +98,7 @@ async def update_state(conversation_id: int, patch: dict) -> dict:
 
 async def start(user_id: int, message: str, conversation_id: int) -> dict:
     """새 대화 시작. 그래프를 초기화하고 첫 메시지를 처리한다."""
+    await ensure_initialized()
     graph = get_graph()
     config = _config(conversation_id)
 
@@ -105,6 +118,7 @@ async def start(user_id: int, message: str, conversation_id: int) -> dict:
 
 async def resume(conversation_id: int, message: str) -> dict:
     """기존 대화에 메시지를 추가하고 그래프를 재개한다."""
+    await ensure_initialized()
     graph = get_graph()
     config = _config(conversation_id)
 
@@ -117,6 +131,7 @@ async def resume(conversation_id: int, message: str) -> dict:
 
 async def inject_and_resume(conversation_id: int, patch: dict) -> dict:
     """confirm_action 등 프론트가 직접 state 변경을 주입할 때 사용."""
+    await ensure_initialized()
     graph = get_graph()
     config = _config(conversation_id)
 

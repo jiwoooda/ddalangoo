@@ -1356,6 +1356,24 @@ class _CallScreenState extends State<CallScreen> {
   // 주소 확인 카드
   Widget _buildAddressConfirmation(CallProvider provider) {
     final addr = provider.lastResponse!.deliveryAddress as Map;
+    final recipientName = _firstAddressValue(addr, [
+      'recipientName',
+      'recipient_name',
+    ]);
+    final recipientPhone = _firstAddressValue(addr, [
+      'recipientPhone',
+      'recipient_phone',
+    ]);
+    final addressText =
+        _firstAddressValue(addr, ['address', 'fullAddress']) ??
+        [
+          _firstAddressValue(addr, ['addressLine1', 'address_line1']),
+          _firstAddressValue(addr, ['addressLine2', 'address_line2']),
+        ].where((part) => part != null && part.trim().isNotEmpty).join(' ');
+    final deliveryRequest = _firstAddressValue(addr, [
+      'deliveryRequest',
+      'delivery_request',
+    ]);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(16),
@@ -1380,25 +1398,39 @@ class _CallScreenState extends State<CallScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            '${addr['recipientName']} (${addr['recipientPhone']})',
-            style: const TextStyle(fontWeight: FontWeight.w500),
-          ),
+          if (recipientName != null || recipientPhone != null)
+            Text(
+              [
+                ?recipientName,
+                if (recipientPhone != null) '($recipientPhone)',
+              ].join(' '),
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
           const SizedBox(height: 4),
           Text(
-            addr['address'] ?? '',
+            addressText,
             style: const TextStyle(fontSize: 14, color: Color(0xFF555555)),
           ),
-          if (addr['deliveryRequest'] != null) ...[
+          if (deliveryRequest != null) ...[
             const SizedBox(height: 8),
             Text(
-              '요청사항: ${addr['deliveryRequest']}',
+              '요청사항: $deliveryRequest',
               style: const TextStyle(fontSize: 13, color: Colors.blueGrey),
             ),
           ],
         ],
       ),
     );
+  }
+
+  String? _firstAddressValue(Map address, List<String> keys) {
+    for (final key in keys) {
+      final value = address[key];
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+    }
+    return null;
   }
 
   // 장바구니 요약

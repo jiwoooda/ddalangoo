@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,6 +100,17 @@ def _address_line(address: dict | None) -> str | None:
     if full:
         return full
     return _clean_address_text(address.get("address") or address.get("fullAddress"))
+
+
+def _address_speech_text(address_text: str) -> str:
+    """TTS가 주소를 붙여 읽지 않도록 음성 안내용 주소로 바꾼다."""
+    text = " ".join(address_text.split())
+    text = text.replace("서울특별시", "서울")
+    text = text.replace("서울시", "서울")
+    text = re.sub(r"([가-힣]+로)(\d+길)", r"\1 \2", text)
+    text = re.sub(r"([가-힣]+동)(\d+가)", r"\1 \2", text)
+    text = text.replace("(", ", ").replace(")", "")
+    return text
 
 
 def _same_address(left: dict | None, right: dict | None) -> bool:
@@ -489,6 +501,48 @@ async def handle_webview_result_db(
     if result == "address_checked":
         webview_progress_service.clear_progress(conversation_id)
         if not _webview_address_from_request(req):
+            delivery_address = await _delivery_address_from_request_or_db()
+            address_text = _full_address(delivery_address)
+            if address_text:
+                message = (
+                    "웹뷰에서 배송지를 찾지 못했어요. "
+                    f"앱에 등록된 배송지인 {_address_speech_text(address_text)} 맞으세요?"
+                )
+                await runtime.update_state(conversation_id, {
+                    "stage": "address_confirming",
+                    "delivery_address": delivery_address,
+                    "pending_action": {
+                        "type": "address_confirm",
+                        "message": message,
+                        "payload": {"address": delivery_address},
+                    },
+                    "messages": _assistant_message_patch(message),
+                    "order": order_payload,
+                    "payment": payment_payload,
+                    "webview_progress": None,
+                })
+                await conversation_repository.update_conversation_db(
+                    db,
+                    conversation_id,
+                    {"status": "waiting_user_confirmation", "stage": "address_confirming"},
+                )
+                return {
+                    **base,
+                    "status": "waiting_user_confirmation",
+                    "stage": "address_confirming",
+                    "assistantMessage": message,
+                    "pendingConfirmation": {
+                        "type": "address",
+                        "message": message,
+                        "payload": {"address": delivery_address},
+                    },
+                    "deliveryAddress": delivery_address,
+                    "order": order_payload,
+                    "payment": payment_payload,
+                    "uiCommand": {"type": "close_webview"},
+                    "error": None,
+                }
+
             message = "배송지를 찾지 못했어요. 장바구니 화면에서 배송지를 다시 확인해 주세요."
             await runtime.update_state(conversation_id, {
                 "stage": "address_required",
@@ -531,7 +585,7 @@ async def handle_webview_result_db(
                 "error": {
                     "category": "ADDRESS_ERROR",
                     "code": "ADDRESS_NOT_FOUND_IN_WEBVIEW",
-                    "message": "웹뷰에서 배송지를 찾지 못했습니다.",
+                    "message": "웹뷰에서 배송지를 찾지 못했고 앱 기본 배송지도 없습니다.",
                 },
             }
         delivery_address = await _delivery_address_from_request_or_db()
@@ -582,9 +636,7 @@ async def handle_webview_result_db(
                     "message": "웹뷰에서 배송지를 찾지 못했습니다.",
                 },
             }
-        message = (
-            f"{address_text}로 배송해드릴까요?"
-        )
+        message = f"배송지는 {_address_speech_text(address_text)} 맞으세요?"
         await runtime.update_state(conversation_id, {
             "stage": "address_confirming",
             "delivery_address": delivery_address,
@@ -609,7 +661,7 @@ async def handle_webview_result_db(
             "stage": "address_confirming",
             "assistantMessage": message,
             "pendingConfirmation": {
-                "type": "address_confirm",
+                "type": "address",
                 "message": message,
                 "payload": {"address": delivery_address},
             },

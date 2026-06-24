@@ -101,16 +101,24 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted || _hasPlayedHomeIntro || !widget.enableVoiceIntro) return;
     _hasPlayedHomeIntro = true;
     _warmScreenTtsPhrases();
-    unawaited(_voiceService.speak(_homeIntroText));
+    unawaited(_speakWithoutBlockingNavigation(_homeIntroText));
   }
 
   Future<void> _handleCallTap() async {
     if (!widget.enableDataLoad) return;
     _keepSpeakingOnDispose = true;
     await _voiceService.stopSpeaking();
-    await _voiceService.speak('딸랑구를 연결하고 있어요. 잠시만 기다려주세요.');
+    await _speakWithoutBlockingNavigation('딸랑구를 연결하고 있어요. 잠시만 기다려주세요.');
     if (!mounted) return;
     context.go('/call');
+  }
+
+  Future<void> _speakWithoutBlockingNavigation(String text) async {
+    try {
+      await _voiceService.speak(text);
+    } catch (e) {
+      debugPrint('🔇 [Home TTS Fallback] $e');
+    }
   }
 
   @override

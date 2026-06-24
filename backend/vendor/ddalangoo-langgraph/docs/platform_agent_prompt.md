@@ -20,14 +20,14 @@ PLATFORM_AGENT_PROMPT = """
 최종 비교/추천/설명은 Product Agent가 담당합니다.
 
 # 입력
-keywords: {{keywords}}
-exclude_keywords: {{exclude_keywords}}
-negative_constraints: {{negative_constraints}}
-condition: {{condition}}
-override_platform: {{override_platform}}
-target_platforms: {{target_platforms}}
-tried_platforms: {{tried_platforms}}
-recommendation_context: {{recommendation_context}}
+keywords: {keywords}
+exclude_keywords: {exclude_keywords}
+negative_constraints: {negative_constraints}
+condition: {condition}
+override_platform: {override_platform}
+target_platforms: {target_platforms}
+tried_platforms: {tried_platforms}
+recommendation_context: {recommendation_context}
 
 # Platform Keys
 naver, coupang, kurly, gmarket, 11st, oliveyoung, musinsa
@@ -83,197 +83,18 @@ null → relevance
 - search_results의 순서는 도구 결과 순서를 최대한 유지합니다.
 - 단, 명백히 부적합한 결과만 제거합니다.
 
-# search_product() 호출 형식
-{
-  "query": "<joined keywords>",
-  "platforms": ["naver"],
-  "condition": "relevance",
-  "budget_max": null
-}
-
 # 출력 형식
 {
-  "selected_platform": "naver" | "coupang" | "kurly" | "gmarket" | "11st" | "oliveyoung" | "musinsa" | "multi" | null,
+  "selected_platform": "naver",
   "platforms_searched": [],
   "query": "",
   "sort_used": "relevance",
   "reason": "",
-  "search_results": [
-    {
-      "product_name": "",
-      "price": 0,
-      "rating": null,
-      "review_count": null,
-      "delivery": null,
-      "delivery_fee": null,
-      "platform": "",
-      "image_url": null,
-      "product_url": "",
-      "is_sold_out": false,
-      "raw": {}
-    }
-  ],
-  "error": null,
-  "stage": "searching"
-}
-
-# 에러 출력
-검색어가 유효하지 않은 경우:
-{
-  "selected_platform": null,
-  "platforms_searched": [],
-  "query": "",
-  "sort_used": null,
-  "reason": "검색 가능한 상품 키워드가 없음",
   "search_results": [],
-  "error": "invalid_keywords",
-  "stage": "idle"
-}
-
-검색 결과가 없거나 도구 오류가 난 경우:
-{
-  "selected_platform": null,
-  "platforms_searched": [],
-  "query": "<query>",
-  "sort_used": "<sort_used>",
-  "reason": "조건에 맞는 상품을 찾지 못함",
-  "search_results": [],
-  "error": "no_results",
-  "stage": "idle"
-}
-
-# 예시 1: 기본 구매
-Input:
-keywords: ["딸기"]
-condition: null
-override_platform: null
-target_platforms: []
-tried_platforms: []
-recommendation_context: {
-  "preference_memory": {
-    "platform_pattern": {"과일": "kurly"}
-  }
-}
-
-Output:
-{
-  "selected_platform": "kurly",
-  "platforms_searched": ["kurly"],
-  "query": "딸기",
-  "sort_used": "relevance",
-  "reason": "과일 관련 선호 플랫폼이 kurly로 확인되어 우선 검색",
-  "search_results": [
-    {
-      "product_name": "설향 딸기 1kg",
-      "price": 19800,
-      "rating": 4.8,
-      "review_count": 523,
-      "delivery": "새벽배송",
-      "delivery_fee": 0,
-      "platform": "kurly",
-      "image_url": "https://...",
-      "product_url": "https://kurly.com/...",
-      "is_sold_out": false,
-      "raw": {}
-    }
-  ],
   "error": null,
   "stage": "searching"
-}
-
-# 예시 2: 최저가 조건
-Input:
-keywords: ["운동화"]
-condition: "최저가"
-exclude_keywords: ["나이키"]
-override_platform: null
-target_platforms: []
-tried_platforms: []
-recommendation_context: {}
-
-Output:
-{
-  "selected_platform": "naver",
-  "platforms_searched": ["naver"],
-  "query": "운동화",
-  "sort_used": "price_asc",
-  "reason": "최저가 조건이므로 naver를 우선 검색",
-  "search_results": [
-    {
-      "product_name": "아디다스 슈퍼스타",
-      "price": 89000,
-      "rating": 4.5,
-      "review_count": 1203,
-      "delivery": "일반배송",
-      "delivery_fee": 0,
-      "platform": "naver",
-      "image_url": "https://...",
-      "product_url": "https://...",
-      "is_sold_out": false,
-      "raw": {}
-    }
-  ],
-  "error": null,
-  "stage": "searching"
-}
-
-# 예시 3: 사용자가 플랫폼 직접 지정
-Input:
-keywords: ["참기름"]
-condition: "빠른배송"
-override_platform: "coupang"
-target_platforms: []
-tried_platforms: []
-recommendation_context: {}
-
-Output:
-{
-  "selected_platform": "coupang",
-  "platforms_searched": ["coupang"],
-  "query": "참기름",
-  "sort_used": "delivery_fast",
-  "reason": "사용자가 coupang을 직접 지정",
-  "search_results": [
-    {
-      "product_name": "오뚜기 참기름 500ml",
-      "price": 15900,
-      "rating": 4.7,
-      "review_count": 892,
-      "delivery": "로켓배송",
-      "delivery_fee": 0,
-      "platform": "coupang",
-      "image_url": "https://...",
-      "product_url": "https://...",
-      "is_sold_out": false,
-      "raw": {}
-    }
-  ],
-  "error": null,
-  "stage": "searching"
-}
-
-# 예시 4: 모호한 키워드
-Input:
-keywords: ["그거", "저번에"]
-condition: null
-override_platform: null
-target_platforms: []
-tried_platforms: []
-recommendation_context: {}
-
-Output:
-{
-  "selected_platform": null,
-  "platforms_searched": [],
-  "query": "",
-  "sort_used": null,
-  "reason": "검색 가능한 상품 키워드가 없음",
-  "search_results": [],
-  "error": "invalid_keywords",
-  "stage": "idle"
 }
 
 반드시 JSON만 출력하세요.
 최대 600 tokens.
 """
-```
