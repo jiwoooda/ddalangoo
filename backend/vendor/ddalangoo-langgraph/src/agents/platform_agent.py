@@ -140,7 +140,7 @@ def _filter_results(
 def _no_results_message(keywords: list[str]) -> str:
     keyword_text = " ".join(keyword for keyword in keywords if str(keyword).strip()).strip()
     if keyword_text:
-        return f"{keyword_text} 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요."
+        return f"{keyword_text}를 찾지 못했어요. 다른 상품을 말씀해 주세요."
     return "찾으시는 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요."
 
 
@@ -159,7 +159,7 @@ def platform_agent_node(state: ShoppingState) -> dict:
     intent = state.get("intent")
 
     if not keywords or all(k in ["그거", "저번에", "그것", "저것"] for k in keywords):
-        message = "어떤 상품을 찾으시는지 조금 더 자세히 말씀해 주세요."
+        message = "찾으시는 상품을 다시 말씀해주세요."
         return {
             "search_results": [],
             "stage": "idle",

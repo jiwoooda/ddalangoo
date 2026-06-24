@@ -53,11 +53,13 @@ class ShoppingRequest(BaseModel):
     userId: int
     message: str
     inputType: str = "text"
+    progressChannelId: Optional[str] = None
 
 class MessageRequest(BaseModel):
     message: str
     inputType: str = "text"
     action: Optional[str] = None
+    progressChannelId: Optional[str] = None
 
 class PromptRequest(BaseModel):
     kind: str

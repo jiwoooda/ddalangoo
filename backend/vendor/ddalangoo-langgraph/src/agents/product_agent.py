@@ -81,7 +81,7 @@ def _format_preference(preference_context: dict[str, Any]) -> str:
 def _missing_product_message(keywords: list[str]) -> str:
     keyword_text = " ".join(keyword for keyword in keywords if str(keyword).strip()).strip()
     if keyword_text:
-        return f"{keyword_text}에 맞는 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요."
+        return f"{keyword_text}를 찾지 못했어요. 다른 상품을 말씀해 주세요."
     return "조건에 맞는 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요."
 
 

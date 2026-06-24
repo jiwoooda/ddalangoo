@@ -4,7 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.schemas.agent import ShoppingRequest, MessageRequest, ConfirmRequest, PromptRequest, AgentResponse
 from app.schemas.payment import WebviewResultRequest
-from app.services import agent_service, payment_service, webview_progress_service
+from app.services import (
+    agent_progress_service,
+    agent_service,
+    payment_service,
+    webview_progress_service,
+)
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 
@@ -68,6 +73,16 @@ async def webview_progress(conversationId: int, websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         webview_progress_service.disconnect(conversationId, websocket)
+
+
+@router.websocket("/progress/{channelId}")
+async def agent_progress(channelId: str, websocket: WebSocket):
+    await agent_progress_service.connect(channelId, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        agent_progress_service.disconnect(channelId, websocket)
 
 
 @router.get("/conversations/{conversationId}/webview/status")

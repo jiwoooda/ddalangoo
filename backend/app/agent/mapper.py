@@ -199,6 +199,11 @@ def _last_assistant_message(state: dict) -> str:
         if role in ("ai", "assistant"):
             return content
 
+    pending_action = state.get("pending_action") or {}
+    pending_message = pending_action.get("message")
+    if isinstance(pending_message, str) and pending_message.strip():
+        return pending_message.strip()
+
     if state.get("needs_clarification") or state.get("intent") == "unclear":
         return (
             state.get("clarification_reason")
