@@ -1,0 +1,14 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+coverage/
+
+.env
+.DS_Store
+
+android/.gradle/
+ios/Pods/
+macos/Pods/
