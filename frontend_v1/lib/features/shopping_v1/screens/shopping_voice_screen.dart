@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -9,8 +10,8 @@ import '../controllers/shopping_flow_controller.dart';
 import '../models/shopping_v1_models.dart';
 import '../widgets/address_confirm_card.dart';
 import '../widgets/cart_progress_card.dart';
+import '../widgets/cart_summary_card.dart';
 import '../widgets/dallang_response_text.dart';
-import '../widgets/glass_card.dart';
 import '../widgets/glass_button.dart';
 import '../widgets/pin_keypad.dart';
 import '../widgets/product_card.dart';
@@ -98,6 +99,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
             url: task.url,
             platform: task.platform,
             shopName: task.shopName,
+            assistantMessage: _controller.assistantText,
             task: task.task,
             orderId: task.orderId,
             paymentId: task.paymentId,
@@ -267,10 +269,10 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     switch (step) {
       case ShoppingStep.askProduct:
       case ShoppingStep.askQuantity:
-      case ShoppingStep.cartCompleted:
-      case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.error:
         return true;
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.searchingProduct:
       case ShoppingStep.showProduct:
       case ShoppingStep.addingToCart:
@@ -286,21 +288,25 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     switch (_controller.step) {
       case ShoppingStep.askProduct:
       case ShoppingStep.askQuantity:
+        return const SizedBox.shrink();
       case ShoppingStep.cartCompleted:
       case ShoppingStep.askMoreOrCheckout:
-        return const SizedBox.shrink();
+        return Center(
+          key: ValueKey('cart-summary-${_controller.step.name}'),
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: CartSummaryCard(
+              userName: _controller.cartOwnerName,
+              items: _controller.cartItems,
+              totalQuantity: _controller.totalCartQuantity,
+              totalPriceText: _controller.totalCartPriceText,
+            ),
+          ),
+        );
       case ShoppingStep.searchingProduct:
         return const Center(
           key: ValueKey('searching-product'),
-          child: SizedBox(
-            width: 92,
-            height: 92,
-            child: CircularProgressIndicator(
-              strokeWidth: 6,
-              valueColor: AlwaysStoppedAnimation(Color(0xFFD77B9E)),
-              backgroundColor: Color(0xFFF1F3F6),
-            ),
-          ),
+          child: _SearchingShowcase(),
         );
       case ShoppingStep.showProduct:
         final product = _controller.currentProduct;
@@ -321,6 +327,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           statusText: _controller.cartStatusText,
           helperText: _controller.cartHelperText,
           progress: _controller.cartProgress,
+          items: _controller.cartItems,
         );
       case ShoppingStep.confirmAddress:
         return SingleChildScrollView(
@@ -342,74 +349,38 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           onBackspace: _controller.removePasswordDigit,
         );
       case ShoppingStep.processingPayment:
-        return GlassCard(
-          key: const ValueKey('processing-payment'),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(
-                width: 66,
-                height: 66,
-                child: CircularProgressIndicator(
-                  strokeWidth: 6,
-                  valueColor: AlwaysStoppedAnimation(Color(0xFFD77B9E)),
-                  backgroundColor: Color(0xFFF1F3F6),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                _controller.assistantText.isEmpty
-                    ? '결제를 진행 중이에요.'
-                    : _controller.assistantText,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF223140),
-                ),
-              ),
-            ],
+        return const Center(
+          key: ValueKey('processing-payment'),
+          child: SizedBox(
+            width: 74,
+            height: 74,
+            child: CircularProgressIndicator(
+              strokeWidth: 6,
+              valueColor: AlwaysStoppedAnimation(Color(0xFFD77B9E)),
+              backgroundColor: Color(0xFFF1F3F6),
+            ),
           ),
         );
       case ShoppingStep.paymentCompleted:
-        return GlassCard(
+        return Center(
           key: const ValueKey('payment-completed'),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset(
-                'assets/images/ddalangoo_frame2.png',
-                height: 170,
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  width: 170,
-                  height: 170,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF5F7FA),
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                  child: const Icon(
-                    Icons.favorite_rounded,
-                    size: 88,
-                    color: Color(0xFFD7A8B9),
-                  ),
-                ),
+          child: Image.asset(
+            'assets/images/ddalangoo_happy.png',
+            height: 210,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => Container(
+              width: 170,
+              height: 170,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F7FA),
+                borderRadius: BorderRadius.circular(30),
               ),
-              const SizedBox(height: 18),
-              Text(
-                _controller.assistantText.isEmpty
-                    ? '결제가 완료되었어요'
-                    : _controller.assistantText,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 26,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFFD77B9E),
-                ),
+              child: const Icon(
+                Icons.favorite_rounded,
+                size: 88,
+                color: Color(0xFFD7A8B9),
               ),
-            ],
+            ),
           ),
         );
       case ShoppingStep.error:
@@ -496,6 +467,56 @@ class _GlassBackgroundLayer extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SearchingShowcase extends StatefulWidget {
+  const _SearchingShowcase();
+
+  @override
+  State<_SearchingShowcase> createState() => _SearchingShowcaseState();
+}
+
+class _SearchingShowcaseState extends State<_SearchingShowcase> {
+  static const _assets = <String>[
+    'assets/images/ddalangoo_curious.png',
+    'assets/images/dddalangoo_cart.png',
+    'assets/images/ddalangoo_cheerful.png',
+  ];
+
+  Timer? _timer;
+  int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _index = (_index + 1) % _assets.length;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 450),
+      child: Image.asset(
+        _assets[_index],
+        key: ValueKey(_assets[_index]),
+        height: 210,
+        fit: BoxFit.contain,
+      ),
     );
   }
 }

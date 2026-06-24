@@ -59,7 +59,7 @@ class _ShoppingSplashScreenState extends State<ShoppingSplashScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Image.asset(
-                        'assets/images/ddalangoo_frame2.png',
+                        'assets/images/ddalangoo_top.png',
                         height: frameHeight,
                         fit: BoxFit.contain,
                         errorBuilder: (context, error, stackTrace) {

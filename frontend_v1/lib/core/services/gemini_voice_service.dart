@@ -46,6 +46,7 @@ class GeminiVoiceService {
   static const int _ttsRetryCount = 2;
   static const int _ttsSampleRate = 24000;
   static const Duration _ttsRetryBaseDelay = Duration(milliseconds: 800);
+  static const double _ttsPlaybackRate = 0.8;
 
   final AudioPlayer _player = AudioPlayer();
   final LinkedHashMap<String, Uint8List> _ttsCache = LinkedHashMap();
@@ -68,6 +69,7 @@ class GeminiVoiceService {
 
   Future<void> init() async {
     await _player.setReleaseMode(ReleaseMode.stop);
+    await _player.setPlaybackRate(_ttsPlaybackRate);
     if (!kIsWeb) {
       _ttsCacheDirectoryFuture ??= _prepareTtsCacheDirectory();
     }
@@ -162,6 +164,7 @@ class GeminiVoiceService {
     onPlaybackStart?.call();
     debugPrint('[TTS] remote segment playback started url=$url');
     final source = await _createRemotePlaybackSource(url);
+    await _player.setPlaybackRate(_ttsPlaybackRate);
     await _player.play(source);
     await speakCompleter.future;
   }
@@ -219,6 +222,7 @@ class GeminiVoiceService {
       onPlaybackStart?.call();
       _playbackStartedAt = DateTime.now();
       debugPrint('[TTS] playback started');
+      await _player.setPlaybackRate(_ttsPlaybackRate);
       await _player.play(speechSource);
       await speakCompleter.future;
     } catch (e) {

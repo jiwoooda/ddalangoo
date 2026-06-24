@@ -14,10 +14,13 @@ class ShoppingFlowController extends ChangeNotifier {
     milliseconds: 6500,
   );
   static const Duration _maxRecordingDuration = Duration(seconds: 18);
-  static const Duration _endOfSpeechSilence = Duration(milliseconds: 2300);
-  static const Duration _silenceConfirmDuration = Duration(milliseconds: 900);
-  static const Duration _minSpeechWindow = Duration(milliseconds: 1200);
-  static const Duration _unreliableAmplitudeCapture = Duration(seconds: 4);
+  static const Duration _endOfSpeechSilence = Duration(milliseconds: 3200);
+  static const Duration _silenceConfirmDuration = Duration(milliseconds: 1250);
+  static const Duration _minSpeechWindow = Duration(milliseconds: 2100);
+  static const Duration _firstSyllableProtection = Duration(milliseconds: 1400);
+  static const Duration _unreliableAmplitudeCapture = Duration(
+    milliseconds: 5600,
+  );
   static const double _speechGuardRatio = 0.82;
   static const bool _forceSilentDemoTts = bool.fromEnvironment(
     'SHOPPING_V1_SILENT_TTS',
@@ -64,10 +67,12 @@ class ShoppingFlowController extends ChangeNotifier {
   Timer? _recordingTimeoutTimer;
   Timer? _speechSilenceTimer;
   Timer? _fallbackAutoStopTimer;
+  StreamSubscription<ShoppingAgentResponse>? _agentProgressSubscription;
   bool _hasDetectedSpeech = false;
   double _speechNoiseFloor = -45;
   int _noiseSampleCount = 0;
   DateTime? _recordingStartedAt;
+  DateTime? _firstSpeechDetectedAt;
   DateTime? _lastSpeechDetectedAt;
   DateTime? _lastVadDebugAt;
   DateTime? _silenceCandidateStartedAt;
@@ -76,6 +81,7 @@ class ShoppingFlowController extends ChangeNotifier {
   int _amplitudeSampleCount = 0;
   int _zeroishAmplitudeCount = 0;
   bool _closeAppRequested = false;
+  int _agentProgressRunId = 0;
 
   ShoppingStep get step => _step;
   VoiceTurnState get voiceTurnState => _voiceTurnState;
@@ -104,6 +110,16 @@ class ShoppingFlowController extends ChangeNotifier {
   WebviewTaskViewData? get pendingWebviewTask => _pendingWebviewTask;
   bool get _shouldBypassTtsForDemo => _forceSilentDemoTts;
   bool get closeAppRequested => _closeAppRequested;
+  String get cartOwnerName =>
+      (_userName?.trim().isNotEmpty ?? false) ? _userName!.trim() : '김영희';
+  int get totalCartQuantity =>
+      _cartItems.fold<int>(0, (sum, item) => sum + item.quantity);
+  int get totalCartPrice => _cartItems.fold<int>(
+    0,
+    (sum, item) =>
+        sum + (item.totalPrice ?? (item.product.price ?? 0) * item.quantity),
+  );
+  String get totalCartPriceText => '${_formatCartPrice(totalCartPrice)}원';
 
   Future<void> initialize() async {
     if (_isInitialized) {
@@ -143,6 +159,10 @@ class ShoppingFlowController extends ChangeNotifier {
     _closeAppRequested = false;
     _lastWebviewTask = null;
     _pendingWebviewTask = null;
+    _agentProgressRunId += 1;
+    await _agentProgressSubscription?.cancel();
+    _agentProgressSubscription = null;
+    await _agentService.disconnectProgress();
     _cancelVoiceTimers();
     await _voiceTurnService.stopSpeaking();
     await _voiceTurnService.cancelRecording();
@@ -191,27 +211,44 @@ class ShoppingFlowController extends ChangeNotifier {
   Future<void> _handleUserTranscript(String transcript) async {
     _voiceTurnState = VoiceTurnState.agentThinking;
     _errorMessage = null;
+    final normalizedTranscript = transcript.trim();
+    if (_isIncompleteTranscript(normalizedTranscript)) {
+      debugPrint(
+        '[VAD] transcript_rejected_as_incomplete text="$normalizedTranscript"',
+      );
+      await _handleSttFailure();
+      return;
+    }
+    final shouldUseAgentProgress = _shouldUseAgentProgress();
     if (_step == ShoppingStep.askProduct) {
       _step = ShoppingStep.searchingProduct;
       notifyListeners();
-      unawaited(_showSearchingPrompt(transcript));
     } else {
       notifyListeners();
     }
 
     try {
+      String? progressChannelId;
+      if (shouldUseAgentProgress) {
+        progressChannelId = _nextProgressChannelId();
+        await _bindAgentProgress(progressChannelId);
+      }
       final response = _conversationId == null
           ? await _agentService.startShopping(
               userId: _userId,
-              message: transcript,
+              message: normalizedTranscript,
+              progressChannelId: progressChannelId,
             )
           : await _agentService.sendMessage(
               conversationId: _conversationId!,
-              message: transcript,
+              message: normalizedTranscript,
+              progressChannelId: progressChannelId,
             );
+      await _clearAgentProgressBinding();
       _conversationId = response.conversationId ?? _conversationId;
-      await _consumeAgentResponse(response, transcript);
+      await _consumeAgentResponse(response, normalizedTranscript);
     } catch (error, stackTrace) {
+      await _clearAgentProgressBinding();
       debugPrint(
         '⚠️ [ShoppingFlowController] agent fallback: $error\n$stackTrace',
       );
@@ -222,35 +259,60 @@ class ShoppingFlowController extends ChangeNotifier {
     }
   }
 
-  Future<void> _showSearchingPrompt(String transcript) async {
+  bool _shouldUseAgentProgress() =>
+      _step == ShoppingStep.askProduct ||
+      _step == ShoppingStep.cartCompleted ||
+      _step == ShoppingStep.askMoreOrCheckout;
+
+  String _nextProgressChannelId() =>
+      'shopping_${DateTime.now().microsecondsSinceEpoch}_${++_agentProgressRunId}';
+
+  Future<void> _bindAgentProgress(String channelId) async {
+    await _clearAgentProgressBinding();
+    final runId = _agentProgressRunId;
     try {
-      final prompt = await _agentService.fetchPrompt(
-        kind: 'searching_product',
-        conversationId: _conversationId,
-        payload: {'message': transcript},
-      );
-      if (_step != ShoppingStep.searchingProduct ||
-          prompt.assistantMessage.trim().isEmpty) {
-        return;
-      }
-      await _presentAssistant(
-        prompt.assistantMessage,
-        speechSegments: prompt.speechSegments,
-        nextStep: ShoppingStep.searchingProduct,
-        expectVoiceReply: false,
+      final stream = await _agentService.connectProgress(channelId);
+      _agentProgressSubscription = stream.listen(
+        (response) {
+          unawaited(_consumeAgentProgress(response, runId));
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint(
+            '⚠️ [ShoppingFlowController] agent progress stream error: '
+            '$error\n$stackTrace',
+          );
+        },
       );
     } catch (error, stackTrace) {
       debugPrint(
-        '⚠️ [ShoppingFlowController] searching prompt fallback: $error\n$stackTrace',
+        '⚠️ [ShoppingFlowController] connect agent progress failed: '
+        '$error\n$stackTrace',
       );
-      if (_step == ShoppingStep.searchingProduct) {
-        await _presentAssistant(
-          '상품을 찾고 있어요. 잠시만 기다려주세요.',
-          nextStep: ShoppingStep.searchingProduct,
-          expectVoiceReply: false,
-        );
-      }
     }
+  }
+
+  Future<void> _clearAgentProgressBinding() async {
+    _agentProgressRunId += 1;
+    await _agentProgressSubscription?.cancel();
+    _agentProgressSubscription = null;
+    await _agentService.disconnectProgress();
+  }
+
+  Future<void> _consumeAgentProgress(
+    ShoppingAgentResponse response,
+    int runId,
+  ) async {
+    if (runId != _agentProgressRunId ||
+        _step != ShoppingStep.searchingProduct ||
+        response.assistantMessage.trim().isEmpty) {
+      return;
+    }
+    await _presentAssistant(
+      response.assistantMessage,
+      speechSegments: response.speechSegments,
+      nextStep: ShoppingStep.searchingProduct,
+      expectVoiceReply: false,
+    );
   }
 
   Future<void> _consumeAgentResponse(
@@ -258,10 +320,19 @@ class ShoppingFlowController extends ChangeNotifier {
     String transcript,
   ) async {
     final inferredStep = _inferStep(response);
+    final responseCartItems = _agentService.extractCartItems(response);
+    if (responseCartItems.isNotEmpty) {
+      _cartItems
+        ..clear()
+        ..addAll(responseCartItems);
+    }
     final parsedProduct = _agentService.extractProduct(response);
     if (parsedProduct != null) {
       _currentProduct = _mergeWithFallback(parsedProduct);
     } else if (inferredStep == ShoppingStep.showProduct) {
+      _currentProduct = null;
+    }
+    if (_shouldClearCurrentProduct(inferredStep, response)) {
       _currentProduct = null;
     }
 
@@ -296,17 +367,35 @@ class ShoppingFlowController extends ChangeNotifier {
         );
         return;
       case ShoppingStep.confirmAddress:
-        _checkoutSummary =
-            response.deliveryAddress != null || response.cart != null
-            ? _agentService.checkoutSummaryFromResponse(
-                response,
-                fallbackItems: _cartItems,
-              )
-            : await _agentService.fetchCheckoutSummary(
-                userId: _userId,
-                items: _cartItems,
-                deliveryAddress: response.deliveryAddress,
-              );
+        final errorMap = response.error is Map
+            ? Map<String, dynamic>.from(response.error as Map)
+            : const <String, dynamic>{};
+        final shouldUseMockAddress =
+            response.deliveryAddress == null &&
+            ((response.stage ?? '').toLowerCase().contains(
+                  'address_required',
+                ) ||
+                errorMap['code']?.toString() == 'DEFAULT_ADDRESS_NOT_FOUND');
+        _checkoutSummary = shouldUseMockAddress
+            ? CheckoutSummary.mock(_cartItems)
+            : (response.deliveryAddress != null || response.cart != null
+                  ? _agentService.checkoutSummaryFromResponse(
+                      response,
+                      fallbackItems: _cartItems,
+                    )
+                  : await _agentService.fetchCheckoutSummary(
+                      userId: _userId,
+                      items: _cartItems,
+                      deliveryAddress: response.deliveryAddress,
+                    ));
+        if (shouldUseMockAddress) {
+          await _presentPrompt(
+            'confirm_address',
+            nextStep: ShoppingStep.confirmAddress,
+            expectVoiceReply: false,
+          );
+          return;
+        }
         if (response.assistantMessage.trim().isEmpty) {
           _errorMessage = 'empty_address_response';
           _voiceTurnState = VoiceTurnState.error;
@@ -400,6 +489,19 @@ class ShoppingFlowController extends ChangeNotifier {
         notifyListeners();
         return;
       case ShoppingStep.askProduct:
+        if (response.assistantMessage.trim().isEmpty) {
+          _errorMessage = 'empty_restart_response';
+          _voiceTurnState = VoiceTurnState.error;
+          notifyListeners();
+          return;
+        }
+        await _presentAssistant(
+          response.assistantMessage,
+          speechSegments: response.speechSegments,
+          nextStep: ShoppingStep.askProduct,
+          expectVoiceReply: true,
+        );
+        return;
       case ShoppingStep.cartCompleted:
       case ShoppingStep.processingPayment:
         break;
@@ -490,6 +592,12 @@ class ShoppingFlowController extends ChangeNotifier {
     _pendingWebviewTask = null;
     _cartTimer?.cancel();
     _voiceTurnState = VoiceTurnState.agentThinking;
+    if (result == 'cart_added') {
+      _upsertCartPreview(
+        product: _currentProduct,
+        quantity: task.quantity > 0 ? task.quantity : _currentQuantity,
+      );
+    }
     _cartStatusText = result == 'cart_added'
         ? '장바구니 결과를 확인하고 있어요.'
         : '쇼핑 진행 상태를 확인하고 있어요.';
@@ -634,7 +742,17 @@ class ShoppingFlowController extends ChangeNotifier {
       _voiceTurnState = VoiceTurnState.userCanSpeak;
       _voiceLevel = 0.26;
       notifyListeners();
-      _userTurnTimer = Timer(_ttsToUserDelay, () {
+      final shouldStartListeningImmediately = _isRetryPromptText(text);
+      final userTurnDelay = shouldStartListeningImmediately
+          ? Duration.zero
+          : _ttsToUserDelay;
+      debugPrint(
+        '[VAD] user_turn_ready '
+        'epoch=$epoch immediate=$shouldStartListeningImmediately '
+        'delayMs=${userTurnDelay.inMilliseconds} '
+        'text="${text.trim()}"',
+      );
+      _userTurnTimer = Timer(userTurnDelay, () {
         unawaited(_beginAutomaticListening(epoch));
       });
       return;
@@ -651,24 +769,21 @@ class ShoppingFlowController extends ChangeNotifier {
     final playableSegments = speechSegments
         .where((segment) => _resolveSegmentAudioUrl(segment.audioUrl) != null)
         .length;
+    if (playableSegments == 0) {
+      debugPrint(
+        '[TTS] segmented_queue_text_only '
+        'epoch=$epoch playable=0 total=${speechSegments.length} '
+        'fallback_to_silent_segments=true',
+      );
+      await _presentAssistantSilently(fallbackText, epoch);
+      return;
+    }
     if (playableSegments < speechSegments.length) {
       debugPrint(
-        '[TTS] segmented_queue_incomplete '
+        '[TTS] segmented_queue_partial_audio '
         'epoch=$epoch playable=$playableSegments total=${speechSegments.length} '
-        'fallback_to_full_message=true',
+        'fallback_to_full_message=false',
       );
-      _assistantText = fallbackText;
-      notifyListeners();
-      try {
-        await _voiceTurnService.speak(fallbackText);
-      } catch (error, stackTrace) {
-        debugPrint(
-          '[TTS] full_message_fallback_failed '
-          'epoch=$epoch text="$fallbackText" error=$error\n$stackTrace',
-        );
-        await _presentAssistantSilently(fallbackText, epoch);
-      }
-      return;
     }
 
     final runId = ++_speechRunId;
@@ -830,6 +945,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _noiseSampleCount = 0;
     _speechNoiseFloor = -45;
     _recordingStartedAt = DateTime.now();
+    _firstSpeechDetectedAt = null;
     _lastSpeechDetectedAt = null;
     _lastVadDebugAt = null;
     _silenceCandidateStartedAt = null;
@@ -870,7 +986,11 @@ class ShoppingFlowController extends ChangeNotifier {
           expectVoiceReply: true,
         );
       });
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint(
+        '⚠️ [VAD] recording_start_failed '
+        'step=$_step epoch=$epoch error=$error\n$stackTrace',
+      );
       await _handleSttFailure();
     }
   }
@@ -915,6 +1035,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _recordingTimeoutTimer?.cancel();
     _speechSilenceTimer?.cancel();
     _fallbackAutoStopTimer?.cancel();
+    _firstSpeechDetectedAt = null;
     _lastSpeechDetectedAt = null;
     _recordingStartedAt = null;
     _silenceCandidateStartedAt = null;
@@ -934,7 +1055,11 @@ class ShoppingFlowController extends ChangeNotifier {
       _voiceLevel = 0.32;
       notifyListeners();
       await _handleUserTranscript(_latestTranscript!);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint(
+        '⚠️ [VAD] stop_or_transcribe_failed '
+        'step=$_step error=$error\n$stackTrace',
+      );
       await _handleSttFailure();
     }
   }
@@ -950,6 +1075,9 @@ class ShoppingFlowController extends ChangeNotifier {
 
     if (message.contains('결제가 완료')) {
       return ShoppingStep.paymentCompleted;
+    }
+    if (_isRestartOrRetryPrompt(response)) {
+      return ShoppingStep.askProduct;
     }
     if (pendingType == 'address' || stage.contains('address')) {
       return ShoppingStep.confirmAddress;
@@ -982,6 +1110,42 @@ class ShoppingFlowController extends ChangeNotifier {
       return ShoppingStep.error;
     }
     return _step;
+  }
+
+  bool _isRestartOrRetryPrompt(ShoppingAgentResponse response) {
+    final pendingType = response.pendingConfirmation?['type']?.toString();
+    final stage = (response.stage ?? '').toLowerCase();
+    final message = response.assistantMessage.trim();
+    if (pendingType == 'clarification') {
+      return true;
+    }
+    if (stage.contains('clarification') || stage == 'idle') {
+      if (message.contains('다시 말씀') ||
+          message.contains('어떤 상품') ||
+          message.contains('잘 못 들었') ||
+          message.contains('무슨 말씀인지') ||
+          message.contains('무슨 뜻인지') ||
+          message.contains('찾지 못했') ||
+          message.contains('죄송')) {
+        return true;
+      }
+    }
+    return message.contains('다시 말씀') ||
+        message.contains('어떤 상품을') ||
+        message.contains('무슨 말씀인지') ||
+        message.contains('무슨 뜻인지');
+  }
+
+  bool _shouldClearCurrentProduct(
+    ShoppingStep inferredStep,
+    ShoppingAgentResponse response,
+  ) {
+    if (inferredStep == ShoppingStep.askProduct ||
+        inferredStep == ShoppingStep.searchingProduct ||
+        inferredStep == ShoppingStep.error) {
+      return true;
+    }
+    return _isRestartOrRetryPrompt(response);
   }
 
   ProductViewData _mergeWithFallback(ProductViewData source) {
@@ -1074,6 +1238,7 @@ class ShoppingFlowController extends ChangeNotifier {
         !zeroishAmplitude &&
         amplitude >= speechStartThreshold) {
       _hasDetectedSpeech = true;
+      _firstSpeechDetectedAt = now;
       _lastSpeechDetectedAt = now;
       _speechSilenceTimer?.cancel();
       debugPrint(
@@ -1098,14 +1263,19 @@ class ShoppingFlowController extends ChangeNotifier {
     }
 
     final lastSpeechAt = _lastSpeechDetectedAt;
+    final firstSpeechAt = _firstSpeechDetectedAt;
     final recordingStartedAt = _recordingStartedAt;
-    if (lastSpeechAt == null || recordingStartedAt == null) {
+    if (lastSpeechAt == null ||
+        firstSpeechAt == null ||
+        recordingStartedAt == null) {
       return;
     }
 
     final speechElapsed = now.difference(recordingStartedAt);
+    final firstSpeechElapsed = now.difference(firstSpeechAt);
     final silenceElapsed = now.difference(lastSpeechAt);
     if (speechElapsed >= _minSpeechWindow &&
+        firstSpeechElapsed >= _firstSyllableProtection &&
         silenceElapsed >= effectiveEndOfSpeechSilence &&
         !_isAwaitingSilenceConfirmation) {
       _isAwaitingSilenceConfirmation = true;
@@ -1113,8 +1283,10 @@ class ShoppingFlowController extends ChangeNotifier {
       debugPrint(
         '[VAD] silence_candidate '
         'speechElapsedMs=${speechElapsed.inMilliseconds} '
+        'firstSpeechElapsedMs=${firstSpeechElapsed.inMilliseconds} '
         'silenceElapsedMs=${silenceElapsed.inMilliseconds} '
         'requiredSilenceMs=${effectiveEndOfSpeechSilence.inMilliseconds} '
+        'firstSyllableProtectionMs=${_firstSyllableProtection.inMilliseconds} '
         'continueThreshold=${speechContinueThreshold.toStringAsFixed(1)} '
         'amp=${amplitude.toStringAsFixed(1)}',
       );
@@ -1142,9 +1314,9 @@ class ShoppingFlowController extends ChangeNotifier {
       case ShoppingStep.showProduct:
       case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.confirmAddress:
-        return const Duration(milliseconds: 5200);
+        return const Duration(milliseconds: 5600);
       case ShoppingStep.askQuantity:
-        return const Duration(milliseconds: 6000);
+        return const Duration(milliseconds: 6400);
       case ShoppingStep.askProduct:
       case ShoppingStep.searchingProduct:
       case ShoppingStep.addingToCart:
@@ -1183,9 +1355,9 @@ class ShoppingFlowController extends ChangeNotifier {
       case ShoppingStep.showProduct:
       case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.confirmAddress:
-        return const Duration(milliseconds: 1450);
+        return const Duration(milliseconds: 2100);
       case ShoppingStep.askQuantity:
-        return const Duration(milliseconds: 1800);
+        return const Duration(milliseconds: 2500);
       case ShoppingStep.askProduct:
       case ShoppingStep.searchingProduct:
       case ShoppingStep.addingToCart:
@@ -1203,9 +1375,9 @@ class ShoppingFlowController extends ChangeNotifier {
       case ShoppingStep.showProduct:
       case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.confirmAddress:
-        return const Duration(milliseconds: 520);
+        return const Duration(milliseconds: 900);
       case ShoppingStep.askQuantity:
-        return const Duration(milliseconds: 680);
+        return const Duration(milliseconds: 1050);
       case ShoppingStep.askProduct:
       case ShoppingStep.searchingProduct:
       case ShoppingStep.addingToCart:
@@ -1261,6 +1433,40 @@ class ShoppingFlowController extends ChangeNotifier {
     }
   }
 
+  void _upsertCartPreview({
+    required ProductViewData? product,
+    required int quantity,
+  }) {
+    if (product == null) {
+      return;
+    }
+    final safeQuantity = quantity > 0 ? quantity : 1;
+    final existingIndex = _cartItems.indexWhere(
+      (item) => item.product.title.trim() == product.title.trim(),
+    );
+    final previewItem = CartItemViewData(
+      product: product,
+      quantity: safeQuantity,
+      totalPrice: (product.price ?? 0) * safeQuantity,
+      totalPriceText: product.price != null
+          ? '${((product.price ?? 0) * safeQuantity).toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',')}원'
+          : null,
+    );
+    if (existingIndex >= 0) {
+      _cartItems[existingIndex] = previewItem;
+      return;
+    }
+    _cartItems.add(previewItem);
+  }
+
+  String _formatCartPrice(int value) {
+    final raw = value.toString();
+    return raw.replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+  }
+
   void _scheduleFallbackAutoStop() {
     _fallbackAutoStopTimer?.cancel();
     _fallbackAutoStopTimer = Timer(_unreliableAmplitudeCapture, () {
@@ -1275,12 +1481,49 @@ class ShoppingFlowController extends ChangeNotifier {
     });
   }
 
+  bool _isIncompleteTranscript(String transcript) {
+    final normalized = transcript.trim();
+    if (normalized.isEmpty) {
+      return true;
+    }
+    if (normalized.length < 2) {
+      return true;
+    }
+
+    final compact = normalized.replaceAll(RegExp(r'\s+'), '');
+    // 말줄임표/늘임표/대시로 끝나는 짧은 발화만 불완전 발화로 본다.
+    // 일반 마침표 문장("새우깡 사줘.")은 정상 발화일 수 있으므로 제외한다.
+    if (RegExp(r'(?:\.{2,}|…+|~+|-+)$').hasMatch(normalized) &&
+        compact.length <= 6) {
+      return true;
+    }
+
+    if (RegExp(r'^(어|음|아|그|저|응|네)[.!?…-]*$').hasMatch(compact)) {
+      return true;
+    }
+
+    if (RegExp(r'^[가-힣]{1,2}[.~…-]*$').hasMatch(compact)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  bool _isRetryPromptText(String text) {
+    final normalized = text.trim();
+    return normalized.contains('다시 말씀') ||
+        normalized.contains('천천히 말씀') ||
+        normalized.contains('잘 못 들었');
+  }
+
   @override
   void dispose() {
     _cancelVoiceTimers();
     _cartTimer?.cancel();
     _paymentTimer?.cancel();
     _completionSequenceTimer?.cancel();
+    _agentProgressSubscription?.cancel();
+    unawaited(_agentService.disconnectProgress());
     super.dispose();
   }
 }

@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -9,6 +13,8 @@ class ShoppingAgentService {
   ShoppingAgentService({Dio? dio}) : _dio = dio ?? ApiClient.dio;
 
   final Dio _dio;
+  WebSocket? _progressSocket;
+  StreamController<ShoppingAgentResponse>? _progressController;
 
   Future<int> resolveUserId() async {
     final userId = await LocalStorage.getUserId() ?? 1;
@@ -42,10 +48,16 @@ class ShoppingAgentService {
     required int userId,
     required String message,
     String inputType = 'voice',
+    String? progressChannelId,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/agent/shopping-requests',
-      data: {'userId': userId, 'message': message, 'inputType': inputType},
+      data: {
+        'userId': userId,
+        'message': message,
+        'inputType': inputType,
+        'progressChannelId': progressChannelId,
+      },
     );
     return _parseAgentResponse(response.data ?? const {});
   }
@@ -54,12 +66,75 @@ class ShoppingAgentService {
     required int conversationId,
     required String message,
     String inputType = 'voice',
+    String? progressChannelId,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/agent/conversations/$conversationId/messages',
-      data: {'message': message, 'inputType': inputType},
+      data: {
+        'message': message,
+        'inputType': inputType,
+        'progressChannelId': progressChannelId,
+      },
     );
     return _parseAgentResponse(response.data ?? const {});
+  }
+
+  Future<Stream<ShoppingAgentResponse>> connectProgress(
+    String channelId,
+  ) async {
+    await disconnectProgress();
+    final uri = _progressUri(channelId);
+    debugPrint('ℹ️ [ShoppingAgentService] connect progress websocket: $uri');
+    final socket = await WebSocket.connect(uri.toString());
+    final controller = StreamController<ShoppingAgentResponse>.broadcast();
+    socket.listen(
+      (event) {
+        try {
+          final decoded = jsonDecode(event.toString());
+          if (decoded is Map<String, dynamic>) {
+            controller.add(_parseAgentResponse(decoded));
+          } else if (decoded is Map) {
+            controller.add(
+              _parseAgentResponse(Map<String, dynamic>.from(decoded)),
+            );
+          }
+        } catch (error, stackTrace) {
+          debugPrint(
+            '⚠️ [ShoppingAgentService] progress websocket decode failed: '
+            '$error\n$stackTrace',
+          );
+        }
+      },
+      onDone: () {
+        controller.close();
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint(
+          '⚠️ [ShoppingAgentService] progress websocket error: '
+          '$error\n$stackTrace',
+        );
+        controller.addError(error, stackTrace);
+      },
+      cancelOnError: false,
+    );
+    _progressSocket = socket;
+    _progressController = controller;
+    return controller.stream;
+  }
+
+  Future<void> disconnectProgress() async {
+    final socket = _progressSocket;
+    final controller = _progressController;
+    _progressSocket = null;
+    _progressController = null;
+    if (socket != null) {
+      try {
+        await socket.close();
+      } catch (_) {}
+    }
+    if (controller != null && !controller.isClosed) {
+      await controller.close();
+    }
   }
 
   Future<ShoppingAgentResponse> fetchPrompt({
@@ -227,7 +302,8 @@ class ShoppingAgentService {
     final payload = pending?['payload'] is Map
         ? Map<String, dynamic>.from(pending!['payload'] as Map)
         : const <String, dynamic>{};
-    final selectedProduct = response.selectedProduct ?? const <String, dynamic>{};
+    final selectedProduct =
+        response.selectedProduct ?? const <String, dynamic>{};
 
     final rawSource = selectedProduct['raw'] is Map
         ? Map<String, dynamic>.from(selectedProduct['raw'] as Map)
@@ -343,12 +419,10 @@ class ShoppingAgentService {
       url,
       canonicalProductUrl,
       sourceUrl,
-    ]
-        .whereType<String>()
-        .map((value) => value.trim().toLowerCase())
-        .toList();
+    ].whereType<String>().map((value) => value.trim().toLowerCase()).toList();
 
-    final looksKurly = normalizedPlatform == 'kurly' ||
+    final looksKurly =
+        normalizedPlatform == 'kurly' ||
         normalizedPlatform == 'kurlynmart' ||
         normalizedShopName.contains('컬리') ||
         normalizedShopName.contains('kurly') ||
@@ -419,6 +493,23 @@ class ShoppingAgentService {
       asyncStatus: _mapOf(json['asyncStatus']),
       error: json['error'],
       raw: json,
+    );
+  }
+
+  Uri _progressUri(String channelId) {
+    final base = Uri.parse(ApiClient.baseUrl);
+    final scheme = base.scheme == 'https' ? 'wss' : 'ws';
+    var basePath = base.path;
+    if (basePath.endsWith('/')) {
+      basePath = basePath.substring(0, basePath.length - 1);
+    }
+    final path =
+        '${basePath.isEmpty ? '' : basePath}/api/agent/progress/$channelId';
+    return base.replace(
+      scheme: scheme,
+      path: path,
+      queryParameters: null,
+      fragment: null,
     );
   }
 

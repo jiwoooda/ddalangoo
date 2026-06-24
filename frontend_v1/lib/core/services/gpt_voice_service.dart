@@ -55,7 +55,10 @@ class GptVoiceService {
 
   Future<void> startRecording() async {
     _ensureRecordingSupported();
-    if (_isRecording) return;
+    if (_isRecording) {
+      debugPrint('🎙️ [STT] startRecording requested while already recording, resetting recorder');
+      await cancelRecording();
+    }
 
     final hasPermission = await _recorder.hasPermission();
     if (!hasPermission) {
@@ -77,9 +80,11 @@ class GptVoiceService {
         path: path,
       );
       _isRecording = true;
+      debugPrint('🎙️ [STT] recording_started path=$path');
     } catch (e) {
       _isRecording = false;
       _activeRecordingPath = null;
+      debugPrint('❌ [STT] recording_start_failed error=$e');
       rethrow;
     }
   }
@@ -252,6 +257,7 @@ class GptVoiceService {
     _isRecording = false;
     final path = _activeRecordingPath;
     _activeRecordingPath = null;
+    debugPrint('🎙️ [STT] recording_cancel_requested path=$path');
     await _recorder.cancel();
     if (path != null) {
       await _deleteIfExists(path);

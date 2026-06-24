@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../../features/shopping_v1/widgets/dallang_response_text.dart';
 import '../../providers/call_provider.dart';
 import 'kurly_webview_automation.dart';
 
@@ -13,6 +14,7 @@ class PaymentWebViewScreen extends StatefulWidget {
     required this.url,
     this.platform,
     this.shopName,
+    this.assistantMessage,
     this.task,
     this.orderId,
     this.paymentId,
@@ -31,6 +33,7 @@ class PaymentWebViewScreen extends StatefulWidget {
   final String url;
   final String? platform;
   final String? shopName;
+  final String? assistantMessage;
   final String? task;
   final int? orderId;
   final int? paymentId;
@@ -767,6 +770,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         widget.previewMode ||
         _usesExternalResultHandler ||
         (widget.orderId != null && widget.paymentId != null);
+    final assistantMessage = widget.assistantMessage?.trim() ?? '';
 
     return Scaffold(
       appBar: AppBar(
@@ -794,7 +798,15 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       ),
       body: Column(
         children: [
-          _buildStatusCard(context),
+          if (assistantMessage.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+              child: DallangResponseText(
+                text: assistantMessage,
+                fontSize: 28,
+                maxLines: 3,
+              ),
+            ),
           Expanded(
             child: Stack(
               children: [
@@ -804,6 +816,12 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
                   const Center(child: CircularProgressIndicator()),
                 if (!_pageLoaded)
                   const Center(child: CircularProgressIndicator()),
+                Positioned(
+                  top: 12,
+                  left: 16,
+                  right: 16,
+                  child: _buildStatusBubble(context),
+                ),
               ],
             ),
           ),
@@ -860,19 +878,24 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     );
   }
 
-  Widget _buildStatusCard(BuildContext context) {
+  Widget _buildStatusBubble(BuildContext context) {
     final targetLabel = _targetLabel();
     final statusText = widget.previewStatusText ?? _automationMessage;
     final helperText = widget.previewHelperText ?? _helperTextForStep();
 
     return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF6F8),
-        borderRadius: BorderRadius.circular(20),
+        color: const Color(0xFFFFF8FB).withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0xFFF1C8D4)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFE8325A).withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -889,7 +912,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
           Text(
             statusText,
             style: const TextStyle(
-              fontSize: 19,
+              fontSize: 18,
               fontWeight: FontWeight.w700,
               color: Color(0xFF333333),
             ),
