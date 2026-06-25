@@ -22,6 +22,7 @@ class ShoppingFlowController extends ChangeNotifier {
     milliseconds: 3600,
   );
   static const Duration _firstSyllableProtection = Duration(milliseconds: 2200);
+  static const int _maxTurnContinuationCount = 2;
   static const double _speechGuardRatio = 0.82;
   static const bool _forceSilentDemoTts = bool.fromEnvironment(
     'SHOPPING_V1_SILENT_TTS',
@@ -81,6 +82,8 @@ class ShoppingFlowController extends ChangeNotifier {
   bool _isAwaitingSilenceConfirmation = false;
   int _amplitudeSampleCount = 0;
   int _zeroishAmplitudeCount = 0;
+  String? _partialTranscript;
+  int _turnContinuationCount = 0;
   bool _closeAppRequested = false;
   int _agentProgressRunId = 0;
 
@@ -167,6 +170,8 @@ class ShoppingFlowController extends ChangeNotifier {
     _closeAppRequested = false;
     _lastWebviewTask = null;
     _pendingWebviewTask = null;
+    _partialTranscript = null;
+    _turnContinuationCount = 0;
     _agentProgressRunId += 1;
     await _agentProgressSubscription?.cancel();
     _agentProgressSubscription = null;
@@ -217,6 +222,8 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   Future<void> _handleUserTranscript(String transcript) async {
+    _partialTranscript = null;
+    _turnContinuationCount = 0;
     _voiceTurnState = VoiceTurnState.agentThinking;
     _errorMessage = null;
     final normalizedTranscript = transcript.trim();
@@ -956,7 +963,6 @@ class ShoppingFlowController extends ChangeNotifier {
 
     final effectiveInitialWait = _currentInitialSpeechWaitTimeout();
     final effectiveMaxRecording = _currentMaxRecordingDuration();
-    final effectiveMinimumRecording = _currentMinimumRecordingDuration();
 
     _hasDetectedSpeech = false;
     _noiseSampleCount = 0;
@@ -1085,16 +1091,7 @@ class ShoppingFlowController extends ChangeNotifier {
         'text="${transcript.trim()}"',
       );
 
-      if (transcript.trim().isEmpty || transcript.trim().length < 2) {
-        await _handleSttFailure();
-        return;
-      }
-
-      _latestTranscript = transcript.trim();
-      _voiceLevel = 0.32;
-      notifyListeners();
-
-      await _handleUserTranscript(_latestTranscript!);
+      await _handleDetectedTurn(transcript, epoch: epoch);
     } catch (error, stackTrace) {
       debugPrint(
         '⚠️ [VAD] stop_or_transcribe_failed '
@@ -1104,6 +1101,113 @@ class ShoppingFlowController extends ChangeNotifier {
       if (!_isActiveEpoch(epoch)) return;
       await _handleSttFailure();
     }
+  }
+
+  Future<void> _handleDetectedTurn(
+    String transcript, {
+    required int epoch,
+  }) async {
+    final normalizedTranscript = transcript.trim();
+    if (normalizedTranscript.isEmpty || normalizedTranscript.length < 2) {
+      await _handleNoiseOrEmptyTurn(epoch);
+      return;
+    }
+
+    final detection = await _detectTurnWithFallback(normalizedTranscript);
+    debugPrint(
+      '[TurnDetection] result=${detection.status.name} '
+      'reason=${detection.reason} '
+      'merged="${detection.mergedTranscript}" '
+      'continuation=$_turnContinuationCount',
+    );
+
+    if (!_isActiveEpoch(epoch)) return;
+
+    switch (detection.status) {
+      case TurnDetectionStatus.complete:
+        final merged = detection.mergedTranscript.trim();
+        _latestTranscript = merged.isNotEmpty ? merged : normalizedTranscript;
+        _partialTranscript = null;
+        _turnContinuationCount = 0;
+        _voiceLevel = 0.32;
+        notifyListeners();
+        await _handleUserTranscript(_latestTranscript!);
+        return;
+      case TurnDetectionStatus.incomplete:
+        _partialTranscript = detection.mergedTranscript.trim().isNotEmpty
+            ? detection.mergedTranscript.trim()
+            : normalizedTranscript;
+        _turnContinuationCount += 1;
+        if (detection.shouldAskClarification ||
+            _turnContinuationCount > _maxTurnContinuationCount) {
+          await _askTurnClarification();
+          return;
+        }
+        await _continueListeningWithoutTts(epoch);
+        return;
+      case TurnDetectionStatus.noiseOrEmpty:
+        await _handleNoiseOrEmptyTurn(epoch);
+        return;
+    }
+  }
+
+  Future<TurnDetectionViewData> _detectTurnWithFallback(
+    String transcript,
+  ) async {
+    try {
+      return await _agentService.detectTurn(
+        transcript: transcript,
+        partialTranscript: _partialTranscript,
+        step: _step.name,
+        continuationCount: _turnContinuationCount,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '⚠️ [TurnDetection] backend fallback: $error\n$stackTrace',
+      );
+      final merged = [
+        if ((_partialTranscript ?? '').trim().isNotEmpty)
+          _partialTranscript!.trim(),
+        transcript.trim(),
+      ].join(' ').trim();
+      return TurnDetectionViewData(
+        status: TurnDetectionStatus.complete,
+        mergedTranscript: merged,
+        reason: 'frontend_rule_complete_after_backend_error',
+      );
+    }
+  }
+
+  Future<void> _handleNoiseOrEmptyTurn(int epoch) async {
+    if ((_partialTranscript ?? '').trim().isNotEmpty &&
+        _turnContinuationCount <= _maxTurnContinuationCount) {
+      _turnContinuationCount += 1;
+      await _continueListeningWithoutTts(epoch);
+      return;
+    }
+    await _handleSttFailure();
+  }
+
+  Future<void> _continueListeningWithoutTts(int epoch) async {
+    if (!_isActiveEpoch(epoch)) return;
+    _voiceTurnState = VoiceTurnState.userCanSpeak;
+    _voiceLevel = 0.26;
+    notifyListeners();
+    unawaited(_beginAutomaticListening(epoch));
+  }
+
+  Future<void> _askTurnClarification() async {
+    final partial = (_partialTranscript ?? '').trim();
+    _partialTranscript = null;
+    _turnContinuationCount = 0;
+    final message = partial.isEmpty
+        ? '다시 한 번만 말씀해주세요.'
+        : '$partial라고 말씀하셨어요. 이어서 조금 더 구체적으로 말씀해주세요.';
+    await _presentAssistant(
+      message,
+      nextStep: _step,
+      expectVoiceReply: true,
+    );
   }
 
   ShoppingStep _inferStep(ShoppingAgentResponse response) {

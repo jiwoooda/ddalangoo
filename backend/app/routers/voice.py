@@ -3,7 +3,13 @@
 import logging
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from app.schemas.voice import SttResponse, TtsRequest, TtsResponse
+from app.schemas.voice import (
+    SttResponse,
+    TtsRequest,
+    TtsResponse,
+    TurnDetectionRequest,
+    TurnDetectionResponse,
+)
 from app.services import voice_service
 
 router = APIRouter(prefix="/voice", tags=["Voice"])
@@ -44,6 +50,12 @@ async def speech_to_text(file: UploadFile = File(...)) -> SttResponse:
     transcript = await voice_service.transcribe_audio(audio_bytes, mime_type)
     logger.info("[voice.stt] transcript succeeded length=%s", len(transcript))
     return SttResponse(transcript=transcript)
+
+
+@router.post("/turn-detection", response_model=TurnDetectionResponse)
+async def detect_voice_turn(req: TurnDetectionRequest) -> TurnDetectionResponse:
+    """STT transcript가 사용자 턴으로 완성됐는지 판단한다."""
+    return await voice_service.detect_turn_completion(req)
 
 
 @router.post("/tts", response_model=TtsResponse)

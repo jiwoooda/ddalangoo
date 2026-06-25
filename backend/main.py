@@ -4,7 +4,11 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-load_dotenv()
+# 공통 환경변수는 루트 .env에서 읽고, 백엔드 전용 값은 backend/.env가 덮어쓴다.
+BACKEND_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BACKEND_DIR.parent
+load_dotenv(REPO_ROOT / ".env")
+load_dotenv(BACKEND_DIR / ".env", override=True)
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     agent, user, address, product,

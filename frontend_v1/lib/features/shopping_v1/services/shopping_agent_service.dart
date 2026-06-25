@@ -157,6 +157,32 @@ class ShoppingAgentService {
     await _dio.post<void>('/api/agent/conversations/$conversationId/cancel');
   }
 
+  Future<TurnDetectionViewData> detectTurn({
+    required String transcript,
+    String? partialTranscript,
+    required String step,
+    required int continuationCount,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/voice/turn-detection',
+      data: {
+        'transcript': transcript,
+        'partialTranscript': partialTranscript,
+        'step': step,
+        'continuationCount': continuationCount,
+      },
+    );
+    final data = response.data ?? const <String, dynamic>{};
+    return TurnDetectionViewData(
+      status: _parseTurnDetectionStatus(_stringOf(data['result'])),
+      mergedTranscript:
+          _stringOf(data['mergedTranscript']) ?? transcript.trim(),
+      reason: _stringOf(data['reason']),
+      shouldAskClarification:
+          data['shouldAskClarification'] == true,
+    );
+  }
+
   Future<ShoppingAgentResponse> sendWebviewResult({
     required int conversationId,
     int? orderId,
@@ -175,6 +201,18 @@ class ShoppingAgentService {
       data: payload,
     );
     return _parseAgentResponse(response.data ?? const {});
+  }
+
+  TurnDetectionStatus _parseTurnDetectionStatus(String? value) {
+    switch (value) {
+      case 'incomplete':
+        return TurnDetectionStatus.incomplete;
+      case 'noise_or_empty':
+        return TurnDetectionStatus.noiseOrEmpty;
+      case 'complete':
+      default:
+        return TurnDetectionStatus.complete;
+    }
   }
 
   Future<CheckoutSummary> fetchCheckoutSummary({
