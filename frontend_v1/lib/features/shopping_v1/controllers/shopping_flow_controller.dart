@@ -956,8 +956,6 @@ class ShoppingFlowController extends ChangeNotifier {
 
     final effectiveInitialWait = _currentInitialSpeechWaitTimeout();
     final effectiveMaxRecording = _currentMaxRecordingDuration();
-    final effectiveMinimumRecording = _currentMinimumRecordingDuration();
-
     _hasDetectedSpeech = false;
     _noiseSampleCount = 0;
     _speechNoiseFloor = -45;

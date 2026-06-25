@@ -78,22 +78,52 @@ class DallangResponseText extends StatelessWidget {
       spans.add(TextSpan(text: balancedText.substring(currentIndex)));
     }
 
-    return Text.rich(
-      TextSpan(
-        style: GoogleFonts.jua(
-          textStyle: TextStyle(
-            fontSize: fontSize,
-            height: 1.38,
-            color: const Color(0xFF112030),
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.4,
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 320),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeOutCubic,
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            ...previousChildren,
+            if (currentChild case final Widget child) child,
+          ],
+        );
+      },
+      transitionBuilder: (child, animation) {
+        final offsetAnimation =
+            Tween<Offset>(
+              begin: const Offset(0, 0.08),
+              end: Offset.zero,
+            ).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+            );
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(position: offsetAnimation, child: child),
+        );
+      },
+      child: Text.rich(
+        key: ValueKey('$balancedText|$fontSize|$maxLines'),
+        TextSpan(
+          style: GoogleFonts.jua(
+            textStyle: TextStyle(
+              fontSize: fontSize,
+              height: 1.38,
+              color: const Color(0xFF112030),
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.4,
+            ),
           ),
+          children: spans,
         ),
-        children: spans,
+        textAlign: TextAlign.center,
+        maxLines: maxLines,
+        overflow: maxLines != null
+            ? TextOverflow.ellipsis
+            : TextOverflow.visible,
       ),
-      textAlign: TextAlign.center,
-      maxLines: maxLines,
-      overflow: maxLines != null ? TextOverflow.ellipsis : TextOverflow.visible,
     );
   }
 }
