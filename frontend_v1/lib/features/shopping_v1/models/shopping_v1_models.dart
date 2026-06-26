@@ -23,6 +23,26 @@ enum VoiceTurnState {
   error,
 }
 
+enum TurnDetectionStatus {
+  complete,
+  incomplete,
+  noiseOrEmpty,
+}
+
+class TurnDetectionViewData {
+  const TurnDetectionViewData({
+    required this.status,
+    required this.mergedTranscript,
+    this.reason,
+    this.shouldAskClarification = false,
+  });
+
+  final TurnDetectionStatus status;
+  final String mergedTranscript;
+  final String? reason;
+  final bool shouldAskClarification;
+}
+
 class ProductViewData {
   const ProductViewData({
     this.platform,

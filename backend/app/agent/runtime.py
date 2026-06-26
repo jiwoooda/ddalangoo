@@ -23,7 +23,9 @@ import asyncio
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
+_REPO_ROOT = os.path.abspath(os.path.join(_PROJECT_ROOT, ".."))
+load_dotenv(os.path.join(_REPO_ROOT, ".env"))
+load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
 
 # vendor 경로를 절대 경로
 _VENDOR = os.environ.get("PROJECT_ROOT", "/app") + "/vendor/ddalangoo-langgraph"

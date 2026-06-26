@@ -20,7 +20,11 @@ from app.repositories import (
     user_repository,
 )
 from app.agent import runtime, mapper, actions, product_data_layer, recommendation_sync
-from app.services import webview_progress_service, voice_service
+from app.services import (
+    agent_progress_service,
+    webview_progress_service,
+    voice_service,
+)
 from app.utils.product_url_contract import is_kurly_goods_url
 
 try:
@@ -158,6 +162,103 @@ def _assistant_message_patch(message: str) -> list:
     if AIMessage is None:
         return [{"role": "assistant", "content": message}]
     return [AIMessage(content=message)]
+
+
+def _search_keywords_from_message(message: str) -> str:
+    normalized = re.sub(r"\s+", " ", message).strip()
+    if not normalized:
+        return ""
+    normalized = re.sub(r"[?？!！.,~…-]+$", "", normalized).strip()
+    # 검색 중 안내 문구용 키워드 추출이다.
+    # "참외 하나만 사보라고"처럼 상품명 뒤에 붙는 수량/요청 표현은 검색어에서 제거한다.
+    normalized = re.sub(
+        r"\s+(?:하나|한|둘|두|셋|세|넷|네|\d+)\s*(?:개|봉|팩|박스|통|병|입)?\s*만?\s*"
+        r"(?:사\s*보라고|사보라고|사\s*봐줘요?|사봐줘|사\s*봐|사봐|사줘요?|사줘|"
+        r"주문해줘요?|주문해줘|구매해줘요?|구매해줘)?$",
+        "",
+        normalized,
+    ).strip()
+    suffix_patterns = [
+        r"(사고\s*싶어요?|사줘요?|찾아줘요?|주문해줘요?|구매하고\s*싶어요?)$",
+        r"(사\s*보라고|사보라고|사\s*봐줘요?|사봐줘|사\s*봐|사봐)$",
+        r"((?:먹고|마시고|드시고)\s*싶어요?)$",
+        r"((?:먹고|마시고|드시고)\s*싶어)$",
+        r"(사고)$",
+        r"(살래요?|살래|주세요|찾아봐요?|알아봐줘요?)$",
+        r"(있어요?|있나(?:요)?|있을까요?|있)$",
+        r"(요즘\s*유행하는)\s+",
+        r"^(나는|전|저는|저|나)\s+",
+    ]
+    for pattern in suffix_patterns:
+        normalized = re.sub(pattern, "", normalized).strip()
+    normalized = re.sub(
+        r"\s+(사|사줘|사줘요|사라|주문해|주문해라|구매해|구매해라)$",
+        "",
+        normalized,
+    ).strip()
+    normalized = re.sub(r"(있)[-~…]?$", "", normalized).strip()
+    normalized = re.sub(r"\s+[-~…]+$", "", normalized).strip()
+    normalized = re.sub(r"[-~…]+$", "", normalized).strip()
+    normalized = normalized.strip(" '\"")
+    return normalized
+
+
+def _has_search_intent_cue(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message).strip().lower()
+    if not normalized:
+        return False
+    return any(
+        cue in normalized
+        for cue in (
+            "사고",
+            "사고 싶",
+            "살래",
+            "살게",
+            "주문",
+            "구매",
+            "찾아",
+            "찾고",
+            "있어",
+            "있나",
+            "있을까",
+            "유행",
+        )
+    )
+
+
+def _should_retry_search_prompt(message: str, keywords: str) -> bool:
+    normalized_message = re.sub(r"\s+", " ", message).strip()
+    normalized_keywords = re.sub(r"\s+", " ", keywords).strip()
+    compact_keywords = re.sub(r"\s+", "", normalized_keywords)
+    if not compact_keywords:
+        return True
+    if len(compact_keywords) <= 1:
+        return True
+
+    lowered_keywords = compact_keywords.lower()
+    retry_terms = {
+        "응",
+        "어",
+        "음",
+        "아",
+        "어어",
+        "그거",
+        "이거",
+        "저거",
+        "몰라",
+        "글쎄",
+        "다시",
+        "수다",
+    }
+    if lowered_keywords in retry_terms:
+        return True
+
+    if re.search(r"[-~…]$", normalized_message):
+        return True
+    if normalized_keywords == normalized_message and not _has_search_intent_cue(normalized_message):
+        if len(compact_keywords) <= 2:
+            return True
+    return False
 
 
 def _intent_type_from(intent: str | None, needs_clarification: bool | None) -> str:
@@ -1582,6 +1683,23 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         event_type="shopping_request_started",
         input_summary={"message": req.message[:200], "user_id": req.userId},
     )
+    await _emit_agent_progress(
+        channel_id=req.progressChannelId,
+        kind="searching_intro",
+        conversation_id=conv["id"],
+        payload={"username": user.get("name")},
+    )
+    extracted_keywords = _search_keywords_from_message(req.message)
+    if not _should_retry_search_prompt(req.message, extracted_keywords):
+        await _emit_agent_progress(
+            channel_id=req.progressChannelId,
+            kind="searching_refined",
+            conversation_id=conv["id"],
+            payload={
+                "message": req.message,
+                "username": user.get("name"),
+            },
+        )
     state = await runtime.start(
         user_id=req.userId,
         message=req.message,
@@ -1597,6 +1715,8 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         pending_action_before=None,
     )
     response = mapper.state_to_response(state, conv["id"])
+    if req.progressChannelId:
+        agent_progress_service.clear_progress(req.progressChannelId)
     return await _with_speech_segments(response)
 
 
@@ -1659,6 +1779,32 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         })
 
     pending_action_before = _pending_action_type_from(snapshot.values)
+    should_emit_search_progress = (
+        (snapshot.values.get("stage") in {"idle", "cart_shopping"})
+        and pending_action_before in {None, "continue_shopping"}
+    )
+    if should_emit_search_progress:
+        user = await user_repository.get_user_by_id_db(
+            db,
+            int(snapshot.values["user_id"]),
+        )
+        await _emit_agent_progress(
+            channel_id=req.progressChannelId,
+            kind="searching_intro",
+            conversation_id=conversation_id,
+            payload={"username": user.get("name") if user else None},
+        )
+        extracted_keywords = _search_keywords_from_message(req.message)
+        if not _should_retry_search_prompt(req.message, extracted_keywords):
+            await _emit_agent_progress(
+                channel_id=req.progressChannelId,
+                kind="searching_refined",
+                conversation_id=conversation_id,
+                payload={
+                    "message": req.message,
+                    "username": user.get("name") if user else None,
+                },
+            )
     if (
         snapshot.values.get("stage") == "cart_shopping"
         and pending_action_before == "continue_shopping"
@@ -1674,7 +1820,10 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
-        return await _with_speech_segments(response)
+        response = await _with_speech_segments(response)
+        if req.progressChannelId:
+            agent_progress_service.clear_progress(req.progressChannelId)
+        return response
 
     if _is_address_confirmation_stage(snapshot.values, pending_action_before) and (
         _is_explicit_payment_confirmation(req.message)
@@ -1685,7 +1834,10 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
-        return await _with_speech_segments(response)
+        response = await _with_speech_segments(response)
+        if req.progressChannelId:
+            agent_progress_service.clear_progress(req.progressChannelId)
+        return response
 
     if pending_action_before == "payment_password" and _is_payment_password_entry(req.message):
         response = await _payment_completed_response(db, conversation_id, snapshot.values)
@@ -1694,7 +1846,10 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
-        return await _with_speech_segments(response)
+        response = await _with_speech_segments(response)
+        if req.progressChannelId:
+            agent_progress_service.clear_progress(req.progressChannelId)
+        return response
 
     state = await runtime.resume(conversation_id=conversation_id, message=req.message)
     if _is_address_confirmation_stage(snapshot.values, pending_action_before) and (
@@ -1713,7 +1868,10 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
-        return await _with_speech_segments(response)
+        response = await _with_speech_segments(response)
+        if req.progressChannelId:
+            agent_progress_service.clear_progress(req.progressChannelId)
+        return response
 
     user_id = int(snapshot.values["user_id"])
     state = await _run_post_graph_persistence(
@@ -1748,7 +1906,10 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
                 state=state,
             )
     response = mapper.state_to_response(state, conversation_id)
-    return await _with_speech_segments(response)
+    response = await _with_speech_segments(response)
+    if req.progressChannelId:
+        agent_progress_service.clear_progress(req.progressChannelId)
+    return response
 
 
 async def confirm_action(db: AsyncSession, conversation_id: int, req: ConfirmRequest) -> AgentResponse:
@@ -1819,6 +1980,61 @@ async def _with_speech_segments(response: AgentResponse) -> AgentResponse:
     )
 
 
+async def _progress_prompt_response(
+    *,
+    kind: str,
+    conversation_id: int,
+    payload: object | None = None,
+) -> AgentResponse:
+    message = _prompt_message(kind, payload)
+    response = AgentResponse(
+        conversationId=conversation_id,
+        status="progress",
+        stage=kind,
+        assistantMessage=message,
+        message=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=None,
+        pendingConfirmation=None,
+        availableOptions=None,
+        deliveryAddress=None,
+        cart=None,
+        order=None,
+        payment=None,
+        uiCommand=None,
+        asyncStatus={"kind": "agent_progress"},
+        error=None,
+    )
+    return await _with_speech_segments(response)
+
+
+async def _emit_agent_progress(
+    *,
+    channel_id: str | None,
+    kind: str,
+    conversation_id: int,
+    payload: object | None = None,
+) -> None:
+    if not channel_id:
+        return
+    try:
+        response = await _progress_prompt_response(
+            kind=kind,
+            conversation_id=conversation_id,
+            payload=payload,
+        )
+        agent_progress_service.emit_progress(
+            channel_id,
+            response.model_dump(mode="json"),
+        )
+    except Exception as error:
+        print(
+            f"[agent_progress] emit failed channel={channel_id} "
+            f"kind={kind} error={error}"
+        )
+
+
 async def generate_prompt_response(req: PromptRequest) -> AgentResponse:
     message = _prompt_message(req.kind, req.payload)
     response = AgentResponse(
@@ -1858,90 +2074,6 @@ def _prompt_message(kind: str, payload: object | None) -> str:
     completion_text = str(data.get("text") or "").strip()
     raw_message = str(data.get("message") or data.get("query") or "").strip()
 
-    def _search_keywords_from_message(message: str) -> str:
-        normalized = re.sub(r"\s+", " ", message).strip()
-        if not normalized:
-            return ""
-        normalized = re.sub(r"[?？!！.,~…-]+$", "", normalized).strip()
-        suffix_patterns = [
-            r"(사고\s*싶어요?|사줘요?|찾아줘요?|주문해줘요?|구매하고\s*싶어요?)$",
-            r"((?:먹고|마시고|드시고)\s*싶어요?)$",
-            r"((?:먹고|마시고|드시고)\s*싶어)$",
-            r"(사고)$",
-            r"(살래요?|살래|주세요|찾아봐요?|알아봐줘요?)$",
-            r"(있어요?|있나(?:요)?|있을까요?|있)$",
-            r"(요즘\s*유행하는)\s+",
-            r"^(나는|전|저는|저|나)\s+",
-        ]
-        for pattern in suffix_patterns:
-            normalized = re.sub(pattern, "", normalized).strip()
-        normalized = re.sub(r"(있)[-~…]?$", "", normalized).strip()
-        normalized = re.sub(r"\s+[-~…]+$", "", normalized).strip()
-        normalized = re.sub(r"[-~…]+$", "", normalized).strip()
-        normalized = normalized.strip(" '\"")
-        return normalized
-
-    def _has_search_intent_cue(message: str) -> bool:
-        normalized = re.sub(r"\s+", " ", message).strip().lower()
-        if not normalized:
-            return False
-        return any(
-            cue in normalized
-            for cue in (
-                "사고",
-                "사고 싶",
-                "살래",
-                "살게",
-                "주문",
-                "구매",
-                "찾아",
-                "찾고",
-                "있어",
-                "있나",
-                "있을까",
-            )
-        )
-
-    def _should_retry_search_prompt(message: str, keywords: str) -> bool:
-        normalized_message = re.sub(r"\s+", " ", message).strip()
-        normalized_keywords = re.sub(r"\s+", " ", keywords).strip()
-        compact_keywords = re.sub(r"\s+", "", normalized_keywords)
-        if not compact_keywords:
-            return True
-        if len(compact_keywords) <= 1:
-            return True
-
-        lowered_keywords = compact_keywords.lower()
-        retry_terms = {
-            "응",
-            "어",
-            "음",
-            "아",
-            "어어",
-            "그거",
-            "이거",
-            "저거",
-            "몰라",
-            "글쎄",
-            "다시",
-        }
-        if lowered_keywords in retry_terms:
-            return True
-
-        if re.search(r"[-~…]$", normalized_message):
-            return True
-
-        message_tokens = normalized_message.split()
-        if (
-            len(message_tokens) <= 2
-            and message_tokens
-            and message_tokens[0] in {"나", "나는", "저", "저는", "전"}
-            and not _has_search_intent_cue(normalized_message)
-        ):
-            return True
-
-        return False
-
     def _object_particle(word: str) -> str:
         normalized = word.strip()
         if not normalized:
@@ -1960,6 +2092,8 @@ def _prompt_message(kind: str, payload: object | None) -> str:
             else "안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
         ),
         "searching_product": "상품을 찾는 중이에요.",
+        "searching_intro": "네, 잠시만 기다려주세요.",
+        "searching_refined": "상품을 고르는 중이에요.",
         "ask_quantity": "몇 개를 담을까요?",
         "confirm_address": "배송지를 확인해주세요.",
         "pin_prompt": "비밀번호 6자리를 입력해주세요.",
@@ -1982,19 +2116,21 @@ def _prompt_message(kind: str, payload: object | None) -> str:
         badge_phrase = badge_text or "리뷰가 좋고 30일 중 가장 싼 가격이에요!"
         return f"{title}가 {quantity_phrase} {price_phrase}이에요. {badge_phrase} 이 상품을 구매할까요?"
 
-    if kind == "searching_product":
+    if kind == "searching_intro":
+        return prompts["searching_intro"]
+
+    if kind in {"searching_product", "searching_refined"}:
         keywords = _search_keywords_from_message(raw_message)
-        if _should_retry_search_prompt(raw_message, keywords):
-            return prompts["stt_retry"]
+        if kind == "searching_product" and _should_retry_search_prompt(raw_message, keywords):
+            return "찾으시는 상품을 다시 말씀해주세요."
         if keywords:
             if username:
                 return (
-                    f"네, 잠시 기다려주세요. "
-                    f"{username}님을 위한 {keywords}{_object_particle(keywords)} 찾고 있어요."
+                    f"{username} 님을 위한 {keywords}{_object_particle(keywords)} 찾고 있어요."
                 )
-            return f"네, 잠시 기다려주세요. {keywords}{_object_particle(keywords)} 찾고 있어요."
+            return f"{keywords}{_object_particle(keywords)} 찾고 있어요."
         if username:
-            return f"네, 잠시 기다려주세요. {username}님을 위한 상품을 찾고 있어요."
-        return "네, 잠시 기다려주세요. 상품을 찾고 있어요."
+            return f"{username} 님을 위한 상품을 찾고 있어요."
+        return prompts["searching_refined"]
 
     return prompts.get(kind, completion_text or "잠시만요. 다시 확인해볼게요.")

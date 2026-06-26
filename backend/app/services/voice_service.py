@@ -9,6 +9,7 @@ API Key는 환경변수 OPENAI_API_KEY / GEMINI_API_KEY에서 읽는다.
 import asyncio
 from dataclasses import dataclass
 from io import BytesIO
+import json
 import os
 import re
 import logging
@@ -24,7 +25,7 @@ from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 from fastapi import HTTPException
-from app.schemas.voice import TtsSegment
+from app.schemas.voice import TtsSegment, TurnDetectionRequest, TurnDetectionResponse
 from app.schemas.agent import SpeechSegment
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,8 @@ logger = logging.getLogger(__name__)
 # 프론트는 녹음이 끝난 WAV 파일을 업로드한다. 진짜 Realtime 스트리밍은
 # WebRTC/WebSocket 입력 구조가 필요하므로, 현재 엔드포인트에서는 Transcription API를 사용한다.
 _STT_MODEL = os.getenv("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
+_TURN_DETECTION_MODEL = os.getenv("TURN_DETECTION_MODEL", "gpt-4.1-mini")
+_TURN_DETECTION_TIMEOUT_SECONDS = float(os.getenv("TURN_DETECTION_TIMEOUT_SECONDS", "3.0"))
 _TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 _TTS_FALLBACK_MODELS = [
     model.strip()
@@ -57,6 +60,7 @@ _STT_PROMPT = (
 )
 
 _MAX_TRANSCRIPT_LENGTH = 200
+_MAX_TURN_TEXT_LENGTH = 500
 _MIN_AUDIO_BYTES = 1000  # 너무 작은 파일은 무음으로 간주
 _MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB
 _MAX_TTS_TEXT_LENGTH = 1000
@@ -175,6 +179,219 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
                 }
             },
         ) from exc
+
+
+async def detect_turn_completion(req: TurnDetectionRequest) -> TurnDetectionResponse:
+    """STT 결과가 의미상 한 사용자 턴으로 완성됐는지 LLM으로 판단한다.
+
+    LLM 호출 실패, timeout, JSON parse 실패 시 rule-based fallback을 사용한다.
+    """
+    transcript = _normalize_turn_text(req.transcript)
+    partial = _normalize_turn_text(req.partialTranscript or "")
+    step = (req.step or "").strip() or "unknown"
+    merged = _merge_turn_transcripts(partial, transcript)
+
+    fallback = _detect_turn_rule_based(
+        transcript=transcript,
+        partial=partial,
+        merged=merged,
+        step=step,
+        continuation_count=req.continuationCount,
+    )
+    if not transcript:
+        return fallback
+
+    try:
+        return await asyncio.wait_for(
+            _detect_turn_completion_with_llm(
+                transcript=transcript,
+                partial=partial,
+                merged=merged,
+                step=step,
+                continuation_count=req.continuationCount,
+            ),
+            timeout=_TURN_DETECTION_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[voice.turn_detection] fallback reason=%s step=%s transcript=%s partial=%s",
+            exc,
+            step,
+            transcript,
+            partial,
+        )
+        return fallback
+
+
+async def _detect_turn_completion_with_llm(
+    *,
+    transcript: str,
+    partial: str,
+    merged: str,
+    step: str,
+    continuation_count: int,
+) -> TurnDetectionResponse:
+    client = _get_openai_client("turn_detection")
+    response = await client.chat.completions.create(
+        model=_TURN_DETECTION_MODEL,
+        temperature=0,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "너는 한국어 음성 쇼핑 앱의 turn detector다. "
+                    "STT transcript가 사용자의 의미상 한 턴으로 완성됐는지 판단한다. "
+                    "VAD는 소리의 끝만 판단하므로, 너는 의미 완성 여부만 판단한다. "
+                    "반드시 JSON schema에 맞춰 답한다."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "currentStep": step,
+                        "partialTranscript": partial,
+                        "newTranscript": transcript,
+                        "mergedTranscript": merged,
+                        "continuationCount": continuation_count,
+                        "resultOptions": ["complete", "incomplete", "noise_or_empty"],
+                        "rules": [
+                            "상품명/수량/긍정/부정/결제/삭제/변경 의도가 명확하면 complete",
+                            "말이 끊긴 filler나 접속어만 있으면 incomplete 또는 noise_or_empty",
+                            "mergedTranscript가 너무 모호하고 추가 발화가 필요하면 incomplete",
+                            "무음, 감탄사, 의미 없는 한 글자 발화는 noise_or_empty",
+                            "현재 단계에 맞는 짧은 답변(응, 네, 아니, 2개, 결제할게)은 complete",
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "turn_detection_result",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "result": {
+                            "type": "string",
+                            "enum": ["complete", "incomplete", "noise_or_empty"],
+                        },
+                        "mergedTranscript": {"type": "string"},
+                        "reason": {"type": "string"},
+                        "shouldAskClarification": {"type": "boolean"},
+                    },
+                    "required": [
+                        "result",
+                        "mergedTranscript",
+                        "reason",
+                        "shouldAskClarification",
+                    ],
+                },
+            },
+        },
+    )
+    content = response.choices[0].message.content or ""
+    data = json.loads(content)
+    result = str(data.get("result") or "").strip()
+    if result not in {"complete", "incomplete", "noise_or_empty"}:
+        raise ValueError(f"invalid turn detection result: {result}")
+    return TurnDetectionResponse(
+        result=result,
+        mergedTranscript=_normalize_turn_text(data.get("mergedTranscript") or merged),
+        reason=str(data.get("reason") or "llm").strip(),
+        shouldAskClarification=bool(data.get("shouldAskClarification")),
+    )
+
+
+def _detect_turn_rule_based(
+    *,
+    transcript: str,
+    partial: str,
+    merged: str,
+    step: str,
+    continuation_count: int,
+) -> TurnDetectionResponse:
+    compact = re.sub(r"\s+", "", merged)
+    new_compact = re.sub(r"\s+", "", transcript)
+    if (
+        not compact
+        or len(compact) < 2
+        or (compact in {"음", "어", "아", "네", "응"} and step == "askProduct")
+    ):
+        return TurnDetectionResponse(
+            result="noise_or_empty",
+            mergedTranscript=merged,
+            reason="rule_noise_or_empty",
+            shouldAskClarification=bool(partial and continuation_count >= 1),
+        )
+
+    complete_markers = (
+        "사줘",
+        "찾아줘",
+        "담아",
+        "담아줘",
+        "결제",
+        "주문",
+        "빼줘",
+        "삭제",
+        "바꿔",
+        "변경",
+        "아니",
+        "싫어",
+        "좋아",
+        "맞아",
+    )
+    quantity_pattern = re.compile(
+        r"\d+\s*(개|봉지|팩|세트|통|병|캔)|한\s*개|두\s*개|세\s*개|네\s*개|다섯\s*개"
+    )
+    confirmation_steps = {
+        "showProduct",
+        "askQuantity",
+        "askMoreOrCheckout",
+        "confirmAddress",
+        "enterPassword",
+    }
+    if (
+        any(marker in compact for marker in complete_markers)
+        or quantity_pattern.search(merged)
+        or (step in confirmation_steps and new_compact in {"응", "네", "예", "그래", "좋아", "아니"})
+        or (step == "askProduct" and len(compact) >= 3 and continuation_count > 0)
+    ):
+        return TurnDetectionResponse(
+            result="complete",
+            mergedTranscript=merged,
+            reason="rule_complete",
+            shouldAskClarification=False,
+        )
+
+    if continuation_count >= 2:
+        return TurnDetectionResponse(
+            result="incomplete",
+            mergedTranscript=merged,
+            reason="rule_max_continuation",
+            shouldAskClarification=True,
+        )
+
+    return TurnDetectionResponse(
+        result="incomplete",
+        mergedTranscript=merged,
+        reason="rule_incomplete",
+        shouldAskClarification=False,
+    )
+
+
+def _normalize_turn_text(text: object) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip())[:_MAX_TURN_TEXT_LENGTH]
+
+
+def _merge_turn_transcripts(partial: str, transcript: str) -> str:
+    if partial and transcript:
+        return _normalize_turn_text(f"{partial} {transcript}")
+    return _normalize_turn_text(partial or transcript)
 
 
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────────────

@@ -6,6 +6,20 @@ class SttResponse(BaseModel):
     transcript: str
 
 
+class TurnDetectionRequest(BaseModel):
+    transcript: str
+    partialTranscript: Optional[str] = None
+    step: Optional[str] = None
+    continuationCount: int = 0
+
+
+class TurnDetectionResponse(BaseModel):
+    result: str
+    mergedTranscript: str
+    reason: Optional[str] = None
+    shouldAskClarification: bool = False
+
+
 class TtsRequest(BaseModel):
     text: str
 
