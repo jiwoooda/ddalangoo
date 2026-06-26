@@ -87,6 +87,7 @@ class ShoppingFlowController extends ChangeNotifier {
   ShoppingStep get step => _step;
   VoiceTurnState get voiceTurnState => _voiceTurnState;
   String get assistantText => _assistantText;
+  String? get userName => _userName;
   String? get latestTranscript => _latestTranscript;
   ProductViewData? get currentProduct => _currentProduct;
   List<CartItemViewData> get cartItems => List.unmodifiable(_cartItems);
@@ -98,6 +99,15 @@ class ShoppingFlowController extends ChangeNotifier {
       _voiceTurnState == VoiceTurnState.userCanSpeak ||
       _voiceTurnState == VoiceTurnState.userRecording;
   bool get isRecording => _voiceTurnState == VoiceTurnState.userRecording;
+  bool get shouldShowListeningHint =>
+      _voiceTurnState == VoiceTurnState.userRecording;
+  bool get shouldShowReplyExamples =>
+      (_voiceTurnState == VoiceTurnState.userCanSpeak ||
+          _voiceTurnState == VoiceTurnState.userRecording) &&
+      (_step == ShoppingStep.askProduct ||
+          _step == ShoppingStep.askQuantity ||
+          _step == ShoppingStep.askMoreOrCheckout ||
+          _step == ShoppingStep.error);
   bool get shouldShowVoiceButton =>
       _voiceTurnState == VoiceTurnState.userCanSpeak ||
       _voiceTurnState == VoiceTurnState.userRecording ||
@@ -127,6 +137,47 @@ class ShoppingFlowController extends ChangeNotifier {
         sum + (item.totalPrice ?? (item.product.price ?? 0) * item.quantity),
   );
   String get totalCartPriceText => '${_formatCartPrice(totalCartPrice)}원';
+  int get shoppingProgressStepIndex {
+    switch (_step) {
+      case ShoppingStep.askProduct:
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askQuantity:
+      case ShoppingStep.error:
+        return 0;
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.askMoreOrCheckout:
+        return 1;
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+        return 2;
+      case ShoppingStep.confirmAddress:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+        return 3;
+    }
+  }
+
+  List<String> get suggestedReplies {
+    switch (_step) {
+      case ShoppingStep.askQuantity:
+        return const <String>['1개 담아줘', '2개 담아줘', '다른 상품 보여줘'];
+      case ShoppingStep.askMoreOrCheckout:
+        return const <String>['결제할게', '다른 상품 더 볼래', '장바구니 보여줘'];
+      case ShoppingStep.askProduct:
+      case ShoppingStep.error:
+        return const <String>['삼겹살 1근 사줘', '1개 담아줘', '다른 상품 보여줘'];
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.showProduct:
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.confirmAddress:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+        return const <String>[];
+    }
+  }
 
   Future<void> initialize() async {
     if (_isInitialized) {
@@ -193,6 +244,23 @@ class ShoppingFlowController extends ChangeNotifier {
 
   Future<void> onVoiceButtonTap() async {
     // V1 자동 turn-taking에서는 사용자 탭으로 녹음을 제어하지 않는다.
+  }
+
+  Future<void> submitSuggestedReply(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    _speakEpoch += 1;
+    _speechRunId += 1;
+    _cancelVoiceTimers(keepCartAndPaymentTimers: true);
+    await _voiceTurnService.stopSpeaking();
+    await _voiceTurnService.cancelRecording();
+    _latestTranscript = normalized;
+    _voiceLevel = 0.32;
+    notifyListeners();
+    await _handleUserTranscript(normalized);
   }
 
   Future<void> onPasswordDigit(int digit) async {
@@ -975,6 +1043,7 @@ class ShoppingFlowController extends ChangeNotifier {
 
     try {
       await _voiceTurnService.startRecording();
+      await _voiceTurnService.playListeningCue();
 
       if (!_canContinueUserRecording(epoch)) {
         await _voiceTurnService.cancelRecording();
@@ -1625,6 +1694,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _completionSequenceTimer?.cancel();
     _agentProgressSubscription?.cancel();
     unawaited(_agentService.disconnectProgress());
+    unawaited(_voiceTurnService.dispose());
     super.dispose();
   }
 }

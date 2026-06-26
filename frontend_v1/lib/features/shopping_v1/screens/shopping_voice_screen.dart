@@ -15,6 +15,7 @@ import '../widgets/dallang_response_text.dart';
 import '../widgets/glass_button.dart';
 import '../widgets/pin_keypad.dart';
 import '../widgets/product_card.dart';
+import '../widgets/shopping_progress_steps.dart';
 import '../widgets/voice_turn_orb.dart';
 
 class ShoppingVoiceScreen extends StatefulWidget {
@@ -141,15 +142,17 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     final horizontalPadding = _controller.step == ShoppingStep.showProduct
         ? 0.0
         : 20.0;
-    final topTextHeight = (_controller.step == ShoppingStep.showProduct
-            ? mediaQuery.size.height * 0.16
-            : mediaQuery.size.height * 0.26)
-        .clamp(
-          _controller.step == ShoppingStep.showProduct ? 112.0 : 176.0,
-          _controller.step == ShoppingStep.showProduct ? 156.0 : 250.0,
-        );
+    final topTextHeight =
+        (_controller.step == ShoppingStep.showProduct
+                ? mediaQuery.size.height * 0.16
+                : mediaQuery.size.height * 0.26)
+            .clamp(
+              _controller.step == ShoppingStep.showProduct ? 112.0 : 176.0,
+              _controller.step == ShoppingStep.showProduct ? 156.0 : 250.0,
+            );
     final centerResponseText = _shouldCenterResponseText(_controller.step);
-    final useFakeGlass = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final useFakeGlass =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     return Scaffold(
       body: LiquidGlassLayer(
         fake: useFakeGlass,
@@ -177,18 +180,23 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                     ),
                     child: Column(
                       children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: ShoppingProgressSteps(
+                            currentStep: _controller.shoppingProgressStepIndex,
+                          ),
+                        ),
                         if (!centerResponseText)
                           SizedBox(
                             height: topTextHeight,
                             child: Center(
-                              child: DallangResponseText(
-                                text: _controller.assistantText,
-                                fontSize: _controller.step ==
-                                        ShoppingStep.showProduct
+                              child: _buildPromptText(
+                                fontSize:
+                                    _controller.step == ShoppingStep.showProduct
                                     ? 28
                                     : 34,
-                                maxLines: _controller.step ==
-                                        ShoppingStep.showProduct
+                                maxLines:
+                                    _controller.step == ShoppingStep.showProduct
                                     ? 3
                                     : null,
                               ),
@@ -202,7 +210,9 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                             },
                             child: centerResponseText
                                 ? Column(
-                                    key: ValueKey('center-text-${_controller.step.name}'),
+                                    key: ValueKey(
+                                      'center-text-${_controller.step.name}',
+                                    ),
                                     children: [
                                       Expanded(
                                         child: Center(
@@ -210,9 +220,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 12,
                                             ),
-                                            child: DallangResponseText(
-                                              text: _controller.assistantText,
-                                            ),
+                                            child: _buildPromptText(),
                                           ),
                                         ),
                                       ),
@@ -288,7 +296,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     switch (_controller.step) {
       case ShoppingStep.askProduct:
       case ShoppingStep.askQuantity:
-        return const SizedBox.shrink();
+        return _buildReplyExamples();
       case ShoppingStep.cartCompleted:
       case ShoppingStep.askMoreOrCheckout:
         return Center(
@@ -304,16 +312,14 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           ),
         );
       case ShoppingStep.searchingProduct:
-        return const Center(
-          key: ValueKey('searching-product'),
-          child: _SearchingShowcase(),
+        return Center(
+          key: const ValueKey('searching-product'),
+          child: _SearchingShowcase(userName: _controller.userName),
         );
       case ShoppingStep.showProduct:
         final product = _controller.currentProduct;
         if (product == null) {
-          return const SizedBox(
-            key: ValueKey('show-product-empty'),
-          );
+          return const SizedBox(key: ValueKey('show-product-empty'));
         }
         return Padding(
           key: const ValueKey('show-product'),
@@ -384,10 +390,99 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           ),
         );
       case ShoppingStep.error:
-        return const SizedBox.shrink();
+        return _buildReplyExamples();
     }
   }
 
+  Widget _buildPromptText({double fontSize = 34, int? maxLines}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        DallangResponseText(
+          text: _controller.assistantText,
+          fontSize: fontSize,
+          maxLines: maxLines,
+        ),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: _controller.shouldShowListeningHint
+              ? Padding(
+                  key: const ValueKey('listening-hint'),
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    '말씀해주세요',
+                    style: TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: const Color(0xFF7F8B97).withValues(alpha: 0.9),
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReplyExamples() {
+    if (!_controller.shouldShowReplyExamples ||
+        _controller.suggestedReplies.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 6, right: 6, bottom: 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '예시 답변',
+            style: TextStyle(
+              fontFamily: 'Pretendard',
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF7F8B97).withValues(alpha: 0.96),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: _controller.suggestedReplies.map((reply) {
+              return InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () {
+                  unawaited(_controller.submitSuggestedReply(reply));
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0xFFDDE4EB)),
+                  ),
+                  child: Text(
+                    reply,
+                    style: const TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF51606E),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _GlassBackgroundLayer extends StatelessWidget {
@@ -472,7 +567,9 @@ class _GlassBackgroundLayer extends StatelessWidget {
 }
 
 class _SearchingShowcase extends StatefulWidget {
-  const _SearchingShowcase();
+  const _SearchingShowcase({this.userName});
+
+  final String? userName;
 
   @override
   State<_SearchingShowcase> createState() => _SearchingShowcaseState();
@@ -487,6 +584,18 @@ class _SearchingShowcaseState extends State<_SearchingShowcase> {
 
   Timer? _timer;
   int _index = 0;
+
+  List<String> get _messages {
+    final trimmedName = widget.userName?.trim();
+    final displayName = (trimmedName != null && trimmedName.isNotEmpty)
+        ? '$trimmedName님'
+        : '고객님';
+    return <String>[
+      '원하시는 상품을 찾고 있어요',
+      '상품을 비교하고 있어요',
+      '$displayName을 위한 최고의 상품을 고르고 있어요',
+    ];
+  }
 
   @override
   void initState() {
@@ -509,14 +618,35 @@ class _SearchingShowcaseState extends State<_SearchingShowcase> {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 450),
-      child: Image.asset(
-        _assets[_index],
-        key: ValueKey(_assets[_index]),
-        height: 210,
-        fit: BoxFit.contain,
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 450),
+          child: Image.asset(
+            _assets[_index],
+            key: ValueKey(_assets[_index]),
+            height: 210,
+            fit: BoxFit.contain,
+          ),
+        ),
+        const SizedBox(height: 18),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: Text(
+            _messages[_index % _messages.length],
+            key: ValueKey('search-message-$_index'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: 'Pretendard',
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF51606E),
+              height: 1.45,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
