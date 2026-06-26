@@ -242,6 +242,7 @@ async def _detect_turn_completion_with_llm(
                     "너는 한국어 음성 쇼핑 앱의 turn detector다. "
                     "STT transcript가 사용자의 의미상 한 턴으로 완성됐는지 판단한다. "
                     "VAD는 소리의 끝만 판단하므로, 너는 의미 완성 여부만 판단한다. "
+                    "특히 askProduct 단계에서는 검색어 후보가 잡히면 문장이 조금 덜 끝났더라도 complete로 본다. "
                     "반드시 JSON schema에 맞춰 답한다."
                 ),
             },
@@ -257,6 +258,7 @@ async def _detect_turn_completion_with_llm(
                         "resultOptions": ["complete", "incomplete", "noise_or_empty"],
                         "rules": [
                             "상품명/수량/긍정/부정/결제/삭제/변경 의도가 명확하면 complete",
+                            "askProduct 단계에서는 상품 검색어 후보(예: 토마토, 맛있는 토마토)가 잡히면 문장 끝이 조금 끊겨도 complete",
                             "말이 끊긴 filler나 접속어만 있으면 incomplete 또는 noise_or_empty",
                             "mergedTranscript가 너무 모호하고 추가 발화가 필요하면 incomplete",
                             "무음, 감탄사, 의미 없는 한 글자 발화는 noise_or_empty",
@@ -299,9 +301,21 @@ async def _detect_turn_completion_with_llm(
     result = str(data.get("result") or "").strip()
     if result not in {"complete", "incomplete", "noise_or_empty"}:
         raise ValueError(f"invalid turn detection result: {result}")
+    merged_transcript = _normalize_turn_text(data.get("mergedTranscript") or merged)
+    if (
+        result == "incomplete"
+        and step == "askProduct"
+        and _looks_like_product_search_fragment(merged_transcript)
+    ):
+        return TurnDetectionResponse(
+            result="complete",
+            mergedTranscript=merged_transcript,
+            reason="llm_override_product_search_fragment",
+            shouldAskClarification=False,
+        )
     return TurnDetectionResponse(
         result=result,
-        mergedTranscript=_normalize_turn_text(data.get("mergedTranscript") or merged),
+        mergedTranscript=merged_transcript,
         reason=str(data.get("reason") or "llm").strip(),
         shouldAskClarification=bool(data.get("shouldAskClarification")),
     )
@@ -360,6 +374,7 @@ def _detect_turn_rule_based(
         or quantity_pattern.search(merged)
         or (step in confirmation_steps and new_compact in {"응", "네", "예", "그래", "좋아", "아니"})
         or (step == "askProduct" and len(compact) >= 3 and continuation_count > 0)
+        or (step == "askProduct" and _looks_like_product_search_fragment(merged))
     ):
         return TurnDetectionResponse(
             result="complete",
@@ -392,6 +407,29 @@ def _merge_turn_transcripts(partial: str, transcript: str) -> str:
     if partial and transcript:
         return _normalize_turn_text(f"{partial} {transcript}")
     return _normalize_turn_text(partial or transcript)
+
+
+def _looks_like_product_search_fragment(text: str) -> bool:
+    normalized = _normalize_turn_text(text)
+    if not normalized:
+        return False
+
+    compact = re.sub(r"\s+", "", normalized)
+    if compact in {"음", "어", "아", "저기", "그", "그거", "이거", "그냥"}:
+        return False
+
+    stripped = re.sub(r"[.!?~…]+$", "", normalized).strip()
+    stripped = re.sub(
+        r"(사고싶어|사고싶은|사줘|사|찾아줘|찾아|찾|추천해줘|추천|보여줘|보여|줘|좀)$",
+        "",
+        stripped,
+    ).strip()
+    tokens = [
+        token
+        for token in re.findall(r"[0-9A-Za-z가-힣]+", stripped)
+        if len(token) >= 2
+    ]
+    return bool(tokens)
 
 
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
@@ -442,7 +480,7 @@ def _filename_for_mime(mime_type: str) -> str:
 def _normalize_transcript(raw: str) -> str:
     """Gemini가 반환한 텍스트를 정제한다.
 
-    - 여러 줄이면 첫 줄만 사용 (모델이 대화 예시를 만든 경우)
+    - 여러 줄이면 한 줄로 이어 붙인다
     - 앞뒤 인용부호 제거
     - 너무 긴 텍스트는 빈 문자열로 처리
     """
@@ -453,11 +491,7 @@ def _normalize_transcript(raw: str) -> str:
     if not lines:
         return ""
 
-    # 여러 줄 → 모델이 할루시네이션했을 가능성이 높음
-    if len(lines) > 1:
-        return ""
-
-    text = lines[0]
+    text = " ".join(lines)
 
     # 앞뒤 인용부호 제거
     quotes = ('"', "'", "“", "”", "‘", "’")
@@ -465,6 +499,8 @@ def _normalize_transcript(raw: str) -> str:
         text = text[1:].lstrip()
     while text and text[-1] in quotes:
         text = text[:-1].rstrip()
+
+    text = re.sub(r"\s+", " ", text).strip()
 
     if len(text) > _MAX_TRANSCRIPT_LENGTH:
         return ""

@@ -1,6 +1,9 @@
 """POST /api/voice/stt — OpenAI 기반 한국어 음성 전사 엔드포인트."""
 
 import logging
+import re
+from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from app.schemas.voice import (
@@ -14,6 +17,39 @@ from app.services import voice_service
 
 router = APIRouter(prefix="/voice", tags=["Voice"])
 logger = logging.getLogger(__name__)
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_VAD_TEST_DIR = _BACKEND_DIR / "VAD_test"
+
+
+def _resolve_uploaded_stt_mime_type(filename: str, content_type: str | None) -> str:
+    normalized = (content_type or "").lower().split(";")[0].strip()
+    if normalized and normalized != "application/octet-stream":
+        return normalized
+
+    extension = Path(filename).suffix.lower()
+    mime_by_extension = {
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".mp4": "audio/mp4",
+        ".m4a": "audio/mp4",
+        ".webm": "audio/webm",
+        ".ogg": "audio/ogg",
+        ".opus": "audio/ogg",
+        ".flac": "audio/flac",
+        ".aac": "audio/aac",
+    }
+    return mime_by_extension.get(extension, "audio/wav")
+
+
+def _save_uploaded_stt_file(filename: str, audio_bytes: bytes) -> Path:
+    _VAD_TEST_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename).strip("._")
+    if not safe_name:
+        safe_name = "stt_upload.wav"
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    output_path = _VAD_TEST_DIR / f"{timestamp}_{safe_name}"
+    output_path.write_bytes(audio_bytes)
+    return output_path
 
 
 @router.post("/stt", response_model=SttResponse)
@@ -39,13 +75,15 @@ async def speech_to_text(file: UploadFile = File(...)) -> SttResponse:
         )
 
     audio_bytes = await file.read()
-    mime_type = file.content_type or "audio/wav"
+    mime_type = _resolve_uploaded_stt_mime_type(file.filename, file.content_type)
     logger.info(
         "[voice.stt] file received filename=%s content_type=%s size=%s",
         file.filename,
         mime_type,
         len(audio_bytes),
     )
+    saved_path = _save_uploaded_stt_file(file.filename, audio_bytes)
+    logger.info("[voice.stt] file saved path=%s", saved_path)
 
     transcript = await voice_service.transcribe_audio(audio_bytes, mime_type)
     logger.info("[voice.stt] transcript succeeded length=%s", len(transcript))

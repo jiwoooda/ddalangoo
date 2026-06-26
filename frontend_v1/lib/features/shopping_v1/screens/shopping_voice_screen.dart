@@ -255,8 +255,12 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                       left: 0,
                       right: 0,
                       bottom: bottomInset + bottomButtonHeight + 14,
-                      child: IgnorePointer(
-                        child: Center(
+                      child: Center(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () {
+                            unawaited(_controller.onVoiceButtonTap());
+                          },
                           child: VoiceTurnOrb(
                             state: _controller.voiceTurnState,
                             level: _controller.voiceLevel,
@@ -314,7 +318,10 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
       case ShoppingStep.searchingProduct:
         return Center(
           key: const ValueKey('searching-product'),
-          child: _SearchingShowcase(userName: _controller.userName),
+          child: _SearchingShowcase(
+            userName: _controller.userName,
+            keyword: _controller.activeSearchKeyword,
+          ),
         );
       case ShoppingStep.showProduct:
         final product = _controller.currentProduct;
@@ -410,7 +417,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                   key: const ValueKey('listening-hint'),
                   padding: const EdgeInsets.only(top: 10),
                   child: Text(
-                    '말씀해주세요',
+                    _controller.isRecording ? '말씀을 마치면 아래 버튼을 눌러주세요' : '말씀해주세요',
                     style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 14,
@@ -567,9 +574,10 @@ class _GlassBackgroundLayer extends StatelessWidget {
 }
 
 class _SearchingShowcase extends StatefulWidget {
-  const _SearchingShowcase({this.userName});
+  const _SearchingShowcase({this.userName, this.keyword});
 
   final String? userName;
+  final String? keyword;
 
   @override
   State<_SearchingShowcase> createState() => _SearchingShowcaseState();
@@ -590,9 +598,13 @@ class _SearchingShowcaseState extends State<_SearchingShowcase> {
     final displayName = (trimmedName != null && trimmedName.isNotEmpty)
         ? '$trimmedName님'
         : '고객님';
+    final keyword = widget.keyword?.trim() ?? '';
+    final targetText = keyword.isNotEmpty
+        ? '$keyword${_hasBatchim(keyword) ? '을' : '를'}'
+        : '상품을';
     return <String>[
-      '원하시는 상품을 찾고 있어요',
-      '상품을 비교하고 있어요',
+      '$targetText 찾고 있어요',
+      keyword.isNotEmpty ? '$keyword 상품을 비교하고 있어요' : '상품을 비교하고 있어요',
       '$displayName을 위한 최고의 상품을 고르고 있어요',
     ];
   }
@@ -649,6 +661,17 @@ class _SearchingShowcaseState extends State<_SearchingShowcase> {
       ],
     );
   }
+}
+
+bool _hasBatchim(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) {
+    return false;
+  }
+  final codeUnit = trimmed.codeUnitAt(trimmed.length - 1);
+  return codeUnit >= 0xAC00 &&
+      codeUnit <= 0xD7A3 &&
+      ((codeUnit - 0xAC00) % 28 != 0);
 }
 
 class _BlurredBlob extends StatelessWidget {

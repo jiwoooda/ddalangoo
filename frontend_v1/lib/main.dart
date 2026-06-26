@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'core/services/app_log_service.dart';
 import 'features/shopping_v1/screens/shopping_splash_screen.dart';
 import 'features/shopping_v1/screens/shopping_voice_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env', isOptional: true);
+  await AppLogService.instance.init();
   runApp(const DdalangooV1App());
 }
 

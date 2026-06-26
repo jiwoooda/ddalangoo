@@ -25,24 +25,47 @@ class GptVoiceService {
   static const int _numChannels = 1;
   static const String _sttMultipartFieldName = 'file';
   static const String _sttEndpointPath = '/api/voice/stt';
+  static const Duration _defaultRecordingStartCooldown = Duration(
+    milliseconds: 260,
+  );
+  static const Duration _androidRecordingStartCooldown = Duration(
+    milliseconds: 240,
+  );
 
   // STT 프롬프트는 백엔드 voice_service.py에서 관리한다.
 
-  final AudioRecorder _recorder = AudioRecorder();
+  AudioRecorder? _recorder;
   final GeminiVoiceService _geminiTts = GeminiVoiceService.instance;
   Future<Directory?>? _sttRecordingDirectoryFuture;
   String? _activeRecordingPath;
   bool _isRecording = false;
+  DateTime? _lastRecordingStartedAt;
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _geminiTts.isSpeaking;
+  DateTime? get lastTtsPlaybackEndedAt => _geminiTts.lastPlaybackEndedAt;
+  DateTime? get lastRecordingStartedAt => _lastRecordingStartedAt;
   bool get _supportsFileAudioFlow => !kIsWeb;
+  AudioRecorder get _activeRecorder => _recorder ??= AudioRecorder();
+  Duration get _recordingStartCooldown {
+    if (Platform.isAndroid) {
+      return _androidRecordingStartCooldown;
+    }
+    return _defaultRecordingStartCooldown;
+  }
+
+  AudioEncoder get _preferredRecordingEncoder {
+    if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+      return AudioEncoder.aacLc;
+    }
+    return AudioEncoder.wav;
+  }
 
   Stream<Amplitude> onAmplitudeChanged({
     Duration interval = const Duration(milliseconds: 180),
   }) {
     _ensureRecordingSupported();
-    return _recorder.onAmplitudeChanged(interval);
+    return _activeRecorder.onAmplitudeChanged(interval);
   }
 
   Future<void> init() async {
@@ -55,35 +78,68 @@ class GptVoiceService {
 
   Future<void> startRecording() async {
     _ensureRecordingSupported();
+    final requestedAt = DateTime.now();
+    debugPrint(
+      '🎙️ [STT] recording_start_requested '
+      'at=${requestedAt.toIso8601String()} '
+      'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, requestedAt)} '
+      'cooldownMs=${_recordingStartCooldown.inMilliseconds}',
+    );
     if (_isRecording) {
-      debugPrint('🎙️ [STT] startRecording requested while already recording, resetting recorder');
+      debugPrint(
+        '🎙️ [STT] startRecording requested while already recording, resetting recorder',
+      );
       await cancelRecording();
     }
 
-    final hasPermission = await _recorder.hasPermission();
+    // 직전 TTS 재생이 끝났더라도 오디오 포커스/세션 정리가 지연될 수 있어
+    // 바로 녹음을 시작하면 후속 턴에서 무음 파일이 생기기도 한다.
+    await _geminiTts.stopSpeaking();
+    final stopSpeakingCompletedAt = DateTime.now();
+    debugPrint(
+      '🎙️ [STT] tts_stop_confirmed '
+      'at=${stopSpeakingCompletedAt.toIso8601String()} '
+      'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, stopSpeakingCompletedAt)}',
+    );
+    await Future<void>.delayed(_recordingStartCooldown);
+    final cooldownEndedAt = DateTime.now();
+    debugPrint(
+      '🎙️ [STT] recording_cooldown_elapsed '
+      'at=${cooldownEndedAt.toIso8601String()} '
+      'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, cooldownEndedAt)}',
+    );
+
+    final recorder = _activeRecorder;
+    final hasPermission = await recorder.hasPermission();
     if (!hasPermission) {
       throw Exception('브라우저/기기에서 마이크 권한이 허용되지 않았습니다.');
     }
 
     try {
-      final path = await _createSttRecordingPath();
+      final encoder = await _resolveRecordingEncoder(recorder);
+      final path = await _createSttRecordingPath(
+        extension: _extensionForEncoder(encoder),
+      );
       _activeRecordingPath = path;
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: _sampleRate,
-          numChannels: _numChannels,
-          autoGain: true,
-          echoCancel: true,
-          noiseSuppress: true,
-        ),
+      await _startRecorderWithRetry(
+        recorder: recorder,
+        encoder: encoder,
         path: path,
       );
+      _lastRecordingStartedAt = DateTime.now();
       _isRecording = true;
-      debugPrint('🎙️ [STT] recording_started path=$path');
+      debugPrint(
+        '🎙️ [STT] recording_started '
+        'at=${_lastRecordingStartedAt!.toIso8601String()} '
+        'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, _lastRecordingStartedAt!)} '
+        'path=$path '
+        'encoder=${encoder.name} '
+        'mimeType=${_mimeTypeForEncoder(encoder)}',
+      );
     } catch (e) {
       _isRecording = false;
       _activeRecordingPath = null;
+      _lastRecordingStartedAt = null;
       debugPrint('❌ [STT] recording_start_failed error=$e');
       rethrow;
     }
@@ -99,7 +155,8 @@ class GptVoiceService {
     String? cleanupPath;
 
     try {
-      final recordedPath = await _recorder.stop();
+      final recorder = _activeRecorder;
+      final recordedPath = await recorder.stop();
       final path = recordedPath ?? _activeRecordingPath;
       cleanupPath = path;
       _activeRecordingPath = null;
@@ -114,6 +171,7 @@ class GptVoiceService {
       return transcript;
     } finally {
       _activeRecordingPath = null;
+      _lastRecordingStartedAt = null;
       if (cleanupPath != null) {
         unawaited(_deleteIfExists(cleanupPath));
       }
@@ -133,13 +191,15 @@ class GptVoiceService {
     }
 
     try {
+      final inferredMimeType = _inferMimeTypeFromPath(audioFile.path);
       await _logRecordedFile('stt_request_prepare', audioFile);
       final formData = FormData.fromMap({
         _sttMultipartFieldName: await MultipartFile.fromFile(
           audioFile.path,
           filename: audioFile.uri.pathSegments.isNotEmpty
               ? audioFile.uri.pathSegments.last
-              : 'voice.wav',
+              : 'voice.${_extensionFromMimeType(inferredMimeType)}',
+          contentType: DioMediaType.parse(inferredMimeType),
         ),
       });
 
@@ -147,6 +207,7 @@ class GptVoiceService {
         '🎙️ [STT Request] '
         'requestUrl=${ApiClient.baseUrl}$_sttEndpointPath, '
         'multipartFieldName=$_sttMultipartFieldName, '
+        'mimeType=$inferredMimeType, '
         'fileSize=$fileLength',
       );
 
@@ -247,7 +308,7 @@ class GptVoiceService {
   }
 
   Future<void> dispose() async {
-    await _recorder.dispose();
+    await _disposeRecorder();
   }
 
   Future<void> cancelRecording() async {
@@ -257,11 +318,23 @@ class GptVoiceService {
     _isRecording = false;
     final path = _activeRecordingPath;
     _activeRecordingPath = null;
+    _lastRecordingStartedAt = null;
     debugPrint('🎙️ [STT] recording_cancel_requested path=$path');
-    await _recorder.cancel();
+    await _activeRecorder.cancel();
     if (path != null) {
       await _deleteIfExists(path);
     }
+  }
+
+  Future<void> _disposeRecorder() async {
+    final recorder = _recorder;
+    _recorder = null;
+    if (recorder == null) {
+      return;
+    }
+    try {
+      await recorder.dispose();
+    } catch (_) {}
   }
 
   Future<Directory?> _prepareSttRecordingDirectory() async {
@@ -279,7 +352,7 @@ class GptVoiceService {
     }
   }
 
-  Future<String> _createSttRecordingPath() async {
+  Future<String> _createSttRecordingPath({required String extension}) async {
     final directoryFuture = _sttRecordingDirectoryFuture ??=
         _prepareSttRecordingDirectory();
     final directory = await directoryFuture;
@@ -288,7 +361,7 @@ class GptVoiceService {
     }
 
     final now = DateTime.now().microsecondsSinceEpoch;
-    return '${directory.path}${Platform.pathSeparator}stt_$now.wav';
+    return '${directory.path}${Platform.pathSeparator}stt_$now.$extension';
   }
 
   Future<void> _deleteIfExists(String path) async {
@@ -307,9 +380,156 @@ class GptVoiceService {
       '🎙️ [STT File] '
       'event=$event, '
       'recordPath=${audioFile.path}, '
+      'mimeType=${_inferMimeTypeFromPath(audioFile.path)}, '
       'fileExists=$exists, '
       'fileSize=$size',
     );
+  }
+
+  Future<void> _startRecorderWithRetry({
+    required AudioRecorder recorder,
+    required AudioEncoder encoder,
+    required String path,
+  }) async {
+    final config = _buildRecordingConfig(encoder);
+    try {
+      await recorder.start(config, path: path);
+      return;
+    } catch (error) {
+      debugPrint('⚠️ [STT] recorder_start_retry_recreate error=$error');
+      await _disposeRecorder();
+      final retryRecorder = _activeRecorder;
+      await retryRecorder.start(config, path: path);
+    }
+  }
+
+  Future<AudioEncoder> _resolveRecordingEncoder(AudioRecorder recorder) async {
+    final preferred = _preferredRecordingEncoder;
+    try {
+      if (await recorder.isEncoderSupported(preferred)) {
+        return preferred;
+      }
+      if (preferred != AudioEncoder.wav &&
+          await recorder.isEncoderSupported(AudioEncoder.wav)) {
+        debugPrint(
+          '🎙️ [STT] preferred encoder unsupported, falling back to wav',
+        );
+        return AudioEncoder.wav;
+      }
+    } catch (e) {
+      debugPrint('⚠️ [STT] encoder_support_check_failed error=$e');
+    }
+    return preferred;
+  }
+
+  RecordConfig _buildRecordingConfig(AudioEncoder encoder) {
+    final androidConfig = Platform.isAndroid
+        ? const AndroidRecordConfig(
+            // Android 에뮬레이터/일부 기기에서 기본 고급 recorder가
+            // 무음 또는 깨진 입력을 만드는 경우가 있어 안정성 우선으로 둔다.
+            useLegacy: true,
+            // 에뮬레이터에서 voiceRecognition 라우팅이 후속 턴에
+            // 0 샘플만 반환하는 경우가 있어 기본 MIC 라우팅으로 되돌린다.
+            audioSource: AndroidAudioSource.mic,
+          )
+        : const AndroidRecordConfig();
+
+    return RecordConfig(
+      // Android 일부 환경에서는 WAV가 포화된 톤처럼 저장되는 경우가 있어
+      // 우선 하드웨어 지원이 안정적인 AAC 컨테이너를 선호한다.
+      encoder: encoder,
+      sampleRate: _sampleRate,
+      numChannels: _numChannels,
+      // 에뮬레이터/일부 기기에서는 DSP 옵션이 원본 음성을 심하게 왜곡해
+      // 진동음처럼 저장되는 경우가 있어 우선 생(raw) 캡처에 가깝게 둔다.
+      autoGain: false,
+      echoCancel: false,
+      noiseSuppress: false,
+      androidConfig: androidConfig,
+    );
+  }
+
+  String _extensionForEncoder(AudioEncoder encoder) {
+    switch (encoder) {
+      case AudioEncoder.aacLc:
+      case AudioEncoder.aacEld:
+      case AudioEncoder.aacHe:
+        return 'm4a';
+      case AudioEncoder.amrNb:
+      case AudioEncoder.amrWb:
+        return '3gp';
+      case AudioEncoder.opus:
+        return 'opus';
+      case AudioEncoder.flac:
+        return 'flac';
+      case AudioEncoder.wav:
+        return 'wav';
+      case AudioEncoder.pcm16bits:
+        return 'pcm';
+    }
+  }
+
+  String _mimeTypeForEncoder(AudioEncoder encoder) {
+    switch (encoder) {
+      case AudioEncoder.aacLc:
+      case AudioEncoder.aacEld:
+      case AudioEncoder.aacHe:
+        return 'audio/mp4';
+      case AudioEncoder.amrNb:
+      case AudioEncoder.amrWb:
+        return 'audio/3gpp';
+      case AudioEncoder.opus:
+        return 'audio/ogg';
+      case AudioEncoder.flac:
+        return 'audio/flac';
+      case AudioEncoder.wav:
+        return 'audio/wav';
+      case AudioEncoder.pcm16bits:
+        return 'audio/pcm';
+    }
+  }
+
+  String _inferMimeTypeFromPath(String path) {
+    final lowerPath = path.toLowerCase();
+    if (lowerPath.endsWith('.m4a') || lowerPath.endsWith('.mp4')) {
+      return 'audio/mp4';
+    }
+    if (lowerPath.endsWith('.mp3')) {
+      return 'audio/mpeg';
+    }
+    if (lowerPath.endsWith('.webm')) {
+      return 'audio/webm';
+    }
+    if (lowerPath.endsWith('.ogg') || lowerPath.endsWith('.opus')) {
+      return 'audio/ogg';
+    }
+    if (lowerPath.endsWith('.flac')) {
+      return 'audio/flac';
+    }
+    if (lowerPath.endsWith('.pcm')) {
+      return 'audio/pcm';
+    }
+    return 'audio/wav';
+  }
+
+  String _extensionFromMimeType(String mimeType) {
+    switch (mimeType) {
+      case 'audio/mp4':
+        return 'm4a';
+      case 'audio/mpeg':
+        return 'mp3';
+      case 'audio/webm':
+        return 'webm';
+      case 'audio/ogg':
+        return 'ogg';
+      case 'audio/flac':
+        return 'flac';
+      case 'audio/pcm':
+        return 'pcm';
+      case 'audio/wav':
+      default:
+        return 'wav';
+    }
   }
 
   String _extractTranscriptText(Map<String, dynamic>? data) {
@@ -339,6 +559,13 @@ class GptVoiceService {
         '${error.message == null ? '' : ': ${error.message}'}'
         '${transportError == null ? '' : ' / $transportError'}'
         '${details.isEmpty ? '' : ': $details'}';
+  }
+
+  int _elapsedMsSince(DateTime? since, DateTime now) {
+    if (since == null) {
+      return -1;
+    }
+    return now.difference(since).inMilliseconds;
   }
 
   void _ensureRecordingSupported() {

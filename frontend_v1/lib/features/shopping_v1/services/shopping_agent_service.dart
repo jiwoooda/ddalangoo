@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/storage/local_storage.dart';
@@ -17,9 +18,29 @@ class ShoppingAgentService {
   StreamController<ShoppingAgentResponse>? _progressController;
 
   Future<int> resolveUserId() async {
+    final overriddenUserId = _resolveDevUserIdOverride();
+    if (overriddenUserId != null) {
+      await LocalStorage.saveUserId(overriddenUserId);
+      debugPrint(
+        'ℹ️ [ShoppingAgentService] using dev override userId=$overriddenUserId',
+      );
+      return overriddenUserId;
+    }
     final userId = await LocalStorage.getUserId() ?? 1;
     debugPrint('ℹ️ [ShoppingAgentService] resolved userId=$userId');
     return userId;
+  }
+
+  int? _resolveDevUserIdOverride() {
+    try {
+      final raw = dotenv.env['SHOPPING_DEV_USER_ID']?.trim();
+      if (raw == null || raw.isEmpty) {
+        return null;
+      }
+      return int.tryParse(raw);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String?> resolveUserName({int? userId}) async {

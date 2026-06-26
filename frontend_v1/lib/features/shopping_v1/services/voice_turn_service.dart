@@ -39,6 +39,9 @@ class VoiceTurnService {
     Duration interval = const Duration(milliseconds: 200),
   }) => _voiceService.onAmplitudeChanged(interval: interval);
 
+  DateTime? get lastTtsPlaybackEndedAt => _voiceService.lastTtsPlaybackEndedAt;
+  DateTime? get lastRecordingStartedAt => _voiceService.lastRecordingStartedAt;
+
   Future<void> playListeningCue() async {
     try {
       await _cuePlayer.stop();

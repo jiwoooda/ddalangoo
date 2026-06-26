@@ -13,10 +13,7 @@ import '../network/api_client.dart';
 import '../utils/latency_logger.dart';
 
 class TtsSegmentData {
-  const TtsSegmentData({
-    required this.text,
-    required this.durationMs,
-  });
+  const TtsSegmentData({required this.text, required this.durationMs});
 
   final String text;
   final int durationMs;
@@ -64,8 +61,10 @@ class GeminiVoiceService {
   bool _isSpeaking = false;
   bool _audioPlayEndLogged = false;
   DateTime? _playbackStartedAt;
+  DateTime? _lastPlaybackEndedAt;
 
   bool get isSpeaking => _isSpeaking;
+  DateTime? get lastPlaybackEndedAt => _lastPlaybackEndedAt;
 
   Future<void> init() async {
     await _player.setReleaseMode(ReleaseMode.stop);
@@ -162,7 +161,11 @@ class GeminiVoiceService {
 
     _playbackStartedAt = DateTime.now();
     onPlaybackStart?.call();
-    debugPrint('[TTS] remote segment playback started url=$url');
+    debugPrint(
+      '[TTS] remote segment playback started '
+      'at=${_playbackStartedAt!.toIso8601String()} '
+      'url=$url',
+    );
     final source = await _createRemotePlaybackSource(url);
     await _player.setPlaybackRate(_ttsPlaybackRate);
     await _player.play(source);
@@ -221,7 +224,9 @@ class GeminiVoiceService {
       }
       onPlaybackStart?.call();
       _playbackStartedAt = DateTime.now();
-      debugPrint('[TTS] playback started');
+      debugPrint(
+        '[TTS] playback started at=${_playbackStartedAt!.toIso8601String()}',
+      );
       await _player.setPlaybackRate(_ttsPlaybackRate);
       await _player.play(speechSource);
       await speakCompleter.future;
@@ -565,7 +570,9 @@ class GeminiVoiceService {
 
   void _markAudioPlayEnd() {
     if (_audioPlayEndLogged) return;
-    debugPrint('[TTS] playback ended');
+    final endedAt = DateTime.now();
+    _lastPlaybackEndedAt = endedAt;
+    debugPrint('[TTS] playback ended at=${endedAt.toIso8601String()}');
     final latencyContext = _activeSpeakLatencyContext;
     if (latencyContext != null) {
       FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_end');

@@ -10,7 +10,18 @@ import '../services/shopping_agent_service.dart';
 import '../services/voice_turn_service.dart';
 
 class ShoppingFlowController extends ChangeNotifier {
-  static const Duration _ttsToUserDelay = Duration(milliseconds: 80);
+  static const bool _manualStopRecordingEnabled = true;
+  static const Duration _manualStopSafetyTimeout = Duration(seconds: 45);
+  static const Duration _defaultTtsToUserDelay = Duration(milliseconds: 280);
+  static const Duration _androidTtsToUserDelay = Duration(milliseconds: 220);
+  static const Duration _defaultRetryPromptToUserDelay = Duration(
+    milliseconds: 1200,
+  );
+  static const Duration _androidRetryPromptToUserDelay = Duration(
+    milliseconds: 320,
+  );
+  static const Duration _vadAmplitudeWarmup = Duration(milliseconds: 2200);
+  static const int _speechStartCandidateSampleThreshold = 2;
   static const Duration _initialSpeechWaitTimeout = Duration(
     milliseconds: 6500,
   );
@@ -61,6 +72,7 @@ class ShoppingFlowController extends ChangeNotifier {
   double _voiceLevel = 0.22;
   String? _lastWebviewTask;
   WebviewTaskViewData? _pendingWebviewTask;
+  String? _activeSearchKeyword;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   Timer? _cartTimer;
   Timer? _paymentTimer;
@@ -77,11 +89,15 @@ class ShoppingFlowController extends ChangeNotifier {
   DateTime? _firstSpeechDetectedAt;
   DateTime? _lastSpeechDetectedAt;
   DateTime? _lastVadDebugAt;
+  DateTime? _lastUserTurnReadyAt;
+  DateTime? _lastListeningBeginRequestedAt;
   DateTime? _silenceCandidateStartedAt;
   bool _isAmplitudeTelemetryUnreliable = false;
   bool _isAwaitingSilenceConfirmation = false;
   int _amplitudeSampleCount = 0;
   int _zeroishAmplitudeCount = 0;
+  int _speechStartCandidateCount = 0;
+  bool _hasLoggedFirstLiveAmplitude = false;
   String? _partialTranscript;
   int _turnContinuationCount = 0;
   bool _closeAppRequested = false;
@@ -97,6 +113,7 @@ class ShoppingFlowController extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get isInitialized => _isInitialized;
   double get voiceLevel => _voiceLevel;
+  String? get userName => _userName;
   bool get canRecord =>
       _voiceTurnState == VoiceTurnState.userCanSpeak ||
       _voiceTurnState == VoiceTurnState.userRecording;
@@ -112,7 +129,10 @@ class ShoppingFlowController extends ChangeNotifier {
   String get pin => _pin;
   bool get isMockMode => _isMockMode;
   WebviewTaskViewData? get pendingWebviewTask => _pendingWebviewTask;
+  String? get activeSearchKeyword => _activeSearchKeyword;
   bool get _shouldBypassTtsForDemo => _forceSilentDemoTts;
+  bool get _isAndroidRuntime =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   bool _isActiveEpoch(int epoch) => epoch == _speakEpoch;
   bool _canContinueUserRecording(int epoch) {
     return _isActiveEpoch(epoch) &&
@@ -120,6 +140,57 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   bool get closeAppRequested => _closeAppRequested;
+  int get shoppingProgressStepIndex {
+    switch (_step) {
+      case ShoppingStep.askProduct:
+      case ShoppingStep.searchingProduct:
+        return 0;
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askQuantity:
+        return 1;
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.askMoreOrCheckout:
+        return 2;
+      case ShoppingStep.confirmAddress:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+        return 3;
+      case ShoppingStep.error:
+        return 0;
+    }
+  }
+
+  bool get shouldShowListeningHint =>
+      _voiceTurnState == VoiceTurnState.userCanSpeak ||
+      _voiceTurnState == VoiceTurnState.userRecording;
+  bool get shouldShowReplyExamples =>
+      _voiceTurnState != VoiceTurnState.agentThinking &&
+      _voiceTurnState != VoiceTurnState.agentSpeaking &&
+      suggestedReplies.isNotEmpty;
+  List<String> get suggestedReplies {
+    switch (_step) {
+      case ShoppingStep.askProduct:
+        return const ['사과 찾아줘', '우유 사고 싶어', '빵 추천해줘'];
+      case ShoppingStep.askQuantity:
+        return const ['한 개', '두 개', '세 개'];
+      case ShoppingStep.askMoreOrCheckout:
+        return const ['결제할게', '더 담을래', '이제 됐어'];
+      case ShoppingStep.error:
+        return const ['다시 말할게', '처음부터 할게'];
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.showProduct:
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.confirmAddress:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+        return const [];
+    }
+  }
+
   String get cartOwnerName =>
       (_userName?.trim().isNotEmpty ?? false) ? _userName!.trim() : '김영희';
   int get totalCartQuantity =>
@@ -138,6 +209,9 @@ class ShoppingFlowController extends ChangeNotifier {
     _userId = await _agentService.resolveUserId();
     _userName = await _agentService.resolveUserName(userId: _userId);
     await SttVadResponseLogService.instance.init();
+    debugPrint(
+      '📝 [STT/VAD Log] active_path=${SttVadResponseLogService.instance.currentLogPath}',
+    );
     await _voiceTurnService.init();
     _isInitialized = true;
     notifyListeners();
@@ -170,6 +244,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _closeAppRequested = false;
     _lastWebviewTask = null;
     _pendingWebviewTask = null;
+    _activeSearchKeyword = null;
     _partialTranscript = null;
     _turnContinuationCount = 0;
     _agentProgressRunId += 1;
@@ -197,7 +272,23 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   Future<void> onVoiceButtonTap() async {
-    // V1 자동 turn-taking에서는 사용자 탭으로 녹음을 제어하지 않는다.
+    if (_voiceTurnState == VoiceTurnState.userRecording) {
+      await _finishRecording(epoch: _speakEpoch);
+      return;
+    }
+    if (_voiceTurnState == VoiceTurnState.userCanSpeak) {
+      await _beginAutomaticListening(_speakEpoch);
+    }
+  }
+
+  Future<void> submitSuggestedReply(String reply) async {
+    final normalizedReply = reply.trim();
+    if (normalizedReply.isEmpty) {
+      return;
+    }
+    _latestTranscript = normalizedReply;
+    notifyListeners();
+    await _handleUserTranscript(normalizedReply);
   }
 
   Future<void> onPasswordDigit(int digit) async {
@@ -222,6 +313,7 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   Future<void> _handleUserTranscript(String transcript) async {
+    _cancelVoiceTimers(keepCartAndPaymentTimers: true);
     _partialTranscript = null;
     _turnContinuationCount = 0;
     _voiceTurnState = VoiceTurnState.agentThinking;
@@ -234,7 +326,11 @@ class ShoppingFlowController extends ChangeNotifier {
     }
     final shouldUseAgentProgress = _shouldUseAgentProgress();
     if (_step == ShoppingStep.askProduct) {
+      _activeSearchKeyword = _extractSearchKeywordFromMessage(
+        normalizedTranscript,
+      );
       _step = ShoppingStep.searchingProduct;
+      _assistantText = _buildSearchingAssistantMessage();
       notifyListeners();
     } else {
       notifyListeners();
@@ -321,7 +417,7 @@ class ShoppingFlowController extends ChangeNotifier {
       return;
     }
     await _presentAssistant(
-      response.assistantMessage,
+      _normalizeSearchingAssistantMessage(response.assistantMessage),
       speechSegments: response.speechSegments,
       nextStep: ShoppingStep.searchingProduct,
       expectVoiceReply: false,
@@ -488,9 +584,12 @@ class ShoppingFlowController extends ChangeNotifier {
         return;
       case ShoppingStep.searchingProduct:
         _step = ShoppingStep.searchingProduct;
-        if (response.assistantMessage.trim().isNotEmpty &&
-            response.assistantMessage.trim() != _assistantText.trim()) {
-          _assistantText = response.assistantMessage;
+        final searchingAssistantMessage = _normalizeSearchingAssistantMessage(
+          response.assistantMessage,
+        );
+        if (searchingAssistantMessage.trim().isNotEmpty &&
+            searchingAssistantMessage.trim() != _assistantText.trim()) {
+          _assistantText = searchingAssistantMessage;
         }
         _voiceTurnState = VoiceTurnState.agentThinking;
         notifyListeners();
@@ -764,13 +863,18 @@ class ShoppingFlowController extends ChangeNotifier {
       _voiceLevel = 0.26;
       notifyListeners();
       final shouldStartListeningImmediately = _isRetryPromptText(text);
-      final userTurnDelay = shouldStartListeningImmediately
-          ? Duration.zero
-          : _ttsToUserDelay;
+      final userTurnDelay = _userTurnDelayForPrompt(
+        isRetryPrompt: shouldStartListeningImmediately,
+      );
+      final now = DateTime.now();
+      _lastUserTurnReadyAt = now;
+      final ttsEndedAt = _voiceTurnService.lastTtsPlaybackEndedAt;
       debugPrint(
         '[VAD] user_turn_ready '
         'epoch=$epoch immediate=$shouldStartListeningImmediately '
         'delayMs=${userTurnDelay.inMilliseconds} '
+        'at=${now.toIso8601String()} '
+        'deltaSinceTtsEndMs=${_elapsedMsSince(ttsEndedAt, now)} '
         'text="${text.trim()}"',
       );
       _userTurnTimer = Timer(userTurnDelay, () {
@@ -968,18 +1072,30 @@ class ShoppingFlowController extends ChangeNotifier {
     _noiseSampleCount = 0;
     _speechNoiseFloor = -45;
     _recordingStartedAt = DateTime.now();
+    _lastListeningBeginRequestedAt = _recordingStartedAt;
     _firstSpeechDetectedAt = null;
     _lastSpeechDetectedAt = null;
     _lastVadDebugAt = null;
+    _lastUserTurnReadyAt ??= _recordingStartedAt;
     _silenceCandidateStartedAt = null;
     _isAmplitudeTelemetryUnreliable = false;
     _isAwaitingSilenceConfirmation = false;
     _amplitudeSampleCount = 0;
     _zeroishAmplitudeCount = 0;
+    _speechStartCandidateCount = 0;
+    _hasLoggedFirstLiveAmplitude = false;
     _voiceTurnState = VoiceTurnState.userRecording;
     _voiceLevel = 0.34;
 
     notifyListeners();
+
+    debugPrint(
+      '[VAD Timeline] begin_listening '
+      'epoch=$epoch '
+      'at=${_recordingStartedAt!.toIso8601String()} '
+      'deltaSinceTtsEndMs=${_elapsedMsSince(_voiceTurnService.lastTtsPlaybackEndedAt, _recordingStartedAt)} '
+      'deltaSinceUserTurnReadyMs=${_elapsedMsSince(_lastUserTurnReadyAt, _recordingStartedAt)}',
+    );
 
     try {
       await _voiceTurnService.startRecording();
@@ -989,7 +1105,28 @@ class ShoppingFlowController extends ChangeNotifier {
         return;
       }
 
+      final recorderStartedAt = _voiceTurnService.lastRecordingStartedAt;
+      debugPrint(
+        '[VAD Timeline] recorder_started '
+        'epoch=$epoch '
+        'at=${recorderStartedAt?.toIso8601String() ?? 'unknown'} '
+        'deltaSinceTtsEndMs=${_elapsedMsSince(_voiceTurnService.lastTtsPlaybackEndedAt, recorderStartedAt)} '
+        'deltaSinceBeginListeningMs=${_elapsedMsSince(_lastListeningBeginRequestedAt, recorderStartedAt)}',
+      );
+
       _listenAmplitude(epoch);
+
+      if (_manualStopRecordingEnabled) {
+        _recordingTimeoutTimer = Timer(_manualStopSafetyTimeout, () {
+          if (!_canContinueUserRecording(epoch)) return;
+          debugPrint(
+            '[VAD] manual_stop_safety_timeout '
+            'captureMs=${_manualStopSafetyTimeout.inMilliseconds}',
+          );
+          unawaited(_finishRecording(epoch: epoch));
+        });
+        return;
+      }
 
       _recordingTimeoutTimer = Timer(effectiveMaxRecording, () {
         if (!_canContinueUserRecording(epoch)) return;
@@ -1070,9 +1207,7 @@ class ShoppingFlowController extends ChangeNotifier {
     _voiceLevel = 0.4;
     notifyListeners();
 
-    _recordingTimeoutTimer?.cancel();
-    _speechSilenceTimer?.cancel();
-    _fallbackAutoStopTimer?.cancel();
+    _cancelVoiceTimers(keepCartAndPaymentTimers: true);
 
     _firstSpeechDetectedAt = null;
     _lastSpeechDetectedAt = null;
@@ -1108,7 +1243,9 @@ class ShoppingFlowController extends ChangeNotifier {
     required int epoch,
   }) async {
     final normalizedTranscript = transcript.trim();
-    if (normalizedTranscript.isEmpty || normalizedTranscript.length < 2) {
+    // "네", "응", "한" 같은 짧은 한국어 응답도 유효할 수 있으므로
+    // 길이만으로 버리지 않고 turn detection으로 넘긴다.
+    if (normalizedTranscript.isEmpty) {
       await _handleNoiseOrEmptyTurn(epoch);
       return;
     }
@@ -1162,9 +1299,7 @@ class ShoppingFlowController extends ChangeNotifier {
         continuationCount: _turnContinuationCount,
       );
     } catch (error, stackTrace) {
-      debugPrint(
-        '⚠️ [TurnDetection] backend fallback: $error\n$stackTrace',
-      );
+      debugPrint('⚠️ [TurnDetection] backend fallback: $error\n$stackTrace');
       final merged = [
         if ((_partialTranscript ?? '').trim().isNotEmpty)
           _partialTranscript!.trim(),
@@ -1203,11 +1338,7 @@ class ShoppingFlowController extends ChangeNotifier {
     final message = partial.isEmpty
         ? '다시 한 번만 말씀해주세요.'
         : '$partial라고 말씀하셨어요. 이어서 조금 더 구체적으로 말씀해주세요.';
-    await _presentAssistant(
-      message,
-      nextStep: _step,
-      expectVoiceReply: true,
-    );
+    await _presentAssistant(message, nextStep: _step, expectVoiceReply: true);
   }
 
   ShoppingStep _inferStep(ShoppingAgentResponse response) {
@@ -1324,41 +1455,54 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   double _normalizeAmplitude(double amplitude) {
-    final clamped = ((amplitude + 45) / 45).clamp(0.0, 1.0);
+    final sanitized = _sanitizeAmplitude(amplitude);
+    final clamped = ((sanitized + 45) / 45).clamp(0.0, 1.0);
     return 0.22 + (clamped * 0.78);
   }
 
   void _updateVoiceActivity(double amplitude, int epoch) {
     if (!_canContinueUserRecording(epoch)) return;
+    final effectiveAmplitude = _sanitizeAmplitude(amplitude);
     _amplitudeSampleCount += 1;
-    final zeroishAmplitude = amplitude <= -159.0 || amplitude.abs() < 0.1;
+    final zeroishAmplitude =
+        effectiveAmplitude <= -159.0 || effectiveAmplitude.abs() < 0.1;
     if (zeroishAmplitude) {
       _zeroishAmplitudeCount += 1;
     }
 
+    final recordingStartedAt = _recordingStartedAt;
+    final elapsedSinceRecordingStart = recordingStartedAt == null
+        ? Duration.zero
+        : DateTime.now().difference(recordingStartedAt);
     if (!_isAmplitudeTelemetryUnreliable &&
-        _amplitudeSampleCount >= 6 &&
+        elapsedSinceRecordingStart >= _vadAmplitudeWarmup &&
+        _amplitudeSampleCount >= 12 &&
         _zeroishAmplitudeCount >= _amplitudeSampleCount - 1) {
       _isAmplitudeTelemetryUnreliable = true;
-      _speechSilenceTimer?.cancel();
-      _scheduleFallbackAutoStop(epoch);
+      if (_hasDetectedSpeech && !_manualStopRecordingEnabled) {
+        _speechSilenceTimer?.cancel();
+        _scheduleFallbackAutoStop(epoch);
+      }
       debugPrint(
         '[VAD] amplitude_unreliable '
         'samples=$_amplitudeSampleCount '
         'zeroish=$_zeroishAmplitudeCount '
-        'amp=${amplitude.toStringAsFixed(1)}',
+        'amp=${effectiveAmplitude.toStringAsFixed(1)} '
+        'elapsedMs=${elapsedSinceRecordingStart.inMilliseconds} '
+        'hasDetectedSpeech=$_hasDetectedSpeech '
+        'keepInitialWait=${!_hasDetectedSpeech}',
       );
     }
 
     if (!_hasDetectedSpeech && _noiseSampleCount < 6) {
       _speechNoiseFloor =
-          ((_speechNoiseFloor * _noiseSampleCount) + amplitude) /
+          ((_speechNoiseFloor * _noiseSampleCount) + effectiveAmplitude) /
           (_noiseSampleCount + 1);
       _noiseSampleCount += 1;
     }
 
-    final speechStartThreshold = (_speechNoiseFloor + 11).clamp(-34, -22);
-    final speechContinueThreshold = (_speechNoiseFloor + 7).clamp(-40, -26);
+    final speechStartThreshold = (_speechNoiseFloor + 8).clamp(-40, -22);
+    final speechContinueThreshold = (_speechNoiseFloor + 5).clamp(-44, -26);
     final effectiveMinimumRecordingDuration =
         _currentMinimumRecordingDuration();
     final effectiveEndOfSpeechSilence = _currentEndOfSpeechSilence();
@@ -1370,12 +1514,25 @@ class ShoppingFlowController extends ChangeNotifier {
       _lastVadDebugAt = now;
       debugPrint(
         '[VAD] sample '
-        'amp=${amplitude.toStringAsFixed(1)} '
+        'amp=${effectiveAmplitude.toStringAsFixed(1)} '
         'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)} '
         'startThreshold=${speechStartThreshold.toStringAsFixed(1)} '
         'continueThreshold=${speechContinueThreshold.toStringAsFixed(1)} '
         'hasSpeech=$_hasDetectedSpeech '
         'unreliable=$_isAmplitudeTelemetryUnreliable',
+      );
+    }
+
+    if (!_hasLoggedFirstLiveAmplitude && !zeroishAmplitude) {
+      _hasLoggedFirstLiveAmplitude = true;
+      debugPrint(
+        '[VAD Timeline] first_live_amplitude '
+        'epoch=$epoch '
+        'at=${now.toIso8601String()} '
+        'amp=${effectiveAmplitude.toStringAsFixed(1)} '
+        'deltaSinceTtsEndMs=${_elapsedMsSince(_voiceTurnService.lastTtsPlaybackEndedAt, now)} '
+        'deltaSinceRecorderStartMs=${_elapsedMsSince(_voiceTurnService.lastRecordingStartedAt, now)} '
+        'deltaSinceUserTurnReadyMs=${_elapsedMsSince(_lastUserTurnReadyAt, now)}',
       );
     }
 
@@ -1385,25 +1542,40 @@ class ShoppingFlowController extends ChangeNotifier {
 
     if (!_hasDetectedSpeech &&
         !zeroishAmplitude &&
-        amplitude >= speechStartThreshold) {
-      _hasDetectedSpeech = true;
-      _firstSpeechDetectedAt = now;
-      _lastSpeechDetectedAt = now;
-      _speechSilenceTimer?.cancel();
-      debugPrint(
-        '[VAD] speech_started '
-        'amp=${amplitude.toStringAsFixed(1)} '
-        'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)} '
-        'threshold=${speechStartThreshold.toStringAsFixed(1)}',
-      );
+        effectiveAmplitude >= speechStartThreshold) {
+      _speechStartCandidateCount += 1;
+      if (_speechStartCandidateCount >= _speechStartCandidateSampleThreshold) {
+        _hasDetectedSpeech = true;
+        _firstSpeechDetectedAt = now;
+        _lastSpeechDetectedAt = now;
+        _speechSilenceTimer?.cancel();
+        debugPrint(
+          '[VAD] speech_started '
+          'amp=${effectiveAmplitude.toStringAsFixed(1)} '
+          'noiseFloor=${_speechNoiseFloor.toStringAsFixed(1)} '
+          'threshold=${speechStartThreshold.toStringAsFixed(1)} '
+          'candidateSamples=$_speechStartCandidateCount',
+        );
+      } else {
+        debugPrint(
+          '[VAD] speech_candidate '
+          'amp=${effectiveAmplitude.toStringAsFixed(1)} '
+          'threshold=${speechStartThreshold.toStringAsFixed(1)} '
+          'candidateSamples=$_speechStartCandidateCount',
+        );
+      }
       return;
+    }
+
+    if (!_hasDetectedSpeech) {
+      _speechStartCandidateCount = 0;
     }
 
     if (!_hasDetectedSpeech) {
       return;
     }
 
-    if (!zeroishAmplitude && amplitude >= speechContinueThreshold) {
+    if (!zeroishAmplitude && effectiveAmplitude >= speechContinueThreshold) {
       _lastSpeechDetectedAt = now;
       _silenceCandidateStartedAt = null;
       _isAwaitingSilenceConfirmation = false;
@@ -1411,9 +1583,12 @@ class ShoppingFlowController extends ChangeNotifier {
       return;
     }
 
+    if (_manualStopRecordingEnabled) {
+      return;
+    }
+
     final lastSpeechAt = _lastSpeechDetectedAt;
     final firstSpeechAt = _firstSpeechDetectedAt;
-    final recordingStartedAt = _recordingStartedAt;
     if (lastSpeechAt == null ||
         firstSpeechAt == null ||
         recordingStartedAt == null) {
@@ -1439,7 +1614,7 @@ class ShoppingFlowController extends ChangeNotifier {
         'requiredSilenceMs=${effectiveEndOfSpeechSilence.inMilliseconds} '
         'firstSyllableProtectionMs=${_firstSyllableProtection.inMilliseconds} '
         'continueThreshold=${speechContinueThreshold.toStringAsFixed(1)} '
-        'amp=${amplitude.toStringAsFixed(1)}',
+        'amp=${effectiveAmplitude.toStringAsFixed(1)}',
       );
       _speechSilenceTimer?.cancel();
       _speechSilenceTimer = Timer(effectiveSilenceConfirmDuration, () {
@@ -1667,11 +1842,114 @@ class ShoppingFlowController extends ChangeNotifier {
     });
   }
 
+  double _sanitizeAmplitude(double amplitude) {
+    if (!amplitude.isFinite) {
+      return -160.0;
+    }
+    if (amplitude == -0.0) {
+      return 0.0;
+    }
+    return amplitude.clamp(-160.0, 0.0);
+  }
+
+  int _elapsedMsSince(DateTime? since, DateTime? now) {
+    if (since == null || now == null) {
+      return -1;
+    }
+    return now.difference(since).inMilliseconds;
+  }
+
   bool _isRetryPromptText(String text) {
     final normalized = text.trim();
     return normalized.contains('다시 말씀') ||
         normalized.contains('천천히 말씀') ||
         normalized.contains('잘 못 들었');
+  }
+
+  String _normalizeSearchingAssistantMessage(String fallbackMessage) {
+    if (_step != ShoppingStep.searchingProduct) {
+      return fallbackMessage;
+    }
+    final built = _buildSearchingAssistantMessage();
+    return built.isNotEmpty ? built : fallbackMessage;
+  }
+
+  String _buildSearchingAssistantMessage() {
+    final keyword = (_activeSearchKeyword ?? '').trim();
+    final name = (_userName ?? '').trim();
+    if (keyword.isNotEmpty) {
+      if (name.isNotEmpty) {
+        return '$name님을 위한 $keyword${_objectParticle(keyword)} 찾고 있어요.';
+      }
+      return '$keyword${_objectParticle(keyword)} 찾고 있어요.';
+    }
+    if (name.isNotEmpty) {
+      return '$name님을 위한 상품을 찾고 있어요.';
+    }
+    return '원하시는 상품을 찾고 있어요.';
+  }
+
+  String _extractSearchKeywordFromMessage(String message) {
+    var normalized = message.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) {
+      return '';
+    }
+    normalized = normalized.replaceAll(RegExp(r"[?？!！.,~…-]+$"), '').trim();
+    normalized = normalized
+        .replaceAll(
+          RegExp(
+            r"\s+(?:하나|한|둘|두|셋|세|넷|네|\d+)\s*(?:개|봉|팩|박스|통|병|입)?\s*만?\s*"
+            r"(?:사\s*보라고|사보라고|사\s*봐줘요?|사봐줘|사\s*봐|사봐|사줘요?|사줘|"
+            r"주문해줘요?|주문해줘|구매해줘요?|구매해줘)?$",
+          ),
+          '',
+        )
+        .trim();
+    const suffixPatterns = <String>[
+      r"(사고\s*싶어요?|사고\s*싶어|사고\s*싶네(?:요)?|사줘요?|찾아줘요?|주문해줘요?|구매하고\s*싶어요?)$",
+      r"(사\s*보라고|사보라고|사\s*봐줘요?|사봐줘|사\s*봐|사봐)$",
+      r"((?:먹고|마시고|드시고)\s*싶어요?)$",
+      r"((?:먹고|마시고|드시고)\s*싶어)$",
+      r"(사고)$",
+      r"(살래요?|살래|주세요|찾아봐요?|알아봐줘요?)$",
+      r"(있어요?|있나(?:요)?|있을까요?|있)$",
+      r"(요즘\s*유행하는)\s+",
+      r"^(나는|전|저는|저|나)\s+",
+    ];
+    for (final pattern in suffixPatterns) {
+      normalized = normalized.replaceAll(RegExp(pattern), '').trim();
+    }
+    normalized = normalized
+        .replaceAll(RegExp(r"\s+(사|사줘|사줘요|사라|주문해|주문해라|구매해|구매해라)$"), '')
+        .trim();
+    normalized = normalized.replaceAll(RegExp(r"(있)[-~…]?$"), '').trim();
+    normalized = normalized.replaceAll(RegExp(r"\s+[-~…]+$"), '').trim();
+    normalized = normalized.replaceAll(RegExp(r"[-~…]+$"), '').trim();
+    return normalized.trim().replaceAll(RegExp("^[\"']|[\"']\$"), '');
+  }
+
+  String _objectParticle(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      return '을';
+    }
+    final codeUnit = trimmed.codeUnitAt(trimmed.length - 1);
+    final hasBatchim =
+        codeUnit >= 0xAC00 &&
+        codeUnit <= 0xD7A3 &&
+        ((codeUnit - 0xAC00) % 28 != 0);
+    return hasBatchim ? '을' : '를';
+  }
+
+  Duration _userTurnDelayForPrompt({required bool isRetryPrompt}) {
+    if (_isAndroidRuntime) {
+      return isRetryPrompt
+          ? _androidRetryPromptToUserDelay
+          : _androidTtsToUserDelay;
+    }
+    return isRetryPrompt
+        ? _defaultRetryPromptToUserDelay
+        : _defaultTtsToUserDelay;
   }
 
   Future<void> _logUnexpectedReaskIfNeeded({

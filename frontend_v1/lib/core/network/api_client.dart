@@ -1,6 +1,7 @@
 // 네트워크 설정
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,14 @@ class ApiClient {
   static const String _definedBaseUrl = String.fromEnvironment('API_BASE_URL');
 
   static String get baseUrl {
+    final resolved = _resolveConfiguredBaseUrl();
+    if (resolved.isEmpty) {
+      return resolved;
+    }
+    return _normalizeBaseUrlForRuntime(resolved);
+  }
+
+  static String _resolveConfiguredBaseUrl() {
     if (_definedBaseUrl.trim().isNotEmpty) {
       return _definedBaseUrl.trim();
     }
@@ -23,6 +32,24 @@ class ApiClient {
       // Widget test 등에서 dotenv가 아직 초기화되지 않은 경우 빈 baseUrl로 안전하게 진행한다.
     }
     return '';
+  }
+
+  static String _normalizeBaseUrlForRuntime(String rawUrl) {
+    if (kIsWeb || !Platform.isAndroid) {
+      return rawUrl;
+    }
+
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null) {
+      return rawUrl;
+    }
+
+    final host = uri.host.trim();
+    if (host != '127.0.0.1' && host != 'localhost') {
+      return rawUrl;
+    }
+
+    return uri.replace(host: '10.0.2.2').toString();
   }
 
   static Dio createDio() {
