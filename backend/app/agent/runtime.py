@@ -22,13 +22,13 @@ import uuid
 import asyncio
 from dotenv import load_dotenv
 
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-_REPO_ROOT = os.path.abspath(os.path.join(_PROJECT_ROOT, ".."))
+_BACKEND_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+_REPO_ROOT = os.path.abspath(os.path.join(_BACKEND_ROOT, ".."))
 load_dotenv(os.path.join(_REPO_ROOT, ".env"))
-load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
+load_dotenv(os.path.join(_BACKEND_ROOT, ".env"), override=True)
 
-# vendor 경로를 절대 경로
-_VENDOR = os.environ.get("PROJECT_ROOT", "/app") + "/vendor/ddalangoo-langgraph"
+# vendor 경로를 현재 프로젝트 기준 절대 경로로 고정한다.
+_VENDOR = os.path.join(_BACKEND_ROOT, "vendor", "ddalangoo-langgraph")
 if _VENDOR not in sys.path:
     sys.path.insert(0, _VENDOR)
 
