@@ -3,12 +3,12 @@ from src.state.schema import ShoppingState
 from src.utils.agent_logger import agent_logger, _ptype
 
 RouteName = Literal[
-    "memory_agent",
-    "reorder_node",
-    "platform_agent",
+    "context_agent",
+    "reorder_agent",
     "product_agent",
+    "response_agent",
     "payment_agent",
-    "quantity_check",
+    "recipe_agent",
     "ask_what_to_buy",
     "respond",
     "cancel",
@@ -19,12 +19,11 @@ RouteName = Literal[
 def route(state: ShoppingState) -> RouteName:
     """
     Intent + Stage 기반 라우팅.
-    원칙:
     1. clarification 우선
     2. cancel 우선
-    3. payment_processing이면 Payment Subgraph로 위임
-    4. product_confirming에서는 intent별 분기
-    5. idle/searching에서는 intent 기반 분기
+    3. payment_processing이면 Payment로 위임
+    4. product_confirming에서 intent별 분기
+    5. idle/searching에서 intent 기반 분기
     """
     intent = state.get("intent")
     stage = state.get("stage", "idle")
@@ -36,64 +35,52 @@ def route(state: ShoppingState) -> RouteName:
         agent_logger.log_router("intent_agent", dest, intent or "-", stage, pending_type)
         return dest
 
-    # ── 1. 명확성 검사 ──
     if needs_clarification or confidence < 0.5 or intent == "unclear":
         return _decide("respond")
 
-    # ── 2. cancel은 어디서든 cancel_node로 ──
     if intent == "cancel":
         return _decide("cancel")
 
-    # ── 3. 결제 진행 중이면 Payment Subgraph가 처리 ──
     if stage == "payment_processing":
         return _decide("payment_agent")
 
-    # ── 4. 장바구니 담긴 후 추가 쇼핑 여부 ──
     if stage == "cart_shopping":
-        # "오이도 담아줘"처럼 새 상품이 들어온 경우에는 pending confirm 문맥보다
-        # 상품 검색을 우선한다. 그래야 이전 selected_product를 결제에 재사용하지 않는다.
-        if intent in ("buy", "reorder", "refine", "compare_platforms") or (
-            intent == "confirm"
-            and pending_type in ("continue_shopping", "what_to_buy")
-            and state.get("keywords")
-        ):
+        if intent in ("buy", "reorder", "refine", "compare_platforms"):
             if intent == "reorder":
-                return _decide("memory_agent")
-            return _decide("platform_agent")
-        # 사용자가 무엇을 살지 이미 지정한 경우 → 바로 검색/재구매 흐름
+                return _decide("reorder_agent")
+            return _decide("product_agent")
         if pending_type == "what_to_buy":
             if intent == "reorder":
-                return _decide("memory_agent")
+                return _decide("reorder_agent")
             if intent in ("buy", "refine", "compare_platforms"):
-                return _decide("platform_agent")
+                return _decide("product_agent")
             if intent == "confirm":
                 return _decide("payment_agent")
             return _decide("respond")
+        if pending_type == "cart_review":
+            if intent in ("confirm", "quantity_change"):
+                return _decide("payment_agent")
+            if intent in ("deny", "cancel"):
+                return _decide("cancel")
+            return _decide("respond")
         if intent == "confirm":
             return _decide("payment_agent")
-        # '다른것도 살래' 등 상품 미지정 → 무엇을 살지 먼저 질문
         if intent in ("deny", "next"):
             return _decide("ask_what_to_buy")
         return _decide("respond")
 
-    # ── 5. 상품 확인 단계 ──
     if stage == "product_confirming":
         pa_type = (state.get("pending_action") or {}).get("type")
 
         if pa_type == "quantity_confirm":
             if state.get("quantity"):
                 return _decide("payment_agent")
-            if intent in ("confirm", "quantity_change"):
-                return _decide("quantity_check")
+            return _decide("respond")
 
         if pa_type == "product_select":
             if intent in ("confirm", "option_select"):
-                return _decide("reorder_node")
+                return _decide("reorder_agent")
             return _decide("respond")
-
-        if pa_type == "platform_suggest":
-            if intent in ("confirm", "deny", "next"):
-                return _decide("platform_agent")
 
         if pa_type == "price_change_confirm":
             if intent in ("confirm", "deny", "cancel", "next"):
@@ -102,35 +89,52 @@ def route(state: ShoppingState) -> RouteName:
 
         if intent == "confirm":
             if not state.get("quantity"):
-                return _decide("quantity_check")
+                return _decide("respond")
+            return _decide("payment_agent")
+
+        # LLM이 수량 변경을 quantity_change로 분류했지만 실제로는 구매 확정 수량 입력
+        if intent == "quantity_change" and state.get("quantity"):
             return _decide("payment_agent")
 
         if intent in ("buy", "reorder"):
             if intent == "reorder":
-                return _decide("memory_agent")
-            return _decide("platform_agent")
-
-        if intent in ("deny", "next", "ask"):
+                return _decide("reorder_agent")
             return _decide("product_agent")
 
+        if intent in ("deny", "next"):
+            return _decide("product_agent")
+
+        if intent == "ask":
+            return _decide("response_agent")
+
         if intent in ("refine", "compare_platforms"):
-            return _decide("platform_agent")
+            return _decide("product_agent")
 
         return _decide("respond")
 
-    # ── 6. 검색 중 ──
     if stage == "searching":
         if intent in ("refine", "compare_platforms"):
-            return _decide("platform_agent")
+            return _decide("product_agent")
+        if intent == "ask":
+            return _decide("response_agent")
         return _decide("respond")
 
-    # ── 7. idle / 기본 Intent 기반 라우팅 ──
+    if stage == "recipe_planning":
+        if pending_type == "ingredient_confirm":
+            if intent in ("confirm", "deny", "refine"):
+                return _decide("recipe_agent")
+        return _decide("respond")
+
+    # buy + recipe_dish (아직 recipe_items 없음) → recipe_agent
+    if intent == "buy" and state.get("recipe_dish") and not state.get("recipe_items"):
+        return _decide("recipe_agent")
+
     routing_map: dict[str, RouteName] = {
-        "buy": "memory_agent",
-        "reorder": "memory_agent",
-        "compare_platforms": "platform_agent",
-        "refine": "platform_agent",
-        "ask": "product_agent",
+        "buy": "context_agent",
+        "reorder": "reorder_agent",
+        "compare_platforms": "product_agent",
+        "refine": "product_agent",
+        "ask": "response_agent",
         "next": "product_agent",
         "confirm": "respond",
         "deny": "respond",
@@ -141,53 +145,50 @@ def route(state: ShoppingState) -> RouteName:
     return _decide(routing_map.get(intent, "respond"))
 
 
-def after_platform_agent(state: ShoppingState) -> Literal["product_agent", "respond"]:
-    """
-    platform_agent 이후 분기.
-    - platform_suggest: product_agent 건너뛰고 바로 respond (플랫폼 제안만)
-    - 그 외: product_agent로 (랭킹/추천)
-    """
-    pending_type = (state.get("pending_action") or {}).get("type")
-    if pending_type == "platform_suggest":
+def after_product_agent(state: ShoppingState) -> Literal["response_agent", "respond"]:
+    if state.get("error") in ("invalid_keywords", "no_candidates", "no_relevant_products", "no_more_products"):
         return "respond"
-    return "product_agent"
+    return "response_agent"
 
 
-def after_reorder(state: ShoppingState) -> Literal["respond", "platform_agent"]:
-    """reorder_node 이후 분기: URL 실패 시 platform_agent fallback."""
-    if state.get("error") in ("reorder_url_failed", "reorder_no_match"):
-        return "platform_agent"
+def after_response_agent(state: ShoppingState) -> Literal["respond"]:
     return "respond"
 
 
-def after_memory_agent(state: ShoppingState) -> Literal["reorder_node", "platform_agent", "respond"]:
-    """
-    memory_agent 이후 분기.
-    - reorder  → reorder_node (과거 구매 상품 직접 재주문)
-    - buy      → platform_agent (선호도 로드 후 상품 검색)
-    - 그 외    → respond (결제 완료 등)
-    """
+def after_reorder_agent(state: ShoppingState) -> Literal["respond", "product_agent"]:
+    if state.get("error") == "reorder_no_match":
+        return "product_agent"
+    return "respond"
+
+
+def after_context_agent(state: ShoppingState) -> Literal["product_agent", "respond"]:
+    stage = state.get("stage")
+    if stage == "completed":
+        return "respond"
     intent = state.get("intent")
-    stage = state.get("stage", "idle")
+    pending_type = _ptype(state.get("pending_action"))
+    dest = "product_agent" if intent in ("buy", "refine", "compare_platforms") else "respond"
+    agent_logger.log_router("context_agent", dest, intent or "-", stage or "-", pending_type)
+    return dest
+
+
+def after_recipe_agent(state: ShoppingState) -> Literal["context_agent", "respond"]:
+    stage = state.get("stage")
+    intent = state.get("intent") or "-"
     pending_type = _ptype(state.get("pending_action"))
 
     def _decide(dest):
-        agent_logger.log_router("memory_agent", dest, intent or "-", stage, pending_type)
+        agent_logger.log_router("recipe_agent", dest, intent, stage or "-", pending_type)
         return dest
 
-    if intent == "reorder":
-        return _decide("reorder_node")
-    if intent in ("buy", "refine", "compare_platforms"):
-        return _decide("platform_agent")
+    # Mode 3: stage=idle → 재료 하나 쇼핑 시작 → context_agent
+    if stage == "idle":
+        return _decide("context_agent")
+    # Mode 1/2/4: recipe_planning or cart_shopping → respond (메시지 표시)
     return _decide("respond")
 
 
-def after_payment_agent(state: ShoppingState) -> Literal["memory_agent", "respond"]:
-    """
-    payment_agent 이후 분기.
-    - stage=completed: memory_agent (구매이력 저장)
-    - 그 외 (cart_shopping, payment_processing 등): respond로 바로
-    """
+def after_payment_agent(state: ShoppingState) -> Literal["context_agent", "recipe_agent", "respond"]:
     stage = state.get("stage", "idle")
     pending_type = _ptype(state.get("pending_action"))
     intent = state.get("intent") or "-"
@@ -197,12 +198,19 @@ def after_payment_agent(state: ShoppingState) -> Literal["memory_agent", "respon
         return dest
 
     if stage == "completed":
-        return _decide("memory_agent")
+        return _decide("context_agent")
+
+    # 레시피 모드: 장바구니 담기 후 다음 재료로 자동 진행
+    if stage == "cart_shopping" and pending_type == "continue_shopping":
+        recipe_items = state.get("recipe_items") or []
+        idx = state.get("current_recipe_item_index") or 0
+        if recipe_items and idx <= len(recipe_items) - 1:
+            return _decide("recipe_agent")
+
     return _decide("respond")
 
 
 def after_respond(state: ShoppingState) -> Literal["wait_for_input", "end"]:
-    """respond 이후 계속 진행 여부 판단."""
     stage = state.get("stage", "idle")
     error = state.get("error")
 

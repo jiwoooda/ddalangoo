@@ -20,17 +20,7 @@ class AgentLogger:
         self._jsonl_path: Path | None = None
         self._turn: int = 0
 
-    # ── 세션 초기화 ─────────────────────────────────────────────
-    def start_session(
-        self,
-        session_id: str,
-        log_dir: str = "logs",
-        console: bool = False,
-    ) -> None:
-        """
-        console=True: 파일과 동시에 터미널에도 출력.
-        LOG_AGENT_TRACE 환경변수 또는 console=True 중 하나만 있어도 활성화.
-        """
+    def start_session(self, session_id: str, log_dir: str = "logs", console: bool = False) -> None:
         env_on = os.getenv("LOG_AGENT_TRACE", "").lower() in ("1", "true", "yes")
         if not (env_on or console):
             return
@@ -61,14 +51,7 @@ class AgentLogger:
         self._append_txt(sep)
         self._log_jsonl({"event": "turn_start", "turn": self._turn, "user_input": user_input})
 
-    # ── 각 에이전트 로깅 ────────────────────────────────────────
-    def log_intent(
-        self,
-        user_input: str,
-        stage: str,
-        pending_action: Any,
-        output: dict,
-    ) -> None:
+    def log_intent(self, user_input: str, stage: str, pending_action: Any, output: dict) -> None:
         if not self._enabled:
             return
         pending_type = (pending_action or {}).get("type", "-") if isinstance(pending_action, dict) else "-"
@@ -148,11 +131,83 @@ class AgentLogger:
                          "outputs_pending": _ptype(outputs.get("pending_action"))})
 
     def log(self, text: str) -> None:
-        """자유 형식 한 줄 로그."""
         if not self._enabled:
             return
         self._append_txt(text + "\n")
         self._log_jsonl({"event": "log", "turn": self._turn, "text": text})
+
+    def log_context_agent(self, inputs: dict, outputs: dict) -> None:
+        if not self._enabled:
+            return
+        pref = outputs.get("preference_context") or {}
+        summary = pref.get("summary") or ""
+        kw_summary = pref.get("keyword_summary") or ""
+        brands = [b.get("brand") for b in (pref.get("preferred_brands") or [])[:3]]
+        price_avg = (pref.get("price_range") or {}).get("avg")
+        repurchase = (pref.get("repurchase_patterns") or [])[:2]
+        keyword_history_count = len(pref.get("keyword_history") or [])
+
+        lines = [
+            "[context_agent]",
+            f"  입력  | stage={inputs.get('stage')}  intent={inputs.get('intent')}  "
+            f"user_id={inputs.get('user_id')}  keywords={inputs.get('keywords')}",
+            f"  구매  | 이력 {inputs.get('purchase_count', '?')}건  "
+            f"retrieval_mode={inputs.get('retrieval_mode', '?')}  "
+            f"캐시={'HIT' if inputs.get('cache_hit') else 'MISS'}",
+            f"  선호도| 브랜드={brands}  평균가={price_avg:,}원" if price_avg else f"  선호도| 브랜드={brands}  (이력 없음)",
+        ]
+        if repurchase:
+            lines.append(f"        | 재구매패턴={repurchase}")
+        if summary:
+            snippet = summary[:120] + ("..." if len(summary) > 120 else "")
+            lines.append(f"  요약  | {snippet}")
+        if kw_summary:
+            kw_snippet = kw_summary[:120] + ("..." if len(kw_summary) > 120 else "")
+            lines.append(f"  키워드| ({keyword_history_count}건 이력) {kw_snippet}")
+        elif inputs.get("keywords"):
+            lines.append(f"  키워드| 이력 {keyword_history_count}건 (LLM 요약 없음)")
+        self._append_txt("\n".join(lines) + "\n")
+        self._log_jsonl({
+            "event": "context_agent", "turn": self._turn,
+            **inputs,
+            "preference_summary": summary,
+            "keyword_summary": kw_summary,
+            "preferred_brands": brands,
+            "price_avg": price_avg,
+        })
+
+    def log_reorder_agent(self, inputs: dict, outputs: dict) -> None:
+        if not self._enabled:
+            return
+        resolution_type = outputs.get("resolution_type", "-")
+        selected = outputs.get("selected_candidate") or {}
+        candidates = outputs.get("candidates") or []
+        lines = [
+            "[reorder_agent]",
+            f"  입력  | pending_type={inputs.get('pending_type', '-')}  "
+            f"user_id={inputs.get('user_id')}  keywords={inputs.get('keywords')}",
+            f"  결과  | resolution_type={resolution_type}  후보 {len(candidates)}개",
+        ]
+        if resolution_type == "resolved" and selected:
+            lines.append(
+                f"  선택  | {selected.get('product_name')}  "
+                f"{selected.get('price_at_purchase', 0):,}원  "
+                f"({selected.get('platform', '-')})"
+            )
+        elif resolution_type == "ambiguous":
+            names = [c.get("product_name") for c in candidates[:3]]
+            lines.append(f"  모호  | 후보 목록: {names}")
+        elif resolution_type == "no_match":
+            lines.append(f"  없음  | 구매이력에서 매칭 없음 → product_agent로 fallback")
+        lines.append(f"  stage={outputs.get('stage')}  pending={_ptype(outputs.get('pending_action'))}")
+        self._append_txt("\n".join(lines) + "\n")
+        self._log_jsonl({
+            "event": "reorder_agent", "turn": self._turn,
+            **inputs,
+            "resolution_type": resolution_type,
+            "candidate_count": len(candidates),
+            "selected_product_name": selected.get("product_name"),
+        })
 
     def log_memory_agent(self, inputs: dict, outputs: dict) -> None:
         if not self._enabled:
@@ -169,7 +224,7 @@ class AgentLogger:
             "[memory_agent]",
             f"  입력  | stage={inputs.get('stage')}  intent={inputs.get('intent')}  "
             f"user_id={inputs.get('user_id')}  keywords={inputs.get('keywords')}",
-            f"  DB    | 구매이력 {inputs.get('history_count', '?')}건  "
+            f"  mock  | 구매이력 {inputs.get('history_count', '?')}건  "
             f"캐시={'HIT' if inputs.get('cache_hit') else 'MISS'}",
             f"  선호도| 브랜드={brands}  평균가={price_avg:,}원" if price_avg else f"  선호도| 브랜드={brands}",
         ]
@@ -206,7 +261,6 @@ class AgentLogger:
         self._log_jsonl({"event": "respond", "turn": self._turn,
                          "stage": stage, "pending_type": _ptype(pending_action), "message": message})
 
-    # ── 내부 헬퍼 ───────────────────────────────────────────────
     def _append_txt(self, text: str) -> None:
         if self._txt_path:
             with self._txt_path.open("a", encoding="utf-8") as f:
@@ -234,5 +288,4 @@ def _ptype(pending_action: Any) -> str:
     return "-"
 
 
-# 글로벌 싱글턴
 agent_logger = AgentLogger()
