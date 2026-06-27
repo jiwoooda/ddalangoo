@@ -147,6 +147,27 @@ async def get_history_by_keyword_db(
     return histories[0] if histories else None
 
 
+async def get_histories_by_keywords_db(
+    db: AsyncSession,
+    user_id: int,
+    keywords: list[str],
+    limit: int = 10,
+) -> list[dict]:
+    """재구매 검색용: 여러 키워드 중 하나라도 일치하는 구매이력을 DB 레벨에서 조회한다."""
+    stmt = select(PurchaseHistory).where(PurchaseHistory.user_id == user_id)
+    if keywords:
+        conditions = []
+        for kw in keywords:
+            pattern = f"%{kw}%"
+            conditions.append(PurchaseHistory.keyword.ilike(pattern))
+            conditions.append(PurchaseHistory.product_name_snapshot.ilike(pattern))
+            conditions.append(PurchaseHistory.category_snapshot.ilike(pattern))
+        stmt = stmt.where(or_(*conditions))
+    stmt = stmt.order_by(PurchaseHistory.purchased_at.desc()).limit(limit)
+    result = await db.execute(stmt)
+    return [_history_to_dict(h) for h in result.scalars().all()]
+
+
 async def get_history_by_order_item_db(
     db: AsyncSession,
     *,

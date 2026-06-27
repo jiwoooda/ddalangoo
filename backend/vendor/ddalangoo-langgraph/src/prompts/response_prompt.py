@@ -1,28 +1,4 @@
-PRODUCT_RANK_PROMPT = """
-## 쿼리
-- 키워드: {keywords}
-- condition: {condition}
-
-## 유저 선호 (구매이력 기반)
-{preference_context}
-
-## 후보 상품
-{formatted_products}
-
-## 작업
-rank_products 툴을 호출해 후보를 순위화하라.
-
-1. 키워드와 상품군이 다른 것을 filtered_out_labels로 제외한다
-   (예: "두부" 요청이면 순두부·연두부·두부면·유부는 제외)
-   (단, 사용자가 해당 변형을 명시했으면 유지)
-2. 나머지를 ranked_labels에 아래 우선순위로 정렬한다
-   1순위: condition 충족 (최저가/빠른배송/무료배송/리뷰좋은)
-          단, delivery 필드가 비어있는 상품은 배송 조건으로 순위화하지 않는다
-   2순위: 유저 선호 (브랜드·가격대) — condition 동점일 때만
-   3순위: 일반 품질 (가격·평점·리뷰 수)
-"""
-
-PRODUCT_EXPLAIN_PROMPT = """
+RESPONSE_EXPLAIN_PROMPT = """
 추천 상품:
 {product_json}
 
@@ -56,7 +32,7 @@ condition별 추천 이유:
 텍스트만 반환. JSON 아님.
 """
 
-PRODUCT_QA_PROMPT = """
+RESPONSE_QA_PROMPT = """
 상품 정보:
 {product_json}
 
