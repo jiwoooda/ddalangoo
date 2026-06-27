@@ -59,6 +59,9 @@ async def cancel_conversation(conversationId: int):
     Railway 등에서 여러 worker/process로 뜨면 worker 간 Event가 공유되지 않으므로,
     운영 확장 시 Redis/pubsub 같은 외부 cancel store로 바꿔야 한다.
     """
+    from src.tools.webview_tool import request_cancel
+    request_cancel()
+    return {"ok": True}
 
 @router.websocket("/conversations/{conversationId}/webview")
 async def webview_progress(conversationId: int, websocket: WebSocket):
