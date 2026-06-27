@@ -1,0 +1,5 @@
+{"event": "session_start", "session_id": "a194cbef-5c58-43f8-9e68-088c1734c308"}
+{"event": "turn_start", "turn": 1, "user_input": "저번에 먹었던 딸기 사줘"}
+{"event": "intent_agent", "turn": 1, "user_input": "저번에 먹었던 딸기 사줘", "stage": "idle", "pending_type": "-", "intent": "reorder", "keywords": ["딸기"], "exclude_keywords": [], "negative_constraints": [], "quantity": null, "condition": null, "target_platforms": [], "override_platform": null, "current_option_value": null, "address_text": null, "needs_clarification": false, "clarification_reason": null, "confidence": 0.9, "immediate_response": "저번에 드신 딸기를 재구매하겠습니다.", "last_agent": "intent_agent", "tool_calls": null, "tool_results": null}
+{"event": "router", "turn": 1, "from": "intent_agent", "to": "memory_agent", "intent": "reorder", "stage": "idle", "pending_type": "-"}
+{"event": "respond", "turn": 1, "stage": "product_confirming", "pending_type": "product_select", "message": "어떤 딸기를 원하시나요? 1) Frozen strawberry 1kg 2) Fresh strawberry 500g 3) 설향 딸기 500g"}

@@ -32,7 +32,7 @@ NAVER_API_SORT_MAP = {
     "recent": "date",
 }
 
-KURLY_SHOP_KEYWORDS = ("컬리", "마켓컬리", "kurly", "컬리n마트", "컬리 n마트")
+KURLY_SHOP_KEYWORDS = ("컬리", "마켓컬리", "kurly", "컬리n마트", "컬리 n마트", "컬리N마트")
 KURLY_BASE_URL = "https://www.kurly.com"
 META_MCP_SERVER_URL_ENV = "META_MCP_SERVER_URL"
 
@@ -190,6 +190,11 @@ def _normalize_product_execution_urls(
     for product in products:
         normalized_product = dict(product)
         platform = str(normalized_product.get("platform") or "").lower()
+        shop_name = str(
+            normalized_product.get("shop_name")
+            or normalized_product.get("mall_name")
+            or ""
+        ).strip().lower()
         raw_url = (
             normalized_product.get("url")
             or normalized_product.get("product_url")
@@ -197,7 +202,14 @@ def _normalize_product_execution_urls(
             or ""
         )
 
-        if platform == "kurly" and raw_url and not _is_kurly_url(raw_url):
+        if (
+            platform in {"naver", "kurly"}
+            and ("컬리" in shop_name or "kurly" in shop_name)
+        ):
+            normalized_product["platform"] = "kurlynmart"
+            platform = "kurlynmart"
+
+        if platform in {"kurly", "kurlynmart"} and raw_url and not _is_kurly_url(raw_url):
             search_query = query or str(normalized_product.get("name") or "").strip()
             execution_url = _kurly_search_url(search_query)
             normalized_product.setdefault("source_url", raw_url)

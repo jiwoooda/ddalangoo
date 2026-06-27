@@ -6,18 +6,26 @@
 API Key는 환경변수 OPENAI_API_KEY / GEMINI_API_KEY에서 읽는다.
 """
 
+import asyncio
+from dataclasses import dataclass
 from io import BytesIO
 import os
 import re
 import logging
 import base64
+import hashlib
+import shutil
 import struct
 import time
+from pathlib import Path
+from uuid import uuid4
 
 from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 from fastapi import HTTPException
+from app.schemas.voice import TtsSegment
+from app.schemas.agent import SpeechSegment
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +60,20 @@ _MAX_TRANSCRIPT_LENGTH = 200
 _MIN_AUDIO_BYTES = 1000  # 너무 작은 파일은 무음으로 간주
 _MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB
 _MAX_TTS_TEXT_LENGTH = 1000
+_STATIC_TTS_ROOT = Path(__file__).resolve().parents[1] / "static" / "tts"
+_LEGACY_STATIC_TTS_ROOT = Path(__file__).resolve().parents[2] / "static" / "tts"
+_TTS_CACHE_DIRNAME = "cache"
+_DYNAMIC_TTS_TTL_SECONDS = int(os.getenv("DYNAMIC_TTS_TTL_SECONDS", str(6 * 60 * 60)))
+_CACHED_TTS_TTL_SECONDS = int(
+    os.getenv("CACHED_TTS_TTL_SECONDS", str(10 * 365 * 24 * 60 * 60))
+)
+
+
+@dataclass
+class _SynthesizedTtsSegment:
+    text: str
+    wav_bytes: bytes
+    duration_ms: int
 
 
 def _get_openai_client(feature: str = "stt") -> AsyncOpenAI:
@@ -235,6 +257,14 @@ def _normalize_transcript(raw: str) -> str:
 
 async def synthesize_speech(text: str) -> bytes:
     """텍스트를 Gemini TTS로 합성하고 WAV bytes를 반환한다."""
+    audio_bytes, _, _ = await synthesize_speech_bundle(text)
+    return audio_bytes
+
+
+async def synthesize_speech_bundle(
+    text: str,
+) -> tuple[bytes, list[TtsSegment], int]:
+    """텍스트를 내부적으로 문장 분리해 하나의 WAV와 문장 메타데이터로 반환한다."""
     normalized = text.strip()
     if not normalized:
         raise HTTPException(
@@ -257,6 +287,34 @@ async def synthesize_speech(text: str) -> bytes:
             },
         )
 
+    sentences = _split_tts_sentences(normalized)
+    synthesized_segments: list[_SynthesizedTtsSegment] = []
+
+    for sentence in sentences:
+        wav_bytes = await _synthesize_sentence_wav(sentence)
+        synthesized_segments.append(
+            _SynthesizedTtsSegment(
+                text=sentence,
+                wav_bytes=wav_bytes,
+                duration_ms=_estimate_wav_duration_ms(wav_bytes),
+            )
+        )
+
+    if len(synthesized_segments) == 1:
+        combined_audio = synthesized_segments[0].wav_bytes
+    else:
+        combined_audio = _concatenate_wav_segments(
+            [segment.wav_bytes for segment in synthesized_segments]
+        )
+    response_segments = [
+        TtsSegment(text=segment.text, durationMs=segment.duration_ms)
+        for segment in synthesized_segments
+    ]
+    total_duration_ms = sum(segment.duration_ms for segment in synthesized_segments)
+    return combined_audio, response_segments, total_duration_ms
+
+
+async def _synthesize_sentence_wav(normalized: str) -> bytes:
     client = _get_client("tts")
     models_to_try = list(dict.fromkeys([_TTS_MODEL, *_TTS_FALLBACK_MODELS]))
     last_error: Exception | None = None
@@ -346,6 +404,396 @@ async def synthesize_speech(text: str) -> bytes:
 def encode_audio_base64(audio_bytes: bytes) -> str:
     """프론트가 JSON으로 받기 쉽게 audio bytes를 base64 문자열로 변환한다."""
     return base64.b64encode(audio_bytes).decode("ascii")
+
+
+def split_agent_speech_segments(text: str) -> list[str]:
+    """Agent assistant message를 TTS 친화적인 문장 단위로 분할한다."""
+    normalized = re.sub(r"\s+", " ", str(text or "").replace("\n", " ")).strip()
+    if not normalized:
+        return []
+
+    sentences = _split_tts_sentences(normalized)
+    if not sentences:
+        sentences = [normalized]
+
+    segments: list[str] = []
+    for sentence in sentences:
+        segments.extend(_split_long_tts_segment(sentence))
+    return [segment for segment in segments if segment.strip()]
+
+
+def _split_tts_sentences(text: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
+    if not normalized:
+        return []
+
+    sentences: list[str] = []
+    start = 0
+    for index, char in enumerate(normalized):
+        if char not in ".!?。！？":
+            continue
+
+        prev_char = normalized[index - 1] if index > 0 else ""
+        next_char = normalized[index + 1] if index + 1 < len(normalized) else ""
+
+        # "토마토 1.4kg" 같은 숫자 소수점은 문장 경계로 취급하지 않는다.
+        if char == "." and prev_char.isdigit() and next_char.isdigit():
+            continue
+
+        sentences.append(normalized[start : index + 1].strip())
+        start = index + 1
+
+    if start < len(normalized):
+        sentences.append(normalized[start:].strip())
+
+    return [sentence for sentence in sentences if sentence]
+
+
+async def build_agent_speech_segments(
+    text: str,
+    *,
+    request_id: str | None = None,
+    prefer_persistent_cache: bool = False,
+) -> list[SpeechSegment]:
+    """Agent assistant text를 문장 단위 speech segment + 접근 가능한 audioUrl로 변환한다."""
+    segments = split_agent_speech_segments(text)
+    if not segments:
+        return []
+
+    effective_request_id = request_id or uuid4().hex
+    segment_dirs = [
+        root / effective_request_id
+        for root in dict.fromkeys([_STATIC_TTS_ROOT, _LEGACY_STATIC_TTS_ROOT])
+    ]
+    for segment_dir in segment_dirs:
+        segment_dir.mkdir(parents=True, exist_ok=True)
+
+    cache_dirs = [
+        root / _TTS_CACHE_DIRNAME
+        for root in dict.fromkeys([_STATIC_TTS_ROOT, _LEGACY_STATIC_TTS_ROOT])
+    ]
+    if prefer_persistent_cache:
+        for cache_dir in cache_dirs:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _segment_retry_texts(segment_text: str) -> list[str]:
+        normalized = re.sub(r"\s+", " ", segment_text).strip()
+        if not normalized:
+            return []
+
+        retries: list[str] = [normalized]
+        stripped = normalized.rstrip(".!?。！？").strip()
+        if stripped and stripped not in retries:
+            retries.append(stripped)
+        softened = stripped.replace("님", "님 ").strip() if stripped else ""
+        if softened and softened not in retries:
+            retries.append(softened)
+        return retries
+
+    async def _build_combined_fallback_segment() -> list[SpeechSegment]:
+        normalized_text = re.sub(r"\s+", " ", text).strip()
+        if not normalized_text:
+            return []
+
+        cache_key = _tts_cache_key(normalized_text) if prefer_persistent_cache else None
+        file_name = f"{cache_key}.wav" if cache_key else "combined_fallback.wav"
+        target_dirs = cache_dirs if cache_key else segment_dirs
+        audio_url = (
+            f"/static/tts/{_TTS_CACHE_DIRNAME}/{file_name}"
+            if cache_key
+            else f"/static/tts/{effective_request_id}/{file_name}"
+        )
+
+        if cache_key:
+            cached_wav = cache_dirs[0] / file_name
+            if cached_wav.exists():
+                cached_bytes = await asyncio.to_thread(cached_wav.read_bytes)
+                now = time.time()
+                await asyncio.gather(
+                    *[
+                        asyncio.to_thread(os.utime, cache_dir / file_name, (now, now))
+                        for cache_dir in cache_dirs
+                        if (cache_dir / file_name).exists()
+                    ]
+                )
+                logger.info(
+                    "[voice.agent_speech] combined_cache_hit key=%s text=%s",
+                    cache_key,
+                    normalized_text,
+                )
+                return [
+                    SpeechSegment(
+                        index=0,
+                        text=normalized_text,
+                        audioUrl=audio_url,
+                        durationMs=_estimate_wav_duration_ms(cached_bytes),
+                    )
+                ]
+
+        combined_audio = await synthesize_speech(normalized_text)
+        await asyncio.gather(
+            *[
+                asyncio.to_thread((target_dir / file_name).write_bytes, combined_audio)
+                for target_dir in target_dirs
+            ]
+        )
+        logger.info(
+            "[voice.agent_speech] combined_fallback_built text=%s size=%s",
+            normalized_text,
+            len(combined_audio),
+        )
+        return [
+            SpeechSegment(
+                index=0,
+                text=normalized_text,
+                audioUrl=audio_url,
+                durationMs=_estimate_wav_duration_ms(combined_audio),
+            )
+        ]
+
+    async def _build_single_segment(index: int, segment_text: str) -> SpeechSegment:
+        retry_texts = _segment_retry_texts(segment_text)
+        try:
+            cache_key = _tts_cache_key(segment_text) if prefer_persistent_cache else None
+            if cache_key:
+                candidate_cache_keys = [
+                    _tts_cache_key(candidate_text)
+                    for candidate_text in retry_texts
+                ]
+                for candidate_index, candidate_cache_key in enumerate(candidate_cache_keys, start=1):
+                    cached_wav = cache_dirs[0] / f"{candidate_cache_key}.wav"
+                    if not cached_wav.exists():
+                        continue
+                    cached_bytes = await asyncio.to_thread(cached_wav.read_bytes)
+                    now = time.time()
+                    await asyncio.gather(
+                        *[
+                            asyncio.to_thread(os.utime, cache_dir / f"{candidate_cache_key}.wav", (now, now))
+                            for cache_dir in cache_dirs
+                            if (cache_dir / f"{candidate_cache_key}.wav").exists()
+                        ]
+                    )
+                    logger.info(
+                        "[voice.agent_speech] cache_hit key=%s index=%s text=%s candidate_attempt=%s",
+                        candidate_cache_key,
+                        index,
+                        segment_text,
+                        candidate_index,
+                    )
+                    return SpeechSegment(
+                        index=index,
+                        text=segment_text,
+                        audioUrl=f"/static/tts/{_TTS_CACHE_DIRNAME}/{candidate_cache_key}.wav",
+                        durationMs=_estimate_wav_duration_ms(cached_bytes),
+                    )
+
+            last_error: Exception | None = None
+            audio_bytes: bytes | None = None
+            used_text = segment_text
+            for attempt, retry_text in enumerate(retry_texts, start=1):
+                try:
+                    logger.info(
+                        "[voice.agent_speech] segment_tts_attempt index=%s attempt=%s text=%s",
+                        index,
+                        attempt,
+                        retry_text,
+                    )
+                    audio_bytes = await synthesize_speech(retry_text)
+                    used_text = retry_text
+                    if attempt > 1:
+                        logger.info(
+                            "[voice.agent_speech] segment_tts_retry_succeeded index=%s attempt=%s original_text=%s used_text=%s",
+                            index,
+                            attempt,
+                            segment_text,
+                            used_text,
+                        )
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "[voice.agent_speech] segment_tts_attempt_failed index=%s attempt=%s original_text=%s retry_text=%s error=%s",
+                        index,
+                        attempt,
+                        segment_text,
+                        retry_text,
+                        exc,
+                    )
+                    if attempt < len(retry_texts):
+                        await asyncio.sleep(0.18)
+
+            if audio_bytes is None:
+                raise last_error or RuntimeError("segment tts returned no audio")
+
+            if cache_key:
+                file_name = f"{cache_key}.wav"
+                target_dirs = cache_dirs
+                audio_url = f"/static/tts/{_TTS_CACHE_DIRNAME}/{file_name}"
+            else:
+                file_name = f"segment_{index}.wav"
+                target_dirs = segment_dirs
+                audio_url = f"/static/tts/{effective_request_id}/{file_name}"
+            await asyncio.gather(
+                *[
+                    asyncio.to_thread((target_dir / file_name).write_bytes, audio_bytes)
+                    for target_dir in target_dirs
+                ]
+            )
+            return SpeechSegment(
+                index=index,
+                text=segment_text,
+                audioUrl=audio_url,
+                durationMs=_estimate_wav_duration_ms(audio_bytes),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[voice.agent_speech] segment tts failed index=%s text=%s error=%s",
+                index,
+                segment_text,
+                exc,
+            )
+            return SpeechSegment(index=index, text=segment_text, audioUrl=None)
+
+    built_segments = await asyncio.gather(
+        *[
+            _build_single_segment(index, segment_text)
+            for index, segment_text in enumerate(segments)
+        ]
+    )
+    missing_audio_segments = [
+        segment for segment in built_segments if not segment.audioUrl
+    ]
+    if missing_audio_segments:
+        logger.warning(
+            "[voice.agent_speech] built_with_missing_audio request_id=%s missing=%s total=%s missing_indexes=%s",
+            effective_request_id,
+            len(missing_audio_segments),
+            len(built_segments),
+            [segment.index for segment in missing_audio_segments],
+        )
+        try:
+            combined_fallback_segments = await _build_combined_fallback_segment()
+            if combined_fallback_segments:
+                logger.info(
+                    "[voice.agent_speech] using_combined_fallback request_id=%s total=%s",
+                    effective_request_id,
+                    len(combined_fallback_segments),
+                )
+                return combined_fallback_segments
+        except Exception as exc:
+            logger.warning(
+                "[voice.agent_speech] combined_fallback_failed request_id=%s error=%s",
+                effective_request_id,
+                exc,
+            )
+    else:
+        logger.info(
+            "[voice.agent_speech] built_all_audio request_id=%s total=%s",
+            effective_request_id,
+            len(built_segments),
+        )
+    return list(built_segments)
+
+
+async def cleanup_tts_storage() -> None:
+    """오래된 동적 TTS 파일과 만료된 캐시 파일을 정리한다."""
+    roots = list(dict.fromkeys([_STATIC_TTS_ROOT, _LEGACY_STATIC_TTS_ROOT]))
+    await asyncio.gather(
+        *[asyncio.to_thread(_cleanup_tts_root, root) for root in roots]
+    )
+
+
+def _cleanup_tts_root(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    removed_dynamic = 0
+    removed_cache = 0
+
+    for child in root.iterdir():
+        try:
+            if child.name == _TTS_CACHE_DIRNAME:
+                removed_cache += _cleanup_cache_dir(child, now)
+                continue
+
+            if child.is_dir():
+                age_seconds = now - child.stat().st_mtime
+                if age_seconds >= _DYNAMIC_TTS_TTL_SECONDS:
+                    shutil.rmtree(child, ignore_errors=True)
+                    removed_dynamic += 1
+                continue
+
+            age_seconds = now - child.stat().st_mtime
+            if age_seconds >= _DYNAMIC_TTS_TTL_SECONDS:
+                child.unlink(missing_ok=True)
+                removed_dynamic += 1
+        except Exception as exc:
+            logger.warning("[voice.tts.cleanup] failed path=%s error=%s", child, exc)
+
+    if removed_dynamic or removed_cache:
+        logger.info(
+            "[voice.tts.cleanup] root=%s removed_dynamic=%s removed_cache=%s",
+            root,
+            removed_dynamic,
+            removed_cache,
+        )
+
+
+def _cleanup_cache_dir(cache_dir: Path, now: float) -> int:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    removed = 0
+    for child in cache_dir.iterdir():
+        try:
+            age_seconds = now - child.stat().st_mtime
+            if age_seconds < _CACHED_TTS_TTL_SECONDS:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
+            removed += 1
+        except Exception as exc:
+            logger.warning(
+                "[voice.tts.cleanup] cache_failed path=%s error=%s",
+                child,
+                exc,
+            )
+    return removed
+
+
+def _tts_cache_key(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", text.strip())
+    digest = hashlib.sha256(
+        f"{_TTS_MODEL}|{','.join(_TTS_FALLBACK_MODELS)}|{_TTS_VOICE}|{normalized}".encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return digest
+
+
+def _split_long_tts_segment(text: str, *, max_length: int = 64) -> list[str]:
+    compact = text.strip()
+    if len(compact) <= max_length:
+        return [compact]
+
+    segments: list[str] = []
+    remaining = compact
+    split_pattern = re.compile(r"[,，·:：]\s*|\s+")
+    while len(remaining) > max_length:
+      window = remaining[:max_length + 8]
+      split_at = -1
+      for match in split_pattern.finditer(window):
+          split_at = match.end()
+      if split_at <= 0:
+          split_at = max_length
+      head = remaining[:split_at].strip()
+      if head:
+          segments.append(head)
+      remaining = remaining[split_at:].strip()
+      if not remaining:
+          break
+    if remaining:
+        segments.append(remaining)
+    return segments
 
 
 def _tts_prompt(text: str) -> str:
@@ -443,3 +891,40 @@ def _wrap_pcm16_as_wav(
         ]
     )
     return header + pcm_bytes
+
+
+def _concatenate_wav_segments(wav_segments: list[bytes]) -> bytes:
+    if not wav_segments:
+        return _wrap_pcm16_as_wav(b"")
+
+    pcm_chunks = [_extract_pcm16_from_wav(wav_bytes) for wav_bytes in wav_segments]
+    return _wrap_pcm16_as_wav(b"".join(pcm_chunks))
+
+
+def _extract_pcm16_from_wav(wav_bytes: bytes) -> bytes:
+    if len(wav_bytes) < 12 or wav_bytes[0:4] != b"RIFF" or wav_bytes[8:12] != b"WAVE":
+        return b""
+
+    offset = 12
+    total_length = len(wav_bytes)
+    while offset + 8 <= total_length:
+        chunk_id = wav_bytes[offset:offset + 4]
+        chunk_size = struct.unpack("<I", wav_bytes[offset + 4:offset + 8])[0]
+        data_start = offset + 8
+        data_end = data_start + chunk_size
+        if data_end > total_length:
+            return b""
+        if chunk_id == b"data":
+            return wav_bytes[data_start:data_end]
+        offset = data_end + (chunk_size % 2)
+
+    return b""
+
+
+def _estimate_wav_duration_ms(wav_bytes: bytes) -> int:
+    pcm_bytes = max(0, len(_extract_pcm16_from_wav(wav_bytes)))
+    bytes_per_second = _TTS_SAMPLE_RATE * 2
+    if bytes_per_second <= 0:
+        return 1000
+    duration_ms = round((pcm_bytes / bytes_per_second) * 1000)
+    return max(700, duration_ms)

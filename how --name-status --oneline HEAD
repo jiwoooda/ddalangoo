@@ -1,0 +1,14 @@
+[33m4466586[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/지우-e2e-수정[m[33m, [m[1;31morigin/feature/지우-e2e-수정[m[33m)[m Fix e2e reorder and payment flow
+A	backend/app/mock_data/purchase_histories.json
+D	backend/app/mock_data/purchase_histories.py
+M	backend/app/repositories/purchase_history_repository.py
+M	backend/app/services/dev_service.py
+M	backend/vendor/ddalangoo-langgraph/main.py
+M	backend/vendor/ddalangoo-langgraph/src/agents/intent_agent.py
+M	backend/vendor/ddalangoo-langgraph/src/agents/memory_agent.py
+M	backend/vendor/ddalangoo-langgraph/src/agents/nodes.py
+M	backend/vendor/ddalangoo-langgraph/src/agents/platform_agent.py
+M	backend/vendor/ddalangoo-langgraph/src/graph/router.py
+M	backend/vendor/ddalangoo-langgraph/src/payment/subgraph.py
+M	backend/vendor/ddalangoo-langgraph/src/prompts/intent_prompt.py
+M	backend/vendor/ddalangoo-langgraph/src/tools/webview_tool.py

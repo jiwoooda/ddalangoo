@@ -1,0 +1,9 @@
+{"event": "session_start", "session_id": "9f4913bc-76b2-42d7-9214-c2babf605d60"}
+{"event": "turn_start", "turn": 1, "user_input": "저번에 산 딸기 사줘"}
+{"event": "intent_agent", "turn": 1, "user_input": "저번에 산 딸기 사줘", "stage": "idle", "pending_type": "-", "intent": "reorder", "keywords": ["딸기"], "exclude_keywords": [], "negative_constraints": [], "quantity": null, "condition": null, "target_platforms": [], "override_platform": null, "current_option_value": null, "address_text": null, "needs_clarification": false, "clarification_reason": null, "confidence": 0.9, "immediate_response": "딸기를 재구매하겠습니다.", "last_agent": "intent_agent", "tool_calls": null, "tool_results": null}
+{"event": "router", "turn": 1, "from": "intent_agent", "to": "memory_agent", "intent": "reorder", "stage": "idle", "pending_type": "-"}
+{"event": "respond", "turn": 1, "stage": "product_confirming", "pending_type": "product_confirm", "message": "이전에 구매하셨던 'Frozen strawberry 1kg'을 다시 주문할까요? (8,900원)"}
+{"event": "turn_start", "turn": 2, "user_input": "응"}
+{"event": "intent_agent", "turn": 2, "user_input": "응", "stage": "product_confirming", "pending_type": "product_confirm", "intent": "confirm", "keywords": ["딸기"], "exclude_keywords": [], "negative_constraints": [], "quantity": null, "condition": null, "target_platforms": [], "override_platform": null, "current_option_value": null, "address_text": null, "needs_clarification": false, "clarification_reason": null, "confidence": 0.9, "immediate_response": "주문을 진행할게요.", "last_agent": "intent_agent", "tool_calls": null, "tool_results": null}
+{"event": "router", "turn": 2, "from": "intent_agent", "to": "quantity_check", "intent": "confirm", "stage": "product_confirming", "pending_type": "product_confirm"}
+{"event": "respond", "turn": 2, "stage": "product_confirming", "pending_type": "quantity_confirm", "message": "네, Frozen strawberry 1kg으로 구매하겠습니다. 몇 개 살까요?"}

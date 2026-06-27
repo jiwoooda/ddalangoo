@@ -21,11 +21,21 @@ class RecommendationItemInAgent(BaseModel):
     isOrderable: bool = True
     orderBlockReason: Optional[str] = None
 
+
+class SpeechSegment(BaseModel):
+    index: int
+    text: str
+    audioUrl: Optional[str] = None
+    durationMs: Optional[int] = None
+
 class AgentResponse(BaseModel):
     conversationId: int
     status: str
     stage: str
     assistantMessage: str
+    message: Optional[str] = None
+    speechMode: Optional[str] = None
+    speechSegments: Optional[List[SpeechSegment]] = None
     recommendationId: Optional[int] = None
     recommendations: List[RecommendationItemInAgent] = []
     selectedProduct: Optional[Any] = None
@@ -43,11 +53,18 @@ class ShoppingRequest(BaseModel):
     userId: int
     message: str
     inputType: str = "text"
+    progressChannelId: Optional[str] = None
 
 class MessageRequest(BaseModel):
     message: str
     inputType: str = "text"
     action: Optional[str] = None
+    progressChannelId: Optional[str] = None
+
+class PromptRequest(BaseModel):
+    kind: str
+    conversationId: Optional[int] = None
+    payload: Optional[Any] = None
 
 class ConfirmRequest(BaseModel):
     recommendationItemId: Optional[int] = None

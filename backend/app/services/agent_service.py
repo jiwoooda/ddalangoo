@@ -1,11 +1,13 @@
 import os
+import re
 import threading
 from dataclasses import dataclass
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.agent import AgentResponse, ShoppingRequest, MessageRequest, ConfirmRequest
+from app.schemas.agent import AgentResponse, ShoppingRequest, MessageRequest, ConfirmRequest, PromptRequest
 from app.repositories import (
     address_repository,
     agent_event_repository,
@@ -18,7 +20,11 @@ from app.repositories import (
     user_repository,
 )
 from app.agent import runtime, mapper, actions, product_data_layer, recommendation_sync
-from app.services import webview_progress_service
+from app.services import (
+    agent_progress_service,
+    webview_progress_service,
+    voice_service,
+)
 from app.utils.product_url_contract import is_kurly_goods_url
 
 try:
@@ -158,6 +164,93 @@ def _assistant_message_patch(message: str) -> list:
     return [AIMessage(content=message)]
 
 
+def _search_keywords_from_message(message: str) -> str:
+    normalized = re.sub(r"\s+", " ", message).strip()
+    if not normalized:
+        return ""
+    normalized = re.sub(r"[?？!！.,~…-]+$", "", normalized).strip()
+    suffix_patterns = [
+        r"(사고\s*싶어요?|사줘요?|찾아줘요?|주문해줘요?|구매하고\s*싶어요?)$",
+        r"((?:먹고|마시고|드시고)\s*싶어요?)$",
+        r"((?:먹고|마시고|드시고)\s*싶어)$",
+        r"(사고)$",
+        r"(살래요?|살래|주세요|찾아봐요?|알아봐줘요?)$",
+        r"(있어요?|있나(?:요)?|있을까요?|있)$",
+        r"(요즘\s*유행하는)\s+",
+        r"^(나는|전|저는|저|나)\s+",
+    ]
+    for pattern in suffix_patterns:
+        normalized = re.sub(pattern, "", normalized).strip()
+    normalized = re.sub(
+        r"\s+(사|사줘|사줘요|사라|주문해|주문해라|구매해|구매해라)$",
+        "",
+        normalized,
+    ).strip()
+    normalized = re.sub(r"(있)[-~…]?$", "", normalized).strip()
+    normalized = re.sub(r"\s+[-~…]+$", "", normalized).strip()
+    normalized = re.sub(r"[-~…]+$", "", normalized).strip()
+    normalized = normalized.strip(" '\"")
+    return normalized
+
+
+def _has_search_intent_cue(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message).strip().lower()
+    if not normalized:
+        return False
+    return any(
+        cue in normalized
+        for cue in (
+            "사고",
+            "사고 싶",
+            "살래",
+            "살게",
+            "주문",
+            "구매",
+            "찾아",
+            "찾고",
+            "있어",
+            "있나",
+            "있을까",
+            "유행",
+        )
+    )
+
+
+def _should_retry_search_prompt(message: str, keywords: str) -> bool:
+    normalized_message = re.sub(r"\s+", " ", message).strip()
+    normalized_keywords = re.sub(r"\s+", " ", keywords).strip()
+    compact_keywords = re.sub(r"\s+", "", normalized_keywords)
+    if not compact_keywords:
+        return True
+    if len(compact_keywords) <= 1:
+        return True
+
+    lowered_keywords = compact_keywords.lower()
+    retry_terms = {
+        "응",
+        "어",
+        "음",
+        "아",
+        "어어",
+        "그거",
+        "이거",
+        "저거",
+        "몰라",
+        "글쎄",
+        "다시",
+        "수다",
+    }
+    if lowered_keywords in retry_terms:
+        return True
+
+    if re.search(r"[-~…]$", normalized_message):
+        return True
+    if normalized_keywords == normalized_message and not _has_search_intent_cue(normalized_message):
+        if len(compact_keywords) <= 2:
+            return True
+    return False
+
+
 def _intent_type_from(intent: str | None, needs_clarification: bool | None) -> str:
     """실행용 intent를 분석용 상위 분류 intent_type으로 변환한다."""
     if needs_clarification:
@@ -239,11 +332,14 @@ def _is_payment_method_accept(
 
 def _is_explicit_payment_confirmation(message: str) -> bool:
     """결제는 짧은 망설임이 아니라 명시적 긍정/결제 표현에서만 진행한다."""
-    compact = "".join(str(message or "").split())
+    compact = re.sub(r"[^\w가-힣]", "", "".join(str(message or "").split()))
     explicit_texts = {
         "응",
         "네",
+        "예",
         "그래",
+        "응응",
+        "네네",
         "응그래",
         "응맞아",
         "네그래",
@@ -251,6 +347,11 @@ def _is_explicit_payment_confirmation(message: str) -> bool:
         "그래맞아",
         "좋아",
         "맞아",
+        "맞아요",
+        "맞습니다",
+        "응맞아요",
+        "네맞아요",
+        "그래맞아요",
         "결제",
         "결제할래",
         "결제해줘",
@@ -263,10 +364,21 @@ def _is_explicit_payment_confirmation(message: str) -> bool:
     return any(token in compact for token in ("결제", "네이버페이", "네이버로"))
 
 
+def _is_address_confirmation_stage(state: dict, pending_action_type: str | None) -> bool:
+    """배송지 확인 응답은 pending_action이 꼬여도 stage 기준으로 잡는다."""
+    return state.get("stage") == "address_confirming" or pending_action_type == "address_confirm"
+
+
 def _is_checkout_request(message: str) -> bool:
     """장바구니 단계에서 결제 의사가 명확한 발화인지 확인한다."""
     compact = "".join(str(message or "").split())
     return any(token in compact for token in ("결제", "계산", "구매할래", "주문할래"))
+
+
+def _is_payment_password_entry(message: str) -> bool:
+    """데모 결제 비밀번호 입력인지 확인한다."""
+    compact = re.sub(r"\D", "", str(message or ""))
+    return len(compact) == 6
 
 
 def _state_order_payload(state: dict) -> dict | None:
@@ -412,64 +524,14 @@ def _webview_task_payload(
 
 
 async def _address_required_response(conversation_id: int, state: dict) -> AgentResponse:
-    """cart_shopping에서 결제 의사를 받으면 배송지 확인 WebView task를 직접 반환한다."""
-    message = "배송지를 확인할게요."
-    payload = _webview_task_payload(task="address_check", state=state)
+    """앱에 확인 가능한 배송지가 없을 때 배송지 등록 필요 상태를 반환한다."""
+    message = "앱에 등록된 기본 배송지가 없어서 주문을 진행할 수 없어요. 배송지를 먼저 등록해 주세요."
     patch = {
         "stage": "address_required",
         "pending_action": {
-            "type": "webview_task",
+            "type": "address_required",
             "message": message,
-            "payload": payload,
-        },
-        "messages": _assistant_message_patch(message),
-        "webview_progress": None,
-    }
-    state = await runtime.update_state(conversation_id, patch)
-    return AgentResponse(
-        conversationId=conversation_id,
-        status="address_required",
-        stage="address_required",
-        assistantMessage=message,
-        recommendationId=None,
-        recommendations=[],
-        selectedProduct=state.get("selected_product"),
-        pendingConfirmation={"type": "webview_task", "message": message, "payload": payload},
-        availableOptions=None,
-        deliveryAddress=state.get("delivery_address"),
-        cart=state.get("cart"),
-        order=_state_order_payload(state),
-        payment=_state_payment_payload(state),
-        uiCommand={"type": "open_webview", "task": "address_check"},
-        asyncStatus=None,
-        error=None,
-    )
-
-
-def _state_has_delivery_address(state: dict) -> bool:
-    """배송지 확인 수락 전에 실제 주소가 state에 있는지 검사한다."""
-    address = state.get("delivery_address") or state.get("deliveryAddress")
-    if not isinstance(address, dict):
-        return False
-    line1 = address.get("address_line1") or address.get("addressLine1") or address.get("address")
-    line2 = address.get("address_line2") or address.get("addressLine2")
-    return bool(" ".join(str(part).strip() for part in [line1, line2] if part).strip())
-
-
-async def _address_check_retry_response(conversation_id: int, state: dict) -> AgentResponse:
-    """주소가 없는 상태에서 확인 발화가 들어오면 결제로 가지 않고 재확인을 요청한다."""
-    message = "배송지를 아직 확인하지 못했어요. 장바구니 화면에서 배송지를 다시 확인해 주세요."
-    payload = _webview_task_payload(task="address_check", state=state)
-    patch = {
-        "stage": "address_required",
-        "delivery_address": None,
-        "pending_action": {
-            "type": "address_check_failed",
-            "message": message,
-            "payload": {
-                "subType": "address_check_failed",
-                "retryTask": "address_check",
-            },
+            "payload": {"subType": "address_required"},
         },
         "messages": _assistant_message_patch(message),
         "webview_progress": None,
@@ -484,38 +546,221 @@ async def _address_check_retry_response(conversation_id: int, state: dict) -> Ag
         recommendations=[],
         selectedProduct=state.get("selected_product"),
         pendingConfirmation={
-            "type": "address_check_failed",
+            "type": "address",
             "message": message,
-            "payload": {
-                "subType": "address_check_failed",
-                "retryTask": "address_check",
-            },
+            "payload": {"subType": "address_required"},
+        },
+        availableOptions=None,
+        deliveryAddress=state.get("delivery_address"),
+        cart=state.get("cart"),
+        order=_state_order_payload(state),
+        payment=_state_payment_payload(state),
+        uiCommand=None,
+        asyncStatus=None,
+        error={
+            "category": "ADDRESS_ERROR",
+            "code": "DEFAULT_ADDRESS_NOT_FOUND",
+            "message": "앱에 등록된 기본 배송지가 없습니다.",
+        },
+    )
+
+
+def _address_text(address: dict | None) -> str | None:
+    """배송지 dict를 사용자가 확인하기 쉬운 한 줄 주소로 만든다."""
+    if not isinstance(address, dict):
+        return None
+    line1 = address.get("address_line1") or address.get("addressLine1") or address.get("address")
+    line2 = address.get("address_line2") or address.get("addressLine2")
+    full_address = " ".join(str(part).strip() for part in [line1, line2] if part)
+    return full_address or None
+
+
+def _address_speech_text(address_text: str) -> str:
+    """TTS가 주소를 붙여 읽지 않도록 음성 안내용 주소로 바꾼다."""
+    text = " ".join(address_text.split())
+    text = text.replace("서울특별시", "서울")
+    text = text.replace("서울시", "서울")
+    text = re.sub(r"([가-힣]+로)(\d+길)", r"\1 \2", text)
+    text = re.sub(r"([가-힣]+동)(\d+가)", r"\1 \2", text)
+    text = text.replace("(", ", ").replace(")", "")
+    return text
+
+
+async def _address_confirm_response(
+    conversation_id: int,
+    state: dict,
+    delivery_address: dict,
+) -> AgentResponse:
+    """DB 기본 배송지를 사용해 웹뷰 없이 배송지 확인 응답을 만든다."""
+    address_text = _address_text(delivery_address)
+    if not address_text:
+        return await _address_required_response(conversation_id, state)
+
+    message = f"배송지는 {_address_speech_text(address_text)} 맞으세요?"
+    patch = {
+        "stage": "address_confirming",
+        "delivery_address": delivery_address,
+        "pending_action": {
+            "type": "address_confirm",
+            "message": message,
+            "payload": {"address": delivery_address},
+        },
+        "messages": _assistant_message_patch(message),
+        "webview_progress": None,
+    }
+    state = await runtime.update_state(conversation_id, patch)
+    return AgentResponse(
+        conversationId=conversation_id,
+        status="waiting_user_confirmation",
+        stage="address_confirming",
+        assistantMessage=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=state.get("selected_product"),
+        pendingConfirmation={
+            "type": "address",
+            "message": message,
+            "payload": {"address": delivery_address},
+        },
+        availableOptions=None,
+        deliveryAddress=delivery_address,
+        cart=state.get("cart"),
+        order=_state_order_payload(state),
+        payment=_state_payment_payload(state),
+        uiCommand={"type": "close_webview"},
+        asyncStatus=None,
+        error=None,
+    )
+
+
+async def _address_required_or_default_response(
+    db: AsyncSession,
+    conversation_id: int,
+    state: dict,
+) -> AgentResponse:
+    """기본 배송지를 바로 확인하고, 없으면 앱 배송지 등록 필요 상태를 반환한다."""
+    try:
+        user_id = int(state.get("user_id") or state.get("userId"))
+    except (TypeError, ValueError):
+        user_id = 0
+
+    if user_id:
+        default_address = await address_repository.get_default_address_by_user_id_db(
+            db,
+            user_id,
+        )
+        if default_address and _address_text(default_address):
+            return await _address_confirm_response(
+                conversation_id,
+                state,
+                default_address,
+            )
+
+    message = "앱에 등록된 기본 배송지가 없어서 주문을 진행할 수 없어요. 배송지를 먼저 등록해 주세요."
+    patch = {
+        "stage": "address_required",
+        "pending_action": {
+            "type": "address_required",
+            "message": message,
+            "payload": {"subType": "address_required"},
+        },
+        "messages": _assistant_message_patch(message),
+        "webview_progress": None,
+    }
+    state = await runtime.update_state(conversation_id, patch)
+    return AgentResponse(
+        conversationId=conversation_id,
+        status="address_required",
+        stage="address_required",
+        assistantMessage=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=state.get("selected_product"),
+        pendingConfirmation={
+            "type": "address",
+            "message": message,
+            "payload": {"subType": "address_required"},
+        },
+        availableOptions=None,
+        deliveryAddress=state.get("delivery_address"),
+        cart=state.get("cart"),
+        order=_state_order_payload(state),
+        payment=_state_payment_payload(state),
+        uiCommand=None,
+        asyncStatus=None,
+        error={
+            "category": "ADDRESS_ERROR",
+            "code": "DEFAULT_ADDRESS_NOT_FOUND",
+            "message": "앱에 등록된 기본 배송지가 없습니다.",
+        },
+    )
+
+
+def _state_has_delivery_address(state: dict) -> bool:
+    """배송지 확인 수락 전에 실제 주소가 state에 있는지 검사한다."""
+    address = state.get("delivery_address") or state.get("deliveryAddress")
+    if not isinstance(address, dict):
+        return False
+    line1 = address.get("address_line1") or address.get("addressLine1") or address.get("address")
+    line2 = address.get("address_line2") or address.get("addressLine2")
+    return bool(" ".join(str(part).strip() for part in [line1, line2] if part).strip())
+
+
+async def _address_check_retry_response(conversation_id: int, state: dict) -> AgentResponse:
+    """주소가 없는 상태에서 확인 발화가 들어오면 결제로 가지 않고 중단한다."""
+    message = "확인된 배송지가 없어서 결제를 진행할 수 없어요. 앱에 기본 배송지를 먼저 등록해 주세요."
+    patch = {
+        "stage": "address_required",
+        "delivery_address": None,
+        "pending_action": {
+            "type": "address_required",
+            "message": message,
+            "payload": {"subType": "address_required"},
+        },
+        "messages": _assistant_message_patch(message),
+        "webview_progress": None,
+    }
+    state = await runtime.update_state(conversation_id, patch)
+    return AgentResponse(
+        conversationId=conversation_id,
+        status="address_required",
+        stage="address_required",
+        assistantMessage=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=state.get("selected_product"),
+        pendingConfirmation={
+            "type": "address",
+            "message": message,
+            "payload": {"subType": "address_required"},
         },
         availableOptions=None,
         deliveryAddress=None,
         cart=state.get("cart"),
         order=_state_order_payload(state),
         payment=_state_payment_payload(state),
-        uiCommand={"type": "close_webview"},
+        uiCommand=None,
         asyncStatus=None,
         error={
             "category": "ADDRESS_ERROR",
-            "code": "ADDRESS_REQUIRED",
+            "code": "DEFAULT_ADDRESS_NOT_FOUND",
             "message": "확인된 배송지가 없어 결제를 진행할 수 없습니다.",
         },
     )
 
 
-async def _payment_webview_response(conversation_id: int, state: dict) -> AgentResponse:
-    """배송지 음성 확인 후 결제 WebView task를 직접 반환한다."""
-    message = "네, 이제 결제를 진행할게요."
-    payload = _webview_task_payload(task="payment", state=state)
+async def _payment_password_response(conversation_id: int, state: dict) -> AgentResponse:
+    """배송지 확인 후 데모 결제 비밀번호 입력 단계로 넘긴다."""
+    message = "네, 배송지 확인했어요. 이제 결제 비밀번호 6자리를 눌러주세요."
     patch = {
-        "stage": "payment_processing",
+        "stage": "payment_password_required",
         "pending_action": {
-            "type": "webview_task",
+            "type": "payment_password",
             "message": message,
-            "payload": payload,
+            "payload": {
+                "orderId": (state.get("order") or {}).get("orderId"),
+                "paymentId": (state.get("payment") or {}).get("paymentId"),
+            },
         },
         "messages": _assistant_message_patch(message),
         "webview_progress": None,
@@ -524,18 +769,95 @@ async def _payment_webview_response(conversation_id: int, state: dict) -> AgentR
     return AgentResponse(
         conversationId=conversation_id,
         status="payment_in_progress",
-        stage="payment_processing",
+        stage="payment_password_required",
         assistantMessage=message,
         recommendationId=None,
         recommendations=[],
         selectedProduct=state.get("selected_product"),
-        pendingConfirmation={"type": "webview_task", "message": message, "payload": payload},
+        pendingConfirmation={
+            "type": "payment",
+            "message": message,
+            "payload": {
+                "subType": "payment_password",
+                "orderId": (state.get("order") or {}).get("orderId"),
+                "paymentId": (state.get("payment") or {}).get("paymentId"),
+            },
+        },
         availableOptions=None,
         deliveryAddress=state.get("delivery_address"),
         cart=state.get("cart"),
         order=_state_order_payload(state),
         payment=_state_payment_payload(state),
-        uiCommand={"type": "open_webview", "task": "payment"},
+        uiCommand=None,
+        asyncStatus=None,
+        error=None,
+    )
+
+
+async def _payment_completed_response(
+    db: AsyncSession,
+    conversation_id: int,
+    state: dict,
+) -> AgentResponse:
+    """데모 결제 비밀번호 입력 후 주문 완료 응답을 만든다."""
+    order_payload = _state_order_payload(state) or {}
+    payment_payload = _state_payment_payload(state) or {}
+    order_id = order_payload.get("orderId") or (state.get("order") or {}).get("id")
+    payment_id = payment_payload.get("paymentId") or (state.get("payment") or {}).get("id")
+
+    updated_order = None
+    updated_payment = None
+    if isinstance(payment_id, int):
+        updated_payment = await payment_repository.update_payment_status_db(
+            db,
+            payment_id,
+            payment_status="paid",
+        )
+    if isinstance(order_id, int):
+        updated_order = await order_repository.update_order_status_db(
+            db,
+            order_id,
+            status="order_completed",
+        )
+
+    order_response = (
+        {"orderId": updated_order["id"], "status": updated_order["status"]}
+        if updated_order
+        else {**order_payload, "status": "order_completed"}
+    )
+    payment_response = (
+        {
+            "paymentId": updated_payment["id"],
+            "paymentStatus": updated_payment["payment_status"],
+        }
+        if updated_payment
+        else {**payment_payload, "paymentStatus": "paid"}
+    )
+    message = "결제가 완료되었어요!"
+    patch = {
+        "stage": "completed",
+        "pending_action": None,
+        "messages": _assistant_message_patch(message),
+        "order": order_response,
+        "payment": payment_response,
+        "webview_progress": None,
+    }
+    state = await runtime.update_state(conversation_id, patch)
+    return AgentResponse(
+        conversationId=conversation_id,
+        status="order_completed",
+        stage="completed",
+        assistantMessage=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=state.get("selected_product"),
+        pendingConfirmation=None,
+        availableOptions=None,
+        deliveryAddress=state.get("delivery_address"),
+        cart=state.get("cart"),
+        order=order_response,
+        payment=payment_response,
+        uiCommand=None,
         asyncStatus=None,
         error=None,
     )
@@ -1351,6 +1673,23 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         event_type="shopping_request_started",
         input_summary={"message": req.message[:200], "user_id": req.userId},
     )
+    await _emit_agent_progress(
+        channel_id=req.progressChannelId,
+        kind="searching_intro",
+        conversation_id=conv["id"],
+        payload={"username": user.get("name")},
+    )
+    extracted_keywords = _search_keywords_from_message(req.message)
+    if not _should_retry_search_prompt(req.message, extracted_keywords):
+        await _emit_agent_progress(
+            channel_id=req.progressChannelId,
+            kind="searching_refined",
+            conversation_id=conv["id"],
+            payload={
+                "message": req.message,
+                "username": user.get("name"),
+            },
+        )
     state = await runtime.start(
         user_id=req.userId,
         message=req.message,
@@ -1365,7 +1704,10 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         stage_before="idle",
         pending_action_before=None,
     )
-    return mapper.state_to_response(state, conv["id"])
+    response = mapper.state_to_response(state, conv["id"])
+    if req.progressChannelId:
+        agent_progress_service.clear_progress(req.progressChannelId)
+    return await _with_speech_segments(response)
 
 
 async def get_conversation(db: AsyncSession, conversation_id: int) -> AgentResponse:
@@ -1386,6 +1728,7 @@ async def get_conversation(db: AsyncSession, conversation_id: int) -> AgentRespo
             status=conversation["status"],
             stage=conversation["stage"],
             assistantMessage=conversation.get("summary") or "이전 대화 상태를 불러왔습니다.",
+            message=conversation.get("summary") or "이전 대화 상태를 불러왔습니다.",
             recommendationId=None,
             recommendations=[],
             selectedProduct=None,
@@ -1409,7 +1752,8 @@ async def get_conversation(db: AsyncSession, conversation_id: int) -> AgentRespo
         event_type="conversation_recovered",
         output_summary={"stage": snapshot.values.get("stage"), "intent": snapshot.values.get("intent")},
     )
-    return mapper.state_to_response(snapshot.values, conversation_id)
+    response = mapper.state_to_response(snapshot.values, conversation_id)
+    return await _with_speech_segments(response)
 
 
 async def send_message(db: AsyncSession, conversation_id: int, req: MessageRequest) -> AgentResponse:
@@ -1425,36 +1769,100 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         })
 
     pending_action_before = _pending_action_type_from(snapshot.values)
+    should_emit_search_progress = (
+        (snapshot.values.get("stage") in {"idle", "cart_shopping"})
+        and pending_action_before in {None, "continue_shopping"}
+    )
+    if should_emit_search_progress:
+        user = await user_repository.get_user_by_id_db(
+            db,
+            int(snapshot.values["user_id"]),
+        )
+        await _emit_agent_progress(
+            channel_id=req.progressChannelId,
+            kind="searching_intro",
+            conversation_id=conversation_id,
+            payload={"username": user.get("name") if user else None},
+        )
+        extracted_keywords = _search_keywords_from_message(req.message)
+        if not _should_retry_search_prompt(req.message, extracted_keywords):
+            await _emit_agent_progress(
+                channel_id=req.progressChannelId,
+                kind="searching_refined",
+                conversation_id=conversation_id,
+                payload={
+                    "message": req.message,
+                    "username": user.get("name") if user else None,
+                },
+            )
     if (
         snapshot.values.get("stage") == "cart_shopping"
         and pending_action_before == "continue_shopping"
         and _is_checkout_request(req.message)
     ):
-        response = await _address_required_response(conversation_id, snapshot.values)
+        response = await _address_required_or_default_response(
+            db,
+            conversation_id,
+            snapshot.values,
+        )
         await conversation_repository.update_conversation_db(
             db,
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
+        response = await _with_speech_segments(response)
+        if req.progressChannelId:
+            agent_progress_service.clear_progress(req.progressChannelId)
         return response
 
-    if (
-        pending_action_before == "address_confirm"
-        and _is_explicit_payment_confirmation(req.message)
+    if _is_address_confirmation_stage(snapshot.values, pending_action_before) and (
+        _is_explicit_payment_confirmation(req.message)
     ):
-        response = (
-            await _payment_webview_response(conversation_id, snapshot.values)
-            if _state_has_delivery_address(snapshot.values)
-            else await _address_check_retry_response(conversation_id, snapshot.values)
-        )
+        response = await _payment_password_response(conversation_id, snapshot.values)
         await conversation_repository.update_conversation_db(
             db,
             conversation_id,
             {"status": response.status, "stage": response.stage},
         )
+        response = await _with_speech_segments(response)
+        if req.progressChannelId:
+            agent_progress_service.clear_progress(req.progressChannelId)
+        return response
+
+    if pending_action_before == "payment_password" and _is_payment_password_entry(req.message):
+        response = await _payment_completed_response(db, conversation_id, snapshot.values)
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {"status": response.status, "stage": response.stage},
+        )
+        response = await _with_speech_segments(response)
+        if req.progressChannelId:
+            agent_progress_service.clear_progress(req.progressChannelId)
         return response
 
     state = await runtime.resume(conversation_id=conversation_id, message=req.message)
+    if _is_address_confirmation_stage(snapshot.values, pending_action_before) and (
+        state.get("intent") == "confirm" or _is_explicit_payment_confirmation(req.message)
+    ):
+        payment_state = {
+            **state,
+            "delivery_address": state.get("delivery_address") or snapshot.values.get("delivery_address"),
+            "order": state.get("order") or snapshot.values.get("order"),
+            "payment": state.get("payment") or snapshot.values.get("payment"),
+            "cart": state.get("cart") or snapshot.values.get("cart"),
+        }
+        response = await _payment_password_response(conversation_id, payment_state)
+        await conversation_repository.update_conversation_db(
+            db,
+            conversation_id,
+            {"status": response.status, "stage": response.stage},
+        )
+        response = await _with_speech_segments(response)
+        if req.progressChannelId:
+            agent_progress_service.clear_progress(req.progressChannelId)
+        return response
+
     user_id = int(snapshot.values["user_id"])
     state = await _run_post_graph_persistence(
         db,
@@ -1487,7 +1895,11 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
                 recommendation_item_id=int(recommendation_item_id),
                 state=state,
             )
-    return mapper.state_to_response(state, conversation_id)
+    response = mapper.state_to_response(state, conversation_id)
+    response = await _with_speech_segments(response)
+    if req.progressChannelId:
+        agent_progress_service.clear_progress(req.progressChannelId)
+    return response
 
 
 async def confirm_action(db: AsyncSession, conversation_id: int, req: ConfirmRequest) -> AgentResponse:
@@ -1534,4 +1946,181 @@ async def confirm_action(db: AsyncSession, conversation_id: int, req: ConfirmReq
             recommendation_item_id=int(recommendation_item_id),
             state=state,
         )
-    return mapper.state_to_response(state, conversation_id)
+    response = mapper.state_to_response(state, conversation_id)
+    return await _with_speech_segments(response)
+
+
+async def _with_speech_segments(response: AgentResponse) -> AgentResponse:
+    message = (response.assistantMessage or response.message or "").strip()
+    if not message:
+        return response
+
+    request_id = f"agent_{response.conversationId}_{uuid4().hex}"
+    speech_segments = await voice_service.build_agent_speech_segments(
+        message,
+        request_id=request_id,
+        prefer_persistent_cache=True,
+    )
+    return response.model_copy(
+        update={
+            "message": response.message or message,
+            "speechMode": "segmented" if speech_segments else None,
+            "speechSegments": speech_segments or None,
+        }
+    )
+
+
+async def _progress_prompt_response(
+    *,
+    kind: str,
+    conversation_id: int,
+    payload: object | None = None,
+) -> AgentResponse:
+    message = _prompt_message(kind, payload)
+    response = AgentResponse(
+        conversationId=conversation_id,
+        status="progress",
+        stage=kind,
+        assistantMessage=message,
+        message=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=None,
+        pendingConfirmation=None,
+        availableOptions=None,
+        deliveryAddress=None,
+        cart=None,
+        order=None,
+        payment=None,
+        uiCommand=None,
+        asyncStatus={"kind": "agent_progress"},
+        error=None,
+    )
+    return await _with_speech_segments(response)
+
+
+async def _emit_agent_progress(
+    *,
+    channel_id: str | None,
+    kind: str,
+    conversation_id: int,
+    payload: object | None = None,
+) -> None:
+    if not channel_id:
+        return
+    try:
+        response = await _progress_prompt_response(
+            kind=kind,
+            conversation_id=conversation_id,
+            payload=payload,
+        )
+        agent_progress_service.emit_progress(
+            channel_id,
+            response.model_dump(mode="json"),
+        )
+    except Exception as error:
+        print(
+            f"[agent_progress] emit failed channel={channel_id} "
+            f"kind={kind} error={error}"
+        )
+
+
+async def generate_prompt_response(req: PromptRequest) -> AgentResponse:
+    message = _prompt_message(req.kind, req.payload)
+    response = AgentResponse(
+        conversationId=req.conversationId or 0,
+        status="prompt",
+        stage=req.kind,
+        assistantMessage=message,
+        message=message,
+        recommendationId=None,
+        recommendations=[],
+        selectedProduct=None,
+        pendingConfirmation=None,
+        availableOptions=None,
+        deliveryAddress=None,
+        cart=None,
+        order=None,
+        payment=None,
+        uiCommand=None,
+        asyncStatus=None,
+        error=None,
+    )
+    return await _with_speech_segments(response)
+
+
+def _prompt_message(kind: str, payload: object | None) -> str:
+    data = payload if isinstance(payload, dict) else {}
+    username = str(
+        data.get("username")
+        or data.get("userName")
+        or data.get("name")
+        or ""
+    ).strip()
+    title = str(data.get("title") or "").strip()
+    quantity_info = str(data.get("quantityInfo") or data.get("quantity_info") or "").strip()
+    price_text = str(data.get("priceText") or data.get("price_text") or "").strip()
+    badge_text = str(data.get("badgeText") or data.get("badge_text") or "").strip()
+    completion_text = str(data.get("text") or "").strip()
+    raw_message = str(data.get("message") or data.get("query") or "").strip()
+
+    def _object_particle(word: str) -> str:
+        normalized = word.strip()
+        if not normalized:
+            return "을"
+        last_char = normalized[-1]
+        code = ord(last_char)
+        if 0xAC00 <= code <= 0xD7A3:
+            has_batchim = (code - 0xAC00) % 28 != 0
+            return "을" if has_batchim else "를"
+        return "를"
+
+    prompts = {
+        "initial_prompt": (
+            f"{username} 님. 안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
+            if username
+            else "안녕하세요. 어떤 상품을 구매하고 싶으신가요?"
+        ),
+        "searching_product": "상품을 찾는 중이에요.",
+        "searching_intro": "네, 잠시만 기다려주세요.",
+        "searching_refined": "상품을 고르는 중이에요.",
+        "ask_quantity": "몇 개를 담을까요?",
+        "confirm_address": "배송지를 확인해주세요.",
+        "pin_prompt": "비밀번호 6자리를 입력해주세요.",
+        "ask_more_or_checkout": "다른 상품을 더 구매하실래요? 아니면 결제를 진행할까요?",
+        "error_retry": "잠시 문제가 생겼어요. 다시 시도해볼게요.",
+        "negative_restart": "다른 상품을 찾아볼게요. 어떤 상품을 구매하고 싶으신가요?",
+        "more_shopping": "좋아요. 어떤 상품을 더 구매하고 싶으신가요?",
+        "stt_retry": "잘 못 들었어요. 다시 말씀해주세요.",
+        "stt_retry_gentle": "천천히 말씀해주셔도 괜찮아요. 다시 말씀해주세요.",
+        "adding_to_cart": "상품을 장바구니에 담을게요.",
+        "cart_completed": "상품을 모두 담았어요!",
+        "processing_payment": "확인 중이에요.",
+        "payment_completed": completion_text or "결제가 완료되었어요.",
+        "farewell_prompt": "오늘도 딸랑구를 이용해주셔서 감사해요. 다음에 또 봐요!",
+    }
+
+    if kind == "mock_product" and title:
+        quantity_phrase = quantity_info or "1개"
+        price_phrase = price_text or "가격을 확인했어요."
+        badge_phrase = badge_text or "리뷰가 좋고 30일 중 가장 싼 가격이에요!"
+        return f"{title}가 {quantity_phrase} {price_phrase}이에요. {badge_phrase} 이 상품을 구매할까요?"
+
+    if kind == "searching_intro":
+        return prompts["searching_intro"]
+
+    if kind in {"searching_product", "searching_refined"}:
+        keywords = _search_keywords_from_message(raw_message)
+        if kind == "searching_product" and _should_retry_search_prompt(raw_message, keywords):
+            return "찾으시는 상품을 다시 말씀해주세요."
+        if keywords:
+            if username:
+                return (
+                    f"{username} 님을 위한 {keywords}{_object_particle(keywords)} 찾고 있어요."
+                )
+            return f"{keywords}{_object_particle(keywords)} 찾고 있어요."
+        if username:
+            return f"{username} 님을 위한 상품을 찾고 있어요."
+        return prompts["searching_refined"]
+
+    return prompts.get(kind, completion_text or "잠시만요. 다시 확인해볼게요.")
