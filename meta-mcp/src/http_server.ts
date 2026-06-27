@@ -87,5 +87,5 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.error(`[meta-shopping-mcp] HTTP/SSE server listening on ${PORT}`);
+  console.log(`[meta-shopping-mcp] HTTP/SSE server listening on ${PORT}`);
 });
