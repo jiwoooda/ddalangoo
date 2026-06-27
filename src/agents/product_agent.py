@@ -24,6 +24,16 @@ from src.utils.agent_logger import agent_logger
 ALL_PLATFORMS = ["naver", "coupang", "kurly"]
 
 
+def _select_platforms(state: dict, context: dict) -> list[str]:
+    """플랫폼 목록 선택. MVP_MODE=kurly 또는 USE_REAL_BROWSER=true 이면 kurly 단독."""
+    import os
+    mvp = os.getenv("MVP_MODE", "").strip().lower() == "kurly"
+    real_browser = os.getenv("USE_REAL_BROWSER", "false").strip().lower() == "true"
+    if mvp or real_browser:
+        return ["kurly"]
+    return list(ALL_PLATFORMS)
+
+
 def _no_results_message(keywords: list[str]) -> str:
     label = keywords[0] if keywords else None
     if label:
@@ -273,8 +283,9 @@ def product_agent_node(state: ShoppingState) -> dict:
     query = " ".join(keywords)
     sort = CONDITION_MAP.get(condition, "relevance") if condition else "relevance"
 
-    agent_logger.log(f"[product_agent] 검색 | query={query}  platforms={ALL_PLATFORMS}")
-    raw_results = search_products(query=query, platforms=ALL_PLATFORMS, condition=sort)
+    platforms = _select_platforms(state, recommendation_context)
+    agent_logger.log(f"[product_agent] 검색 | query={query}  platforms={platforms}")
+    raw_results = search_products(query=query, platforms=platforms, condition=sort)
     candidates = _filter_results(raw_results, exclude_keywords)
 
     if not candidates:
