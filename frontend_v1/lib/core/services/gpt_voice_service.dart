@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import 'android_native_pcm_recording_service.dart';
+import 'android_native_speech_recognition_service.dart';
 import 'gemini_voice_service.dart';
 import '../network/api_client.dart';
 import '../utils/latency_logger.dart';
@@ -28,28 +30,45 @@ class GptVoiceService {
   static const Duration _defaultRecordingStartCooldown = Duration(
     milliseconds: 260,
   );
-  static const Duration _androidRecordingStartCooldown = Duration(
+  static const Duration _androidFileRecordingStartCooldown = Duration(
     milliseconds: 240,
+  );
+  static const Duration _androidNativeRecordingStartCooldown = Duration(
+    milliseconds: 0,
   );
 
   // STT 프롬프트는 백엔드 voice_service.py에서 관리한다.
 
   AudioRecorder? _recorder;
+  final AndroidNativePcmRecordingService _nativePcmRecorder =
+      AndroidNativePcmRecordingService.instance;
+  final AndroidNativeSpeechRecognitionService _nativeSpeechRecognizer =
+      AndroidNativeSpeechRecognitionService.instance;
   final GeminiVoiceService _geminiTts = GeminiVoiceService.instance;
   Future<Directory?>? _sttRecordingDirectoryFuture;
   String? _activeRecordingPath;
   bool _isRecording = false;
   DateTime? _lastRecordingStartedAt;
+  bool _nativeAndroidAsrAvailable = false;
+  bool _nativeAndroidPcmAvailable = false;
 
   bool get isRecording => _isRecording;
   bool get isSpeaking => _geminiTts.isSpeaking;
+  bool get isUsingNativeAndroidAsr => _shouldUseNativeAndroidAsr;
   DateTime? get lastTtsPlaybackEndedAt => _geminiTts.lastPlaybackEndedAt;
   DateTime? get lastRecordingStartedAt => _lastRecordingStartedAt;
   bool get _supportsFileAudioFlow => !kIsWeb;
+  bool get _shouldUseNativeAndroidAsr =>
+      !kIsWeb && Platform.isAndroid && _nativeAndroidAsrAvailable;
+  bool get _shouldUseNativeAndroidPcm =>
+      !kIsWeb && Platform.isAndroid && _nativeAndroidPcmAvailable;
   AudioRecorder get _activeRecorder => _recorder ??= AudioRecorder();
   Duration get _recordingStartCooldown {
+    if (_shouldUseNativeAndroidAsr || _shouldUseNativeAndroidPcm) {
+      return _androidNativeRecordingStartCooldown;
+    }
     if (Platform.isAndroid) {
-      return _androidRecordingStartCooldown;
+      return _androidFileRecordingStartCooldown;
     }
     return _defaultRecordingStartCooldown;
   }
@@ -65,11 +84,34 @@ class GptVoiceService {
     Duration interval = const Duration(milliseconds: 180),
   }) {
     _ensureRecordingSupported();
+    if (_shouldUseNativeAndroidAsr) {
+      return _nativeSpeechRecognizer.amplitudeStream;
+    }
+    if (_shouldUseNativeAndroidPcm) {
+      return _nativePcmRecorder.amplitudeStream;
+    }
     return _activeRecorder.onAmplitudeChanged(interval);
+  }
+
+  Stream<NativeSpeechRecognitionEvent> onRecognitionEvent() {
+    if (_shouldUseNativeAndroidAsr) {
+      return _nativeSpeechRecognizer.recognitionEventStream;
+    }
+    return const Stream<NativeSpeechRecognitionEvent>.empty();
   }
 
   Future<void> init() async {
     await _geminiTts.init();
+    if (!kIsWeb && Platform.isAndroid) {
+      _nativeAndroidAsrAvailable = await _nativeSpeechRecognizer.init();
+      _nativeAndroidPcmAvailable = await _nativePcmRecorder.init();
+      debugPrint(
+        '🎙️ [STT] native_android_asr_available=$_nativeAndroidAsrAvailable',
+      );
+      debugPrint(
+        '🎙️ [STT] native_android_pcm_available=$_nativeAndroidPcmAvailable',
+      );
+    }
     if (!_supportsFileAudioFlow) {
       return;
     }
@@ -92,22 +134,24 @@ class GptVoiceService {
       await cancelRecording();
     }
 
-    // 직전 TTS 재생이 끝났더라도 오디오 포커스/세션 정리가 지연될 수 있어
-    // 바로 녹음을 시작하면 후속 턴에서 무음 파일이 생기기도 한다.
-    await _geminiTts.stopSpeaking();
-    final stopSpeakingCompletedAt = DateTime.now();
-    debugPrint(
-      '🎙️ [STT] tts_stop_confirmed '
-      'at=${stopSpeakingCompletedAt.toIso8601String()} '
-      'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, stopSpeakingCompletedAt)}',
-    );
-    await Future<void>.delayed(_recordingStartCooldown);
-    final cooldownEndedAt = DateTime.now();
-    debugPrint(
-      '🎙️ [STT] recording_cooldown_elapsed '
-      'at=${cooldownEndedAt.toIso8601String()} '
-      'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, cooldownEndedAt)}',
-    );
+    if (_geminiTts.isSpeaking) {
+      await _geminiTts.stopSpeaking();
+      final stopSpeakingCompletedAt = DateTime.now();
+      debugPrint(
+        '🎙️ [STT] tts_stop_confirmed '
+        'at=${stopSpeakingCompletedAt.toIso8601String()} '
+        'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, stopSpeakingCompletedAt)}',
+      );
+    }
+    if (_recordingStartCooldown > Duration.zero) {
+      await Future<void>.delayed(_recordingStartCooldown);
+      final cooldownEndedAt = DateTime.now();
+      debugPrint(
+        '🎙️ [STT] recording_cooldown_elapsed '
+        'at=${cooldownEndedAt.toIso8601String()} '
+        'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, cooldownEndedAt)}',
+      );
+    }
 
     final recorder = _activeRecorder;
     final hasPermission = await recorder.hasPermission();
@@ -116,25 +160,51 @@ class GptVoiceService {
     }
 
     try {
-      final encoder = await _resolveRecordingEncoder(recorder);
-      final path = await _createSttRecordingPath(
-        extension: _extensionForEncoder(encoder),
-      );
-      _activeRecordingPath = path;
-      await _startRecorderWithRetry(
-        recorder: recorder,
-        encoder: encoder,
-        path: path,
-      );
+      String? encoderName;
+      String? mimeType;
+      String? path;
+      if (_shouldUseNativeAndroidAsr) {
+        await _nativeSpeechRecognizer.startListening();
+        encoderName = 'androidSpeechRecognizer';
+        mimeType = 'text/plain';
+      } else {
+        path = await _createSttRecordingPath(
+          extension: _shouldUseNativeAndroidPcm
+              ? 'wav'
+              : _extensionForEncoder(await _resolveRecordingEncoder(recorder)),
+        );
+        _activeRecordingPath = path;
+
+        if (_shouldUseNativeAndroidPcm) {
+          await _nativePcmRecorder.startRecording(path: path);
+          encoderName = 'pcm16Wav';
+          mimeType = 'audio/wav';
+        } else {
+          final encoder = await _resolveRecordingEncoder(recorder);
+          await _startRecorderWithRetry(
+            recorder: recorder,
+            encoder: encoder,
+            path: path,
+          );
+          encoderName = encoder.name;
+          mimeType = _mimeTypeForEncoder(encoder);
+        }
+      }
+
       _lastRecordingStartedAt = DateTime.now();
       _isRecording = true;
       debugPrint(
         '🎙️ [STT] recording_started '
         'at=${_lastRecordingStartedAt!.toIso8601String()} '
         'deltaSinceTtsEndMs=${_elapsedMsSince(lastTtsPlaybackEndedAt, _lastRecordingStartedAt!)} '
-        'path=$path '
-        'encoder=${encoder.name} '
-        'mimeType=${_mimeTypeForEncoder(encoder)}',
+        'path=${path ?? 'none'} '
+        'engine=${_shouldUseNativeAndroidAsr
+            ? 'android_speech_recognizer'
+            : _shouldUseNativeAndroidPcm
+            ? 'android_audio_record'
+            : 'record_plugin'} '
+        'encoder=$encoderName '
+        'mimeType=$mimeType',
       );
     } catch (e) {
       _isRecording = false;
@@ -155,8 +225,17 @@ class GptVoiceService {
     String? cleanupPath;
 
     try {
-      final recorder = _activeRecorder;
-      final recordedPath = await recorder.stop();
+      if (_shouldUseNativeAndroidAsr) {
+        final transcript = await _nativeSpeechRecognizer.stopListening();
+        debugPrint(
+          '🎙️ [STT] native_asr_completed length=${transcript.trim().length}',
+        );
+        return transcript;
+      }
+
+      final recordedPath = _shouldUseNativeAndroidPcm
+          ? await _nativePcmRecorder.stopRecording()
+          : await _activeRecorder.stop();
       final path = recordedPath ?? _activeRecordingPath;
       cleanupPath = path;
       _activeRecordingPath = null;
@@ -308,6 +387,8 @@ class GptVoiceService {
   }
 
   Future<void> dispose() async {
+    await _nativeSpeechRecognizer.dispose();
+    await _nativePcmRecorder.dispose();
     await _disposeRecorder();
   }
 
@@ -320,7 +401,13 @@ class GptVoiceService {
     _activeRecordingPath = null;
     _lastRecordingStartedAt = null;
     debugPrint('🎙️ [STT] recording_cancel_requested path=$path');
-    await _activeRecorder.cancel();
+    if (_shouldUseNativeAndroidAsr) {
+      await _nativeSpeechRecognizer.cancelListening();
+    } else if (_shouldUseNativeAndroidPcm) {
+      await _nativePcmRecorder.cancelRecording();
+    } else {
+      await _activeRecorder.cancel();
+    }
     if (path != null) {
       await _deleteIfExists(path);
     }

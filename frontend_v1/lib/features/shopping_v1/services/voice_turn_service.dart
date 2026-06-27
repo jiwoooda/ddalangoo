@@ -1,4 +1,5 @@
 import '../../../core/services/gpt_voice_service.dart';
+import '../../../core/services/android_native_speech_recognition_service.dart';
 import '../../../core/services/gemini_voice_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
@@ -39,6 +40,10 @@ class VoiceTurnService {
     Duration interval = const Duration(milliseconds: 200),
   }) => _voiceService.onAmplitudeChanged(interval: interval);
 
+  Stream<NativeSpeechRecognitionEvent> onRecognitionEvent() =>
+      _voiceService.onRecognitionEvent();
+
+  bool get isUsingNativeAndroidAsr => _voiceService.isUsingNativeAndroidAsr;
   DateTime? get lastTtsPlaybackEndedAt => _voiceService.lastTtsPlaybackEndedAt;
   DateTime? get lastRecordingStartedAt => _voiceService.lastRecordingStartedAt;
 

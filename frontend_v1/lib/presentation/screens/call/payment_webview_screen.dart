@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../features/shopping_v1/widgets/dallang_response_text.dart';
+import '../../../features/shopping_v1/widgets/shopping_progress_steps.dart';
 import '../../providers/call_provider.dart';
 import 'kurly_webview_automation.dart';
 
@@ -296,6 +297,10 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     try {
       _pendingSubmitResult = result;
       _pendingSubmitExtraData = extraData;
+      // 화면을 먼저 닫은 뒤 onResult 호출해야 TTS가 이전 화면에서 재생됨
+      if (navigator.mounted) {
+        navigator.pop();
+      }
       if (widget.onResult != null) {
         await widget.onResult!(result, extraData);
       } else {
@@ -310,9 +315,6 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       }
       _pendingSubmitResult = null;
       _pendingSubmitExtraData = null;
-      if (navigator.mounted) {
-        navigator.pop();
-      }
     } catch (error) {
       if (!mounted) rethrow;
       setState(() {
@@ -764,6 +766,32 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     return context.read<CallProvider>().webviewTargetLabel;
   }
 
+  // automation step → 0.0~1.0 진행도
+  double get _automationProgress {
+    switch (_automationStep) {
+      case 'opening_shop':
+        return 0.12;
+      case 'logging_in':
+      case 'login_required':
+      case 'login_retry_required':
+        return 0.28;
+      case 'searching_product':
+        return 0.45;
+      case 'opening_product':
+        return 0.58;
+      case 'adding_to_cart':
+        return 0.78;
+      case 'cart_added':
+        return 1.0;
+      case 'cart_failed':
+      case 'login_failed':
+      case 'sync_failed':
+        return 1.0;
+      default:
+        return 0.05;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final canSubmitResult =
@@ -771,10 +799,22 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         _usesExternalResultHandler ||
         (widget.orderId != null && widget.paymentId != null);
     final assistantMessage = widget.assistantMessage?.trim() ?? '';
+    final mediaQuery = MediaQuery.of(context);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF9FCFB),
       appBar: AppBar(
-        title: Text(_targetLabel()),
+        backgroundColor: const Color(0xFFF9FCFB),
+        elevation: 0,
+        title: Text(
+          _targetLabel(),
+          style: const TextStyle(
+            fontFamily: 'Pretendard',
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF223140),
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: _isSubmitting
@@ -792,155 +832,189 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
                           }
                         : null,
                   ),
-            child: const Text('닫기'),
+            child: const Text(
+              '닫기',
+              style: TextStyle(color: Color(0xFFD77B9E)),
+            ),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          if (assistantMessage.isNotEmpty)
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
-              child: DallangResponseText(
-                text: assistantMessage,
-                fontSize: 28,
-                maxLines: 3,
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+              child: ShoppingProgressSteps(currentStep: _currentProgressStep),
+            ),
+            if (assistantMessage.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+                child: DallangResponseText(
+                  text: assistantMessage,
+                  fontSize: 24,
+                  maxLines: 2,
+                ),
+              ),
+            _buildStatusBubble(context),
+            Expanded(
+              child: Stack(
+                children: [
+                  if (_controller != null)
+                    WebViewWidget(controller: _controller!)
+                  else
+                    const Center(child: CircularProgressIndicator()),
+                  if (!_pageLoaded)
+                    const Center(child: CircularProgressIndicator()),
+                ],
               ),
             ),
-          Expanded(
-            child: Stack(
-              children: [
-                if (_controller != null)
-                  WebViewWidget(controller: _controller!)
-                else
-                  const Center(child: CircularProgressIndicator()),
-                if (!_pageLoaded)
-                  const Center(child: CircularProgressIndicator()),
-                Positioned(
-                  top: 12,
-                  left: 16,
-                  right: 16,
-                  child: _buildStatusBubble(context),
+            if (canSubmitResult || widget.previewMode)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  12,
+                  20,
+                  mediaQuery.padding.bottom > 0
+                      ? mediaQuery.padding.bottom
+                      : 16,
                 ),
-              ],
-            ),
-          ),
-          if (canSubmitResult || widget.previewMode)
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                 child: _automationDone && _canRetryAutomation
                     ? Row(
                         children: [
                           Expanded(
-                            child: FilledButton.tonal(
+                            child: _webviewBottomButton(
+                              label: _isInterrupting ? '중단 요청 중...' : '상품 담기 중단',
                               onPressed: _isSubmitting || _isInterrupting
                                   ? null
                                   : _interruptWebviewProgress,
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(54),
-                                foregroundColor: const Color(0xFFE8325A),
-                              ),
-                              child: Text(
-                                _isInterrupting ? '중단 요청 중...' : '중단하기',
-                              ),
+                              isDestructive: true,
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: FilledButton.tonal(
+                            child: _webviewBottomButton(
+                              label: '다시 시도',
                               onPressed: _canRetryAutomation
                                   ? _retryAutomation
                                   : null,
-                              child: const Text('다시 시도'),
                             ),
                           ),
                         ],
                       )
-                    : SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.tonal(
-                          onPressed: _isSubmitting || _isInterrupting
-                              ? null
-                              : _interruptWebviewProgress,
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(54),
-                            foregroundColor: const Color(0xFFE8325A),
-                          ),
-                          child: Text(_isInterrupting ? '중단 요청 중...' : '중단하기'),
-                        ),
+                    : _webviewBottomButton(
+                        label: _isInterrupting ? '중단 요청 중...' : '상품 담기 중단',
+                        onPressed: _isSubmitting || _isInterrupting
+                            ? null
+                            : _interruptWebviewProgress,
+                        isDestructive: true,
+                        fullWidth: true,
                       ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildStatusBubble(BuildContext context) {
-    final targetLabel = _targetLabel();
-    final statusText = widget.previewStatusText ?? _automationMessage;
-    final helperText = widget.previewHelperText ?? _helperTextForStep();
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF8FB).withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFF1C8D4)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFE8325A).withValues(alpha: 0.08),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+  Widget _webviewBottomButton({
+    required String label,
+    VoidCallback? onPressed,
+    bool isDestructive = false,
+    bool fullWidth = false,
+  }) {
+    final button = SizedBox(
+      width: fullWidth ? double.infinity : null,
+      height: 56,
+      child: TextButton(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          backgroundColor: isDestructive
+              ? const Color(0xFFFFF0F4)
+              : const Color(0xFFF3F5F8),
+          foregroundColor: isDestructive
+              ? const Color(0xFFD77B9E)
+              : const Color(0xFF334152),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
-        ],
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'Pretendard',
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            targetLabel,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFFE8325A),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            statusText,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF333333),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            helperText,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF666666),
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              minHeight: 8,
-              value: _automationDone
-                  ? 1.0
-                  : (_loadingProgress <= 0 ? null : _loadingProgress / 100),
-              backgroundColor: const Color(0xFFF8DCE5),
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFFE8325A),
+    );
+    return button;
+  }
+
+  int get _currentProgressStep {
+    switch (_automationStep) {
+      case 'opening_shop':
+      case 'logging_in':
+      case 'login_required':
+      case 'login_retry_required':
+      case 'login_failed':
+      case 'searching_product':
+      case 'opening_product':
+      case 'adding_to_cart':
+        return 2;
+      case 'cart_added':
+        return 2;
+      default:
+        return 2;
+    }
+  }
+
+  Widget _buildStatusBubble(BuildContext context) {
+    final statusText = widget.previewStatusText ?? _automationMessage;
+    final progress = _automationProgress;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8FB),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFF1C8D4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              statusText,
+              style: const TextStyle(
+                fontFamily: 'Pretendard',
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF223140),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: progress),
+                duration: const Duration(milliseconds: 600),
+                curve: Curves.easeInOut,
+                builder: (context, value, _) => LinearProgressIndicator(
+                  minHeight: 8,
+                  value: value,
+                  backgroundColor: const Color(0xFFF8DCE5),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    Color(0xFFD77B9E),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

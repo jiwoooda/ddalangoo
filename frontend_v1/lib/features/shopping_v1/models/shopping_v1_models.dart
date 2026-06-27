@@ -175,6 +175,7 @@ class CheckoutSummary {
     required this.address,
     required this.items,
     required this.totalPrice,
+    this.deliveryRequest = '',
   });
 
   final String userName;
@@ -182,6 +183,7 @@ class CheckoutSummary {
   final String address;
   final List<CartItemViewData> items;
   final int totalPrice;
+  final String deliveryRequest;
 
   String get totalPriceText => '${_formatPrice(totalPrice)}원';
 

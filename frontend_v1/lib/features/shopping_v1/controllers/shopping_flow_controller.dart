@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
+import '../../../core/services/android_native_speech_recognition_service.dart';
 import '../../../core/services/stt_vad_response_log_service.dart';
 import '../../../core/network/api_client.dart';
 import '../models/shopping_v1_models.dart';
@@ -38,6 +39,7 @@ class ShoppingFlowController extends ChangeNotifier {
   static const bool _forceSilentDemoTts = bool.fromEnvironment(
     'SHOPPING_V1_SILENT_TTS',
   );
+  static const bool textInputMode = bool.fromEnvironment('TEXT_INPUT_MODE');
 
   ShoppingFlowController({
     ShoppingAgentService? agentService,
@@ -51,6 +53,7 @@ class ShoppingFlowController extends ChangeNotifier {
   ShoppingStep _step = ShoppingStep.askProduct;
   VoiceTurnState _voiceTurnState = VoiceTurnState.idle;
   String _assistantText = '';
+  int _assistantTtsDurationMs = 0;
   String? _latestTranscript;
   ProductViewData? _currentProduct;
   final List<CartItemViewData> _cartItems = [];
@@ -74,6 +77,8 @@ class ShoppingFlowController extends ChangeNotifier {
   WebviewTaskViewData? _pendingWebviewTask;
   String? _activeSearchKeyword;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
+  StreamSubscription<NativeSpeechRecognitionEvent>?
+  _recognitionEventSubscription;
   Timer? _cartTimer;
   Timer? _paymentTimer;
   Timer? _completionSequenceTimer;
@@ -102,10 +107,12 @@ class ShoppingFlowController extends ChangeNotifier {
   int _turnContinuationCount = 0;
   bool _closeAppRequested = false;
   int _agentProgressRunId = 0;
+  bool _suppressAutoVoiceReply = false;
 
   ShoppingStep get step => _step;
   VoiceTurnState get voiceTurnState => _voiceTurnState;
   String get assistantText => _assistantText;
+  int get assistantTtsDurationMs => _assistantTtsDurationMs;
   String? get latestTranscript => _latestTranscript;
   ProductViewData? get currentProduct => _currentProduct;
   List<CartItemViewData> get cartItems => List.unmodifiable(_cartItems);
@@ -133,6 +140,7 @@ class ShoppingFlowController extends ChangeNotifier {
   bool get _shouldBypassTtsForDemo => _forceSilentDemoTts;
   bool get _isAndroidRuntime =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  bool get _isNativeAsrMode => _voiceTurnService.isUsingNativeAndroidAsr;
   bool _isActiveEpoch(int epoch) => epoch == _speakEpoch;
   bool _canContinueUserRecording(int epoch) {
     return _isActiveEpoch(epoch) &&
@@ -172,11 +180,11 @@ class ShoppingFlowController extends ChangeNotifier {
   List<String> get suggestedReplies {
     switch (_step) {
       case ShoppingStep.askProduct:
-        return const ['사과 찾아줘', '우유 사고 싶어', '빵 추천해줘'];
+        return const ['토마토 사고 싶어', '삼겹살 1근 구매해줘', '감귤 2박스 담아줘'];
       case ShoppingStep.askQuantity:
         return const ['한 개', '두 개', '세 개'];
       case ShoppingStep.askMoreOrCheckout:
-        return const ['결제할게', '더 담을래', '이제 됐어'];
+        return const ['결제할게', '다른 상품 더 담을래'];
       case ShoppingStep.error:
         return const ['다시 말할게', '처음부터 할게'];
       case ShoppingStep.searchingProduct:
@@ -272,6 +280,7 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   Future<void> onVoiceButtonTap() async {
+    _suppressAutoVoiceReply = false;
     if (_voiceTurnState == VoiceTurnState.userRecording) {
       await _finishRecording(epoch: _speakEpoch);
       return;
@@ -286,6 +295,7 @@ class ShoppingFlowController extends ChangeNotifier {
     if (normalizedReply.isEmpty) {
       return;
     }
+    _suppressAutoVoiceReply = false;
     _latestTranscript = normalizedReply;
     notifyListeners();
     await _handleUserTranscript(normalizedReply);
@@ -310,6 +320,28 @@ class ShoppingFlowController extends ChangeNotifier {
     }
     _pin = _pin.substring(0, _pin.length - 1);
     notifyListeners();
+  }
+
+  Future<void> stopListeningForTextInput() async {
+    _suppressAutoVoiceReply = true;
+    if (_voiceTurnState == VoiceTurnState.userCanSpeak ||
+        _voiceTurnState == VoiceTurnState.userRecording) {
+      _cancelVoiceTimers(keepCartAndPaymentTimers: true);
+      await _voiceTurnService.cancelRecording();
+      _voiceTurnState = VoiceTurnState.idle;
+      notifyListeners();
+    }
+  }
+
+  Future<void> submitTextInput(String text) async {
+    _suppressAutoVoiceReply = true;
+    _cancelVoiceTimers(keepCartAndPaymentTimers: true);
+    await _voiceTurnService.cancelRecording();
+    await _handleUserTranscript(text.trim());
+  }
+
+  void setTextInputMode(bool enabled) {
+    _suppressAutoVoiceReply = enabled;
   }
 
   Future<void> _handleUserTranscript(String transcript) async {
@@ -509,7 +541,7 @@ class ShoppingFlowController extends ChangeNotifier {
           await _presentPrompt(
             'confirm_address',
             nextStep: ShoppingStep.confirmAddress,
-            expectVoiceReply: false,
+            expectVoiceReply: true,
           );
           return;
         }
@@ -523,7 +555,7 @@ class ShoppingFlowController extends ChangeNotifier {
           response.assistantMessage,
           speechSegments: response.speechSegments,
           nextStep: ShoppingStep.confirmAddress,
-          expectVoiceReply: false,
+          expectVoiceReply: true,
         );
         return;
       case ShoppingStep.enterPassword:
@@ -841,6 +873,9 @@ class ShoppingFlowController extends ChangeNotifier {
     _assistantText = hasSegmentedSpeech
         ? speechSegments.first.text.trim()
         : text;
+    _assistantTtsDurationMs = hasSegmentedSpeech
+        ? speechSegments.fold(0, (sum, s) => sum + (s.durationMs ?? 0))
+        : 0;
     _voiceTurnState = VoiceTurnState.agentSpeaking;
     _voiceLevel = 0.22;
     notifyListeners();
@@ -862,6 +897,14 @@ class ShoppingFlowController extends ChangeNotifier {
       _voiceTurnState = VoiceTurnState.userCanSpeak;
       _voiceLevel = 0.26;
       notifyListeners();
+      if (_suppressAutoVoiceReply || textInputMode) {
+        debugPrint(
+          '[VAD] auto_listening_suppressed '
+          'epoch=$epoch step=${_step.name} '
+          'text_input_mode=$textInputMode',
+        );
+        return;
+      }
       final shouldStartListeningImmediately = _isRetryPromptText(text);
       final userTurnDelay = _userTurnDelayForPrompt(
         isRetryPrompt: shouldStartListeningImmediately,
@@ -1115,6 +1158,19 @@ class ShoppingFlowController extends ChangeNotifier {
       );
 
       _listenAmplitude(epoch);
+      _listenRecognitionEvents(epoch);
+
+      if (_isNativeAsrMode) {
+        _recordingTimeoutTimer = Timer(effectiveMaxRecording, () {
+          if (!_canContinueUserRecording(epoch)) return;
+          debugPrint(
+            '[Native ASR] final_timeout '
+            'captureMs=${effectiveMaxRecording.inMilliseconds}',
+          );
+          unawaited(_finishRecording(epoch: epoch));
+        });
+        return;
+      }
 
       if (_manualStopRecordingEnabled) {
         _recordingTimeoutTimer = Timer(_manualStopSafetyTimeout, () {
@@ -1175,13 +1231,99 @@ class ShoppingFlowController extends ChangeNotifier {
             final current = amplitude.current;
             final normalized = _normalizeAmplitude(current);
             _voiceLevel = normalized;
-
-            _updateVoiceActivity(current, epoch);
+            if (_isNativeAsrMode) {
+              _logNativeAsrAmplitude(current, epoch);
+            } else {
+              _updateVoiceActivity(current, epoch);
+            }
 
             notifyListeners();
           });
     } catch (_) {
       // amplitude 연동이 불가능한 환경에서는 loop animation만 사용한다.
+    }
+  }
+
+  void _listenRecognitionEvents(int epoch) {
+    _recognitionEventSubscription?.cancel();
+
+    try {
+      _recognitionEventSubscription = _voiceTurnService
+          .onRecognitionEvent()
+          .listen((NativeSpeechRecognitionEvent event) {
+            if (!_canContinueUserRecording(epoch)) return;
+            switch (event.type) {
+              case NativeSpeechRecognitionEventType.partial:
+                _hasDetectedSpeech = true;
+                _lastSpeechDetectedAt = DateTime.now();
+                return;
+              case NativeSpeechRecognitionEventType.result:
+                final transcript = event.text?.trim() ?? '';
+                debugPrint(
+                  '[Native ASR] final_result_received '
+                  'epoch=$epoch length=${transcript.length} text="$transcript"',
+                );
+                unawaited(_finishRecording(epoch: epoch));
+                return;
+              case NativeSpeechRecognitionEventType.error:
+                if (event.recoverable) {
+                  debugPrint(
+                    '[Native ASR] recoverable_error_finish '
+                    'epoch=$epoch code=${event.code} message="${event.message}" '
+                    'hasSpeech=$_hasDetectedSpeech',
+                  );
+                  unawaited(_finishRecording(epoch: epoch));
+                  return;
+                }
+                debugPrint(
+                  '[Native ASR] terminal_error '
+                  'epoch=$epoch code=${event.code} message="${event.message}"',
+                );
+                unawaited(_finishRecording(epoch: epoch));
+                return;
+              case NativeSpeechRecognitionEventType.state:
+                final state = event.state ?? '';
+                if (state == 'speech_begin') {
+                  _hasDetectedSpeech = true;
+                  _firstSpeechDetectedAt ??= DateTime.now();
+                  _lastSpeechDetectedAt = DateTime.now();
+                }
+                return;
+            }
+          });
+    } catch (_) {
+      // native recognition event를 받을 수 없는 환경에서는 수동 종료 fallback을 사용한다.
+    }
+  }
+
+  void _logNativeAsrAmplitude(double amplitude, int epoch) {
+    if (!_canContinueUserRecording(epoch)) return;
+    final effectiveAmplitude = _sanitizeAmplitude(amplitude);
+    final now = DateTime.now();
+    final zeroishAmplitude =
+        effectiveAmplitude <= -159.0 || effectiveAmplitude.abs() < 0.1;
+
+    if (!_hasLoggedFirstLiveAmplitude && !zeroishAmplitude) {
+      _hasLoggedFirstLiveAmplitude = true;
+      debugPrint(
+        '[VAD Timeline] first_live_amplitude '
+        'epoch=$epoch '
+        'at=${now.toIso8601String()} '
+        'amp=${effectiveAmplitude.toStringAsFixed(1)} '
+        'deltaSinceTtsEndMs=${_elapsedMsSince(_voiceTurnService.lastTtsPlaybackEndedAt, now)} '
+        'deltaSinceRecorderStartMs=${_elapsedMsSince(_voiceTurnService.lastRecordingStartedAt, now)} '
+        'deltaSinceUserTurnReadyMs=${_elapsedMsSince(_lastUserTurnReadyAt, now)}',
+      );
+    }
+
+    if (_lastVadDebugAt == null ||
+        now.difference(_lastVadDebugAt!) >= const Duration(milliseconds: 480)) {
+      _lastVadDebugAt = now;
+      debugPrint(
+        '[Native ASR] sample '
+        'amp=${effectiveAmplitude.toStringAsFixed(1)} '
+        'hasSpeech=$_hasDetectedSpeech',
+      );
     }
   }
 
@@ -1777,6 +1919,8 @@ class ShoppingFlowController extends ChangeNotifier {
     _isAwaitingSilenceConfirmation = false;
     _amplitudeSubscription?.cancel();
     _amplitudeSubscription = null;
+    _recognitionEventSubscription?.cancel();
+    _recognitionEventSubscription = null;
     if (!keepCartAndPaymentTimers) {
       _cartTimer?.cancel();
       _paymentTimer?.cancel();
@@ -1942,6 +2086,9 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   Duration _userTurnDelayForPrompt({required bool isRetryPrompt}) {
+    if (_manualStopRecordingEnabled) {
+      return Duration.zero;
+    }
     if (_isAndroidRuntime) {
       return isRetryPrompt
           ? _androidRetryPromptToUserDelay

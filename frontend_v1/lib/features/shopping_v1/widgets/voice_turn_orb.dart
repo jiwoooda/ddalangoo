@@ -175,13 +175,33 @@ class _VoiceTurnOrbState extends State<VoiceTurnOrb>
                             width: 1.4,
                           ),
                         ),
-                        child: CustomPaint(
-                          painter: _OrbPainter(
-                            state: widget.state,
-                            level: widget.level,
-                            rotationValue: _rotationController.value,
-                          ),
-                        ),
+                        child: widget.state == VoiceTurnState.userCanSpeak ||
+                                widget.state == VoiceTurnState.userRecording
+                            ? Center(
+                                child: Transform.scale(
+                                  scale: 1.0 + _pulseController.value * 0.08,
+                                  child: Opacity(
+                                    opacity: 0.6 + _pulseController.value * 0.4,
+                                    child: Text(
+                                      '말씀해주세요',
+                                      style: TextStyle(
+                                        fontFamily: 'Pretendard',
+                                        fontSize: baseSize * 0.175,
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFFD77B9E),
+                                        letterSpacing: -0.3,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : CustomPaint(
+                                painter: _OrbPainter(
+                                  state: widget.state,
+                                  level: widget.level,
+                                  rotationValue: _rotationController.value,
+                                ),
+                              ),
                       ),
                     ),
                   ),

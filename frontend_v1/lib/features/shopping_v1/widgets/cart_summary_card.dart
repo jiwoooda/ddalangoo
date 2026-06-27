@@ -21,17 +21,20 @@ class CartSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassCard(
       padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+      backgroundOpacity: 0.30,
+      blurSigma: 30,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
                 '$userName 님의 장바구니',
+                textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontFamily: 'Pretendard',
-                  fontSize: 17,
+                  fontSize: 23,
                   fontWeight: FontWeight.w900,
                   color: Color(0xFFFF5DB1),
                 ),
@@ -41,7 +44,7 @@ class CartSummaryCard extends StatelessWidget {
                 '상품명 x 수량',
                 style: TextStyle(
                   fontFamily: 'Pretendard',
-                  fontSize: 16,
+                  fontSize: 19,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF9A9AA1),
                 ),
@@ -54,7 +57,7 @@ class CartSummaryCard extends StatelessWidget {
                     '${item.product.displayTitle} x ${item.quantity}개',
                     style: const TextStyle(
                       fontFamily: 'Pretendard',
-                      fontSize: 18,
+                      fontSize: 25,
                       fontWeight: FontWeight.w900,
                       color: Color(0xFF101923),
                       height: 1.25,
@@ -80,15 +83,15 @@ class CartSummaryCard extends StatelessWidget {
                 text: TextSpan(
                   style: const TextStyle(
                     fontFamily: 'Pretendard',
-                    fontSize: 18,
+                    fontSize: 23,
                     color: Color(0xFF8F8F97),
                     fontWeight: FontWeight.w700,
                   ),
-                  children: [
-                    const TextSpan(text: '총 수량 '),
+                  children: const [
+                    TextSpan(text: '배송료 '),
                     TextSpan(
-                      text: '$totalQuantity개',
-                      style: const TextStyle(
+                      text: '0원',
+                      style: TextStyle(
                         color: Color(0xFF101923),
                         fontWeight: FontWeight.w900,
                       ),
@@ -101,7 +104,7 @@ class CartSummaryCard extends StatelessWidget {
                 text: TextSpan(
                   style: const TextStyle(
                     fontFamily: 'Pretendard',
-                    fontSize: 18,
+                    fontSize: 23,
                     color: Color(0xFF8F8F97),
                     fontWeight: FontWeight.w700,
                   ),
@@ -118,34 +121,6 @@ class CartSummaryCard extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-          Positioned(
-            right: -6,
-            bottom: -12,
-            child: Container(
-              width: 94,
-              height: 94,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(26),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFFB3D5), Color(0xFFFF5DB1)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFFF6DB8).withValues(alpha: 0.28),
-                    blurRadius: 24,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.shopping_basket_rounded,
-                size: 52,
-                color: Colors.white,
-              ),
-            ),
           ),
         ],
       ),

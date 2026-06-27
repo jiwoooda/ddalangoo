@@ -6,7 +6,7 @@ class ShoppingProgressSteps extends StatelessWidget {
   static const List<String> _labels = <String>[
     '상품 확인',
     '상품 고르기',
-    '장바구니 담기',
+    '장바구니\n담기',
     '결제하기',
   ];
 
@@ -15,6 +15,7 @@ class ShoppingProgressSteps extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(_labels.length * 2 - 1, (index) {
         if (index.isOdd) {
           final connectorIndex = index ~/ 2;

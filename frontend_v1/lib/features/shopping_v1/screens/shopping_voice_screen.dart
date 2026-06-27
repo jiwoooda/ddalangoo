@@ -39,6 +39,11 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
   bool _isWebviewOpen = false;
   String? _lastWebviewCommandKey;
   final Set<String> _completedWebviewCommandKeys = <String>{};
+  final TextEditingController _textInputController = TextEditingController();
+  // _showTextInput은 토글 모드(TEXT_INPUT_MODE=false)에서만 사용
+  bool _showTextInput = false;
+
+  static const bool _textInputMode = ShoppingFlowController.textInputMode;
 
   @override
   void initState() {
@@ -131,6 +136,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     if (widget.controller == null) {
       _controller.dispose();
     }
+    _textInputController.dispose();
     super.dispose();
   }
 
@@ -139,16 +145,19 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     final mediaQuery = MediaQuery.of(context);
     final bottomInset = mediaQuery.padding.bottom;
     final bottomButtonHeight = 64.0;
-    final horizontalPadding = _controller.step == ShoppingStep.showProduct
+    final usesProductDetailLayout =
+        _controller.step == ShoppingStep.showProduct ||
+        _controller.step == ShoppingStep.askQuantity;
+    final horizontalPadding = usesProductDetailLayout
         ? 0.0
         : 20.0;
     final topTextHeight =
-        (_controller.step == ShoppingStep.showProduct
+        (usesProductDetailLayout
                 ? mediaQuery.size.height * 0.16
                 : mediaQuery.size.height * 0.26)
             .clamp(
-              _controller.step == ShoppingStep.showProduct ? 112.0 : 176.0,
-              _controller.step == ShoppingStep.showProduct ? 156.0 : 250.0,
+              usesProductDetailLayout ? 112.0 : 176.0,
+              usesProductDetailLayout ? 156.0 : 250.0,
             );
     final centerResponseText = _shouldCenterResponseText(_controller.step);
     final useFakeGlass =
@@ -186,19 +195,20 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                             currentStep: _controller.shoppingProgressStepIndex,
                           ),
                         ),
-                        if (!centerResponseText)
-                          SizedBox(
-                            height: topTextHeight,
-                            child: Center(
-                              child: _buildPromptText(
-                                fontSize:
-                                    _controller.step == ShoppingStep.showProduct
-                                    ? 28
-                                    : 34,
-                                maxLines:
-                                    _controller.step == ShoppingStep.showProduct
-                                    ? 3
-                                    : null,
+                        if (!centerResponseText &&
+                            _controller.step != ShoppingStep.confirmAddress)
+                          ClipRect(
+                            child: SizedBox(
+                              height: topTextHeight,
+                              child: Center(
+                                child: _buildPromptText(
+                                  fontSize: _promptFontSizeForStep(
+                                    _controller.step,
+                                  ),
+                                  maxLines: _promptMaxLinesForStep(
+                                    _controller.step,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -220,10 +230,31 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 12,
                                             ),
-                                            child: _buildPromptText(),
+                                            child: _buildPromptText(
+                                              fontSize: _promptFontSizeForStep(
+                                                _controller.step,
+                                              ),
+                                              maxLines: _promptMaxLinesForStep(
+                                                _controller.step,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       ),
+                                      if (_controller.shouldShowVoiceButton &&
+                                          !_textInputMode)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 24),
+                                          child: _buildVoiceOrb(),
+                                        ),
+                                      if (_controller.shouldShowVoiceButton &&
+                                          _textInputMode)
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            20, 0, 20, 20,
+                                          ),
+                                          child: _buildTextInputBar(),
+                                        ),
                                       _buildBody(),
                                     ],
                                   )
@@ -250,23 +281,36 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                       ],
                     ),
                   ),
-                  if (_controller.shouldShowVoiceButton)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: bottomInset + bottomButtonHeight + 14,
-                      child: Center(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.translucent,
-                          onTap: () {
-                            unawaited(_controller.onVoiceButtonTap());
-                          },
-                          child: VoiceTurnOrb(
-                            state: _controller.voiceTurnState,
-                            level: _controller.voiceLevel,
+                  if (!_textInputMode &&
+                      _controller.shouldShowVoiceButton &&
+                      !centerResponseText)
+                    _controller.step == ShoppingStep.showProduct
+                        ? Positioned(
+                            left: 0,
+                            right: 0,
+                            top: topTextHeight + 94,
+                            child: _buildVoiceOrb(),
+                          )
+                        : Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: bottomInset + bottomButtonHeight + 14,
+                            child: _buildVoiceOrb(),
                           ),
-                        ),
-                      ),
+                  if (_textInputMode &&
+                      _controller.shouldShowVoiceButton &&
+                      !centerResponseText)
+                    Positioned(
+                      left: 20,
+                      right: 20,
+                      bottom: bottomInset + bottomButtonHeight + 10,
+                      child: _buildTextInputBar(),
+                    )
+                  else if (!_textInputMode && _controller.shouldShowVoiceButton)
+                    Positioned(
+                      right: 20,
+                      bottom: bottomInset + bottomButtonHeight + 14,
+                      child: _buildKeyboardToggle(),
                     ),
                 ],
               ),
@@ -277,16 +321,182 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     );
   }
 
+  // TEXT_INPUT_MODE=true 빌드에서 항상 표시되는 고정 입력창
+  Widget _buildTextInputBar() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _textInputController,
+            autofocus: false,
+            style: const TextStyle(
+              fontFamily: 'Pretendard',
+              fontSize: 17,
+              color: Colors.black87,
+            ),
+            decoration: InputDecoration(
+              hintText: '메시지를 입력하세요',
+              hintStyle: const TextStyle(color: Colors.black38),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.88),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 12,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(28),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(28),
+                borderSide: BorderSide(
+                  color: const Color(0xFFD77B9E).withValues(alpha: 0.3),
+                  width: 1.2,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(28),
+                borderSide: const BorderSide(
+                  color: Color(0xFFD77B9E),
+                  width: 1.6,
+                ),
+              ),
+            ),
+            onSubmitted: _submitText,
+          ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () => _submitText(_textInputController.text),
+          child: Container(
+            width: 46,
+            height: 46,
+            decoration: const BoxDecoration(
+              color: Color(0xFFD77B9E),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.send_rounded, color: Colors.white, size: 22),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _submitText(String text) async {
+    if (text.trim().isEmpty) return;
+    _textInputController.clear();
+    await _controller.submitTextInput(text);
+  }
+
+  // 토글 버튼 (TEXT_INPUT_MODE=false 빌드 전용)
+  Widget _buildKeyboardToggle() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (_showTextInput)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: SizedBox(
+              width: MediaQuery.of(context).size.width - 40,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _textInputController,
+                      autofocus: true,
+                      style: const TextStyle(color: Colors.black87),
+                      decoration: InputDecoration(
+                        hintText: '메시지 입력...',
+                        hintStyle: const TextStyle(color: Colors.black38),
+                        filled: true,
+                        fillColor: const Color(0x22000000),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      onSubmitted: (text) async {
+                        if (text.trim().isEmpty) return;
+                        _textInputController.clear();
+                        setState(() => _showTextInput = false);
+                        _controller.setTextInputMode(false);
+                        await _controller.submitTextInput(text);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.send, color: Colors.black54),
+                    onPressed: () async {
+                      final text = _textInputController.text;
+                      if (text.trim().isEmpty) return;
+                      _textInputController.clear();
+                      setState(() => _showTextInput = false);
+                      _controller.setTextInputMode(false);
+                      await _controller.submitTextInput(text);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        GestureDetector(
+          onTap: () {
+            final next = !_showTextInput;
+            setState(() => _showTextInput = next);
+            _controller.setTextInputMode(next);
+            if (next) {
+              unawaited(_controller.stopListeningForTextInput());
+            }
+          },
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: Color(0x22000000),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _showTextInput ? Icons.keyboard_hide : Icons.keyboard,
+              color: Colors.black45,
+              size: 20,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVoiceOrb() {
+    return Center(
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () {
+          unawaited(_controller.onVoiceButtonTap());
+        },
+        child: VoiceTurnOrb(
+          state: _controller.voiceTurnState,
+          level: _controller.voiceLevel,
+        ),
+      ),
+    );
+  }
+
   bool _shouldCenterResponseText(ShoppingStep step) {
     switch (step) {
       case ShoppingStep.askProduct:
-      case ShoppingStep.askQuantity:
       case ShoppingStep.error:
         return true;
+      case ShoppingStep.askQuantity:
+      case ShoppingStep.showProduct:
       case ShoppingStep.cartCompleted:
       case ShoppingStep.askMoreOrCheckout:
       case ShoppingStep.searchingProduct:
-      case ShoppingStep.showProduct:
       case ShoppingStep.addingToCart:
       case ShoppingStep.confirmAddress:
       case ShoppingStep.enterPassword:
@@ -296,11 +506,72 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     }
   }
 
+  double _promptFontSizeForStep(ShoppingStep step) {
+    switch (step) {
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askQuantity:
+      case ShoppingStep.addingToCart:
+        return 38;
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.askMoreOrCheckout:
+        return 24;
+      case ShoppingStep.enterPassword:
+        return 30;
+      case ShoppingStep.askProduct:
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.confirmAddress:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+      case ShoppingStep.error:
+        return 38;
+    }
+  }
+
+  int? _promptMaxLinesForStep(ShoppingStep step) {
+    switch (step) {
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askQuantity:
+      case ShoppingStep.addingToCart:
+        return 1;
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.askMoreOrCheckout:
+        return 2;
+      case ShoppingStep.askProduct:
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.confirmAddress:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+      case ShoppingStep.error:
+        return null;
+    }
+  }
+
   Widget _buildBody() {
     switch (_controller.step) {
       case ShoppingStep.askProduct:
-      case ShoppingStep.askQuantity:
         return _buildReplyExamples();
+      case ShoppingStep.askQuantity:
+        final product = _controller.currentProduct;
+        if (product == null) {
+          return const SizedBox(key: ValueKey('ask-quantity-empty'));
+        }
+        return Stack(
+          key: const ValueKey('ask-quantity'),
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 0),
+              child: ProductCard(product: product),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _buildReplyExamples(),
+              ),
+            ),
+          ],
+        );
       case ShoppingStep.cartCompleted:
       case ShoppingStep.askMoreOrCheckout:
         return Center(
@@ -343,16 +614,26 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           items: _controller.cartItems,
         );
       case ShoppingStep.confirmAddress:
-        return SingleChildScrollView(
+        return LayoutBuilder(
           key: const ValueKey('confirm-address'),
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 12),
-          child: AddressConfirmCard(
-            summary:
-                _controller.checkoutSummary ??
-                CheckoutSummary.mock(_controller.cartItems),
-            onConfirm: _controller.confirmAddressStep,
-          ),
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: AddressConfirmCard(
+                      summary:
+                          _controller.checkoutSummary ??
+                          CheckoutSummary.mock(_controller.cartItems),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         );
       case ShoppingStep.enterPassword:
         return PinKeypad(
@@ -401,7 +682,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     }
   }
 
-  Widget _buildPromptText({double fontSize = 34, int? maxLines}) {
+  Widget _buildPromptText({double fontSize = 38, int? maxLines}) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -409,24 +690,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           text: _controller.assistantText,
           fontSize: fontSize,
           maxLines: maxLines,
-        ),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          child: _controller.shouldShowListeningHint
-              ? Padding(
-                  key: const ValueKey('listening-hint'),
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Text(
-                    _controller.isRecording ? '말씀을 마치면 아래 버튼을 눌러주세요' : '말씀해주세요',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF7F8B97).withValues(alpha: 0.9),
-                    ),
-                  ),
-                )
-              : const SizedBox.shrink(),
+          ttsDurationMs: _controller.assistantTtsDurationMs,
         ),
       ],
     );
@@ -605,7 +869,7 @@ class _SearchingShowcaseState extends State<_SearchingShowcase> {
     return <String>[
       '$targetText 찾고 있어요',
       keyword.isNotEmpty ? '$keyword 상품을 비교하고 있어요' : '상품을 비교하고 있어요',
-      '$displayName을 위한 최고의 상품을 고르고 있어요',
+      '$displayName을 위한\n최고의 상품을 고르고 있어요',
     ];
   }
 
@@ -634,16 +898,6 @@ class _SearchingShowcaseState extends State<_SearchingShowcase> {
       mainAxisSize: MainAxisSize.min,
       children: [
         AnimatedSwitcher(
-          duration: const Duration(milliseconds: 450),
-          child: Image.asset(
-            _assets[_index],
-            key: ValueKey(_assets[_index]),
-            height: 210,
-            fit: BoxFit.contain,
-          ),
-        ),
-        const SizedBox(height: 18),
-        AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),
           child: Text(
             _messages[_index % _messages.length],
@@ -656,6 +910,16 @@ class _SearchingShowcaseState extends State<_SearchingShowcase> {
               color: Color(0xFF51606E),
               height: 1.45,
             ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 450),
+          child: Image.asset(
+            _assets[_index],
+            key: ValueKey(_assets[_index]),
+            height: 210,
+            fit: BoxFit.contain,
           ),
         ),
       ],

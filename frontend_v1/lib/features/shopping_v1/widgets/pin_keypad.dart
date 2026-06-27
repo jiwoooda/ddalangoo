@@ -22,12 +22,12 @@ class PinKeypad extends StatelessWidget {
         children: [
           Wrap(
             alignment: WrapAlignment.center,
-            spacing: 12,
+            spacing: 10,
             children: List.generate(
               6,
               (index) => Container(
-                width: 18,
-                height: 18,
+                width: 16,
+                height: 16,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: index < pin.length
@@ -37,16 +37,16 @@ class PinKeypad extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 20),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: 12,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.15,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 1.28,
             ),
             itemBuilder: (context, index) {
               if (index == 9) {
@@ -65,7 +65,7 @@ class PinKeypad extends StatelessWidget {
                   '$digit',
                   style: const TextStyle(
                     fontFamily: 'Pretendard',
-                    fontSize: 28,
+                    fontSize: 24,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF12202F),
                   ),
@@ -88,17 +88,17 @@ class _KeypadButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LiquidGlass.grouped(
-      shape: const LiquidRoundedSuperellipse(borderRadius: 22),
+      shape: const LiquidRoundedSuperellipse(borderRadius: 18),
       clipBehavior: Clip.antiAlias,
       child: Material(
         color: Colors.white.withValues(alpha: 0.16),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(18),
           child: Ink(
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
             ),
             child: Center(child: child),
