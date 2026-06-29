@@ -183,15 +183,17 @@ class ShoppingFlowController extends ChangeNotifier {
         return const ['토마토 사고 싶어', '삼겹살 1근 구매해줘', '감귤 2박스 담아줘'];
       case ShoppingStep.askQuantity:
         return const ['한 개', '두 개', '세 개'];
+      case ShoppingStep.showProduct:
+        return const ['응 이거 담을래'];
       case ShoppingStep.askMoreOrCheckout:
-        return const ['결제할게', '다른 상품 더 담을래'];
+      case ShoppingStep.cartCompleted:
+        return const ['이제 결제할래'];
+      case ShoppingStep.confirmAddress:
+        return const ['배송지 맞아'];
       case ShoppingStep.error:
         return const ['다시 말할게', '처음부터 할게'];
       case ShoppingStep.searchingProduct:
-      case ShoppingStep.showProduct:
       case ShoppingStep.addingToCart:
-      case ShoppingStep.cartCompleted:
-      case ShoppingStep.confirmAddress:
       case ShoppingStep.enterPassword:
       case ShoppingStep.processingPayment:
       case ShoppingStep.paymentCompleted:
@@ -334,6 +336,10 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   Future<void> submitTextInput(String text) async {
+    if (_voiceTurnState == VoiceTurnState.agentThinking ||
+        _voiceTurnState == VoiceTurnState.agentSpeaking) {
+      return;
+    }
     _suppressAutoVoiceReply = true;
     _cancelVoiceTimers(keepCartAndPaymentTimers: true);
     await _voiceTurnService.cancelRecording();
@@ -690,10 +696,11 @@ class ShoppingFlowController extends ChangeNotifier {
         expectVoiceReply: false,
       );
     } else {
-      _assistantText = (await _agentService.fetchPrompt(
-        kind: 'adding_to_cart',
-        conversationId: _conversationId,
-      )).assistantMessage;
+      await _presentPrompt(
+        'adding_to_cart',
+        nextStep: ShoppingStep.addingToCart,
+        expectVoiceReply: false,
+      );
     }
     _cartStatusTitle = '장바구니 작업';
     _cartStatusText = _cartStatusTextForTask();
@@ -720,12 +727,6 @@ class ShoppingFlowController extends ChangeNotifier {
     await Future<void>.delayed(const Duration(seconds: 3));
     _cartTimer?.cancel();
     _cartProgress = 1;
-    _step = ShoppingStep.cartCompleted;
-    _assistantText = (await _agentService.fetchPrompt(
-      kind: 'cart_completed',
-      conversationId: _conversationId,
-    )).assistantMessage;
-    notifyListeners();
     await _presentPrompt(
       'cart_completed',
       nextStep: ShoppingStep.askMoreOrCheckout,

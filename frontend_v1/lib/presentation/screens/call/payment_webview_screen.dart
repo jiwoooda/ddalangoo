@@ -852,8 +852,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
                 child: DallangResponseText(
                   text: assistantMessage,
-                  fontSize: 24,
-                  maxLines: 2,
+                  fontSize: 38,
                 ),
               ),
             _buildStatusBubble(context),

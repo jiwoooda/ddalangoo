@@ -541,17 +541,18 @@ async def synthesize_speech_bundle(
         )
 
     sentences = _split_tts_sentences(normalized)
-    synthesized_segments: list[_SynthesizedTtsSegment] = []
 
-    for sentence in sentences:
+    async def _synth(sentence: str) -> _SynthesizedTtsSegment:
         wav_bytes = await _synthesize_sentence_wav(sentence)
-        synthesized_segments.append(
-            _SynthesizedTtsSegment(
-                text=sentence,
-                wav_bytes=wav_bytes,
-                duration_ms=_estimate_wav_duration_ms(wav_bytes),
-            )
+        return _SynthesizedTtsSegment(
+            text=sentence,
+            wav_bytes=wav_bytes,
+            duration_ms=_estimate_wav_duration_ms(wav_bytes),
         )
+
+    synthesized_segments: list[_SynthesizedTtsSegment] = list(
+        await asyncio.gather(*[_synth(s) for s in sentences])
+    )
 
     if len(synthesized_segments) == 1:
         combined_audio = synthesized_segments[0].wav_bytes
@@ -907,9 +908,15 @@ async def build_agent_speech_segments(
             )
             return SpeechSegment(index=index, text=segment_text, audioUrl=None)
 
+    _sem = asyncio.Semaphore(3)
+
+    async def _limited(index: int, segment_text: str) -> SpeechSegment:
+        async with _sem:
+            return await _build_single_segment(index, segment_text)
+
     built_segments = await asyncio.gather(
         *[
-            _build_single_segment(index, segment_text)
+            _limited(index, segment_text)
             for index, segment_text in enumerate(segments)
         ]
     )

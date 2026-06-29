@@ -12,6 +12,7 @@ import '../widgets/address_confirm_card.dart';
 import '../widgets/cart_progress_card.dart';
 import '../widgets/cart_summary_card.dart';
 import '../widgets/dallang_response_text.dart';
+import '../widgets/glass_card.dart';
 import '../widgets/glass_button.dart';
 import '../widgets/pin_keypad.dart';
 import '../widgets/product_card.dart';
@@ -44,6 +45,8 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
   bool _showTextInput = false;
 
   static const bool _textInputMode = ShoppingFlowController.textInputMode;
+  static const double _overlayInputHeight = 54;
+  static const double _overlayReplyBlockHeight = 82;
 
   @override
   void initState() {
@@ -160,6 +163,13 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
               usesProductDetailLayout ? 156.0 : 250.0,
             );
     final centerResponseText = _shouldCenterResponseText(_controller.step);
+    final showBottomReplyExamples = _shouldShowBottomReplyExamples;
+    final bottomOverlayReservedHeight =
+        _textInputMode && _controller.shouldShowVoiceButton
+        ? _overlayInputHeight +
+              22 +
+              (showBottomReplyExamples ? _overlayReplyBlockHeight : 0)
+        : 0.0;
     final useFakeGlass =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     return Scaffold(
@@ -197,68 +207,87 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                         ),
                         if (!centerResponseText &&
                             _controller.step != ShoppingStep.confirmAddress)
-                          ClipRect(
-                            child: SizedBox(
-                              height: topTextHeight,
-                              child: Center(
-                                child: _buildPromptText(
-                                  fontSize: _promptFontSizeForStep(
-                                    _controller.step,
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              return Container(
+                                height: topTextHeight,
+                                clipBehavior: Clip.hardEdge,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.42),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                alignment: Alignment.center,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 10,
                                   ),
-                                  maxLines: _promptMaxLinesForStep(
-                                    _controller.step,
+                                  child: _SegmentedTopText(
+                                    key: ValueKey(
+                                      'top-text-${_controller.step.name}',
+                                    ),
+                                    text: _controller.assistantText,
+                                    fontSize: _promptFontSizeForStep(
+                                      _controller.step,
+                                    ),
+                                    maxLines: _promptMaxLinesForStep(
+                                      _controller.step,
+                                    ),
+                                    availableHeight: topTextHeight - 20,
+                                    availableWidth: constraints.maxWidth - 52,
+                                    ttsDurationMs:
+                                        _controller.assistantTtsDurationMs,
                                   ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                           ),
                         Expanded(
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 320),
-                            layoutBuilder: (currentChild, previousChildren) {
-                              return currentChild ?? const SizedBox.shrink();
-                            },
-                            child: centerResponseText
-                                ? Column(
-                                    key: ValueKey(
-                                      'center-text-${_controller.step.name}',
-                                    ),
-                                    children: [
-                                      Expanded(
-                                        child: Center(
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                            ),
-                                            child: _buildPromptText(
-                                              fontSize: _promptFontSizeForStep(
-                                                _controller.step,
-                                              ),
-                                              maxLines: _promptMaxLinesForStep(
-                                                _controller.step,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              bottom: bottomOverlayReservedHeight,
+                            ),
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 320),
+                              layoutBuilder: (currentChild, previousChildren) {
+                                return currentChild ?? const SizedBox.shrink();
+                              },
+                              child: centerResponseText
+                                  ? Column(
+                                      key: ValueKey(
+                                        'center-text-${_controller.step.name}',
                                       ),
-                                      if (_controller.shouldShowVoiceButton &&
-                                          !_textInputMode)
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 24),
-                                          child: _buildVoiceOrb(),
-                                        ),
-                                      if (_controller.shouldShowVoiceButton &&
-                                          _textInputMode)
-                                        Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                            20, 0, 20, 20,
+                                      children: [
+                                        Expanded(
+                                          child: Center(
+                                            child: Padding(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                              ),
+                                              child: _buildPromptText(
+                                                fontSize: _promptFontSizeForStep(
+                                                  _controller.step,
+                                                ),
+                                                maxLines: _promptMaxLinesForStep(
+                                                  _controller.step,
+                                                ),
+                                              ),
+                                            ),
                                           ),
-                                          child: _buildTextInputBar(),
                                         ),
-                                      _buildBody(),
-                                    ],
-                                  )
-                                : _buildBody(),
+                                        if (_controller.shouldShowVoiceButton &&
+                                            !_textInputMode)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 24,
+                                            ),
+                                            child: _buildVoiceOrb(),
+                                          ),
+                                        _buildBody(),
+                                      ],
+                                    )
+                                  : _buildBody(),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -297,14 +326,15 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                             bottom: bottomInset + bottomButtonHeight + 14,
                             child: _buildVoiceOrb(),
                           ),
-                  if (_textInputMode &&
-                      _controller.shouldShowVoiceButton &&
-                      !centerResponseText)
+                  if (_textInputMode && _controller.shouldShowVoiceButton)
                     Positioned(
                       left: 20,
                       right: 20,
                       bottom: bottomInset + bottomButtonHeight + 10,
-                      child: _buildTextInputBar(),
+                      child: _buildBottomOverlay(
+                        showReplyExamples:
+                            showBottomReplyExamples && !centerResponseText,
+                      ),
                     )
                   else if (!_textInputMode && _controller.shouldShowVoiceButton)
                     Positioned(
@@ -378,6 +408,28 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
             child: const Icon(Icons.send_rounded, color: Colors.white, size: 22),
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildBottomOverlay({required bool showReplyExamples}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IgnorePointer(
+          ignoring: false,
+          child: GlassCard(
+            padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+            borderRadius: 30,
+            backgroundOpacity: 0.82,
+            blurSigma: 22,
+            child: _buildTextInputBar(),
+          ),
+        ),
+        if (showReplyExamples) ...[
+          const SizedBox(height: 10),
+          _buildReplyExamples(compact: true),
+        ],
       ],
     );
   }
@@ -507,44 +559,11 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
   }
 
   double _promptFontSizeForStep(ShoppingStep step) {
-    switch (step) {
-      case ShoppingStep.showProduct:
-      case ShoppingStep.askQuantity:
-      case ShoppingStep.addingToCart:
-        return 38;
-      case ShoppingStep.cartCompleted:
-      case ShoppingStep.askMoreOrCheckout:
-        return 24;
-      case ShoppingStep.enterPassword:
-        return 30;
-      case ShoppingStep.askProduct:
-      case ShoppingStep.searchingProduct:
-      case ShoppingStep.confirmAddress:
-      case ShoppingStep.processingPayment:
-      case ShoppingStep.paymentCompleted:
-      case ShoppingStep.error:
-        return 38;
-    }
+    return 42;
   }
 
   int? _promptMaxLinesForStep(ShoppingStep step) {
-    switch (step) {
-      case ShoppingStep.showProduct:
-      case ShoppingStep.askQuantity:
-      case ShoppingStep.addingToCart:
-        return 1;
-      case ShoppingStep.cartCompleted:
-      case ShoppingStep.askMoreOrCheckout:
-        return 2;
-      case ShoppingStep.askProduct:
-      case ShoppingStep.searchingProduct:
-      case ShoppingStep.confirmAddress:
-      case ShoppingStep.enterPassword:
-      case ShoppingStep.processingPayment:
-      case ShoppingStep.paymentCompleted:
-      case ShoppingStep.error:
-        return null;
-    }
+    return null;
   }
 
   Widget _buildBody() {
@@ -556,21 +575,10 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
         if (product == null) {
           return const SizedBox(key: ValueKey('ask-quantity-empty'));
         }
-        return Stack(
+        return Padding(
           key: const ValueKey('ask-quantity'),
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 0),
-              child: ProductCard(product: product),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _buildReplyExamples(),
-              ),
-            ),
-          ],
+          padding: const EdgeInsets.symmetric(horizontal: 0),
+          child: ProductCard(product: product),
         );
       case ShoppingStep.cartCompleted:
       case ShoppingStep.askMoreOrCheckout:
@@ -696,14 +704,37 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     );
   }
 
-  Widget _buildReplyExamples() {
+  bool get _shouldShowBottomReplyExamples {
+    switch (_controller.step) {
+      case ShoppingStep.showProduct:
+      case ShoppingStep.askQuantity:
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.askMoreOrCheckout:
+      case ShoppingStep.confirmAddress:
+        return _controller.shouldShowReplyExamples;
+      case ShoppingStep.askProduct:
+      case ShoppingStep.searchingProduct:
+      case ShoppingStep.addingToCart:
+      case ShoppingStep.enterPassword:
+      case ShoppingStep.processingPayment:
+      case ShoppingStep.paymentCompleted:
+      case ShoppingStep.error:
+        return false;
+    }
+  }
+
+  Widget _buildReplyExamples({bool compact = false}) {
     if (!_controller.shouldShowReplyExamples ||
         _controller.suggestedReplies.isEmpty) {
       return const SizedBox.shrink();
     }
 
     return Padding(
-      padding: const EdgeInsets.only(left: 6, right: 6, bottom: 10),
+      padding: EdgeInsets.only(
+        left: compact ? 0 : 6,
+        right: compact ? 0 : 6,
+        bottom: compact ? 0 : 10,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -711,16 +742,16 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
             '예시 답변',
             style: TextStyle(
               fontFamily: 'Pretendard',
-              fontSize: 15,
+              fontSize: compact ? 13 : 15,
               fontWeight: FontWeight.w700,
               color: const Color(0xFF7F8B97).withValues(alpha: 0.96),
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: compact ? 8 : 12),
           Wrap(
             alignment: WrapAlignment.center,
-            spacing: 8,
-            runSpacing: 8,
+            spacing: compact ? 6 : 8,
+            runSpacing: compact ? 6 : 8,
             children: _controller.suggestedReplies.map((reply) {
               return InkWell(
                 borderRadius: BorderRadius.circular(999),
@@ -923,6 +954,137 @@ class _SearchingShowcaseState extends State<_SearchingShowcase> {
           ),
         ),
       ],
+    );
+  }
+}
+
+// 상단 텍스트 영역이 좁을 때 텍스트를 나눠서 순서대로 보여주는 위젯
+class _SegmentedTopText extends StatefulWidget {
+  const _SegmentedTopText({
+    super.key,
+    required this.text,
+    required this.fontSize,
+    required this.maxLines,
+    required this.availableHeight,
+    required this.availableWidth,
+    this.ttsDurationMs = 0,
+  });
+
+  final String text;
+  final double fontSize;
+  final int? maxLines;
+  final double availableHeight;
+  final double availableWidth;
+  final int ttsDurationMs;
+
+  @override
+  State<_SegmentedTopText> createState() => _SegmentedTopTextState();
+}
+
+class _SegmentedTopTextState extends State<_SegmentedTopText> {
+  Timer? _timer;
+  int _index = 0;
+  List<String> _segments = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuild(widget);
+  }
+
+  @override
+  void didUpdateWidget(_SegmentedTopText old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text ||
+        old.fontSize != widget.fontSize ||
+        old.availableHeight != widget.availableHeight ||
+        old.availableWidth != widget.availableWidth) {
+      _timer?.cancel();
+      _index = 0;
+      _rebuild(widget);
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _rebuild(_SegmentedTopText w) {
+    _segments = _split(w.text, w.fontSize, w.maxLines, w.availableWidth, w.availableHeight);
+    if (_segments.length > 1) {
+      _timer = Timer.periodic(const Duration(milliseconds: 2800), (_) {
+        if (!mounted) return;
+        setState(() => _index = (_index + 1) % _segments.length);
+      });
+    }
+  }
+
+  List<String> _split(
+    String text,
+    double fontSize,
+    int? maxLines,
+    double width,
+    double height,
+  ) {
+    if (text.isEmpty || maxLines != null || width <= 0 || height <= 0) {
+      return [text];
+    }
+    final style = TextStyle(
+      fontFamily: 'Pretendard',
+      fontSize: fontSize,
+      fontWeight: FontWeight.w900,
+      height: 1.25,
+    );
+    // 줄바꿈 먼저 처리
+    if (text.contains('\n')) {
+      final parts = text.split('\n').where((s) => s.isNotEmpty).toList();
+      if (parts.length == 2) return parts;
+    }
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: width);
+    if (tp.height <= height) return [text];
+
+    // 단어 단위로 앞에서 절반을 찾고, 나머지를 두 번째 세그먼트로
+    final words = text.split(' ');
+    if (words.length < 2) return [text];
+    final half = (words.length / 2).ceil();
+    for (int split = half; split < words.length; split++) {
+      final part1 = words.sublist(0, split).join(' ');
+      final tp1 = TextPainter(
+        text: TextSpan(text: part1, style: style),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: width);
+      if (tp1.height <= height) {
+        final part2 = words.sublist(split).join(' ');
+        return [part1, part2];
+      }
+    }
+    return [text];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayText = _segments.isEmpty
+        ? widget.text
+        : _segments[_index % _segments.length];
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 380),
+      child: Column(
+        key: ValueKey('seg-$_index-${widget.text.hashCode}'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DallangResponseText(
+            text: displayText,
+            fontSize: widget.fontSize,
+            maxLines: widget.maxLines,
+            ttsDurationMs: _index == 0 ? widget.ttsDurationMs : 0,
+          ),
+        ],
+      ),
     );
   }
 }

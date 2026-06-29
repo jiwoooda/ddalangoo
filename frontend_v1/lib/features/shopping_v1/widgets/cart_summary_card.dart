@@ -34,9 +34,9 @@ class CartSummaryCard extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontFamily: 'Pretendard',
-                  fontSize: 23,
+                  fontSize: 27,
                   fontWeight: FontWeight.w900,
-                  color: Color(0xFFFF5DB1),
+                  color: Color(0xFFD77B9E),
                 ),
               ),
               const SizedBox(height: 18),

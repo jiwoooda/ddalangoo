@@ -256,6 +256,10 @@ class ShoppingAgentService {
         totalPrice: _effectiveItems(
           items,
         ).fold<int>(0, (sum, item) => sum + _lineTotal(item)),
+        deliveryRequest:
+            _stringOf(defaultAddress?['deliveryRequest']) ??
+            _stringOf(defaultAddress?['delivery_request']) ??
+            '',
       );
     } catch (error, stackTrace) {
       debugPrint(
@@ -289,6 +293,10 @@ class ShoppingAgentService {
       totalPrice:
           _intOf(response.order?['totalPaymentAmount']) ??
           effectiveItems.fold<int>(0, (sum, item) => sum + _lineTotal(item)),
+      deliveryRequest:
+          _stringOf(rawAddress['deliveryRequest']) ??
+          _stringOf(rawAddress['delivery_request']) ??
+          '',
     );
   }
 

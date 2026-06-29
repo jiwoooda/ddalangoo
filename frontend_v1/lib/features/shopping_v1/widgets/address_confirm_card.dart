@@ -12,57 +12,67 @@ class AddressConfirmCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassCard(
-      backgroundOpacity: 0.30,
-      blurSigma: 30,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '배송지 맞으세요?',
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 26,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFFD77B9E),
-            ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GlassCard(
+          backgroundOpacity: 0.30,
+          blurSigma: 30,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '배송지 맞으세요?',
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFFD77B9E),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '기본 배송지',
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF6A7782),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                summary.address,
+                style: const TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF223140),
+                  height: 1.45,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 20),
-          // 기본 배송지 (크게)
-          const Text(
-            '기본 배송지',
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF6A7782),
-            ),
+        ),
+        const SizedBox(height: 14),
+        GlassCard(
+          backgroundOpacity: 0.26,
+          blurSigma: 26,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _InfoRow(
+                label: '요청사항',
+                value: summary.deliveryRequest.isNotEmpty
+                    ? summary.deliveryRequest
+                    : '없음',
+              ),
+              _InfoRow(label: '주문자', value: summary.userName),
+              _InfoRow(label: '전화번호', value: summary.phone),
+            ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            summary.address,
-            style: const TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF223140),
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: 16),
-          // 요청사항
-          _InfoRow(
-            label: '요청사항',
-            value: summary.deliveryRequest.isNotEmpty
-                ? summary.deliveryRequest
-                : '없음',
-          ),
-          // 주문자
-          _InfoRow(label: '주문자', value: summary.userName),
-          // 전화번호
-          _InfoRow(label: '전화번호', value: summary.phone),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
