@@ -257,67 +257,49 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                             padding: EdgeInsets.only(
                               bottom: bottomOverlayReservedHeight,
                             ),
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                return SingleChildScrollView(
-                                  physics: const BouncingScrollPhysics(),
-                                  child: ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      minHeight: constraints.maxHeight,
-                                    ),
-                                    child: IntrinsicHeight(
-                                      child: AnimatedSwitcher(
-                                      duration: const Duration(
-                                        milliseconds: 320,
-                                      ),
-                                      layoutBuilder:
-                                          (currentChild, previousChildren) {
-                                            return currentChild ??
-                                                const SizedBox.shrink();
-                                          },
-                                      child: centerResponseText
-                                          ? Column(
-                                              key: ValueKey(
-                                                'center-text-${_controller.step.name}',
-                                              ),
-                                              children: [
-                                                Center(
-                                                  child: Padding(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 12,
-                                                        ),
-                                                    child: _buildPromptText(
-                                                      fontSize:
-                                                          _promptFontSizeForStep(
-                                                            _controller.step,
-                                                          ),
-                                                      maxLines:
-                                                          _promptMaxLinesForStep(
-                                                            _controller.step,
-                                                          ),
-                                                    ),
-                                                  ),
-                                                ),
-                                                if (_controller
-                                                        .shouldShowVoiceButton &&
-                                                    !_textInputMode)
-                                                  Padding(
-                                                    padding:
-                                                        const EdgeInsets.only(
-                                                          bottom: 24,
-                                                        ),
-                                                    child: _buildVoiceOrb(),
-                                                  ),
-                                                _buildBody(),
-                                              ],
-                                            )
-                                          : _buildBody(),
-                                    ),
-                                  ),
-                                ),
-                              );
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 320),
+                              layoutBuilder: (currentChild, previousChildren) {
+                                return currentChild ?? const SizedBox.shrink();
                               },
+                              child: centerResponseText
+                                  ? Column(
+                                      key: ValueKey(
+                                        'center-text-${_controller.step.name}',
+                                      ),
+                                      children: [
+                                        Expanded(
+                                          child: Center(
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                  ),
+                                              child: _buildPromptText(
+                                                fontSize:
+                                                    _promptFontSizeForStep(
+                                                      _controller.step,
+                                                    ),
+                                                maxLines:
+                                                    _promptMaxLinesForStep(
+                                                      _controller.step,
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        if (_controller.shouldShowVoiceButton &&
+                                            !_textInputMode)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 24,
+                                            ),
+                                            child: _buildVoiceOrb(),
+                                          ),
+                                        _buildBody(),
+                                      ],
+                                    )
+                                  : _buildBody(),
                             ),
                           ),
                         ),
