@@ -60,10 +60,7 @@ async def cancel_conversation(conversationId: int):
     운영 확장 시 Redis/pubsub 같은 외부 cancel store로 바꿔야 한다.
     """
     from src.tools.webview_tool import request_cancel
-<<<<<<< HEAD
-
-=======
->>>>>>> rookie/Agent_v1
+    
     request_cancel()
     return {"ok": True}
 

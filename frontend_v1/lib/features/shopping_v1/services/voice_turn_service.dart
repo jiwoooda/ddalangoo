@@ -1,7 +1,7 @@
+import 'package:flutter/services.dart';
 import '../../../core/services/gpt_voice_service.dart';
 import '../../../core/services/android_native_speech_recognition_service.dart';
 import '../../../core/services/gemini_voice_service.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
 
 class VoiceTurnService {
@@ -9,12 +9,9 @@ class VoiceTurnService {
     : _voiceService = voiceService ?? GptVoiceService.instance;
 
   final GptVoiceService _voiceService;
-  final AudioPlayer _cuePlayer = AudioPlayer();
 
   Future<void> init() async {
     await _voiceService.init();
-    await _cuePlayer.setReleaseMode(ReleaseMode.stop);
-    await _cuePlayer.setPlayerMode(PlayerMode.lowLatency);
   }
 
   Future<void> speak(String text) => _voiceService.speak(text);
@@ -49,10 +46,9 @@ class VoiceTurnService {
 
   Future<void> playListeningCue() async {
     try {
-      await _cuePlayer.stop();
-      await _cuePlayer.play(AssetSource('sounds/ding.mp3'));
+      SystemSound.play(SystemSoundType.click);
     } catch (_) {
-      // 효과음 에셋이 아직 없거나 재생에 실패해도 음성 플로우는 유지한다.
+      // 내장 효과음이 재생되지 않아도 음성 플로우는 유지한다.
     }
   }
 

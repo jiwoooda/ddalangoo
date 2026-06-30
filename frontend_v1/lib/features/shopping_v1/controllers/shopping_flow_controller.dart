@@ -1142,6 +1142,7 @@ class ShoppingFlowController extends ChangeNotifier {
     );
 
     try {
+      await _voiceTurnService.playListeningCue();
       await _voiceTurnService.startRecording();
 
       if (!_canContinueUserRecording(epoch)) {
@@ -1359,7 +1360,9 @@ class ShoppingFlowController extends ChangeNotifier {
     _isAwaitingSilenceConfirmation = false;
 
     try {
-      final transcript = await _voiceTurnService.stopRecordingAndTranscribe();
+      final transcriptFuture = _voiceTurnService.stopRecordingAndTranscribe();
+      unawaited(_voiceTurnService.playListeningCue());
+      final transcript = await transcriptFuture;
 
       if (!_isActiveEpoch(epoch)) return;
 
