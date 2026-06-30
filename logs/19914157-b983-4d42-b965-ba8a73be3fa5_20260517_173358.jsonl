@@ -1,0 +1,6 @@
+{"event": "session_start", "session_id": "19914157-b983-4d42-b965-ba8a73be3fa5"}
+{"event": "turn_start", "turn": 1, "user_input": "딸랑구야 우삼겹 좀 사줘"}
+{"event": "intent_agent", "turn": 1, "user_input": "딸랑구야 우삼겹 좀 사줘", "stage": "idle", "pending_type": "-", "intent": "buy", "keywords": ["우삼겹"], "exclude_keywords": [], "negative_constraints": [], "quantity": null, "condition": null, "target_platforms": [], "override_platform": null, "current_option_value": null, "address_text": null, "needs_clarification": false, "clarification_reason": null, "confidence": 0.9, "immediate_response": "우삼겹을 구매할게요.", "last_agent": "intent_agent"}
+{"event": "router", "turn": 1, "from": "intent_agent", "to": "platform_agent", "intent": "buy", "stage": "idle", "pending_type": "-"}
+{"event": "platform_agent", "turn": 1, "keywords": ["우삼겹"], "intent": "buy", "tried_platforms": [], "trigger": "kurly_early_suggest", "outputs_stage": "product_confirming", "outputs_pending": "platform_suggest", "outputs_results_count": 0}
+{"event": "respond", "turn": 1, "stage": "product_confirming", "pending_type": "platform_suggest", "message": "컬리에서 찾아볼까요?"}
