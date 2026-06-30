@@ -14,6 +14,7 @@ class DallangResponseText extends StatefulWidget {
   final String text;
   final double fontSize;
   final int? maxLines;
+
   /// TTS 총 재생 시간(ms). 0이면 기본 속도 사용.
   final int ttsDurationMs;
 
@@ -71,32 +72,47 @@ class _DallangResponseTextState extends State<DallangResponseText>
 
   @override
   Widget build(BuildContext context) {
-    final balancedText = widget.maxLines == 1
-        ? _displayedText
-              .replaceAll('\n', ' ')
-              .replaceAll(RegExp(r'\s+'), ' ')
-              .trim()
-        : _balanceTextByWords(_displayedText);
-    final chars = balancedText.characters.toList();
-    final totalChars = chars.length;
     final charDelay = _calcCharDelay(_displayedText, widget.ttsDurationMs);
 
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final elapsed = _controller.value *
-            (totalChars * charDelay + _waveDuration);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final balancedText = widget.maxLines == 1
+            ? _displayedText
+                  .replaceAll('\n', ' ')
+                  .replaceAll(RegExp(r'\s+'), ' ')
+                  .trim()
+            : _balanceTextByWords(
+                _displayedText,
+                GoogleFonts.jua(
+                  textStyle: TextStyle(
+                    fontSize: widget.fontSize,
+                    height: 1.38,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                constraints.maxWidth,
+              );
+        final chars = balancedText.characters.toList();
+        final totalChars = chars.length;
 
-        return _StyledTextWave(
-          chars: chars,
-          elapsed: elapsed,
-          charDelay: charDelay,
-          waveDuration: _waveDuration,
-          fontSize: widget.fontSize,
-          maxLines: widget.maxLines,
-          highlightPattern: _highlightPattern,
-          searchKeywordPattern: _searchKeywordPattern,
-          fullText: balancedText,
+        return AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            final elapsed =
+                _controller.value * (totalChars * charDelay + _waveDuration);
+
+            return _StyledTextWave(
+              chars: chars,
+              elapsed: elapsed,
+              charDelay: charDelay,
+              waveDuration: _waveDuration,
+              fontSize: widget.fontSize,
+              maxLines: widget.maxLines,
+              highlightPattern: _highlightPattern,
+              searchKeywordPattern: _searchKeywordPattern,
+              fullText: balancedText,
+            );
+          },
         );
       },
     );
@@ -188,7 +204,10 @@ class _StyledTextWave extends StatelessWidget {
       final ch = chars[i];
       final highlighted = ch != '\n' && _isHighlighted(i);
       final charStart = i * charDelay;
-      final charProgress = ((elapsed - charStart) / waveDuration).clamp(0.0, 1.0);
+      final charProgress = ((elapsed - charStart) / waveDuration).clamp(
+        0.0,
+        1.0,
+      );
       lineChars.add((ch, highlighted, charProgress, charStart));
     }
 
@@ -282,19 +301,16 @@ class _StyledTextWave extends StatelessWidget {
       }
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: widgets,
-    );
+    return Column(mainAxisSize: MainAxisSize.min, children: widgets);
   }
 }
 
-String _balanceTextByWords(String source, {int targetCharsPerLine = 13}) {
+String _balanceTextByWords(String source, TextStyle style, double maxWidth) {
   final normalized = source
       .replaceAll('\n', ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
-  if (normalized.isEmpty || !normalized.contains(' ')) {
+  if (normalized.isEmpty) {
     return normalized;
   }
 
@@ -304,11 +320,21 @@ String _balanceTextByWords(String source, {int targetCharsPerLine = 13}) {
 
   for (final token in tokens) {
     final candidate = buffer.isEmpty ? token : '${buffer.toString()} $token';
-    if (buffer.isNotEmpty && candidate.runes.length > targetCharsPerLine) {
-      lines.add(buffer.toString());
-      buffer
-        ..clear()
-        ..write(token);
+    final linePainter = TextPainter(
+      text: TextSpan(text: candidate, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: maxWidth);
+
+    if (linePainter.didExceedMaxLines) {
+      if (buffer.isNotEmpty) {
+        lines.add(buffer.toString());
+        buffer
+          ..clear()
+          ..write(token);
+      } else {
+        lines.add(token);
+      }
       continue;
     }
 

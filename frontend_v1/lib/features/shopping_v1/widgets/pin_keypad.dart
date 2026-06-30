@@ -25,75 +25,97 @@ class PinKeypad extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 가용 높이에서 카드 패딩·dot 영역을 뺀 나머지를 GridView에 할당
-        final gridHeight = constraints.maxHeight -
-            _cardPadding * 2 -
-            _dotAreaHeight -
-            _dotGap -
-            _gridSpacing * (_gridRows - 1);
-        final buttonHeight = (gridHeight / _gridRows).clamp(44.0, 90.0);
-        final buttonWidth =
-            (constraints.maxWidth - _cardPadding * 2 - _gridSpacing * 2) / 3;
-        final aspectRatio = buttonWidth / buttonHeight;
+        final availableHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : MediaQuery.of(context).size.height * 0.55;
+        final availableWidth =
+            (constraints.maxWidth.isFinite
+                    ? constraints.maxWidth
+                    : MediaQuery.of(context).size.width - 40)
+                .clamp(0.0, double.infinity) -
+            2.0;
 
-        return GlassCard(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 10,
-                children: List.generate(
-                  6,
-                  (index) => Container(
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: index < pin.length
-                          ? const Color(0xFFD77B9E)
-                          : Colors.white.withValues(alpha: 0.72),
+        final exactGridHeight =
+            (availableHeight -
+                    _cardPadding * 2 -
+                    _dotAreaHeight -
+                    _dotGap -
+                    _gridSpacing * (_gridRows - 1))
+                .clamp(0.0, double.infinity);
+        final buttonHeight = (exactGridHeight / _gridRows).clamp(44.0, 90.0);
+        final buttonWidth =
+            ((availableWidth - _cardPadding * 2 - _gridSpacing * 2) / 3)
+                .floorToDouble();
+        final aspectRatio = buttonWidth / buttonHeight;
+        final gridViewHeight =
+            (buttonHeight * _gridRows + _gridSpacing * (_gridRows - 1))
+                .floorToDouble();
+
+        return SizedBox(
+          width: availableWidth,
+          child: GlassCard(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  children: List.generate(
+                    6,
+                    (index) => Container(
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: index < pin.length
+                            ? const Color(0xFFD77B9E)
+                            : Colors.white.withValues(alpha: 0.72),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: _dotGap),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: 12,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: _gridSpacing,
-                  crossAxisSpacing: _gridSpacing,
-                  childAspectRatio: aspectRatio,
-                ),
-                itemBuilder: (context, index) {
-                  if (index == 9) {
-                    return const SizedBox.shrink();
-                  }
-                  if (index == 11) {
-                    return _KeypadButton(
-                      onTap: onBackspace,
-                      child: const Icon(Icons.backspace_outlined),
-                    );
-                  }
-                  final digit = index == 10 ? 0 : index + 1;
-                  return _KeypadButton(
-                    onTap: () => onDigitTap(digit),
-                    child: Text(
-                      '$digit',
-                      style: const TextStyle(
-                        fontFamily: 'Pretendard',
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF12202F),
-                      ),
+                const SizedBox(height: _dotGap),
+                SizedBox(
+                  height: gridViewHeight,
+                  child: GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: 12,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      mainAxisSpacing: _gridSpacing,
+                      crossAxisSpacing: _gridSpacing,
+                      childAspectRatio: aspectRatio,
                     ),
-                  );
-                },
-              ),
-            ],
+                    itemBuilder: (context, index) {
+                      if (index == 9) {
+                        return const SizedBox.shrink();
+                      }
+                      if (index == 11) {
+                        return _KeypadButton(
+                          onTap: onBackspace,
+                          child: const Icon(Icons.backspace_outlined),
+                        );
+                      }
+                      final digit = index == 10 ? 0 : index + 1;
+                      return _KeypadButton(
+                        onTap: () => onDigitTap(digit),
+                        child: Text(
+                          '$digit',
+                          style: const TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 32,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF12202F),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -123,7 +145,9 @@ class _KeypadButton extends StatelessWidget {
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
             ),
-            child: Center(child: child),
+            child: Center(
+              child: FittedBox(fit: BoxFit.scaleDown, child: child),
+            ),
           ),
         ),
       ),

@@ -34,39 +34,38 @@ class ShoppingProgressSteps extends StatelessWidget {
         final stepIndex = index ~/ 2;
         final isCompleted = stepIndex < currentStep;
         final isCurrent = stepIndex == currentStep;
-        final Color activeColor = isCurrent
-            ? const Color(0xFF223140)
-            : const Color(0xFFD77B9E);
-        final Color inactiveColor = const Color(0xFFC9D2DB);
+        final Color completedColor = const Color(0xFFD77B9E);
+        final Color currentBorderColor = const Color(0xFFD77B9E);
+        final Color inactiveBorderColor = const Color(0xFFC9D2DB);
 
         return SizedBox(
           width: 72,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                width: isCurrent ? 18 : 16,
-                height: isCurrent ? 18 : 16,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isCompleted || isCurrent ? activeColor : Colors.white,
-                  border: Border.all(
-                    color: isCompleted || isCurrent
-                        ? activeColor
-                        : inactiveColor,
-                    width: isCurrent ? 3 : 2,
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isCompleted ? completedColor : Colors.white,
+                      border: Border.all(
+                        color: isCompleted
+                            ? completedColor
+                            : isCurrent
+                            ? currentBorderColor
+                            : inactiveBorderColor,
+                        width: isCurrent ? 3 : 2,
+                      ),
+                    ),
                   ),
-                  boxShadow: isCurrent
-                      ? [
-                          BoxShadow(
-                            color: activeColor.withValues(alpha: 0.16),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ]
-                      : null,
-                ),
+                  if (isCompleted)
+                    const Icon(Icons.check, size: 12, color: Colors.white),
+                ],
               ),
               const SizedBox(height: 8),
               Text(

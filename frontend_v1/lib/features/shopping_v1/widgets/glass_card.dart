@@ -68,6 +68,7 @@ class GlassCard extends StatelessWidget {
                 ),
               ),
               child: Stack(
+                clipBehavior: Clip.hardEdge,
                 children: [
                   Positioned(
                     top: -36,

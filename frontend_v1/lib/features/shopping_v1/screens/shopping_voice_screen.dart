@@ -46,7 +46,7 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
 
   static const bool _textInputMode = ShoppingFlowController.textInputMode;
   static const double _overlayInputHeight = 54;
-  static const double _overlayReplyBlockHeight = 82;
+  static const double _overlayReplyBlockHeight = 132;
 
   @override
   void initState() {
@@ -151,16 +151,26 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
     final usesProductDetailLayout =
         _controller.step == ShoppingStep.showProduct ||
         _controller.step == ShoppingStep.askQuantity;
-    final horizontalPadding = usesProductDetailLayout
-        ? 0.0
-        : 20.0;
+    final isPasswordEntryLayout =
+        _controller.step == ShoppingStep.enterPassword;
+    final horizontalPadding = usesProductDetailLayout ? 0.0 : 20.0;
     final topTextHeight =
         (usesProductDetailLayout
                 ? mediaQuery.size.height * 0.16
+                : isPasswordEntryLayout
+                ? mediaQuery.size.height * 0.16
                 : mediaQuery.size.height * 0.26)
             .clamp(
-              usesProductDetailLayout ? 112.0 : 176.0,
-              usesProductDetailLayout ? 156.0 : 250.0,
+              usesProductDetailLayout
+                  ? 112.0
+                  : isPasswordEntryLayout
+                  ? 120.0
+                  : 176.0,
+              usesProductDetailLayout
+                  ? 156.0
+                  : isPasswordEntryLayout
+                  ? 160.0
+                  : 250.0,
             );
     final centerResponseText = _shouldCenterResponseText(_controller.step);
     final showBottomReplyExamples = _shouldShowBottomReplyExamples;
@@ -247,46 +257,66 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                             padding: EdgeInsets.only(
                               bottom: bottomOverlayReservedHeight,
                             ),
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 320),
-                              layoutBuilder: (currentChild, previousChildren) {
-                                return currentChild ?? const SizedBox.shrink();
-                              },
-                              child: centerResponseText
-                                  ? Column(
-                                      key: ValueKey(
-                                        'center-text-${_controller.step.name}',
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                return SingleChildScrollView(
+                                  physics: const BouncingScrollPhysics(),
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      minHeight: constraints.maxHeight,
+                                    ),
+                                    child: IntrinsicHeight(
+                                      child: AnimatedSwitcher(
+                                      duration: const Duration(
+                                        milliseconds: 320,
                                       ),
-                                      children: [
-                                        Expanded(
-                                          child: Center(
-                                            child: Padding(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 12,
+                                      layoutBuilder:
+                                          (currentChild, previousChildren) {
+                                            return currentChild ??
+                                                const SizedBox.shrink();
+                                          },
+                                      child: centerResponseText
+                                          ? Column(
+                                              key: ValueKey(
+                                                'center-text-${_controller.step.name}',
                                               ),
-                                              child: _buildPromptText(
-                                                fontSize: _promptFontSizeForStep(
-                                                  _controller.step,
+                                              children: [
+                                                Center(
+                                                  child: Padding(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 12,
+                                                        ),
+                                                    child: _buildPromptText(
+                                                      fontSize:
+                                                          _promptFontSizeForStep(
+                                                            _controller.step,
+                                                          ),
+                                                      maxLines:
+                                                          _promptMaxLinesForStep(
+                                                            _controller.step,
+                                                          ),
+                                                    ),
+                                                  ),
                                                 ),
-                                                maxLines: _promptMaxLinesForStep(
-                                                  _controller.step,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        if (_controller.shouldShowVoiceButton &&
-                                            !_textInputMode)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              bottom: 24,
-                                            ),
-                                            child: _buildVoiceOrb(),
-                                          ),
-                                        _buildBody(),
-                                      ],
-                                    )
-                                  : _buildBody(),
+                                                if (_controller
+                                                        .shouldShowVoiceButton &&
+                                                    !_textInputMode)
+                                                  Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          bottom: 24,
+                                                        ),
+                                                    child: _buildVoiceOrb(),
+                                                  ),
+                                                _buildBody(),
+                                              ],
+                                            )
+                                          : _buildBody(),
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ),
@@ -405,7 +435,11 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
               color: Color(0xFFD77B9E),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.send_rounded, color: Colors.white, size: 22),
+            child: const Icon(
+              Icons.send_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
           ),
         ),
       ],
@@ -559,11 +593,31 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
   }
 
   double _promptFontSizeForStep(ShoppingStep step) {
-    return 42;
+    switch (step) {
+      case ShoppingStep.showProduct:
+        return 30;
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.askMoreOrCheckout:
+        return 28;
+      case ShoppingStep.enterPassword:
+        return 36;
+      default:
+        return 36;
+    }
   }
 
   int? _promptMaxLinesForStep(ShoppingStep step) {
-    return null;
+    switch (step) {
+      case ShoppingStep.showProduct:
+        return 4;
+      case ShoppingStep.cartCompleted:
+      case ShoppingStep.askMoreOrCheckout:
+        return 3;
+      case ShoppingStep.enterPassword:
+        return 2;
+      default:
+        return null;
+    }
   }
 
   Widget _buildBody() {
@@ -644,11 +698,17 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
           },
         );
       case ShoppingStep.enterPassword:
-        return PinKeypad(
-          key: const ValueKey('enter-password'),
-          pin: _controller.pin,
-          onDigitTap: _controller.onPasswordDigit,
-          onBackspace: _controller.removePasswordDigit,
+        return Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            key: const ValueKey('enter-password'),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            child: PinKeypad(
+              pin: _controller.pin,
+              onDigitTap: _controller.onPasswordDigit,
+              onBackspace: _controller.removePasswordDigit,
+            ),
+          ),
         );
       case ShoppingStep.processingPayment:
         return const Center(
@@ -1012,7 +1072,13 @@ class _SegmentedTopTextState extends State<_SegmentedTopText> {
   }
 
   void _rebuild(_SegmentedTopText w) {
-    _segments = _split(w.text, w.fontSize, w.maxLines, w.availableWidth, w.availableHeight);
+    _segments = _split(
+      w.text,
+      w.fontSize,
+      w.maxLines,
+      w.availableWidth,
+      w.availableHeight,
+    );
     if (_segments.length > 1) {
       _timer = Timer.periodic(const Duration(milliseconds: 2800), (_) {
         if (!mounted) return;
@@ -1028,7 +1094,7 @@ class _SegmentedTopTextState extends State<_SegmentedTopText> {
     double width,
     double height,
   ) {
-    if (text.isEmpty || maxLines != null || width <= 0 || height <= 0) {
+    if (text.isEmpty || width <= 0 || height <= 0) {
       return [text];
     }
     final style = TextStyle(
