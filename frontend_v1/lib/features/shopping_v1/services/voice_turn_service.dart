@@ -53,7 +53,6 @@ class VoiceTurnService {
   }
 
   Future<void> dispose() async {
-    await _cuePlayer.dispose();
     await _voiceService.dispose();
   }
 }

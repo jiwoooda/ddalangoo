@@ -315,7 +315,8 @@ class _ShoppingVoiceScreenState extends State<ShoppingVoiceScreen> {
                                           : _buildBody(),
                                     ),
                                   ),
-                                );
+                                ),
+                              );
                               },
                             ),
                           ),
