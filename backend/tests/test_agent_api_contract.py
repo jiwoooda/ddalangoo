@@ -10,6 +10,7 @@ from app.utils.product_url_contract import (
     fallback_product_fingerprint,
     is_kurly_goods_url,
 )
+from src.agents import intent_agent
 from src.agents import product_agent as platform_agent
 from src.tools import meta_mcp_client
 from src.tools import webview_tool
@@ -650,6 +651,120 @@ def test_product_pending_confirmation_uses_documented_actions():
             "recommendationItemId": 10,
         },
     }
+
+
+def test_agent_response_exposes_intent_agent_keywords():
+    """최종 응답도 Intent Agent가 확정한 검색어를 프론트에 전달한다."""
+    response = state_to_response(
+        {
+            "stage": "product_confirming",
+            "keywords": ["아오리 사과"],
+            "messages": [{"role": "assistant", "content": "상품을 찾았어요."}],
+        },
+        conversation_id=999010,
+    )
+
+    assert response.searchKeywords == ["아오리 사과"]
+
+
+def test_intent_progress_uses_only_intent_agent_keywords(monkeypatch):
+    """사용자 원문 재파싱 없이 intent_agent 노드의 keywords만 진행 응답에 사용한다."""
+    emitted = []
+
+    async def fake_emit_agent_progress(**kwargs):
+        emitted.append(kwargs)
+
+    monkeypatch.setattr(agent_service, "_emit_agent_progress", fake_emit_agent_progress)
+    callback = agent_service._intent_progress_callback(
+        channel_id="progress-1",
+        conversation_id=999011,
+        username="김영희",
+    )
+
+    asyncio.run(callback("product_agent", {"keywords": ["잘못된 값"]}))
+    asyncio.run(callback("intent_agent", {"keywords": ["참외"]}))
+    asyncio.run(callback("intent_agent", {"keywords": ["중복 값"]}))
+
+    assert emitted == [
+        {
+            "channel_id": "progress-1",
+            "kind": "intent_resolved",
+            "conversation_id": 999011,
+            "payload": {"username": "김영희", "keywords": ["참외"]},
+            "include_speech": False,
+        }
+    ]
+
+
+def test_runtime_stream_forwards_each_graph_node_update():
+    """runtime은 그래프 실행을 마친 뒤가 아니라 노드 완료 시점에 update를 전달한다."""
+    received = []
+
+    class FakeGraph:
+        async def astream(self, graph_input, config, stream_mode):
+            assert graph_input is None
+            assert stream_mode == "updates"
+            yield {"intent_agent": {"keywords": ["참외"]}}
+            yield {"product_agent": {"candidate_products": []}}
+
+    async def collect_update(node_name, state_patch):
+        received.append((node_name, state_patch))
+
+    asyncio.run(
+        agent_service.runtime._run_graph_with_updates(
+            FakeGraph(),
+            {"configurable": {"thread_id": "999012"}},
+            collect_update,
+        )
+    )
+
+    assert received == [
+        ("intent_agent", {"keywords": ["참외"]}),
+        ("product_agent", {"candidate_products": []}),
+    ]
+
+
+def test_intent_progress_response_contains_keywords_without_waiting_for_tts():
+    """키워드 진행 응답은 즉시 보낼 수 있고 searchKeywords 계약을 포함한다."""
+    response = asyncio.run(
+        agent_service._progress_prompt_response(
+            kind="intent_resolved",
+            conversation_id=999013,
+            payload={"username": "김영희", "keywords": ["참외"]},
+            include_speech=False,
+        )
+    )
+
+    assert response.assistantMessage == "김영희 님을 위한 참외를 찾고 있어요."
+    assert response.searchKeywords == ["참외"]
+    assert response.speechSegments is None
+
+
+def test_food_desire_with_question_mark_is_corrected_to_buy(monkeypatch):
+    """STT가 물음표를 붙여도 상품 섭취 희망은 질문이 아니라 구매 요청이다."""
+    class FakeIntentLlm:
+        def invoke(self, messages):
+            return intent_agent.IntentOutput(
+                intent="ask",
+                keywords=["망고"],
+                needs_clarification=True,
+                confidence=0.9,
+                immediate_response="망고를 드시고 싶으시군요!",
+            )
+
+    monkeypatch.setattr(intent_agent, "_get_llm", lambda: FakeIntentLlm())
+
+    result = intent_agent.intent_agent_node(
+        {
+            "stage": "idle",
+            "messages": [{"role": "user", "content": "망고 먹고 싶어?"}],
+        }
+    )
+
+    assert result["intent"] == "buy"
+    assert result["keywords"] == ["망고"]
+    assert result["needs_clarification"] is False
+    assert result["clarification_reason"] is None
 
 
 def test_blocked_product_confirmation_does_not_readd_order_actions():

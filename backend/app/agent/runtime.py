@@ -20,6 +20,7 @@ import sys
 import os
 import uuid
 import asyncio
+from collections.abc import Awaitable, Callable
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
@@ -43,6 +44,8 @@ _PG_CONNINFO = _RAW_DB_URL.replace("postgresql+asyncpg://", "postgresql://")
 _graph = None
 _pool: AsyncConnectionPool | None = None
 _init_lock = asyncio.Lock()
+
+GraphUpdateCallback = Callable[[str, dict], Awaitable[None]]
 
 
 async def init():
@@ -94,7 +97,30 @@ async def update_state(conversation_id: int, patch: dict) -> dict:
     return snapshot.values
 
 
-async def start(user_id: int, message: str, conversation_id: int) -> dict:
+async def _run_graph_with_updates(
+    graph,
+    config: dict,
+    on_update: GraphUpdateCallback | None,
+) -> None:
+    """그래프 실행 중 각 노드의 state 변경을 선택적으로 외부에 전달한다."""
+    if on_update is None:
+        await graph.ainvoke(None, config)
+        return
+
+    async for update in graph.astream(None, config, stream_mode="updates"):
+        if not isinstance(update, dict):
+            continue
+        for node_name, state_patch in update.items():
+            if isinstance(state_patch, dict):
+                await on_update(str(node_name), state_patch)
+
+
+async def start(
+    user_id: int,
+    message: str,
+    conversation_id: int,
+    on_update: GraphUpdateCallback | None = None,
+) -> dict:
     """새 대화 시작. 그래프를 초기화하고 첫 메시지를 처리한다."""
     await ensure_initialized()
     graph = get_graph()
@@ -108,20 +134,24 @@ async def start(user_id: int, message: str, conversation_id: int) -> dict:
 
     await graph.ainvoke(initial_state, config)
     await graph.aupdate_state(config, {"messages": [HumanMessage(content=message)]})
-    await graph.ainvoke(None, config)
+    await _run_graph_with_updates(graph, config, on_update)
 
     snapshot = await graph.aget_state(config)
     return snapshot.values
 
 
-async def resume(conversation_id: int, message: str) -> dict:
+async def resume(
+    conversation_id: int,
+    message: str,
+    on_update: GraphUpdateCallback | None = None,
+) -> dict:
     """기존 대화에 메시지를 추가하고 그래프를 재개한다."""
     await ensure_initialized()
     graph = get_graph()
     config = _config(conversation_id)
 
     await graph.aupdate_state(config, {"messages": [HumanMessage(content=message)]})
-    await graph.ainvoke(None, config)
+    await _run_graph_with_updates(graph, config, on_update)
 
     snapshot = await graph.aget_state(config)
     return snapshot.values

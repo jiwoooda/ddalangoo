@@ -238,6 +238,7 @@ class ShoppingAgentResponse {
     this.message,
     this.speechMode,
     this.speechSegments = const [],
+    this.searchKeywords = const [],
     this.status,
     this.stage,
     this.pendingConfirmation,
@@ -258,6 +259,7 @@ class ShoppingAgentResponse {
   final String? message;
   final String? speechMode;
   final List<SpeechSegmentViewData> speechSegments;
+  final List<String> searchKeywords;
   final String? status;
   final String? stage;
   final Map<String, dynamic>? pendingConfirmation;

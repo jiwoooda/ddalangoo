@@ -290,6 +290,41 @@ def _keywords_text(state: dict) -> str | None:
     return ", ".join(str(keyword) for keyword in keywords)
 
 
+def _normalized_keyword_list(value: object) -> list[str]:
+    """LangGraph state의 keywords를 API 응답에 넣을 문자열 목록으로 정리한다."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(keyword).strip() for keyword in value if str(keyword).strip()]
+
+
+def _intent_progress_callback(
+    *,
+    channel_id: str | None,
+    conversation_id: int,
+    username: str | None,
+):
+    """Intent Agent가 확정한 키워드만 진행 WebSocket으로 전달한다."""
+    emitted = False
+
+    async def _on_update(node_name: str, state_patch: dict) -> None:
+        nonlocal emitted
+        if emitted or node_name != "intent_agent":
+            return
+        keywords = _normalized_keyword_list(state_patch.get("keywords"))
+        if not keywords:
+            return
+        emitted = True
+        await _emit_agent_progress(
+            channel_id=channel_id,
+            kind="intent_resolved",
+            conversation_id=conversation_id,
+            payload={"username": username, "keywords": keywords},
+            include_speech=False,
+        )
+
+    return _on_update
+
+
 def _target_product_name(state: dict) -> str | None:
     """intent 결과나 선택 상품에서 대표 상품명을 추출한다."""
     selected_product = state.get("selected_product") or {}
@@ -1678,22 +1713,21 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         kind="searching_intro",
         conversation_id=conv["id"],
         payload={"username": user.get("name")},
+        include_speech=False,
     )
-    extracted_keywords = _search_keywords_from_message(req.message)
-    if not _should_retry_search_prompt(req.message, extracted_keywords):
-        await _emit_agent_progress(
-            channel_id=req.progressChannelId,
-            kind="searching_refined",
-            conversation_id=conv["id"],
-            payload={
-                "message": req.message,
-                "username": user.get("name"),
-            },
-        )
     state = await runtime.start(
         user_id=req.userId,
         message=req.message,
         conversation_id=conv["id"],
+        on_update=(
+            _intent_progress_callback(
+                channel_id=req.progressChannelId,
+                conversation_id=conv["id"],
+                username=user.get("name"),
+            )
+            if req.progressChannelId
+            else None
+        ),
     )
     state = await _run_post_graph_persistence(
         db,
@@ -1773,28 +1807,20 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         (snapshot.values.get("stage") in {"idle", "cart_shopping"})
         and pending_action_before in {None, "continue_shopping"}
     )
+    progress_username = None
     if should_emit_search_progress:
         user = await user_repository.get_user_by_id_db(
             db,
             int(snapshot.values["user_id"]),
         )
+        progress_username = user.get("name") if user else None
         await _emit_agent_progress(
             channel_id=req.progressChannelId,
             kind="searching_intro",
             conversation_id=conversation_id,
-            payload={"username": user.get("name") if user else None},
+            payload={"username": progress_username},
+            include_speech=False,
         )
-        extracted_keywords = _search_keywords_from_message(req.message)
-        if not _should_retry_search_prompt(req.message, extracted_keywords):
-            await _emit_agent_progress(
-                channel_id=req.progressChannelId,
-                kind="searching_refined",
-                conversation_id=conversation_id,
-                payload={
-                    "message": req.message,
-                    "username": user.get("name") if user else None,
-                },
-            )
     if (
         snapshot.values.get("stage") == "cart_shopping"
         and pending_action_before == "continue_shopping"
@@ -1841,7 +1867,19 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
             agent_progress_service.clear_progress(req.progressChannelId)
         return response
 
-    state = await runtime.resume(conversation_id=conversation_id, message=req.message)
+    state = await runtime.resume(
+        conversation_id=conversation_id,
+        message=req.message,
+        on_update=(
+            _intent_progress_callback(
+                channel_id=req.progressChannelId,
+                conversation_id=conversation_id,
+                username=progress_username,
+            )
+            if should_emit_search_progress and req.progressChannelId
+            else None
+        ),
+    )
     if _is_address_confirmation_stage(snapshot.values, pending_action_before) and (
         state.get("intent") == "confirm" or _is_explicit_payment_confirmation(req.message)
     ):
@@ -1975,14 +2013,18 @@ async def _progress_prompt_response(
     kind: str,
     conversation_id: int,
     payload: object | None = None,
+    include_speech: bool = True,
 ) -> AgentResponse:
     message = _prompt_message(kind, payload)
+    data = payload if isinstance(payload, dict) else {}
+    search_keywords = _normalized_keyword_list(data.get("keywords"))
     response = AgentResponse(
         conversationId=conversation_id,
         status="progress",
         stage=kind,
         assistantMessage=message,
         message=message,
+        searchKeywords=search_keywords,
         recommendationId=None,
         recommendations=[],
         selectedProduct=None,
@@ -1996,7 +2038,9 @@ async def _progress_prompt_response(
         asyncStatus={"kind": "agent_progress"},
         error=None,
     )
-    return await _with_speech_segments(response)
+    if include_speech:
+        return await _with_speech_segments(response)
+    return response
 
 
 async def _emit_agent_progress(
@@ -2005,6 +2049,7 @@ async def _emit_agent_progress(
     kind: str,
     conversation_id: int,
     payload: object | None = None,
+    include_speech: bool = True,
 ) -> None:
     if not channel_id:
         return
@@ -2013,6 +2058,7 @@ async def _emit_agent_progress(
             kind=kind,
             conversation_id=conversation_id,
             payload=payload,
+            include_speech=include_speech,
         )
         agent_progress_service.emit_progress(
             channel_id,
@@ -2063,6 +2109,7 @@ def _prompt_message(kind: str, payload: object | None) -> str:
     badge_text = str(data.get("badgeText") or data.get("badge_text") or "").strip()
     completion_text = str(data.get("text") or "").strip()
     raw_message = str(data.get("message") or data.get("query") or "").strip()
+    intent_keywords = _normalized_keyword_list(data.get("keywords"))
 
     def _object_particle(word: str) -> str:
         normalized = word.strip()
@@ -2108,6 +2155,15 @@ def _prompt_message(kind: str, payload: object | None) -> str:
 
     if kind == "searching_intro":
         return prompts["searching_intro"]
+
+    if kind == "intent_resolved" and intent_keywords:
+        keywords_text = " ".join(intent_keywords)
+        if username:
+            return (
+                f"{username} 님을 위한 {keywords_text}"
+                f"{_object_particle(keywords_text)} 찾고 있어요."
+            )
+        return f"{keywords_text}{_object_particle(keywords_text)} 찾고 있어요."
 
     if kind in {"searching_product", "searching_refined"}:
         keywords = _search_keywords_from_message(raw_message)

@@ -332,6 +332,11 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
         stage=stage,
         assistantMessage=_last_assistant_message(state),
         message=_last_assistant_message(state),
+        searchKeywords=[
+            str(keyword).strip()
+            for keyword in (state.get("keywords") or [])
+            if str(keyword).strip()
+        ],
         recommendationId=state.get("recommendation_id") or state.get("recommendationId"),
         recommendations=[_map_product(p) for p in candidates[:2]],
         selectedProduct=state.get("selected_product"),

@@ -46,7 +46,7 @@ class GeminiVoiceService {
   static const int _ttsRetryCount = 2;
   static const int _ttsSampleRate = 24000;
   static const Duration _ttsRetryBaseDelay = Duration(milliseconds: 800);
-  static const double _ttsPlaybackRate = 0.8;
+  static const double _ttsPlaybackRate = 1.0;
 
   final AudioPlayer _player = AudioPlayer();
   final LinkedHashMap<String, Uint8List> _ttsCache = LinkedHashMap();

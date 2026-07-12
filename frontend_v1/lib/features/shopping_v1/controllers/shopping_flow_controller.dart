@@ -40,6 +40,7 @@ class ShoppingFlowController extends ChangeNotifier {
   VoiceTurnState _voiceTurnState = VoiceTurnState.idle;
   String _assistantText = '';
   String? _latestTranscript;
+  List<String> _searchKeywords = const [];
   ProductViewData? _currentProduct;
   final List<CartItemViewData> _cartItems = [];
   CheckoutSummary? _checkoutSummary;
@@ -88,6 +89,7 @@ class ShoppingFlowController extends ChangeNotifier {
   VoiceTurnState get voiceTurnState => _voiceTurnState;
   String get assistantText => _assistantText;
   String? get latestTranscript => _latestTranscript;
+  List<String> get searchKeywords => List.unmodifiable(_searchKeywords);
   ProductViewData? get currentProduct => _currentProduct;
   List<CartItemViewData> get cartItems => List.unmodifiable(_cartItems);
   CheckoutSummary? get checkoutSummary => _checkoutSummary;
@@ -226,8 +228,10 @@ class ShoppingFlowController extends ChangeNotifier {
       return;
     }
     final shouldUseAgentProgress = _shouldUseAgentProgress();
-    if (_step == ShoppingStep.askProduct) {
+    if (shouldUseAgentProgress) {
       _step = ShoppingStep.searchingProduct;
+      _searchKeywords = const [];
+      _assistantText = '네, 잠시만 기다려주세요.';
       notifyListeners();
     } else {
       notifyListeners();
@@ -313,6 +317,9 @@ class ShoppingFlowController extends ChangeNotifier {
         response.assistantMessage.trim().isEmpty) {
       return;
     }
+    if (response.searchKeywords.isNotEmpty) {
+      _searchKeywords = List.unmodifiable(response.searchKeywords);
+    }
     await _presentAssistant(
       response.assistantMessage,
       speechSegments: response.speechSegments,
@@ -325,6 +332,9 @@ class ShoppingFlowController extends ChangeNotifier {
     ShoppingAgentResponse response,
     String transcript,
   ) async {
+    if (response.searchKeywords.isNotEmpty) {
+      _searchKeywords = List.unmodifiable(response.searchKeywords);
+    }
     final previousStep = _step;
     final inferredStep = _inferStep(response);
     final responseCartItems = _agentService.extractCartItems(response);

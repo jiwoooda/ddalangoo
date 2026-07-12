@@ -76,12 +76,23 @@ def _fallback_search_keywords(user_input: str) -> list[str]:
 _BUY_TRIGGERS = frozenset({"사줘", "사줄래", "사주세요", "구매해", "구매해줘", "주문해", "사고싶어", "사 줘"})
 _REORDER_SIGNALS = frozenset({"저번에", "지난번에", "재주문", "똑같이 다시", "예전에 산"})
 
-def _should_force_buy_from_freeform(user_input: str, intent: str, stage: str) -> bool:
-    """idle 상태에서 buy 트리거가 있는데 LLM이 다른 intent를 뽑았을 때 buy로 교정.
-    reorder는 교정 대상에서 제외 — 재구매 신호가 buy 트리거보다 우선."""
+def _should_force_buy_from_freeform(
+    user_input: str,
+    intent: str,
+    stage: str,
+    keywords: list[str],
+) -> bool:
+    """idle의 명확한 구매·섭취 희망 발화를 buy로 교정한다.
+
+    reorder는 교정 대상에서 제외한다. 재구매 신호가 buy 트리거보다 우선이다.
+    """
     if intent in ("buy", "reorder") or stage != "idle":
         return False
-    return any(t in user_input for t in _BUY_TRIGGERS)
+    if any(t in user_input for t in _BUY_TRIGGERS):
+        return True
+    return bool(keywords) and bool(
+        re.search(r"(?:먹고|마시고|드시고)\s*싶", user_input)
+    )
 
 def _should_force_reorder(user_input: str, intent: str, stage: str, keywords: list) -> bool:
     """재구매 신호 + 상품명이 있는데 LLM이 buy로 잘못 분류했을 때 reorder로 교정."""
@@ -212,14 +223,21 @@ def intent_agent_node(state: ShoppingState) -> dict:
         }
 
     intent = parsed.intent
+    parsed_keywords = _normalize_keyword_tokens(parsed.keywords or [])
 
     # ── reorder 강제 교정: 재구매 신호+상품명 있는데 buy로 잘못 분류된 경우 ──
     kws_for_check = _normalize_keyword_tokens(parsed.keywords or []) or _fallback_search_keywords(user_input)
     if _should_force_reorder(user_input, intent, stage, kws_for_check):
         intent = "reorder"
 
-    # ── buy 강제 교정: idle에서 사줘/구매해 등 트리거 있는데 LLM이 다른 intent ──
-    if _should_force_buy_from_freeform(user_input, intent, stage):
+    # ── buy 강제 교정: idle에서 명확한 구매 희망인데 LLM이 ask 등으로 분류한 경우 ──
+    force_buy = _should_force_buy_from_freeform(
+        user_input,
+        intent,
+        stage,
+        parsed_keywords,
+    )
+    if force_buy:
         intent = "buy"
 
     quantity = _parse_quantity(parsed.quantity)
@@ -239,12 +257,12 @@ def intent_agent_node(state: ShoppingState) -> dict:
 
     # 검색과 무관한 intent는 기존 keywords 유지 (ask/confirm/deny/next 등이 keywords를 덮어쓰면 안 됨)
     if intent in _search_intents:
-        keywords = _normalize_keyword_tokens(parsed.keywords or []) or state.get("keywords") or []
+        keywords = parsed_keywords or state.get("keywords") or []
         # LLM이 빈 keywords 반환 → 휴리스틱 추출
         if not keywords:
             keywords = _fallback_search_keywords(user_input)
     else:
-        keywords = state.get("keywords") or _normalize_keyword_tokens(parsed.keywords or [])
+        keywords = state.get("keywords") or parsed_keywords
 
     needs_clarification = parsed.needs_clarification
     clarification_reason = parsed.clarification_reason
@@ -262,6 +280,11 @@ def intent_agent_node(state: ShoppingState) -> dict:
         needs_clarification = False
         clarification_reason = None
         confidence = max(confidence, 0.85)
+
+    # 구매 희망 문구와 상품 키워드가 명확하면 LLM이 붙인 불필요한 재질문을 제거한다.
+    if force_buy:
+        needs_clarification = False
+        clarification_reason = None
 
     if _is_ambiguous_reorder(user_input, keywords):
         intent = "reorder"

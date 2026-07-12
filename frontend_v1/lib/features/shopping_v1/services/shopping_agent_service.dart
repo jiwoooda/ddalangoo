@@ -480,6 +480,7 @@ class ShoppingAgentService {
       message: _stringOf(json['message']),
       speechMode: _stringOf(json['speechMode']),
       speechSegments: _parseSpeechSegments(json['speechSegments']),
+      searchKeywords: _listOfString(json['searchKeywords']),
       status: _stringOf(json['status']),
       stage: _stringOf(json['stage']),
       pendingConfirmation: _mapOf(json['pendingConfirmation']),
@@ -631,6 +632,16 @@ List<Map<String, dynamic>> _listOfMap(dynamic value) {
   return value
       .whereType<Map>()
       .map((item) => Map<String, dynamic>.from(item))
+      .toList();
+}
+
+List<String> _listOfString(dynamic value) {
+  if (value is! List) {
+    return const [];
+  }
+  return value
+      .map((item) => item.toString().trim())
+      .where((item) => item.isNotEmpty)
       .toList();
 }
 
