@@ -162,6 +162,8 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
                 "url": product_url,
                 "source_url": raw_url,
                 "shop_name": item.get("mallName"),
+                # 네이버 쇼핑 API 원본 응답에 실제로 포함된 필드 — mock 아님
+                "brand": item.get("brand") or item.get("maker") or None,
             })
 
     if params.get("sort") == "price_low":
@@ -421,9 +423,53 @@ def _normalize(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "execution_url": p.get("execution_url") or p.get("product_url") or p.get("url", ""),
             "source_url": p.get("source_url"),
             "is_sold_out": False,
+            "brand": p.get("brand"),
+            # 실제 영양성분 API 연동 전까지는 값 없음 — mock 모드처럼 채워넣지 않음
+            # (mcp 모드에서 nutrition_info가 비어있으면 tier1 필터가 이 사실 자체를 반영해야 함)
+            "nutrition_info": p.get("nutrition_info"),
             "raw": p,
         })
     return result
+
+
+_KURLY_WEBVIEW_ENRICH_LIMIT = 3
+
+
+def _enrich_kurly_delivery(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    실제 kurly.com 상품 URL이 확보된 후보 중 상위 몇 개만 webview로 열어
+    진짜 배송정보를 채운다. 후보마다 브라우저를 새로 띄우는 비용이 커서
+    개수를 제한한다 (지연시간 vs 정확도 트레이드오프).
+    """
+    try:
+        from src.tools.webview_tool import check_product_price
+    except ImportError as e:
+        print(f"[meta_mcp_client] webview_tool 사용 불가, 배송정보 보강 스킵: {e}")
+        return products
+
+    enriched_count = 0
+    for product in products:
+        if enriched_count >= _KURLY_WEBVIEW_ENRICH_LIMIT:
+            break
+        if str(product.get("platform") or "") not in ("kurly", "kurlynmart"):
+            continue
+        url = product.get("product_url") or product.get("execution_url") or ""
+        if not _is_kurly_url(url):
+            continue
+        try:
+            result = check_product_price(url, include_delivery=True)
+        except Exception as e:
+            print(f"[meta_mcp_client] kurly webview 배송정보 보강 실패 url={url}: {e}")
+            enriched_count += 1
+            continue
+        delivery_info = result.get("delivery_info")
+        if delivery_info:
+            product["delivery"] = delivery_info
+            product["delivery_fee"] = 0 if any(k in delivery_info for k in ("로켓", "무료", "새벽")) else product.get("delivery_fee")
+        if result.get("current_price"):
+            product["price"] = result["current_price"]
+        enriched_count += 1
+    return products
 
 
 def search_products(
@@ -446,8 +492,11 @@ def search_products(
     if budget_max is not None:
         params["max_price"] = budget_max
 
-    remote_results = _call_remote_meta_mcp(params)
-    if remote_results:
-        return remote_results
+    results = _call_remote_meta_mcp(params)
+    if not results:
+        results = _call_meta_mcp(params)
 
-    return _call_meta_mcp(params)
+    if "kurly" in valid_platforms and results:
+        results = _enrich_kurly_delivery(results)
+
+    return results

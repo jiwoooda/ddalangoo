@@ -400,6 +400,37 @@ DEFAULT_PRODUCTS = [
 ]
 
 # ══════════════════════════════════════════════
+# Mock 영양정보 / 브랜드 — 실제로는 상품 영양성분 API로 채워질 필드.
+# Context Agent tier1(알레르기/식이제약) 필터를 목데이터로 검증하기 위한 자리채움.
+# ══════════════════════════════════════════════
+
+_MOCK_NUTRITION_BY_KEYWORD: dict[str, dict[str, Any]] = {
+    "딸기":   {"allergens": [], "diet_tags": ["저당"], "calories_kcal": 34},
+    "참기름": {"allergens": ["참깨"], "diet_tags": [], "calories_kcal": 884},
+    "계란":   {"allergens": ["계란"], "diet_tags": [], "calories_kcal": 155},
+    "우유":   {"allergens": ["우유"], "diet_tags": [], "calories_kcal": 61},
+    "사과":   {"allergens": [], "diet_tags": ["저당"], "calories_kcal": 52},
+}
+_DEFAULT_NUTRITION: dict[str, Any] = {"allergens": [], "diet_tags": [], "calories_kcal": None}
+
+
+def _mock_brand(product_name: str) -> str:
+    """상품명 첫 단어를 브랜드/산지로 취급하는 단순 휴리스틱 (실제로는 API 필드로 대체)."""
+    first_word = (product_name or "").split(" ", 1)[0].strip()
+    return first_word or "기타"
+
+
+def _enrich_product(product: dict[str, Any], keyword: Optional[str]) -> dict[str, Any]:
+    enriched = dict(product)
+    enriched.setdefault("brand", _mock_brand(enriched.get("product_name", "")))
+    enriched.setdefault(
+        "nutrition_info",
+        _MOCK_NUTRITION_BY_KEYWORD.get(keyword or "", _DEFAULT_NUTRITION),
+    )
+    return enriched
+
+
+# ══════════════════════════════════════════════
 # Mock search_product Tool
 # ══════════════════════════════════════════════
 
@@ -415,10 +446,10 @@ def mock_search_product(
         if keyword in query.lower() or any(keyword in q.lower() for q in query.split()):
             for p in products:
                 if not platforms or p["platform"] in platforms:
-                    results.append(p)
+                    results.append(_enrich_product(p, keyword))
 
     if not results:
-        results = list(DEFAULT_PRODUCTS)
+        results = [_enrich_product(p, None) for p in DEFAULT_PRODUCTS]
 
     if budget_max:
         results = [p for p in results if p["price"] <= budget_max]
