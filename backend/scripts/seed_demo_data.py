@@ -27,7 +27,17 @@ from app.models.address import UserAddress  # noqa: E402
 from app.models.product import ExternalProductMapping, Product  # noqa: E402
 from app.models.purchase_history import PurchaseHistory  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.models.user_preference import UserPreferenceCache  # noqa: E402
 from app.repositories.product_repository import external_product_url_hash  # noqa: E402
+
+
+# Context Agent tier1(안전제약) 검증용 — mock_tools.py의 영양정보 목데이터
+# 어휘(계란/우유/참깨)와 맞춘 프로필. 우유 알레르기로 둬서, 아래
+# negative-feedback 구매이력(계란)과는 다른 채널(tier1 vs tier2)로 검증한다.
+DEMO_PROFILE = {
+    "allergens": ["우유"],
+    "diet_restrictions": [],
+}
 
 
 DEMO_USER = {
@@ -78,6 +88,38 @@ DEMO_PRODUCTS = [
             "quantity": 1,
             "satisfaction": 5,
             "memo": "지난번에 맛있게 먹었던 수박 데모 이력",
+        },
+    },
+    {
+        # Context Agent tier2(negative feedback → exclude_additions) 검증용.
+        "name": "[동물복지] 유정란 15구",
+        "normalized_name": "유정란",
+        "brand": "동물복지",
+        "category": "축산",
+        "sub_category": "계란",
+        "description": "데모용 박미영 비선호 계란 상품",
+        "volume": "15구",
+        "unit": "판",
+        "image_url": (
+            "https://product-image.kurly.com/hdims/resize/%5E%3E720x%3E936/"
+            "cropcenter/720x936/quality/85/src/product/image/"
+            "demo-eggs.jpg"
+        ),
+        "current_price": 8900,
+        "delivery_type": "kurly",
+        "current_delivery_info": "샛별배송 가능",
+        "rating": 4.2,
+        "review_count": 340,
+        "is_available": True,
+        "platform": "kurly",
+        "external_product_id": "5136385",
+        "external_product_url": "https://www.kurly.com/goods/5136385",
+        "purchase_history": {
+            "keyword": "계란",
+            "option_snapshot": "15구",
+            "quantity": 1,
+            "satisfaction": 1,
+            "memo": "깨진 게 많아서 다신 안 삼",
         },
     },
 ]
@@ -241,11 +283,41 @@ async def upsert_purchase_history(db, user: User, product: Product, product_data
             setattr(history, key, value)
 
 
+async def upsert_profile(db, user: User) -> None:
+    """
+    스몰톡 에이전트가 나중에 채워넣을 장기 프로필(user_preference_cache,
+    preference_type="profile")을 목데이터로 미리 넣는다.
+    user_preference_repository.get_profile/save_profile과 같은 행을 쓴다.
+    """
+    result = await db.execute(
+        select(UserPreferenceCache).where(
+            UserPreferenceCache.user_id == user.id,
+            UserPreferenceCache.preference_type == "profile",
+            UserPreferenceCache.keywords_key == "",
+        )
+    )
+    row = result.scalars().first()
+    if row is None:
+        db.add(
+            UserPreferenceCache(
+                user_id=user.id,
+                preference_type="profile",
+                keywords_key="",
+                preference_data=DEMO_PROFILE,
+                computed_at=datetime.now(UTC),
+            )
+        )
+    else:
+        row.preference_data = DEMO_PROFILE
+        row.computed_at = datetime.now(UTC)
+
+
 async def seed_demo_data() -> None:
     """데모에 필요한 DB 데이터를 한 번에 준비한다."""
     async with AsyncSessionLocal() as db:
         user = await upsert_demo_user(db)
         address = await upsert_default_address(db, user)
+        await upsert_profile(db, user)
         products: list[Product] = []
         for product_data in DEMO_PRODUCTS:
             product = await upsert_product_and_mapping(db, product_data)
@@ -256,6 +328,7 @@ async def seed_demo_data() -> None:
         print("demo_seed_ok")
         print(f"user_id={user.id} name={user.name} phone={user.phone_number}")
         print(f"default_address_id={address.id} address={address.address_line1}")
+        print(f"profile={DEMO_PROFILE}")
         for product in products:
             print(f"product_id={product.id} name={product.name}")
 

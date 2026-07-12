@@ -190,9 +190,26 @@ class _RankResult(BaseModel):
     filtered_out_labels: list[str] = []
 
 
+def _fails_safety_constraints(product: dict[str, Any], safety_constraints: list[str]) -> bool:
+    """
+    tier1(알레르기/식이제약) binary 배제. nutrition_info.allergens에 실제로
+    태깅된 성분만 본다 — 상품명 substring 매칭이 아님 (오탐 줄이려는 목적).
+    nutrition_info가 아예 없는 상품(연동 전 mcp 결과 등)은 판단 불가이므로
+    안전 쪽으로 보수적으로 배제한다.
+    """
+    if not safety_constraints:
+        return False
+    nutrition = product.get("nutrition_info")
+    if not nutrition:
+        return True
+    allergens = set(nutrition.get("allergens") or [])
+    return bool(allergens & set(safety_constraints))
+
+
 def _filter_results(
     products: list[dict[str, Any]],
     exclude_keywords: list[str],
+    safety_constraints: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     filtered = []
     for p in products:
@@ -204,6 +221,8 @@ def _filter_results(
             continue
         name = p.get("product_name", "").lower()
         if any(ex.lower() in name for ex in exclude_keywords):
+            continue
+        if _fails_safety_constraints(p, safety_constraints or []):
             continue
         filtered.append(p)
     return filtered
@@ -346,7 +365,7 @@ def product_agent_node(state: ShoppingState) -> dict:
         condition=sort,
         preferred_platform=preferred_platform,
     )
-    candidates = _filter_results(raw_results, exclude_keywords)
+    candidates = _filter_results(raw_results, exclude_keywords, preference_context.get("safety_constraints"))
 
     if not candidates:
         return {

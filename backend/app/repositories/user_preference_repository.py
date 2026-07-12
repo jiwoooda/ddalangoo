@@ -172,6 +172,38 @@ def save_general_preference(user_id: int, preference: dict[str, Any]) -> None:
         return
 
 
+def get_profile(user_id: int) -> Optional[dict[str, Any]]:
+    """
+    장기 프로필(알레르기/식이제약/1인가구 여부 등)을 조회한다.
+
+    스몰톡 에이전트가 채워넣는 값이며, general/keyword 캐시와 달리 TTL이
+    없다 — 알레르기 같은 정보는 "오래됐다고 만료"되는 값이 아니다.
+    """
+    if not _can_try_database():
+        return None
+    try:
+        row = _get_cache_row(user_id, preference_type="profile")
+    except Exception:
+        return None
+    if not row:
+        return None
+    return _entry_from_row(row)
+
+
+def save_profile(user_id: int, profile: dict[str, Any]) -> None:
+    """장기 프로필을 저장한다. 스몰톡 에이전트의 유일한 쓰기 진입점이 될 예정."""
+    if not _can_try_database():
+        return
+    try:
+        _save_cache_row(
+            user_id,
+            preference_type="profile",
+            preference_data=dict(profile),
+        )
+    except Exception:
+        return
+
+
 def get_keyword_preference(user_id: int, keywords: list[str]) -> Optional[list]:
     """키워드별 선호도 캐시를 조회한다. TTL 초과 시 None을 반환한다."""
     if not keywords:
@@ -213,12 +245,22 @@ def save_keyword_preference(user_id: int, keywords: list[str], keyword_history: 
         return
 
 
+# 구매 완료 시 재계산이 필요한 캐시 타입만. "profile"(스몰톡 에이전트가 채우는
+# 알레르기/식이제약 등 장기 프로필)은 구매와 무관하게 유지되어야 하므로 제외.
+_PURCHASE_DERIVED_TYPES = ("general", "keyword")
+
+
 def invalidate_all_preferences(user_id: int) -> None:
-    """구매 완료 후 해당 유저의 모든 선호도 캐시를 무효화한다."""
+    """구매 완료 후 해당 유저의 구매이력 기반 선호도 캐시를 무효화한다.
+
+    profile(장기 프로필)은 여기서 지우지 않는다 — 안전 관련 정보라 구매와
+    무관하게 유지되어야 하며, 지우면 다음 추천에서 알레르기 필터가 빠질 수 있다.
+    """
     if not _can_try_database():
         return
     try:
-        _delete_cache_rows(user_id)
+        for preference_type in _PURCHASE_DERIVED_TYPES:
+            _delete_cache_rows(user_id, preference_type=preference_type)
     except Exception:
         return
 

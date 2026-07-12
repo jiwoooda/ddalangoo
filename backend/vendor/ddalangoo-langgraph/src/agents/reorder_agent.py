@@ -8,72 +8,27 @@ Reorder Agent Node.
 
 기존 memory_agent(reorder 분기) + reorder_node 통합.
 """
-import asyncio
-import os
-import sys
 from typing import Any
 from src.state.schema import ShoppingState
+from src.tools import db_client
 from src.utils.agent_logger import agent_logger
 
 
-# ── 실제 DB 연결 ────────────────────────────────────────────────
-
-def _run_async_with_fresh_engine(coro_factory) -> Any:
-    _backend = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
-    if _backend not in sys.path:
-        sys.path.insert(0, _backend)
-
-    async def _runner():
-        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-        database_url = os.getenv("DATABASE_URL")
-        if not database_url:
-            raise RuntimeError("DATABASE_URL not set")
-        engine = create_async_engine(database_url, pool_pre_ping=True, pool_size=1, max_overflow=0)
-        factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
-        try:
-            async with factory() as session:
-                return await coro_factory(session)
-        finally:
-            await engine.dispose()
-
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_runner())
-    finally:
-        loop.close()
-
+# ── DB 접근은 전부 db_client(mock/real 모드 전환)를 경유한다 ────────────
 
 def _fetch_histories_by_keywords(
     user_id: str,
     keywords: list[str],
     limit: int = 5,
 ) -> list[dict[str, Any]]:
-    async def _from_db(session):
-        from app.repositories.purchase_history_repository import get_histories_by_keywords_db
-        return await get_histories_by_keywords_db(session, int(user_id), keywords=keywords, limit=limit)
-    try:
-        result = _run_async_with_fresh_engine(_from_db)
-        agent_logger.log(f"[reorder_agent] DB 키워드 구매이력: {len(result)}건 (keywords={keywords})")
-        return result
-    except Exception as e:
-        agent_logger.log(f"[reorder_agent] DB 구매이력 조회 실패 → 빈 리스트: {e}")
-        return []
+    result = db_client.get_purchase_histories_by_keywords(user_id, keywords, limit)
+    agent_logger.log(f"[reorder_agent] 키워드 구매이력: {len(result)}건 (keywords={keywords})")
+    return result
 
 
 def _validate_product_url(url: str) -> bool:
     """실제 쇼핑몰 URL 유효성 검증."""
-    if not url:
-        return False
-    try:
-        from app.services.reorder_memory_resolver import validate_product_url
-        return validate_product_url(url)
-    except Exception:
-        # fallback: 알려진 쇼핑몰 도메인 포함 여부 확인
-        valid_domains = (
-            "kurly.com", "coupang.com", "naver.com",
-            "oliveyoung.co.kr", "musinsa.com",
-        )
-        return any(domain in url for domain in valid_domains)
+    return db_client.validate_product_url(url)
 
 
 # ── 후보 탐색 로직 ──────────────────────────────────────────────
