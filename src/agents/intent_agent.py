@@ -6,8 +6,8 @@ with_structured_output(Pydantic)으로 스키마를 강제해 누락 방지.
 """
 import re
 from typing import Literal, Optional
-from pydantic import BaseModel, Field, field_validator
-from langchain_core.messages import SystemMessage
+from pydantic import BaseModel, Field
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from configs.llm_config import get_llm
 from src.state.schema import ShoppingState
@@ -74,12 +74,22 @@ def _fallback_search_keywords(user_input: str) -> list[str]:
 
 
 _BUY_TRIGGERS = frozenset({"사줘", "사줄래", "사주세요", "구매해", "구매해줘", "주문해", "사고싶어", "사 줘"})
+_REORDER_SIGNALS = frozenset({"저번에", "지난번에", "재주문", "똑같이 다시", "예전에 산"})
 
 def _should_force_buy_from_freeform(user_input: str, intent: str, stage: str) -> bool:
-    """idle 상태에서 buy 트리거가 있는데 LLM이 다른 intent를 뽑았을 때 buy로 교정."""
-    if intent == "buy" or stage != "idle":
+    """idle 상태에서 buy 트리거가 있는데 LLM이 다른 intent를 뽑았을 때 buy로 교정.
+    reorder는 교정 대상에서 제외 — 재구매 신호가 buy 트리거보다 우선."""
+    if intent in ("buy", "reorder") or stage != "idle":
         return False
     return any(t in user_input for t in _BUY_TRIGGERS)
+
+def _should_force_reorder(user_input: str, intent: str, stage: str, keywords: list) -> bool:
+    """재구매 신호 + 상품명이 있는데 LLM이 buy로 잘못 분류했을 때 reorder로 교정."""
+    if intent == "reorder" or stage != "idle":
+        return False
+    has_reorder_signal = any(t in user_input for t in _REORDER_SIGNALS)
+    has_product = bool(keywords)
+    return has_reorder_signal and has_product
 
 
 def _parse_quantity(v) -> Optional[int]:
@@ -119,11 +129,6 @@ class IntentOutput(BaseModel):
     confidence: float = Field(default=0.95, description="의도 해석 확신도 0.0~1.0")
     immediate_response: str = Field(default="", description="음성 출력용 한 문장 응답")
 
-    @field_validator("quantity", mode="before")
-    @classmethod
-    def coerce_quantity(cls, v):
-        return _parse_quantity(v)
-
 
 _llm = None
 _structured_llm = None
@@ -133,7 +138,7 @@ def _get_llm():
     global _llm, _structured_llm
     if _llm is None:
         _llm = get_llm("intent", temperature=0)
-        _structured_llm = _llm.with_structured_output(IntentOutput)
+        _structured_llm = _llm.with_structured_output(IntentOutput, method="json_schema")
     return _structured_llm
 
 
@@ -174,7 +179,14 @@ def intent_agent_node(state: ShoppingState) -> dict:
 
     llm = _get_llm()
     try:
-        parsed: IntentOutput = llm.invoke([SystemMessage(content=prompt)])
+        # OpenAI는 SystemMessage, Claude는 HumanMessage 필수
+        # _llm(기본 모델)로 모델명 확인 — structured_llm 래퍼에는 속성 없음
+        base_model_name = getattr(_llm, "model_name", "") or getattr(_llm, "model", "") or ""
+        if "gpt" in str(base_model_name).lower():
+            messages = [SystemMessage(content=prompt)]
+        else:
+            messages = [HumanMessage(content=prompt)]
+        parsed: IntentOutput = llm.invoke(messages)
     except Exception as e:
         print(f"[intent_agent] structured output error: {e}")
         return {
@@ -201,11 +213,16 @@ def intent_agent_node(state: ShoppingState) -> dict:
 
     intent = parsed.intent
 
+    # ── reorder 강제 교정: 재구매 신호+상품명 있는데 buy로 잘못 분류된 경우 ──
+    kws_for_check = _normalize_keyword_tokens(parsed.keywords or []) or _fallback_search_keywords(user_input)
+    if _should_force_reorder(user_input, intent, stage, kws_for_check):
+        intent = "reorder"
+
     # ── buy 강제 교정: idle에서 사줘/구매해 등 트리거 있는데 LLM이 다른 intent ──
     if _should_force_buy_from_freeform(user_input, intent, stage):
         intent = "buy"
 
-    quantity = parsed.quantity
+    quantity = _parse_quantity(parsed.quantity)
     # quantity_confirm 또는 product_confirm(수량 미입력) 대기 중 수량 답변 → 재파싱 + intent 교정
     if pending_type in ("quantity_confirm", "product_confirm"):
         if _looks_like_quantity_reply(user_input):
@@ -231,7 +248,20 @@ def intent_agent_node(state: ShoppingState) -> dict:
 
     needs_clarification = parsed.needs_clarification
     clarification_reason = parsed.clarification_reason
+    confidence = parsed.confidence
     immediate_response = parsed.immediate_response
+
+    # 강제 교정된 reorder: 상품명 있으므로 clarification 불필요, confidence 보정
+    if intent == "reorder" and keywords and needs_clarification:
+        needs_clarification = False
+        clarification_reason = None
+        confidence = max(confidence, 0.8)
+
+    # 수량 답변 감지로 quantity가 교정된 경우 clarification 불필요
+    if quantity and intent == "confirm" and pending_type in ("quantity_confirm", "product_confirm"):
+        needs_clarification = False
+        clarification_reason = None
+        confidence = max(confidence, 0.85)
 
     if _is_ambiguous_reorder(user_input, keywords):
         intent = "reorder"
@@ -258,7 +288,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
         "address_text": parsed.address_text,
         "needs_clarification": needs_clarification,
         "clarification_reason": clarification_reason,
-        "confidence": parsed.confidence if parsed.confidence > 0 else 0.9,
+        "confidence": confidence if confidence > 0 else 0.9,
         "immediate_response": immediate_response,
         "last_agent": "intent_agent",
         "tool_calls": None,
