@@ -169,6 +169,11 @@ object PurchaseHistoryExtractionStore {
     }
 
     @Synchronized
+    fun accumulatedCandidatesJson(): String {
+        return PurchaseHistoryCandidateJsonSerializer.toJson(accumulatedCandidatesByOrderNumber.values.toList())
+    }
+
+    @Synchronized
     fun clear() {
         latestExtractionResult = emptyList()
         accumulatedCandidatesByOrderNumber.clear()

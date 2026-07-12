@@ -1,9 +1,9 @@
 import 'package:ddalangoo/data/repositories/agent_repository.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/storage/local_storage.dart';
+import '../../widgets/accessibility_debug_panel.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -13,9 +13,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  static const MethodChannel _accessibilityAutomationChannel = MethodChannel(
-    'ddalangoo/accessibility_automation',
-  );
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final UserRepository _userRepository = UserRepository();
@@ -78,79 +75,6 @@ class _LoginScreenState extends State<LoginScreen> {
       debugPrint('❌ [Login Error] $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _setCoupangPurchaseHistoryDumpTask() async {
-    try {
-      // 백엔드 로그인 없이도 실기기에서 쿠팡 구매이력 UI Tree 후보 로그를 확인하기 위한 임시 task 주입 버튼이다.
-      await _accessibilityAutomationChannel.invokeMethod(
-        'setTestAutomationTask',
-        {
-          'taskId': 'coupang-history-dump-1',
-          'taskType': 'purchase_history_validation',
-          'targetProductName': '',
-          'quantity': 1,
-          'platform': 'coupang',
-          'packageName': 'com.coupang.mobile',
-          'currentStep': 'dump_purchase_history',
-        },
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('쿠팡 구매이력 dump task를 넣었어요.')),
-      );
-    } catch (error) {
-      debugPrint('⚠️ [A11y Login Test Task Error] $error');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('task 주입 실패: $error')),
-      );
-    }
-  }
-
-  Future<void> _setKurlyPurchaseHistoryDumpTask() async {
-    try {
-      // 백엔드 로그인 없이도 실기기에서 마켓컬리 구매이력 UI Tree 후보 로그를 확인하기 위한 임시 task 주입 버튼이다.
-      await _accessibilityAutomationChannel.invokeMethod(
-        'setTestAutomationTask',
-        {
-          'taskId': 'kurly-history-dump-1',
-          'taskType': 'purchase_history_validation',
-          'targetProductName': '',
-          'quantity': 1,
-          'platform': 'kurly',
-          'packageName': 'com.dbs.kurly.m2',
-          'currentStep': 'extract_purchase_history',
-        },
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('마켓컬리 구매이력 dump task를 넣었어요.')),
-      );
-    } catch (error) {
-      debugPrint('⚠️ [A11y Login Kurly Test Task Error] $error');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('task 주입 실패: $error')),
-      );
-    }
-  }
-
-  Future<void> _clearAccessibilityAutomationTask() async {
-    try {
-      // 테스트 중 자동화 task를 비워서 클릭/스크롤 실행을 멈춘다.
-      await _accessibilityAutomationChannel.invokeMethod('clearAutomationTask');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Accessibility task를 비웠어요.')),
-      );
-    } catch (error) {
-      debugPrint('⚠️ [A11y Login Clear Task Error] $error');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('task clear 실패: $error')),
-      );
     }
   }
 
@@ -268,29 +192,13 @@ class _LoginScreenState extends State<LoginScreen> {
                             '처음이신가요? 회원가입',
                             style: Theme.of(context).textTheme.titleSmall
                                 ?.copyWith(
-                              color: const Color(0xFFE8325A),
-                              fontWeight: FontWeight.w700,
-                            ),
+                                  color: const Color(0xFFE8325A),
+                                  fontWeight: FontWeight.w700,
+                                ),
                           ),
                         ),
                         const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: _setCoupangPurchaseHistoryDumpTask,
-                          icon: const Icon(Icons.bug_report_outlined, size: 20),
-                          label: const Text('쿠팡 구매이력 dump task 넣기'),
-                        ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: _setKurlyPurchaseHistoryDumpTask,
-                          icon: const Icon(Icons.bug_report_outlined, size: 20),
-                          label: const Text('마켓컬리 구매이력 dump task 넣기'),
-                        ),
-                        const SizedBox(height: 8),
-                        TextButton.icon(
-                          onPressed: _clearAccessibilityAutomationTask,
-                          icon: const Icon(Icons.clear, size: 20),
-                          label: const Text('Accessibility task 비우기'),
-                        ),
+                        const AccessibilityDebugPanel(),
                       ],
                     ),
                   ),

@@ -4,6 +4,7 @@ import com.ddalangoo.ddalangoo.accessibility.AutomationLogger
 import com.ddalangoo.ddalangoo.accessibility.AutomationContract
 import com.ddalangoo.ddalangoo.accessibility.AutomationTask
 import com.ddalangoo.ddalangoo.accessibility.AutomationTaskStore
+import com.ddalangoo.ddalangoo.accessibility.PurchaseHistoryExtractionStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -42,6 +43,15 @@ class MainActivity : FlutterActivity() {
 
                 AutomationContract.Method.GET_STATUS -> {
                     result.success(AutomationTaskStore.statusMap())
+                }
+
+                AutomationContract.Method.GET_ACCUMULATED_PURCHASE_HISTORY_RESULT -> {
+                    result.success(PurchaseHistoryExtractionStore.accumulatedCandidatesJson())
+                }
+
+                AutomationContract.Method.CLEAR_PURCHASE_HISTORY_RESULT -> {
+                    PurchaseHistoryExtractionStore.clear()
+                    result.success(true)
                 }
 
                 AutomationContract.Method.DUMP_CURRENT_UI_TREE -> {

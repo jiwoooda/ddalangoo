@@ -14,6 +14,8 @@ object AutomationContract {
         const val SET_TEST_TASK = "setTestAutomationTask"
         const val CLEAR_TASK = "clearAutomationTask"
         const val GET_STATUS = "getAutomationStatus"
+        const val GET_ACCUMULATED_PURCHASE_HISTORY_RESULT = "getAccumulatedPurchaseHistoryResult"
+        const val CLEAR_PURCHASE_HISTORY_RESULT = "clearPurchaseHistoryResult"
         const val DUMP_CURRENT_UI_TREE = "dumpCurrentUiTree"
     }
 

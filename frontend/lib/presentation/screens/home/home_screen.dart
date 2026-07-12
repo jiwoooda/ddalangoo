@@ -2,11 +2,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/gpt_voice_service.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
+import '../../widgets/accessibility_debug_panel.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -25,9 +25,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const MethodChannel _accessibilityAutomationChannel = MethodChannel(
-    'ddalangoo/accessibility_automation',
-  );
   final UserRepository _userRepository = UserRepository();
   final GptVoiceService _voiceService = GptVoiceService.instance;
   String _userName = '';
@@ -115,79 +112,6 @@ class _HomeScreenState extends State<HomeScreen> {
     await _speakWithoutBlockingNavigation('딸랑구를 연결하고 있어요. 잠시만 기다려주세요.');
     if (!mounted) return;
     context.go('/call');
-  }
-
-  Future<void> _setCoupangPurchaseHistoryDumpTask() async {
-    try {
-      // Android AccessibilityService가 쿠팡 구매이력 화면의 후보 node만 로그로 덤프하도록 task를 주입한다.
-      await _accessibilityAutomationChannel.invokeMethod(
-        'setTestAutomationTask',
-        {
-          'taskId': 'coupang-history-dump-1',
-          'taskType': 'purchase_history_validation',
-          'targetProductName': '',
-          'quantity': 1,
-          'platform': 'coupang',
-          'packageName': 'com.coupang.mobile',
-          'currentStep': 'dump_purchase_history',
-        },
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('쿠팡 구매이력 dump task를 넣었어요.')),
-      );
-    } catch (error) {
-      debugPrint('⚠️ [A11y Test Task Error] $error');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('task 주입 실패: $error')),
-      );
-    }
-  }
-
-  Future<void> _setKurlyPurchaseHistoryDumpTask() async {
-    try {
-      // Android AccessibilityService가 마켓컬리 구매이력 화면의 후보 node만 로그로 덤프하도록 task를 주입한다.
-      await _accessibilityAutomationChannel.invokeMethod(
-        'setTestAutomationTask',
-        {
-          'taskId': 'kurly-history-dump-1',
-          'taskType': 'purchase_history_validation',
-          'targetProductName': '',
-          'quantity': 1,
-          'platform': 'kurly',
-          'packageName': 'com.dbs.kurly.m2',
-          'currentStep': 'extract_purchase_history',
-        },
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('마켓컬리 구매이력 dump task를 넣었어요.')),
-      );
-    } catch (error) {
-      debugPrint('⚠️ [A11y Kurly Test Task Error] $error');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('task 주입 실패: $error')),
-      );
-    }
-  }
-
-  Future<void> _clearAccessibilityAutomationTask() async {
-    try {
-      // 실기기 테스트 중 자동화 task를 즉시 비울 때 사용한다.
-      await _accessibilityAutomationChannel.invokeMethod('clearAutomationTask');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Accessibility task를 비웠어요.')),
-      );
-    } catch (error) {
-      debugPrint('⚠️ [A11y Clear Task Error] $error');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('task clear 실패: $error')),
-      );
-    }
   }
 
   Future<void> _speakWithoutBlockingNavigation(String text) async {
@@ -321,23 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(fontSize: 14, color: Color(0xFF555555)),
                   ),
                   const SizedBox(height: 18),
-                  OutlinedButton.icon(
-                    onPressed: _setCoupangPurchaseHistoryDumpTask,
-                    icon: const Icon(Icons.bug_report_outlined, size: 20),
-                    label: const Text('쿠팡 구매이력 dump task 넣기'),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: _setKurlyPurchaseHistoryDumpTask,
-                    icon: const Icon(Icons.bug_report_outlined, size: 20),
-                    label: const Text('마켓컬리 구매이력 dump task 넣기'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: _clearAccessibilityAutomationTask,
-                    icon: const Icon(Icons.clear, size: 20),
-                    label: const Text('Accessibility task 비우기'),
-                  ),
+                  const AccessibilityDebugPanel(),
                   const SizedBox(height: 14),
                   MouseRegion(
                     cursor: SystemMouseCursors.click,
