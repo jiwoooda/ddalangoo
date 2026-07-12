@@ -166,6 +166,18 @@ class AgentLogger:
             lines.append(f"  키워드| ({keyword_history_count}건 이력) {kw_snippet}")
         elif inputs.get("keywords"):
             lines.append(f"  키워드| 이력 {keyword_history_count}건 (LLM 요약 없음)")
+
+        # tier1(안전)/tier2(명시적 배제)/tier3(뉘앙스) — 왜 이 keywords/exclude_keywords가
+        # 됐는지 역추적할 수 있도록 남긴다. tier1은 특히 100% 설명 가능해야 한다.
+        keyword_additions = pref.get("keyword_additions") or []
+        exclude_additions = pref.get("exclude_additions") or []
+        safety_constraints = pref.get("safety_constraints") or []
+        soft_preferences = pref.get("soft_preferences") or []
+        if keyword_additions or exclude_additions or safety_constraints or soft_preferences:
+            lines.append(
+                f"  tier   | keyword+={keyword_additions}  exclude+={exclude_additions}  "
+                f"safety={safety_constraints}  soft={soft_preferences}"
+            )
         self._append_txt("\n".join(lines) + "\n")
         self._log_jsonl({
             "event": "context_agent", "turn": self._turn,
@@ -174,6 +186,10 @@ class AgentLogger:
             "keyword_summary": kw_summary,
             "preferred_brands": brands,
             "price_avg": price_avg,
+            "keyword_additions": keyword_additions,
+            "exclude_additions": exclude_additions,
+            "safety_constraints": safety_constraints,
+            "soft_preferences": soft_preferences,
         })
 
     def log_reorder_agent(self, inputs: dict, outputs: dict) -> None:

@@ -39,6 +39,20 @@ def test_fails_safety_constraints_empty_list_never_excludes():
     assert _fails_safety_constraints(product, []) is False
 
 
+def test_filter_results_tier2_matches_brand_field_not_just_product_name():
+    """
+    negative feedback으로 뽑힌 exclude_additions는 브랜드명일 수 있는데,
+    브랜드가 product_name 문자열에 안 박혀있는 상품도 걸러져야 한다.
+    """
+    products = [
+        {"product_name": "유정란 15구", "brand": "동물복지", "price": 8900, "product_url": "u1"},
+        {"product_name": "무항생제 계란", "brand": "풀무원", "price": 5000, "product_url": "u2"},
+    ]
+    result = _filter_results(products, exclude_keywords=["동물복지"], safety_constraints=[])
+    names = {p["product_name"] for p in result}
+    assert names == {"무항생제 계란"}
+
+
 def test_filter_results_applies_tier1_and_tier2_together():
     products = [
         {"product_name": "우유 1L", "price": 3000, "product_url": "u1", "nutrition_info": {"allergens": ["우유"]}},
