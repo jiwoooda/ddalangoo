@@ -14,6 +14,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         actionExecutor = ActionExecutor(this)
+        AutomationTaskStore.markServiceConnected()
         AutomationLogger.info("service connected rootAvailable=${rootInActiveWindow != null}")
     }
 
@@ -36,6 +37,12 @@ class DdalangooAccessibilityService : AccessibilityService() {
         // task가 없을 때는 자동 클릭/입력 없이 UI Tree 검증 로그만 남긴다.
         val task = AutomationTaskStore.getTask()
         if (task == null) {
+            AutomationTaskStore.recordObservation(
+                packageName = eventPackageName,
+                currentStep = null,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size
+            )
             AutomationLogger.validation(
                 platform = null,
                 packageName = eventPackageName,
@@ -50,6 +57,13 @@ class DdalangooAccessibilityService : AccessibilityService() {
         }
 
         if (!task.packageName.isNullOrBlank() && task.packageName != eventPackageName) {
+            AutomationTaskStore.recordWaitingForPackage(
+                packageName = eventPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                targetPackageName = task.packageName
+            )
             AutomationLogger.debug(
                 "task waiting targetPackage=${task.packageName} currentPackage=${eventPackageName.orEmpty()} " +
                     "currentStep=${task.currentStep}"
@@ -67,6 +81,12 @@ class DdalangooAccessibilityService : AccessibilityService() {
             return
         }
 
+        AutomationTaskStore.recordObservation(
+            packageName = eventPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodes.size,
+            filteredNodeCount = filteredNodes.size
+        )
         val actionPlan = ruleBasedPlanner.plan(filteredNodes, task)
         val selectedNode = actionPlan.targetNodeId?.let { targetNodeId ->
             filteredNodes.firstOrNull { node -> node.id == targetNodeId }
@@ -120,6 +140,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
             "action_result success=${actionResult.success} method=${actionResult.method} " +
                 "errorCode=${actionResult.errorCode.orEmpty()} message=${actionResult.message}"
         )
+        AutomationTaskStore.recordAction(actionPlan, actionResult, selectedNode)
 
         if (actionPlan.actionType == AutomationActionType.STOP_FOR_SENSITIVE_SCREEN.value) {
             AutomationTaskStore.clearTask()
