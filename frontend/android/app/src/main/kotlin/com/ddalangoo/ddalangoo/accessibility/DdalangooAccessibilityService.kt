@@ -96,8 +96,11 @@ class DdalangooAccessibilityService : AccessibilityService() {
                     packageName = task.packageName ?: eventPackageName,
                     mergeResult = mergeResult
                 )
-                if (task.currentStep == "extract_purchase_history" && mergeResult.newOrderCount == 0) {
-                    AutomationTaskStore.updateCurrentStep("finish_purchase_history")
+                if (
+                    task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY &&
+                    mergeResult.newOrderCount == 0
+                ) {
+                    AutomationTaskStore.updateCurrentStep(AutomationContract.Step.FINISH_PURCHASE_HISTORY)
                 }
             } else {
                 AutomationLogger.accumulatedPurchaseHistoryFinal(
