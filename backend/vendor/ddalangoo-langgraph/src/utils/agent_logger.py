@@ -115,6 +115,38 @@ class AgentLogger:
                          "selected_product_name": selected.get("product_name"),
                          "explanation_snippet": (outputs.get("explanation") or "")[:120]})
 
+    def log_scoring_agent(self, inputs: dict, outputs: dict) -> None:
+        """
+        Stage4(축 가중치 판단 + 선호도 매칭 + 집계) 근거 로깅. tier1 배제는
+        Stage3(_filter_results)에서 이미 끝났고, 여기는 통과한 후보들 간의
+        상대 순위 근거만 남긴다 — 왜 이 순위인지 역추적용.
+        """
+        if not self._enabled:
+            return
+        axis_weights = outputs.get("axis_weights") or []
+        lines = [
+            "[scoring_agent]",
+            f"  입력  | 후보 {inputs.get('candidates')}개  keywords={inputs.get('keywords')}  "
+            f"condition={inputs.get('condition')}  soft_preferences={inputs.get('soft_preferences')}",
+        ]
+        for aw in axis_weights:
+            lines.append(f"  axis  | {aw.get('axis')}={aw.get('weight')}  근거={repr(aw.get('reasoning', '')[:80])}")
+        if outputs.get("conflict_note"):
+            lines.append(f"  충돌  | {repr(outputs['conflict_note'][:120])}")
+        lines.append(
+            f"  결과  | 1위={outputs.get('ranked_top')}  score={outputs.get('ranked_top_score')}"
+        )
+        self._append_txt("\n".join(lines) + "\n")
+        self._log_jsonl({
+            "event": "scoring_agent", "turn": self._turn,
+            **inputs,
+            "axis_weights": axis_weights,
+            "weights_normalized": outputs.get("weights_normalized"),
+            "conflict_note": outputs.get("conflict_note"),
+            "ranked_top": outputs.get("ranked_top"),
+            "ranked_top_score": outputs.get("ranked_top_score"),
+        })
+
     def log_payment_agent(self, inputs: dict, outputs: dict) -> None:
         if not self._enabled:
             return
