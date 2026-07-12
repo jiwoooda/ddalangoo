@@ -5,15 +5,15 @@ Context Agent Node.
   [Context Loading]  buy/refine/compare_platforms → 사용자 프로필/구매이력/선호 조회
   [Post-Payment]     stage == "completed" → 구매이력 저장 + 선호도 캐시 무효화 + 대화 요약
 """
-import asyncio
-import os
-import sys
 from typing import Any, Optional
 from langgraph.store.base import BaseStore
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
 
 from src.utils.agent_logger import agent_logger
 from src.state.schema import ShoppingState
+from src.prompts.context_prompt import CONTEXT_CLASSIFICATION_PROMPT
+from src.tools import db_client
 from src.tools.mock_tools import (
     mock_get_preference_memory,
     mock_vector_search_personal,
@@ -22,7 +22,17 @@ from src.tools.mock_tools import (
 
 PERSONAL_VECTOR_THRESHOLD = 20
 
-_preference_cache: dict[str, dict[str, Any]] = {}
+
+class ContextClassificationLLM(BaseModel):
+    """
+    Context Agent 구조화 출력. safety_constraints(알레르기 등)는 여기 없다 —
+    프로필에서 코드로 직접 채워서, LLM이 안전 정보를 중복/변형 생성하지
+    않도록 한다.
+    """
+    keyword_additions: list[str] = Field(default_factory=list)
+    exclude_additions: list[str] = Field(default_factory=list)
+    soft_preferences: list[str] = Field(default_factory=list)
+
 _context_llm = None
 
 
@@ -38,69 +48,20 @@ def _get_llm():
     return _context_llm
 
 
-# ── 실제 DB 연결 헬퍼 ─────────────────────────────────────────
-
-def _run_async_with_fresh_engine(coro_factory) -> Any:
-    """
-    sync 컨텍스트에서 async DB 작업 실행.
-    매 호출마다 엔진을 새로 생성하고 dispose() — asyncpg 풀이 이전 루프에
-    묶이는 'Event loop is closed' 오류를 방지한다.
-    """
-    _backend = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
-    if _backend not in sys.path:
-        sys.path.insert(0, _backend)
-
-    async def _runner():
-        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-        database_url = os.getenv("DATABASE_URL")
-        if not database_url:
-            raise RuntimeError("DATABASE_URL not set")
-        engine = create_async_engine(database_url, pool_pre_ping=True, pool_size=1, max_overflow=0)
-        factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
-        try:
-            async with factory() as session:
-                return await coro_factory(session)
-        finally:
-            await engine.dispose()
-
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_runner())
-    finally:
-        loop.close()
-
+# ── DB 접근은 전부 db_client(mock/real 모드 전환)를 경유한다 ────────────
 
 def _fetch_purchase_histories(user_id: str) -> list[dict[str, Any]]:
-    async def _from_db(session):
-        from app.repositories.purchase_history_repository import get_histories_by_user_id_db
-        return await get_histories_by_user_id_db(session, int(user_id))
-    try:
-        result = _run_async_with_fresh_engine(_from_db)
-        agent_logger.log(f"[context_agent] DB 구매이력 로드: {len(result)}건 (user_id={user_id})")
-        return result
-    except Exception as e:
-        agent_logger.log(f"[context_agent] DB 구매이력 조회 실패 → 빈 리스트 반환: {e}")
-        return []
+    result = db_client.get_purchase_histories(user_id)
+    agent_logger.log(f"[context_agent] 구매이력 로드: {len(result)}건 (user_id={user_id})")
+    return result
 
 
 def _fetch_user_from_db(user_id: str) -> dict[str, Any] | None:
-    async def _from_db(session):
-        from app.repositories.user_repository import get_user_by_id_db
-        return await get_user_by_id_db(session, int(user_id))
-    try:
-        return _run_async_with_fresh_engine(_from_db)
-    except Exception:
-        return None
+    return db_client.get_user(user_id)
 
 
 def _fetch_default_address_for_context(user_id: str) -> dict[str, Any] | None:
-    async def _from_db(session):
-        from app.repositories.address_repository import get_default_address_by_user_id_db
-        return await get_default_address_by_user_id_db(session, int(user_id))
-    try:
-        return _run_async_with_fresh_engine(_from_db)
-    except Exception:
-        return None
+    return db_client.get_default_address(user_id)
 
 
 def _save_purchase_history_from_completed(user_id: str, completed_purchase: dict[str, Any]) -> None:
@@ -108,26 +69,13 @@ def _save_purchase_history_from_completed(user_id: str, completed_purchase: dict
     if not order_id:
         agent_logger.log("[context_agent] 구매이력 저장 스킵: order_id 없음")
         return
-
-    async def _from_db(session):
-        from app.repositories.purchase_history_repository import create_histories_from_order_db
-        return await create_histories_from_order_db(session, order_id=int(order_id))
-
-    try:
-        _run_async_with_fresh_engine(_from_db)
-        agent_logger.log(f"[context_agent] 구매이력 저장 완료 (order_id={order_id})")
-    except Exception as e:
-        agent_logger.log(f"[context_agent] 구매이력 저장 실패: {e}")
+    db_client.save_purchase_history_from_completed(user_id, completed_purchase)
+    agent_logger.log(f"[context_agent] 구매이력 저장 완료 (order_id={order_id})")
 
 
 def _invalidate_preference_cache(user_id: str) -> None:
-    _preference_cache.pop(user_id, None)
-    try:
-        from app.repositories import user_preference_repository
-        user_preference_repository.invalidate_all_preferences(int(user_id))
-        agent_logger.log(f"[context_agent] 선호도 캐시 무효화 완료 (user_id={user_id})")
-    except Exception as e:
-        agent_logger.log(f"[context_agent] 선호도 캐시 무효화 실패: {e}")
+    db_client.invalidate_purchase_derived_preferences(user_id)
+    agent_logger.log(f"[context_agent] 선호도 캐시 무효화 완료 (user_id={user_id})")
 
 
 # ── 선호도 계산 ─────────────────────────────────────────────────
@@ -235,38 +183,92 @@ def _generate_llm_summary(preference: dict[str, Any], keyword_history: Optional[
         return preference.get("summary", "")
 
 
-def build_preference_context(user_id: str, keywords: list[str]) -> dict[str, Any]:
+def _format_keyword_history_lines(keyword_history: list[dict[str, Any]]) -> str:
+    """
+    satisfaction/memo가 없는 레코드는 그 필드 자체를 생략한다 — "만족도: None"
+    처럼 그대로 넣으면 LLM이 "명시적으로 정보 없음"과 "낮은 만족도"를 혼동할
+    수 있다.
+    """
+    if not keyword_history:
+        return "없음"
+    lines = []
+    for h in keyword_history:
+        name = h.get("product_name") or "상품"
+        detail = ""
+        satisfaction = h.get("satisfaction")
+        memo = h.get("memo")
+        if satisfaction is not None or memo:
+            parts = []
+            if satisfaction is not None:
+                parts.append(f"만족도:{satisfaction}")
+            if memo:
+                parts.append(f"메모:{memo}")
+            detail = f" ({', '.join(parts)})"
+        lines.append(f"- {name}{detail}")
+    return "\n".join(lines)
+
+
+def _classify_context(
+    general_pref: dict[str, Any],
+    keyword_history: list[dict[str, Any]],
+    profile: Optional[dict[str, Any]],
+    messages: Optional[list],
+    keywords: list[str],
+) -> ContextClassificationLLM:
+    """
+    이번 요청에 쓸 keyword_additions/exclude_additions/soft_preferences를
+    한 번의 structured output 호출로 분류한다. safety_constraints는 여기
+    관여하지 않는다 (프로필에서 코드로 직접 채움 — build_preference_context 참고).
+    """
+    try:
+        profile_summary = "없음" if not profile else ", ".join(
+            f"{k}:{v}" for k, v in profile.items() if v not in (None, [], "")
+        ) or "없음"
+
+        prompt = CONTEXT_CLASSIFICATION_PROMPT.format(
+            profile_summary=profile_summary,
+            general_preference_summary=general_pref.get("summary") or "없음",
+            keyword_history_lines=_format_keyword_history_lines(keyword_history),
+            session_text=_summarize_messages(messages or []) or "없음",
+            current_keywords=", ".join(keywords) or "없음",
+        )
+        llm = _get_llm().with_structured_output(ContextClassificationLLM)
+        result = llm.invoke([HumanMessage(content=prompt)])
+        return result if isinstance(result, ContextClassificationLLM) else ContextClassificationLLM()
+    except Exception as e:
+        agent_logger.log(f"[context_agent] 분류 실패, 빈 분류로 대체: {e}")
+        return ContextClassificationLLM()
+
+
+def build_preference_context(
+    user_id: str,
+    keywords: list[str],
+    messages: Optional[list] = None,
+) -> dict[str, Any]:
     histories = _fetch_purchase_histories(user_id)
     if not histories:
         return {}
 
-    # 일반 선호도: DB 캐시 → 없으면 계산 + LLM 요약 저장
-    cache_hit = False
-    try:
-        from app.repositories import user_preference_repository
-        general_pref = user_preference_repository.get_general_preference(int(user_id))
-        if general_pref:
-            cache_hit = True
-            agent_logger.log(f"[context_agent] 일반 선호도 캐시 HIT (user_id={user_id})")
-        else:
-            agent_logger.log(f"[context_agent] 일반 선호도 캐시 MISS → LLM 요약 생성 중...")
-            general_pref = _compute_general_preference(histories)
-            general_pref["summary"] = _generate_llm_summary(general_pref)
-            user_preference_repository.save_general_preference(int(user_id), general_pref)
-            agent_logger.log(f"[context_agent] 일반 선호도 캐시 저장 완료")
-    except Exception as e:
-        agent_logger.log(f"[context_agent] 선호도 캐시 예외 → 직접 계산: {e}")
-        if user_id in _preference_cache:
-            general_pref = _preference_cache[user_id]
-            cache_hit = True
-        else:
-            general_pref = _compute_general_preference(histories)
-            general_pref["summary"] = _generate_llm_summary(general_pref)
-            _preference_cache[user_id] = general_pref
+    # 일반 선호도: 캐시(mock 모드는 프로세스 메모리, real 모드는 DB) → 없으면 계산 + LLM 요약 저장
+    general_pref = db_client.get_general_preference(user_id)
+    cache_hit = general_pref is not None
+    if cache_hit:
+        agent_logger.log(f"[context_agent] 일반 선호도 캐시 HIT (user_id={user_id})")
+    else:
+        agent_logger.log("[context_agent] 일반 선호도 캐시 MISS → LLM 요약 생성 중...")
+        general_pref = _compute_general_preference(histories)
+        general_pref["summary"] = _generate_llm_summary(general_pref)
+        db_client.save_general_preference(user_id, general_pref)
+        agent_logger.log("[context_agent] 일반 선호도 캐시 저장 완료")
 
-    # 키워드별 선호도
+    # 장기 프로필 (알레르기/식이제약 등) — 스몰톡 에이전트가 채워넣는 값.
+    # TTL 없음, 구매 완료로도 무효화되지 않음 (invalidate_purchase_derived_preferences 참고).
+    profile = db_client.get_profile(user_id)
+
+    # 키워드별 선호도 — satisfaction/memo도 함께 실어서 LLM이 직접 판단하게 한다
+    # (별도 negative-feedback 집계 함수 없음, [:5] cap이 이미 크기를 제한함)
     keyword_history: list = []
-    keyword_summary: str = ""
+    classification = ContextClassificationLLM()
     if keywords:
         keyword_history = [
             {
@@ -274,6 +276,8 @@ def build_preference_context(user_id: str, keywords: list[str]) -> dict[str, Any
                 "brand": h.get("brand"),
                 "price": h.get("price_at_purchase"),
                 "platform": h.get("platform"),
+                "satisfaction": h.get("satisfaction"),
+                "memo": h.get("memo"),
             }
             for h in histories
             if any(
@@ -285,13 +289,26 @@ def build_preference_context(user_id: str, keywords: list[str]) -> dict[str, Any
         ][:5]
 
         if keyword_history:
-            keyword_summary = _generate_llm_summary(general_pref, keyword_history)
+            classification = _classify_context(
+                general_pref, keyword_history, profile, messages, keywords,
+            )
+
+    # keyword_summary는 response_agent._format_preference가 소비하는 기존
+    # 필드 — 별도 LLM 호출 없이 분류 결과에서 코드로 합성한다 (초안, 문구는
+    # 추후 조정 예정).
+    keyword_summary = ", ".join(classification.soft_preferences) if classification.soft_preferences else ""
+
+    safety_constraints = list((profile or {}).get("allergens") or []) + list((profile or {}).get("diet_restrictions") or [])
 
     return {
         **general_pref,
         "keyword_history": keyword_history,
         "keyword_summary": keyword_summary,
         "_cache_hit": cache_hit,
+        "keyword_additions": classification.keyword_additions,
+        "exclude_additions": classification.exclude_additions,
+        "soft_preferences": classification.soft_preferences,
+        "safety_constraints": safety_constraints,
     }
 
 
@@ -299,6 +316,7 @@ def get_recommendation_context(
     user_id: str,
     keywords: list[str],
     intent: Optional[str] = None,
+    messages: Optional[list] = None,
 ) -> dict[str, Any]:
     user_profile = _fetch_user_from_db(user_id) or {}
     default_address = _fetch_default_address_for_context(user_id)
@@ -333,7 +351,7 @@ def get_recommendation_context(
         intent=intent,
     )
 
-    preference_context = build_preference_context(user_id, keywords)
+    preference_context = build_preference_context(user_id, keywords, messages)
 
     return {
         "user_profile": {
@@ -408,6 +426,7 @@ def context_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) 
         user_id=user_id,
         keywords=keywords,
         intent=intent,
+        messages=state.get("messages"),
     )
 
     pref_ctx = recommendation_context.get("preference_context") or {}
@@ -427,9 +446,24 @@ def context_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) 
     if store is not None:
         store.put(("recommendation_context", user_id), "latest", recommendation_context)
 
+    # tier1(safety_constraints)/tier2(exclude_additions)는 검색 단계에서 바로
+    # 걸러지도록 exclude_keywords에 병합. tier1은 keywords 쪽엔 넣지 않는다
+    # (알레르기 성분명을 검색어로 쓰면 오히려 그 성분이 든 상품만 더 잡힘).
+    existing_keywords = state.get("keywords") or []
+    existing_exclude = state.get("exclude_keywords") or []
+    merged_keywords = existing_keywords + [
+        k for k in pref_ctx.get("keyword_additions", []) if k not in existing_keywords
+    ]
+    merged_exclude = existing_exclude + [
+        k for k in (pref_ctx.get("exclude_additions", []) + pref_ctx.get("safety_constraints", []))
+        if k not in existing_exclude
+    ]
+
     return {
         **updates,
         "recommendation_context": recommendation_context,
+        "keywords": merged_keywords,
+        "exclude_keywords": merged_exclude,
     }
 
 
