@@ -17,6 +17,8 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
     'serviceConnected',
     'lastPackageName',
     'lastStep',
+    'lastTrigger',
+    'currentRetryCount',
     'rawNodeCount',
     'filteredNodeCount',
     'lastActionType',

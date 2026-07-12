@@ -1,18 +1,31 @@
 package com.ddalangoo.ddalangoo.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 
 class DdalangooAccessibilityService : AccessibilityService() {
+    companion object {
+        private var activeService: DdalangooAccessibilityService? = null
+
+        fun scheduleTaskStartedTicks() {
+            activeService?.scheduleTaskStartedTicks()
+                ?: AutomationLogger.warn("task tick skipped reason=service_not_active")
+        }
+    }
+
     private val uiTreeCollector = UiTreeCollector()
     private val uiNodeSerializer = UiNodeSerializer()
     private val ruleBasedPlanner = RuleBasedPlanner()
     private val kurlyPurchaseHistoryExtractor = KurlyPurchaseHistoryExtractor()
     private val coupangPurchaseHistoryExtractor = CoupangPurchaseHistoryExtractor()
+    private val handler = Handler(Looper.getMainLooper())
     private lateinit var actionExecutor: ActionExecutor
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        activeService = this
         actionExecutor = ActionExecutor(this)
         AutomationTaskStore.markServiceConnected()
         AutomationLogger.info("service connected rootAvailable=${rootInActiveWindow != null}")
@@ -22,13 +35,23 @@ class DdalangooAccessibilityService : AccessibilityService() {
         val eventType = event?.eventType ?: return
         val eventPackageName = event.packageName?.toString()
         AutomationLogger.debug("event type=$eventType packageName=${eventPackageName.orEmpty()}")
+        processCurrentRoot(trigger = "event", packageNameOverride = eventPackageName)
+    }
 
+    fun processCurrentRoot(trigger: String) {
+        processCurrentRoot(trigger = trigger, packageNameOverride = null)
+    }
+
+    private fun processCurrentRoot(trigger: String, packageNameOverride: String?) {
+        AutomationLogger.info("processCurrentRoot trigger=$trigger")
         val rootNode = rootInActiveWindow
         if (rootNode == null) {
-            AutomationLogger.warn("rootInActiveWindow unavailable")
+            AutomationLogger.warn("rootInActiveWindow unavailable trigger=$trigger")
+            scheduleProcessTick(1000L, "root_unavailable")
             return
         }
 
+        val currentPackageName = packageNameOverride ?: rootNode.packageName?.toString()
         val rawNodes = uiTreeCollector.collect(rootNode)
         val filteredNodes = uiNodeSerializer.filter(rawNodes)
         AutomationLogger.info("ui_tree filteredNodeCount=${filteredNodes.size}")
@@ -38,14 +61,15 @@ class DdalangooAccessibilityService : AccessibilityService() {
         val task = AutomationTaskStore.getTask()
         if (task == null) {
             AutomationTaskStore.recordObservation(
-                packageName = eventPackageName,
+                packageName = currentPackageName,
                 currentStep = null,
                 rawNodeCount = rawNodes.size,
-                filteredNodeCount = filteredNodes.size
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger
             )
             AutomationLogger.validation(
                 platform = null,
-                packageName = eventPackageName,
+                packageName = currentPackageName,
                 currentStep = null,
                 rawNodeCount = rawNodes.size,
                 filteredNodeCount = filteredNodes.size,
@@ -56,21 +80,22 @@ class DdalangooAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (!task.packageName.isNullOrBlank() && task.packageName != eventPackageName) {
+        if (!task.packageName.isNullOrBlank() && task.packageName != currentPackageName) {
             AutomationTaskStore.recordWaitingForPackage(
-                packageName = eventPackageName,
+                packageName = currentPackageName,
                 currentStep = task.currentStep,
                 rawNodeCount = rawNodes.size,
                 filteredNodeCount = filteredNodes.size,
-                targetPackageName = task.packageName
+                targetPackageName = task.packageName,
+                trigger = trigger
             )
             AutomationLogger.debug(
-                "task waiting targetPackage=${task.packageName} currentPackage=${eventPackageName.orEmpty()} " +
-                    "currentStep=${task.currentStep}"
+                "task waiting targetPackage=${task.packageName} currentPackage=${currentPackageName.orEmpty()} " +
+                    "currentStep=${task.currentStep} trigger=$trigger"
             )
             AutomationLogger.validation(
                 platform = task.platform,
-                packageName = eventPackageName,
+                packageName = currentPackageName,
                 currentStep = task.currentStep,
                 rawNodeCount = rawNodes.size,
                 filteredNodeCount = filteredNodes.size,
@@ -78,15 +103,44 @@ class DdalangooAccessibilityService : AccessibilityService() {
                 actionResult = null,
                 selectedNode = null
             )
+            scheduleProcessTick(1000L, "waiting_for_package")
             return
         }
 
         AutomationTaskStore.recordObservation(
-            packageName = eventPackageName,
+            packageName = currentPackageName,
             currentStep = task.currentStep,
             rawNodeCount = rawNodes.size,
-            filteredNodeCount = filteredNodes.size
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger
         )
+
+        if (shouldGuardKurlyOrderHistory(task) && !isKurlyOrderHistoryScreen(filteredNodes)) {
+            val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                reasonCode = "not_order_history_screen",
+                message = "Waiting for Kurly order history screen"
+            )
+            AutomationLogger.validation(
+                platform = task.platform,
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                actionPlan = null,
+                actionResult = null,
+                selectedNode = null
+            )
+            if (shouldRetry) {
+                scheduleProcessTick(1000L, "waiting_order_history_screen")
+            }
+            return
+        }
+
         val actionPlan = ruleBasedPlanner.plan(filteredNodes, task)
         val selectedNode = actionPlan.targetNodeId?.let { targetNodeId ->
             filteredNodes.firstOrNull { node -> node.id == targetNodeId }
@@ -99,7 +153,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
                 emptyList()
             }
             AutomationLogger.purchaseHistoryDump(
-                packageName = task.packageName ?: eventPackageName,
+                packageName = task.packageName ?: currentPackageName,
                 rawNodeCount = rawNodes.size,
                 filteredNodeCount = filteredNodes.size,
                 candidateNodes = findPurchaseHistoryCandidates(filteredNodes)
@@ -108,16 +162,17 @@ class DdalangooAccessibilityService : AccessibilityService() {
                 val mergeResult = PurchaseHistoryExtractionStore.merge(parsedPurchaseHistory)
                 AutomationLogger.parsedPurchaseHistory(
                     platform = task.platform,
-                    packageName = task.packageName ?: eventPackageName,
+                    packageName = task.packageName ?: currentPackageName,
                     candidates = parsedPurchaseHistory
                 )
                 AutomationLogger.accumulatedPurchaseHistory(
                     platform = task.platform,
-                    packageName = task.packageName ?: eventPackageName,
+                    packageName = task.packageName ?: currentPackageName,
                     mergeResult = mergeResult
                 )
                 if (
                     task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY &&
+                    mergeResult.accumulatedOrderCount > 0 &&
                     mergeResult.newOrderCount == 0
                 ) {
                     AutomationTaskStore.updateCurrentStep(AutomationContract.Step.FINISH_PURCHASE_HISTORY)
@@ -125,7 +180,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
             } else {
                 AutomationLogger.accumulatedPurchaseHistoryFinal(
                     platform = task.platform,
-                    packageName = task.packageName ?: eventPackageName,
+                    packageName = task.packageName ?: currentPackageName,
                     accumulatedCandidates = PurchaseHistoryExtractionStore.accumulatedCandidates()
                 )
             }
@@ -146,11 +201,12 @@ class DdalangooAccessibilityService : AccessibilityService() {
             AutomationTaskStore.clearTask()
         } else if (actionResult.success && AutomationTaskStore.getTask()?.currentStep == task.currentStep) {
             AutomationTaskStore.advanceAfterSuccess(actionPlan)
+            scheduleAfterSuccessfulAction(actionPlan)
         }
 
         AutomationLogger.validation(
             platform = task.platform,
-            packageName = task.packageName ?: eventPackageName,
+            packageName = task.packageName ?: currentPackageName,
             currentStep = task.currentStep,
             rawNodeCount = rawNodes.size,
             filteredNodeCount = filteredNodes.size,
@@ -162,6 +218,55 @@ class DdalangooAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         AutomationLogger.warn("service interrupted")
+    }
+
+    override fun onDestroy() {
+        if (activeService === this) {
+            activeService = null
+        }
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    private fun scheduleTaskStartedTicks() {
+        scheduleProcessTick(700L, "task_started")
+        scheduleProcessTick(1700L, "task_started_retry_1")
+        scheduleProcessTick(3000L, "task_started_retry_2")
+    }
+
+    private fun scheduleAfterSuccessfulAction(actionPlan: ActionPlan) {
+        when (actionPlan.reasonCode) {
+            RuleReasonCode.MY_KURLY.value,
+            RuleReasonCode.MY_COUPANG.value,
+            RuleReasonCode.ORDER_HISTORY.value -> scheduleProcessTick(900L, "after_navigation")
+            RuleReasonCode.PURCHASE_HISTORY_SCROLL.value -> scheduleProcessTick(900L, "after_scroll")
+            RuleReasonCode.PURCHASE_HISTORY_DUMP.value -> scheduleProcessTick(700L, "after_dump")
+        }
+    }
+
+    private fun scheduleProcessTick(delayMs: Long, reason: String) {
+        AutomationLogger.info("scheduleProcessTick delayMs=$delayMs reason=$reason")
+        handler.postDelayed({
+            processCurrentRoot("tick:$reason")
+        }, delayMs)
+    }
+
+    private fun shouldGuardKurlyOrderHistory(task: AutomationTask): Boolean {
+        if (task.platform != AutomationContract.Platform.KURLY) return false
+        return task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+    }
+
+    private fun isKurlyOrderHistoryScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasOrderHistoryTitle = filteredNodes.any { node ->
+            node.searchableText().contains("주문 내역")
+        }
+        val hasOrderContent = filteredNodes.any { node ->
+            val text = node.searchableText()
+            text.contains("주문번호") || text.contains("배송완료")
+        }
+        return hasOrderHistoryTitle && hasOrderContent
     }
 
     private fun findPurchaseHistoryCandidates(filteredNodes: List<UiNode>): List<UiNode> {

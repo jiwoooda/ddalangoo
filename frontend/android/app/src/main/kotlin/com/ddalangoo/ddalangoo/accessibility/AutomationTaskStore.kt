@@ -14,6 +14,8 @@ data class AutomationRuntimeStatus(
     val serviceConnected: Boolean = false,
     val lastPackageName: String? = null,
     val lastStep: String? = null,
+    val lastTrigger: String? = null,
+    val currentRetryCount: Int = 0,
     val rawNodeCount: Int = 0,
     val filteredNodeCount: Int = 0,
     val lastActionType: String? = null,
@@ -29,13 +31,18 @@ data class AutomationRuntimeStatus(
 object AutomationTaskStore {
     private var currentTask: AutomationTask? = null
     private var runtimeStatus = AutomationRuntimeStatus()
+    private val retryCountsByStep = mutableMapOf<String, Int>()
+    private const val MAX_RETRY_COUNT_PER_STEP = 5
 
     @Synchronized
     fun setTask(task: AutomationTask) {
         currentTask = task
+        retryCountsByStep.clear()
         runtimeStatus = runtimeStatus.copy(
             lastPackageName = task.packageName,
             lastStep = task.currentStep,
+            lastTrigger = null,
+            currentRetryCount = 0,
             lastActionType = null,
             lastReasonCode = null,
             lastTargetNodeId = null,
@@ -63,8 +70,11 @@ object AutomationTaskStore {
     fun clearTask() {
         AutomationLogger.info("task cleared taskId=${currentTask?.taskId.orEmpty()}")
         currentTask = null
+        retryCountsByStep.clear()
         runtimeStatus = runtimeStatus.copy(
             lastStep = null,
+            lastTrigger = null,
+            currentRetryCount = 0,
             lastActionType = null,
             lastReasonCode = null,
             lastTargetNodeId = null,
@@ -81,7 +91,10 @@ object AutomationTaskStore {
     fun updateCurrentStep(nextStep: String) {
         val task = currentTask ?: return
         currentTask = task.copy(currentStep = nextStep)
-        runtimeStatus = runtimeStatus.copy(lastStep = nextStep)
+        runtimeStatus = runtimeStatus.copy(
+            lastStep = nextStep,
+            currentRetryCount = retryCountsByStep[nextStep] ?: 0
+        )
         AutomationLogger.info("task updated taskId=${task.taskId} currentStep=${task.currentStep} nextStep=$nextStep")
     }
 
@@ -99,7 +112,7 @@ object AutomationTaskStore {
             RuleReasonCode.ORDER_HISTORY.value -> AutomationContract.Step.DUMP_PURCHASE_HISTORY
             RuleReasonCode.PURCHASE_HISTORY_DUMP.value -> when (task.currentStep) {
                 AutomationContract.Step.EXTRACT_PURCHASE_HISTORY -> AutomationContract.Step.SCROLL_PURCHASE_HISTORY
-                AutomationContract.Step.DUMP_PURCHASE_HISTORY -> task.currentStep
+                AutomationContract.Step.DUMP_PURCHASE_HISTORY -> AutomationContract.Step.SCROLL_PURCHASE_HISTORY
                 else -> task.currentStep
             }
             RuleReasonCode.PURCHASE_HISTORY_SCROLL.value -> AutomationContract.Step.EXTRACT_PURCHASE_HISTORY
@@ -107,7 +120,13 @@ object AutomationTaskStore {
             else -> task.currentStep
         }
         currentTask = task.copy(currentStep = nextStep)
-        runtimeStatus = runtimeStatus.copy(lastStep = nextStep)
+        if (nextStep != task.currentStep) {
+            retryCountsByStep.remove(nextStep)
+        }
+        runtimeStatus = runtimeStatus.copy(
+            lastStep = nextStep,
+            currentRetryCount = retryCountsByStep[nextStep] ?: 0
+        )
         AutomationLogger.info("task advanced taskId=${task.taskId} currentStep=${task.currentStep} nextStep=$nextStep")
     }
 
@@ -124,11 +143,14 @@ object AutomationTaskStore {
         packageName: String?,
         currentStep: String?,
         rawNodeCount: Int,
-        filteredNodeCount: Int
+        filteredNodeCount: Int,
+        trigger: String? = null
     ) {
         runtimeStatus = runtimeStatus.copy(
             lastPackageName = packageName,
             lastStep = currentStep,
+            lastTrigger = trigger ?: runtimeStatus.lastTrigger,
+            currentRetryCount = currentStep?.let { retryCountsByStep[it] } ?: 0,
             rawNodeCount = rawNodeCount,
             filteredNodeCount = filteredNodeCount
         )
@@ -140,11 +162,14 @@ object AutomationTaskStore {
         currentStep: String,
         rawNodeCount: Int,
         filteredNodeCount: Int,
-        targetPackageName: String
+        targetPackageName: String,
+        trigger: String? = null
     ) {
         runtimeStatus = runtimeStatus.copy(
             lastPackageName = packageName,
             lastStep = currentStep,
+            lastTrigger = trigger ?: runtimeStatus.lastTrigger,
+            currentRetryCount = retryCountsByStep[currentStep] ?: 0,
             rawNodeCount = rawNodeCount,
             filteredNodeCount = filteredNodeCount,
             lastActionType = null,
@@ -156,6 +181,42 @@ object AutomationTaskStore {
             lastErrorCode = "WAITING_FOR_TARGET_PACKAGE",
             lastMessage = "Waiting for package=$targetPackageName"
         )
+    }
+
+    @Synchronized
+    fun recordWaitingForRetry(
+        packageName: String?,
+        currentStep: String,
+        rawNodeCount: Int,
+        filteredNodeCount: Int,
+        trigger: String,
+        reasonCode: String,
+        message: String
+    ): Boolean {
+        val retryCount = (retryCountsByStep[currentStep] ?: 0) + 1
+        retryCountsByStep[currentStep] = retryCount
+        val exceeded = retryCount > MAX_RETRY_COUNT_PER_STEP
+        runtimeStatus = runtimeStatus.copy(
+            lastPackageName = packageName,
+            lastStep = currentStep,
+            lastTrigger = trigger,
+            currentRetryCount = retryCount,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodeCount,
+            lastActionType = null,
+            lastReasonCode = reasonCode,
+            lastTargetNodeId = null,
+            lastSelectedNodeText = null,
+            lastActionSuccess = false,
+            lastActionMethod = null,
+            lastErrorCode = if (exceeded) "RETRY_LIMIT_EXCEEDED" else reasonCode.uppercase(),
+            lastMessage = if (exceeded) "Retry limit exceeded for step=$currentStep" else message
+        )
+        AutomationLogger.info(
+            "waiting step=$currentStep reason=$reasonCode trigger=$trigger " +
+                "retryCount=$retryCount exceeded=$exceeded message=$message"
+        )
+        return !exceeded
     }
 
     @Synchronized
@@ -190,6 +251,8 @@ object AutomationTaskStore {
             "serviceConnected" to status.serviceConnected,
             "lastPackageName" to status.lastPackageName,
             "lastStep" to status.lastStep,
+            "lastTrigger" to status.lastTrigger,
+            "currentRetryCount" to status.currentRetryCount,
             "rawNodeCount" to status.rawNodeCount,
             "filteredNodeCount" to status.filteredNodeCount,
             "lastActionType" to status.lastActionType,

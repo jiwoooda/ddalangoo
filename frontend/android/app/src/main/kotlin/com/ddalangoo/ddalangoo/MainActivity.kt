@@ -1,7 +1,9 @@
 package com.ddalangoo.ddalangoo
 
+import android.content.Intent
 import com.ddalangoo.ddalangoo.accessibility.AutomationLogger
 import com.ddalangoo.ddalangoo.accessibility.AutomationContract
+import com.ddalangoo.ddalangoo.accessibility.DdalangooAccessibilityService
 import com.ddalangoo.ddalangoo.accessibility.AutomationTask
 import com.ddalangoo.ddalangoo.accessibility.AutomationTaskStore
 import com.ddalangoo.ddalangoo.accessibility.PurchaseHistoryExtractionStore
@@ -33,7 +35,18 @@ class MainActivity : FlutterActivity() {
                             ?: AutomationContract.Step.SEARCH_INPUT
                     )
                     AutomationTaskStore.setTask(task)
+                    if (shouldLaunchPackageForTask(task)) {
+                        task.packageName?.let { packageName ->
+                            launchPackage(packageName)
+                        }
+                    }
+                    DdalangooAccessibilityService.scheduleTaskStartedTicks()
                     result.success(true)
+                }
+
+                AutomationContract.Method.LAUNCH_PLATFORM_APP -> {
+                    val packageName = call.argument<String>(AutomationContract.Argument.PACKAGE_NAME)
+                    result.success(packageName?.let { launchPackage(it) } ?: false)
                 }
 
                 AutomationContract.Method.CLEAR_TASK -> {
@@ -62,5 +75,23 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun launchPackage(packageName: String): Boolean {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent == null) {
+            AutomationLogger.warn("launch failed packageName=$packageName reason=launchIntent_missing")
+            return false
+        }
+
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(launchIntent)
+        AutomationLogger.info("launch requested packageName=$packageName")
+        return true
+    }
+
+    private fun shouldLaunchPackageForTask(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.OPEN_MY_KURLY ||
+            task.currentStep == AutomationContract.Step.OPEN_MY_COUPANG
     }
 }

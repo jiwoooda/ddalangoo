@@ -124,12 +124,7 @@ class ActionExecutor(private val service: AccessibilityService) {
                 message = "Scrolled node id=${targetNode.id}"
             )
         } else {
-            ActionResult(
-                success = false,
-                method = ActionExecutionMethod.SCROLL.value,
-                errorCode = "SCROLL_FAILED",
-                message = "Failed to scroll node id=${targetNode.id}"
-            )
+            dispatchSwipeUp()
         }
     }
 
@@ -155,6 +150,37 @@ class ActionExecutor(private val service: AccessibilityService) {
                 method = ActionExecutionMethod.DISPATCH_GESTURE.value,
                 errorCode = "GESTURE_DISPATCH_FAILED",
                 message = "Failed to dispatch tap at ${targetNode.centerX},${targetNode.centerY}"
+            )
+        }
+    }
+
+    private fun dispatchSwipeUp(): ActionResult {
+        val displayMetrics = service.resources.displayMetrics
+        val centerX = displayMetrics.widthPixels * 0.5f
+        val startY = displayMetrics.heightPixels * 0.72f
+        val endY = displayMetrics.heightPixels * 0.38f
+        val swipePath = Path().apply {
+            moveTo(centerX, startY)
+            lineTo(centerX, endY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(swipePath, 0L, 450L))
+            .build()
+
+        val dispatched = service.dispatchGesture(gesture, null, null)
+        return if (dispatched) {
+            ActionResult(
+                success = true,
+                method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                errorCode = null,
+                message = "Dispatched fallback swipe up"
+            )
+        } else {
+            ActionResult(
+                success = false,
+                method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                errorCode = "SCROLL_FAILED",
+                message = "Failed to dispatch fallback swipe up"
             )
         }
     }

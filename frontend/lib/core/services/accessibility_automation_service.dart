@@ -18,7 +18,7 @@ class AccessibilityAutomationService {
       'quantity': 1,
       'platform': 'kurly',
       'packageName': 'com.dbs.kurly.m2',
-      'currentStep': 'extract_purchase_history',
+      'currentStep': 'open_my_kurly',
     });
   }
 

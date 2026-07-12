@@ -17,6 +17,7 @@ object AutomationContract {
         const val GET_ACCUMULATED_PURCHASE_HISTORY_RESULT = "getAccumulatedPurchaseHistoryResult"
         const val CLEAR_PURCHASE_HISTORY_RESULT = "clearPurchaseHistoryResult"
         const val DUMP_CURRENT_UI_TREE = "dumpCurrentUiTree"
+        const val LAUNCH_PLATFORM_APP = "launchPlatformApp"
     }
 
     object Argument {
