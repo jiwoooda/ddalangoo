@@ -220,7 +220,8 @@ def _filter_results(
         if p.get("price") is None:
             continue
         name = p.get("product_name", "").lower()
-        if any(ex.lower() in name for ex in exclude_keywords):
+        brand = str(p.get("brand") or "").lower()
+        if any(ex.lower() in name or ex.lower() in brand for ex in exclude_keywords):
             continue
         if _fails_safety_constraints(p, safety_constraints or []):
             continue

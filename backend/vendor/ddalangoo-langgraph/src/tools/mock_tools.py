@@ -877,11 +877,18 @@ def mock_get_default_address(user_id: str) -> Optional[dict[str, Any]]:
 
 
 def mock_get_purchase_history(user_id: str) -> list[dict[str, Any]]:
-    return MOCK_PURCHASE_HISTORY.get(str(user_id), [])
+    """
+    최신순 정렬 — 실제 DB 경로(get_histories_by_user_id_db)가
+    purchased_at DESC로 정렬해서 주는 것과 맞춘다. 정렬 안 하면 이 리스트를
+    [:5] 등으로 자르는 호출부(build_preference_context 등)에서 오래된
+    negative feedback이 최근 것보다 먼저 잘려나갈 수 있다.
+    """
+    history = MOCK_PURCHASE_HISTORY.get(str(user_id), [])
+    return sorted(history, key=lambda h: h.get("purchased_at") or "", reverse=True)
 
 
 def mock_keyword_search_history(user_id: str, keywords: list[str], limit: int = 5) -> list[dict[str, Any]]:
-    history = mock_get_purchase_history(user_id)
+    history = mock_get_purchase_history(user_id)  # 이미 최신순
     results = []
     for item in history:
         name = item.get("product_name", "").lower()
