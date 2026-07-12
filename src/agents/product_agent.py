@@ -10,17 +10,18 @@ next/deny 재호출 시 검색 스킵 — 기존 recommended_products 재사용.
 """
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from configs.llm_config import get_llm
 
 from src.state.schema import ShoppingState
 from src.tools.mock_search import search_products
-from src.prompts.product_prompt import PRODUCT_RANK_PROMPT
+from src.prompts.scoring_prompt import SCORING_PROMPT
 from src.utils.agent_logger import agent_logger
+from src.utils.aggregator import aggregate, normalize_fixed_axes, normalize_weights
 
 ALL_PLATFORMS = ["naver", "coupang", "kurly"]
 
@@ -120,49 +121,6 @@ def _format_products(products: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _format_preference(preference_context: dict[str, Any]) -> str:
-    if not preference_context:
-        return "선호 정보 없음 (구매이력 부족)"
-    lines = []
-    summary = preference_context.get("summary") or ""
-    if summary:
-        lines.append(summary)
-
-    preferred_brands = preference_context.get("preferred_brands") or []
-    if preferred_brands:
-        brand_names = [
-            str(item.get("brand"))
-            for item in preferred_brands
-            if isinstance(item, dict) and item.get("brand")
-        ]
-        if brand_names:
-            lines.append("선호 브랜드: " + ", ".join(brand_names[:5]))
-
-    price_range = preference_context.get("price_range") or {}
-    if price_range:
-        avg = price_range.get("avg")
-        min_price = price_range.get("min")
-        max_price = price_range.get("max")
-        if avg:
-            if min_price and max_price:
-                lines.append(f"선호 가격대: 평균 {avg:,}원 (범위 {min_price:,}~{max_price:,}원)")
-            else:
-                lines.append(f"선호 가격대: 평균 {avg:,}원")
-
-    repurchase_patterns = preference_context.get("repurchase_patterns") or []
-    if repurchase_patterns:
-        lines.append("재구매 패턴: " + ", ".join(map(str, repurchase_patterns[:5])))
-
-    preferred_platform = preference_context.get("preferred_platform")
-    if preferred_platform:
-        lines.append(f"선호 쇼핑몰: {preferred_platform}")
-
-    keyword_summary = preference_context.get("keyword_summary") or ""
-    if keyword_summary:
-        lines.append(f"키워드 관련 선호: {keyword_summary}")
-    return "\n".join(lines) if lines else "선호 정보 없음 (구매이력 부족)"
-
-
 _NUM_TO_ALPHA = {str(i + 1): chr(ord("A") + i) for i in range(26)}
 
 
@@ -188,6 +146,65 @@ def _normalize_label(lbl: str) -> str:
 class _RankResult(BaseModel):
     ranked_labels: list[str]
     filtered_out_labels: list[str] = []
+
+
+# ── Stage4: 스코어링. 판단(LLM)=axis_weight+tier3 매칭, 계산(코드)=정규화/합산 ──
+
+class AxisWeight(BaseModel):
+    axis: Literal["price", "review", "preference"]
+    weight: float
+    reasoning: str
+
+
+class PreferenceItemScore(BaseModel):
+    """
+    soft_preferences 항목 하나 × 후보 하나에 대한 개별 판정.
+    항목을 뭉쳐서 한 번에 판정하면 서로 다른 방향을 가리키는 신호(예:
+    "저가"와 "프리미엄"이 동시에 감지된 경우)의 근거가 뭉개지므로,
+    항목 단위로 쪼개서 판정한 뒤 aggregator에서 후보별 평균을 낸다.
+    """
+    candidate_id: str
+    preference_item: str
+    match_level: Literal["강한부합", "부합", "중립", "배치"]
+    reasoning: str
+
+
+class ScoringLLMOutput(BaseModel):
+    axis_weights: list[AxisWeight] = Field(default_factory=list)
+    preference_item_scores: list[PreferenceItemScore] = Field(default_factory=list)
+    conflict_note: str | None = None
+
+
+# soft_preferences가 과도하게 길어지면 preference_item_scores가
+# (항목 수 × 후보 수)만큼 불어나 프롬프트 토큰이 커진다 — 상한을 둔다.
+_MAX_SOFT_PREFERENCES = 5
+
+
+def _assign_candidate_ids(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    tagged = []
+    for i, c in enumerate(candidates[:26]):
+        item = dict(c)
+        item["_candidate_id"] = labels[i]
+        tagged.append(item)
+    return tagged
+
+
+def _run_scoring_llm(
+    tagged_candidates: list[dict[str, Any]],
+    keywords: list[str],
+    condition: str | None,
+    soft_preferences: list[str],
+) -> ScoringLLMOutput:
+    soft_preferences = soft_preferences[:_MAX_SOFT_PREFERENCES]
+    prompt = SCORING_PROMPT.format(
+        keywords=json.dumps(keywords, ensure_ascii=False),
+        condition=condition or "없음",
+        soft_preferences=json.dumps(soft_preferences, ensure_ascii=False) if soft_preferences else "없음",
+        formatted_candidates=_format_products(tagged_candidates),
+    )
+    result = _get_llm().with_structured_output(ScoringLLMOutput, method="json_schema").invoke([HumanMessage(content=prompt)])
+    return result if isinstance(result, ScoringLLMOutput) else ScoringLLMOutput()
 
 
 def _fails_safety_constraints(product: dict[str, Any], safety_constraints: list[str]) -> bool:
@@ -244,37 +261,58 @@ def _rank_with_metadata(
     condition: str | None,
     preference_context: dict[str, Any],
 ) -> dict[str, Any]:
-    label_map = {chr(ord("A") + i): p for i, p in enumerate(candidates[:26])}
+    """
+    Stage4: 판단(LLM, 1콜)=axis_weight+tier3 매칭 → 계산(코드, aggregator)=
+    정규화/카테고리→숫자/가중합. 반환 모양은 기존과 동일하게 유지
+    (evals/run_experiment.py가 이 키들을 그대로 소비함) — ranked_products
+    각 항목에 final_score/axis_contributions/reasoning 등이 추가로 실린다.
+    """
+    tagged = _assign_candidate_ids(candidates)
+    soft_preferences = (preference_context.get("soft_preferences") or [])[:_MAX_SOFT_PREFERENCES]
     try:
-        result = _get_llm().with_structured_output(_RankResult, method="json_schema").invoke([
-            HumanMessage(content=PRODUCT_RANK_PROMPT.format(
-                formatted_products=_format_products(candidates),
-                preference_context=_format_preference(preference_context),
-                keywords=json.dumps(keywords, ensure_ascii=False),
-                condition=condition or "없음",
-            ))
-        ])
-        if result and result.ranked_labels:
-            normalized = [_normalize_label(lbl) for lbl in result.ranked_labels]
-            ranked = [label_map[lbl] for lbl in normalized if lbl in label_map]
-            if ranked:
-                return {
-                    "ranked_products": ranked,
-                    "tool_call_success": True,
-                    "tool_call_error": None,
-                }
+        scoring = _run_scoring_llm(tagged, keywords, condition, soft_preferences)
+        if not scoring.preference_item_scores:
+            raise ValueError("empty_preference_item_scores")
+
+        fixed_normalized = normalize_fixed_axes(tagged)
+        weights = normalize_weights({aw.axis: aw.weight for aw in scoring.axis_weights})
+
+        # candidate_id별로 항목별 판정을 묶는다 — aggregator가 후보 단위 평균을 낸다.
+        items_by_id: dict[str, list[PreferenceItemScore]] = {}
+        for item in scoring.preference_item_scores:
+            cid = _normalize_label(item.candidate_id)
+            items_by_id.setdefault(cid, []).append(item)
+
+        ranked = aggregate(tagged, fixed_normalized, items_by_id, weights)
+
+        agent_logger.log_scoring_agent(
+            {
+                "candidates": len(candidates), "keywords": keywords,
+                "condition": condition, "soft_preferences": soft_preferences,
+            },
+            {
+                "axis_weights": [aw.model_dump() for aw in scoring.axis_weights],
+                "weights_normalized": weights,
+                "conflict_note": scoring.conflict_note,
+                "ranked_top": ranked[0].get("product_name") if ranked else None,
+                "ranked_top_score": ranked[0].get("final_score") if ranked else None,
+            },
+        )
+
+        return {
+            "ranked_products": ranked,
+            "tool_call_success": True,
+            "tool_call_error": None,
+            "axis_weights": [aw.model_dump() for aw in scoring.axis_weights],
+            "conflict_note": scoring.conflict_note,
+        }
     except Exception as e:
-        agent_logger.log(f"[product_agent] 랭킹 실패: {e}")
+        agent_logger.log(f"[product_agent] Stage4 스코어링 실패: {e}")
         return {
             "ranked_products": candidates,
             "tool_call_success": False,
             "tool_call_error": str(e),
         }
-    return {
-        "ranked_products": candidates,
-        "tool_call_success": False,
-        "tool_call_error": "empty_output",
-    }
 
 
 def product_agent_node(state: ShoppingState) -> dict:
