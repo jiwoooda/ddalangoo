@@ -1,7 +1,8 @@
 import 'dart:convert';
 
+import 'package:ddalangoo/core/services/accessibility_automation_service.dart';
+import 'package:ddalangoo/data/models/accessibility_purchase_history_model.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 class AccessibilityDebugPanel extends StatefulWidget {
   const AccessibilityDebugPanel({super.key});
@@ -12,10 +13,6 @@ class AccessibilityDebugPanel extends StatefulWidget {
 }
 
 class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
-  static const MethodChannel _channel = MethodChannel(
-    'ddalangoo/accessibility_automation',
-  );
-
   static const List<String> _statusFields = [
     'serviceConnected',
     'lastPackageName',
@@ -34,8 +31,12 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
     'accumulatedPurchaseHistoryCount',
   ];
 
+  final AccessibilityAutomationService _automationService =
+      AccessibilityAutomationService.instance;
+
   Map<String, dynamic>? _status;
   String _purchaseHistoryJson = '';
+  List<AccessibilityPurchaseHistoryItem> _purchaseHistoryItems = const [];
   String? _errorMessage;
   bool _isBusy = false;
 
@@ -60,22 +61,14 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
 
   Future<void> _setKurlyPurchaseHistoryTask() {
     return _runChannelAction(() async {
-      await _channel.invokeMethod('setTestAutomationTask', {
-        'taskId': 'kurly-history-dump-1',
-        'taskType': 'purchase_history_validation',
-        'targetProductName': '',
-        'quantity': 1,
-        'platform': 'kurly',
-        'packageName': 'com.dbs.kurly.m2',
-        'currentStep': 'extract_purchase_history',
-      });
+      await _automationService.startKurlyPurchaseHistoryExtraction();
       await _readStatus();
     });
   }
 
   Future<void> _clearTask() {
     return _runChannelAction(() async {
-      await _channel.invokeMethod('clearAutomationTask');
+      await _automationService.clearAutomationTask();
       await _readStatus();
     });
   }
@@ -85,30 +78,32 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
   }
 
   Future<void> _readStatus() async {
-    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
-      'getAutomationStatus',
-    );
+    final result = await _automationService.getAutomationStatus();
     if (!mounted) return;
-    setState(() {
-      _status = result?.map((key, value) => MapEntry(key.toString(), value));
-    });
+    setState(() => _status = result);
   }
 
   Future<void> _loadPurchaseHistoryResult() {
     return _runChannelAction(() async {
-      final result = await _channel.invokeMethod<String>(
-        'getAccumulatedPurchaseHistoryResult',
-      );
+      final result = await _automationService
+          .getAccumulatedPurchaseHistoryResult();
+      final items = AccessibilityPurchaseHistoryItem.listFromJsonString(result);
       if (!mounted) return;
-      setState(() => _purchaseHistoryJson = _prettyJson(result ?? '[]'));
+      setState(() {
+        _purchaseHistoryJson = _prettyJson(result);
+        _purchaseHistoryItems = items;
+      });
     });
   }
 
   Future<void> _clearPurchaseHistoryResult() {
     return _runChannelAction(() async {
-      await _channel.invokeMethod('clearPurchaseHistoryResult');
+      await _automationService.clearPurchaseHistoryResult();
       if (!mounted) return;
-      setState(() => _purchaseHistoryJson = '');
+      setState(() {
+        _purchaseHistoryJson = '';
+        _purchaseHistoryItems = const [];
+      });
       await _readStatus();
     });
   }
@@ -130,6 +125,28 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
     return _statusFields
         .map((field) => '$field: ${status[field] ?? 'null'}')
         .join('\n');
+  }
+
+  String _purchaseHistoryItemsText() {
+    if (_purchaseHistoryItems.isEmpty) {
+      return '변환된 item이 없습니다.';
+    }
+
+    final buffer = StringBuffer('itemCount: ${_purchaseHistoryItems.length}');
+    for (var index = 0; index < _purchaseHistoryItems.length; index += 1) {
+      final item = _purchaseHistoryItems[index];
+      buffer
+        ..writeln()
+        ..writeln()
+        ..writeln('#${index + 1}')
+        ..writeln('platform: ${item.platform}')
+        ..writeln('orderNumber: ${item.orderNumber ?? 'null'}')
+        ..writeln('deliveryStatus: ${item.deliveryStatus ?? 'null'}')
+        ..writeln('deliveryType: ${item.deliveryType ?? 'null'}')
+        ..writeln('price: ${item.price ?? 'null'}')
+        ..writeln('productName: ${item.productName}');
+    }
+    return buffer.toString();
   }
 
   @override
@@ -215,6 +232,11 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
             text: _purchaseHistoryJson.isEmpty
                 ? '아직 조회된 JSON이 없습니다.'
                 : _purchaseHistoryJson,
+          ),
+          const SizedBox(height: 10),
+          _DebugTextBlock(
+            title: 'DTO Preview',
+            text: _purchaseHistoryItemsText(),
           ),
         ],
       ),
