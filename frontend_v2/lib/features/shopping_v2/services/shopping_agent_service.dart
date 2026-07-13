@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/services/voice_timeline_log_service.dart';
 import '../../../core/storage/local_storage.dart';
 import '../models/shopping_v2_models.dart';
 
@@ -80,7 +81,10 @@ class ShoppingAgentService {
         'progressChannelId': progressChannelId,
       },
     );
-    return _parseAgentResponse(response.data ?? const {});
+    return _parseAndLogAgentResponse(
+      response.data ?? const {},
+      endpoint: '/api/agent/shopping-requests',
+    );
   }
 
   Future<ShoppingAgentResponse> sendMessage({
@@ -97,7 +101,10 @@ class ShoppingAgentService {
         'progressChannelId': progressChannelId,
       },
     );
-    return _parseAgentResponse(response.data ?? const {});
+    return _parseAndLogAgentResponse(
+      response.data ?? const {},
+      endpoint: '/api/agent/conversations/$conversationId/messages',
+    );
   }
 
   Future<Stream<ShoppingAgentResponse>> connectProgress(
@@ -113,10 +120,15 @@ class ShoppingAgentService {
         try {
           final decoded = jsonDecode(event.toString());
           if (decoded is Map<String, dynamic>) {
-            controller.add(_parseAgentResponse(decoded));
+            controller.add(
+              _parseAndLogAgentResponse(decoded, endpoint: 'ws:${uri.path}'),
+            );
           } else if (decoded is Map) {
             controller.add(
-              _parseAgentResponse(Map<String, dynamic>.from(decoded)),
+              _parseAndLogAgentResponse(
+                Map<String, dynamic>.from(decoded),
+                endpoint: 'ws:${uri.path}',
+              ),
             );
           }
         } catch (error, stackTrace) {
@@ -171,7 +183,10 @@ class ShoppingAgentService {
         'payload': payload,
       },
     );
-    return _parseAgentResponse(response.data ?? const {});
+    return _parseAndLogAgentResponse(
+      response.data ?? const {},
+      endpoint: '/api/agent/prompts',
+    );
   }
 
   Future<void> cancelConversation(int conversationId) async {
@@ -199,8 +214,7 @@ class ShoppingAgentService {
       mergedTranscript:
           _stringOf(data['mergedTranscript']) ?? transcript.trim(),
       reason: _stringOf(data['reason']),
-      shouldAskClarification:
-          data['shouldAskClarification'] == true,
+      shouldAskClarification: data['shouldAskClarification'] == true,
     );
   }
 
@@ -221,7 +235,11 @@ class ShoppingAgentService {
       '/api/agent/conversations/$conversationId/payments/webview-result',
       data: payload,
     );
-    return _parseAgentResponse(response.data ?? const {});
+    return _parseAndLogAgentResponse(
+      response.data ?? const {},
+      endpoint:
+          '/api/agent/conversations/$conversationId/payments/webview-result',
+    );
   }
 
   TurnDetectionStatus _parseTurnDetectionStatus(String? value) {
@@ -547,6 +565,7 @@ class ShoppingAgentService {
       message: _stringOf(json['message']),
       speechMode: _stringOf(json['speechMode']),
       speechSegments: _parseSpeechSegments(json['speechSegments']),
+      voiceTimeline: _mapOf(json['voiceTimeline']),
       status: _stringOf(json['status']),
       stage: _stringOf(json['stage']),
       pendingConfirmation: _mapOf(json['pendingConfirmation']),
@@ -561,6 +580,26 @@ class ShoppingAgentService {
       error: json['error'],
       raw: json,
     );
+  }
+
+  ShoppingAgentResponse _parseAndLogAgentResponse(
+    Map<String, dynamic> json, {
+    required String endpoint,
+  }) {
+    final parsed = _parseAgentResponse(json);
+    VoiceTimelineLogService.instance.logBestEffort(
+      'agent_response_received',
+      payload: {
+        'endpoint': endpoint,
+        'conversationId': parsed.conversationId,
+        'responseStage': parsed.stage,
+        'responseStatus': parsed.status,
+        'assistantMessageLength': parsed.assistantMessage.runes.length,
+        'speechSegmentCount': parsed.speechSegments.length,
+        'backendVoiceTimeline': parsed.voiceTimeline,
+      },
+    );
+    return parsed;
   }
 
   Uri _progressUri(String channelId) {

@@ -4,6 +4,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from app.schemas.voice import (
@@ -115,11 +116,23 @@ async def text_to_speech(req: TtsRequest) -> TtsResponse:
             },
         )
 
-    audio_bytes, segments, total_duration_ms = await voice_service.synthesize_speech_bundle(text)
+    timeline = voice_service.create_voice_timeline(
+        request_id=f"tts_{uuid4().hex}",
+        route="voice_tts",
+        text_length=len(text),
+    )
+    voice_service.mark_voice_timeline(timeline, "backendRequestReceivedAt")
+    audio_bytes, segments, total_duration_ms = await voice_service.synthesize_speech_bundle(
+        text,
+        timeline=timeline,
+    )
+    voice_service.mark_voice_timeline(timeline, "backendResponseReadyAt")
+    voice_service.log_voice_timeline("tts_route", timeline)
     logger.info("[voice.tts] response ready audio_size=%s", len(audio_bytes))
     return TtsResponse(
         audioBase64=voice_service.encode_audio_base64(audio_bytes),
         mimeType="audio/wav",
         segments=segments,
         totalDurationMs=total_duration_ms,
+        voiceTimeline=timeline,
     )

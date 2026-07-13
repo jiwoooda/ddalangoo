@@ -23,11 +23,7 @@ enum VoiceTurnState {
   error,
 }
 
-enum TurnDetectionStatus {
-  complete,
-  incomplete,
-  noiseOrEmpty,
-}
+enum TurnDetectionStatus { complete, incomplete, noiseOrEmpty }
 
 class TurnDetectionViewData {
   const TurnDetectionViewData({
@@ -100,7 +96,9 @@ class ProductViewData {
 }
 
 String? _extractQuantityFromTitle(String text) {
-  final parenthesized = RegExp(r'\(([^()]*\d[^()]*)\)\s*$').firstMatch(text.trim());
+  final parenthesized = RegExp(
+    r'\(([^()]*\d[^()]*)\)\s*$',
+  ).firstMatch(text.trim());
   if (parenthesized != null) {
     return parenthesized.group(0);
   }
@@ -117,10 +115,22 @@ String? _extractQuantityFromTitle(String text) {
 String? _extractQuantityLabelFromTitle(String text) {
   final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
   final patterns = <RegExp>[
-    RegExp(r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입)\s*[,xX]\s*\d+\s*개)\s*$', caseSensitive: false),
-    RegExp(r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입)\s*,\s*\d+\s*개)\s*$', caseSensitive: false),
-    RegExp(r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입))\s*[,/]\s*(\d+\s*개)\s*$', caseSensitive: false),
-    RegExp(r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입))\s*$', caseSensitive: false),
+    RegExp(
+      r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입)\s*[,xX]\s*\d+\s*개)\s*$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입)\s*,\s*\d+\s*개)\s*$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입))\s*[,/]\s*(\d+\s*개)\s*$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'(\d+(?:\.\d+)?\s*(?:g|kg|ml|L|개입|봉|팩|입))\s*$',
+      caseSensitive: false,
+    ),
   ];
 
   for (final pattern in patterns) {
@@ -260,6 +270,7 @@ class ShoppingAgentResponse {
     this.message,
     this.speechMode,
     this.speechSegments = const [],
+    this.voiceTimeline,
     this.status,
     this.stage,
     this.pendingConfirmation,
@@ -280,6 +291,7 @@ class ShoppingAgentResponse {
   final String? message;
   final String? speechMode;
   final List<SpeechSegmentViewData> speechSegments;
+  final Map<String, dynamic>? voiceTimeline;
   final String? status;
   final String? stage;
   final Map<String, dynamic>? pendingConfirmation;

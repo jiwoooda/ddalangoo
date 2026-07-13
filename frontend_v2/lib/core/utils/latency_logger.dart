@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+
+import 'latency_log_writer.dart';
 
 class LatencyRequestContext {
   const LatencyRequestContext({
@@ -114,6 +117,12 @@ class FrontendLatencyLogger {
 
   void _log(Map<String, dynamic> payload) {
     debugPrint('[LATENCY]\n${_encoder.convert(payload)}');
+    unawaited(
+      appendLatencyJsonLine(
+        'frontend_latency_turns.jsonl',
+        jsonEncode(payload),
+      ),
+    );
   }
 
   String _isoNow() => DateTime.now().toUtc().toIso8601String();

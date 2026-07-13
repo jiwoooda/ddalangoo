@@ -8,6 +8,7 @@ API Key는 환경변수 OPENAI_API_KEY / GEMINI_API_KEY에서 읽는다.
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from io import BytesIO
 import json
 import os
@@ -19,6 +20,7 @@ import shutil
 import struct
 import time
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from google import genai
@@ -78,6 +80,79 @@ class _SynthesizedTtsSegment:
     text: str
     wav_bytes: bytes
     duration_ms: int
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def create_voice_timeline(
+    *,
+    request_id: str,
+    route: str,
+    conversation_id: int | None = None,
+    text_length: int | None = None,
+) -> dict[str, Any]:
+    timeline: dict[str, Any] = {
+        "requestId": request_id,
+        "route": route,
+        "createdAt": _utc_now_iso(),
+    }
+    if conversation_id is not None:
+        timeline["conversationId"] = conversation_id
+    if text_length is not None:
+        timeline["textLength"] = text_length
+    return timeline
+
+
+def mark_voice_timeline(timeline: dict[str, Any] | None, key: str) -> str | None:
+    if timeline is None:
+        return None
+    stamped = _utc_now_iso()
+    timeline[key] = stamped
+    return stamped
+
+
+def log_voice_timeline(label: str, timeline: dict[str, Any] | None) -> None:
+    if not timeline:
+        return
+    logger.info(
+        "[voice.timeline.%s] %s",
+        label,
+        json.dumps(timeline, ensure_ascii=False, default=str),
+    )
+
+
+def _set_voice_timeline_value(
+    timeline: dict[str, Any] | None,
+    key: str,
+    value: Any,
+) -> None:
+    if timeline is None or value is None:
+        return
+    timeline[key] = value
+
+
+def _mark_first_audio_ready(timeline: dict[str, Any] | None) -> None:
+    if timeline is None or timeline.get("ttsFirstAudioReadyAt"):
+        return
+    mark_voice_timeline(timeline, "ttsFirstAudioReadyAt")
+
+
+def _update_segment_timing(
+    timeline: dict[str, Any] | None,
+    index: int,
+    **fields: Any,
+) -> None:
+    if timeline is None or index < 0:
+        return
+    timings = timeline.setdefault("segmentTimings", [])
+    while len(timings) <= index:
+        timings.append({"index": len(timings)})
+    segment = timings[index]
+    for key, value in fields.items():
+        if value is not None:
+            segment[key] = value
 
 
 def _get_openai_client(feature: str = "stt") -> AsyncOpenAI:
@@ -508,14 +583,20 @@ def _normalize_transcript(raw: str) -> str:
     return text
 
 
-async def synthesize_speech(text: str) -> bytes:
+async def synthesize_speech(
+    text: str,
+    *,
+    timeline: dict[str, Any] | None = None,
+) -> bytes:
     """텍스트를 Gemini TTS로 합성하고 WAV bytes를 반환한다."""
-    audio_bytes, _, _ = await synthesize_speech_bundle(text)
+    audio_bytes, _, _ = await synthesize_speech_bundle(text, timeline=timeline)
     return audio_bytes
 
 
 async def synthesize_speech_bundle(
     text: str,
+    *,
+    timeline: dict[str, Any] | None = None,
 ) -> tuple[bytes, list[TtsSegment], int]:
     """텍스트를 내부적으로 문장 분리해 하나의 WAV와 문장 메타데이터로 반환한다."""
     normalized = text.strip()
@@ -541,9 +622,16 @@ async def synthesize_speech_bundle(
         )
 
     sentences = _split_tts_sentences(normalized)
+    build_started_at = time.perf_counter()
+    mark_voice_timeline(timeline, "backendTtsBuildStartedAt")
+    _set_voice_timeline_value(timeline, "segmentCount", len(sentences))
 
-    async def _synth(sentence: str) -> _SynthesizedTtsSegment:
-        wav_bytes = await _synthesize_sentence_wav(sentence)
+    async def _synth(index: int, sentence: str) -> _SynthesizedTtsSegment:
+        wav_bytes = await _synthesize_sentence_wav(
+            sentence,
+            timeline=timeline,
+            segment_index=index,
+        )
         return _SynthesizedTtsSegment(
             text=sentence,
             wav_bytes=wav_bytes,
@@ -551,7 +639,9 @@ async def synthesize_speech_bundle(
         )
 
     synthesized_segments: list[_SynthesizedTtsSegment] = list(
-        await asyncio.gather(*[_synth(s) for s in sentences])
+        await asyncio.gather(
+            *[_synth(index, sentence) for index, sentence in enumerate(sentences)]
+        )
     )
 
     if len(synthesized_segments) == 1:
@@ -565,14 +655,34 @@ async def synthesize_speech_bundle(
         for segment in synthesized_segments
     ]
     total_duration_ms = sum(segment.duration_ms for segment in synthesized_segments)
+    mark_voice_timeline(timeline, "backendTtsBuildCompletedAt")
+    _set_voice_timeline_value(
+        timeline,
+        "backendTtsBuildMs",
+        round((time.perf_counter() - build_started_at) * 1000),
+    )
     return combined_audio, response_segments, total_duration_ms
 
 
-async def _synthesize_sentence_wav(normalized: str) -> bytes:
+async def _synthesize_sentence_wav(
+    normalized: str,
+    *,
+    timeline: dict[str, Any] | None = None,
+    segment_index: int | None = None,
+) -> bytes:
     client = _get_client("tts")
     models_to_try = list(dict.fromkeys([_TTS_MODEL, *_TTS_FALLBACK_MODELS]))
     last_error: Exception | None = None
     last_provider_error: dict | None = None
+    segment_started_at = time.perf_counter()
+    if segment_index is not None:
+        _update_segment_timing(
+            timeline,
+            segment_index,
+            text=normalized,
+            textLength=len(normalized),
+            startedAt=_utc_now_iso(),
+        )
     logger.info(
         "[voice.tts] Gemini TTS started model=%s fallback_models=%s voice=%s",
         _TTS_MODEL,
@@ -616,6 +726,17 @@ async def _synthesize_sentence_wav(normalized: str) -> bytes:
                 raise RuntimeError("Gemini TTS 응답에서 오디오 데이터를 받지 못했습니다.")
 
             wav_bytes = _wrap_pcm16_as_wav(audio_payload)
+            _mark_first_audio_ready(timeline)
+            if segment_index is not None:
+                _update_segment_timing(
+                    timeline,
+                    segment_index,
+                    readyAt=_utc_now_iso(),
+                    durationMs=round((time.perf_counter() - segment_started_at) * 1000),
+                    audioSize=len(wav_bytes),
+                    model=model,
+                    cacheHit=False,
+                )
             logger.info(
                 "[voice.tts] Gemini TTS succeeded model=%s audio_size=%s latency_ms=%s",
                 model,
@@ -629,6 +750,13 @@ async def _synthesize_sentence_wav(normalized: str) -> bytes:
             latency_ms = round((time.perf_counter() - started_at) * 1000)
             last_error = exc
             last_provider_error = _provider_error_detail(exc)
+            if segment_index is not None:
+                _update_segment_timing(
+                    timeline,
+                    segment_index,
+                    lastError=str(exc),
+                    model=model,
+                )
             logger.warning(
                 "[voice.tts] Gemini raw error model=%s status=%s code=%s message=%s latency_ms=%s",
                 model,
@@ -708,11 +836,16 @@ async def build_agent_speech_segments(
     *,
     request_id: str | None = None,
     prefer_persistent_cache: bool = False,
+    timeline: dict[str, Any] | None = None,
 ) -> list[SpeechSegment]:
     """Agent assistant text를 문장 단위 speech segment + 접근 가능한 audioUrl로 변환한다."""
     segments = split_agent_speech_segments(text)
     if not segments:
         return []
+    build_started_at = time.perf_counter()
+    mark_voice_timeline(timeline, "backendTtsBuildStartedAt")
+    _set_voice_timeline_value(timeline, "segmentCount", len(segments))
+    _set_voice_timeline_value(timeline, "speechSegmentMode", "segmented")
 
     effective_request_id = request_id or uuid4().hex
     segment_dirs = [
@@ -748,6 +881,7 @@ async def build_agent_speech_segments(
         normalized_text = re.sub(r"\s+", " ", text).strip()
         if not normalized_text:
             return []
+        _set_voice_timeline_value(timeline, "combinedFallbackUsed", True)
 
         cache_key = _tts_cache_key(normalized_text) if prefer_persistent_cache else None
         file_name = f"{cache_key}.wav" if cache_key else "combined_fallback.wav"
@@ -775,6 +909,7 @@ async def build_agent_speech_segments(
                     cache_key,
                     normalized_text,
                 )
+                _mark_first_audio_ready(timeline)
                 return [
                     SpeechSegment(
                         index=0,
@@ -791,6 +926,7 @@ async def build_agent_speech_segments(
                 for target_dir in target_dirs
             ]
         )
+        _mark_first_audio_ready(timeline)
         logger.info(
             "[voice.agent_speech] combined_fallback_built text=%s size=%s",
             normalized_text,
@@ -807,6 +943,14 @@ async def build_agent_speech_segments(
 
     async def _build_single_segment(index: int, segment_text: str) -> SpeechSegment:
         retry_texts = _segment_retry_texts(segment_text)
+        segment_started_at = time.perf_counter()
+        _update_segment_timing(
+            timeline,
+            index,
+            text=segment_text,
+            textLength=len(segment_text),
+            startedAt=_utc_now_iso(),
+        )
         try:
             cache_key = _tts_cache_key(segment_text) if prefer_persistent_cache else None
             if cache_key:
@@ -833,6 +977,16 @@ async def build_agent_speech_segments(
                         index,
                         segment_text,
                         candidate_index,
+                    )
+                    _mark_first_audio_ready(timeline)
+                    _update_segment_timing(
+                        timeline,
+                        index,
+                        readyAt=_utc_now_iso(),
+                        durationMs=round((time.perf_counter() - segment_started_at) * 1000),
+                        audioSize=len(cached_bytes),
+                        cacheHit=True,
+                        candidateAttempt=candidate_index,
                     )
                     return SpeechSegment(
                         index=index,
@@ -893,6 +1047,17 @@ async def build_agent_speech_segments(
                     for target_dir in target_dirs
                 ]
             )
+            _mark_first_audio_ready(timeline)
+            _update_segment_timing(
+                timeline,
+                index,
+                readyAt=_utc_now_iso(),
+                durationMs=round((time.perf_counter() - segment_started_at) * 1000),
+                audioSize=len(audio_bytes),
+                cacheHit=False,
+                attemptCount=attempt,
+                usedText=used_text,
+            )
             return SpeechSegment(
                 index=index,
                 text=segment_text,
@@ -905,6 +1070,13 @@ async def build_agent_speech_segments(
                 index,
                 segment_text,
                 exc,
+            )
+            _update_segment_timing(
+                timeline,
+                index,
+                failedAt=_utc_now_iso(),
+                durationMs=round((time.perf_counter() - segment_started_at) * 1000),
+                error=str(exc),
             )
             return SpeechSegment(index=index, text=segment_text, audioUrl=None)
 
@@ -923,6 +1095,21 @@ async def build_agent_speech_segments(
     missing_audio_segments = [
         segment for segment in built_segments if not segment.audioUrl
     ]
+    _set_voice_timeline_value(
+        timeline,
+        "missingAudioSegmentCount",
+        len(missing_audio_segments),
+    )
+    if timeline is not None:
+        segment_timings = timeline.get("segmentTimings") or []
+        timeline["cacheHitCount"] = sum(
+            1 for item in segment_timings if item.get("cacheHit") is True
+        )
+        timeline["generatedSegmentCount"] = sum(
+            1
+            for item in segment_timings
+            if item.get("cacheHit") is False and item.get("audioSize")
+        )
     if missing_audio_segments:
         logger.warning(
             "[voice.agent_speech] built_with_missing_audio request_id=%s missing=%s total=%s missing_indexes=%s",
@@ -939,6 +1126,13 @@ async def build_agent_speech_segments(
                     effective_request_id,
                     len(combined_fallback_segments),
                 )
+                mark_voice_timeline(timeline, "backendTtsBuildCompletedAt")
+                _set_voice_timeline_value(
+                    timeline,
+                    "backendTtsBuildMs",
+                    round((time.perf_counter() - build_started_at) * 1000),
+                )
+                log_voice_timeline("agent_speech", timeline)
                 return combined_fallback_segments
         except Exception as exc:
             logger.warning(
@@ -952,6 +1146,13 @@ async def build_agent_speech_segments(
             effective_request_id,
             len(built_segments),
         )
+    mark_voice_timeline(timeline, "backendTtsBuildCompletedAt")
+    _set_voice_timeline_value(
+        timeline,
+        "backendTtsBuildMs",
+        round((time.perf_counter() - build_started_at) * 1000),
+    )
+    log_voice_timeline("agent_speech", timeline)
     return list(built_segments)
 
 

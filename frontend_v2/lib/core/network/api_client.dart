@@ -7,6 +7,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import '../services/voice_timeline_log_service.dart';
+
 class ApiClient {
   // Docker/Railway 빌드에서는 --dart-define 값이 우선이고,
   // 로컬 개발에서는 .env 값을 사용한다.
@@ -107,6 +109,7 @@ class ApiClient {
     if (summarized == null) return;
     const encoder = JsonEncoder.withIndent('  ');
     debugPrint('🌐 [API $phase]\n${encoder.convert(_jsonSafe(summarized))}');
+    _persistVoiceTimelineNetworkEvent(phase, summarized);
   }
 
   static Map<String, dynamic>? _summarizeNetworkLog(
@@ -119,6 +122,9 @@ class ApiClient {
     }
     if (url.contains('/voice/tts')) {
       return _summarizeTtsLog(phase, payload, url);
+    }
+    if (url.contains('/voice/stt')) {
+      return _summarizeSttLog(phase, payload, url);
     }
 
     if (!url.contains('/webview/status')) {
@@ -177,10 +183,7 @@ class ApiClient {
     String url,
   ) {
     if (phase == 'REQUEST') {
-      return {
-        'method': payload['method'],
-        'url': url,
-      };
+      return {'method': payload['method'], 'url': url};
     }
 
     if (phase == 'RESPONSE') {
@@ -189,9 +192,7 @@ class ApiClient {
       return {
         'statusCode': payload['statusCode'],
         'url': url,
-        'data': {
-          'byteLength': byteLength,
-        },
+        'data': {'byteLength': byteLength},
       };
     }
 
@@ -237,11 +238,90 @@ class ApiClient {
           'audioBase64Length': audioBase64 is String
               ? audioBase64.length
               : null,
+          'voiceTimeline': data is Map ? data['voiceTimeline'] : null,
         },
       };
     }
 
     return payload;
+  }
+
+  static Map<String, dynamic>? _summarizeSttLog(
+    String phase,
+    Map<String, dynamic> payload,
+    String url,
+  ) {
+    if (phase == 'REQUEST') {
+      return {'method': payload['method'], 'url': url};
+    }
+
+    if (phase == 'RESPONSE') {
+      final data = payload['data'];
+      final transcript = data is Map ? data['transcript'] : null;
+      return {
+        'statusCode': payload['statusCode'],
+        'url': url,
+        'data': {
+          'transcriptLength': transcript is String
+              ? transcript.runes.length
+              : null,
+        },
+      };
+    }
+
+    return payload;
+  }
+
+  static void _persistVoiceTimelineNetworkEvent(
+    String phase,
+    Map<String, dynamic> payload,
+  ) {
+    final url = payload['url']?.toString() ?? '';
+    final event = _voiceTimelineNetworkEventName(phase, url);
+    if (event == null) {
+      return;
+    }
+    VoiceTimelineLogService.instance.logBestEffort(
+      event,
+      payload: Map<String, dynamic>.from(_jsonSafe(payload) as Map),
+    );
+  }
+
+  static String? _voiceTimelineNetworkEventName(String phase, String url) {
+    if (url.contains('/static/tts/')) {
+      switch (phase) {
+        case 'REQUEST':
+          return 'frontend_static_tts_request_sent';
+        case 'RESPONSE':
+          return 'frontend_static_tts_response_received';
+        case 'ERROR':
+          return 'frontend_static_tts_response_error';
+      }
+    }
+
+    if (url.contains('/voice/tts')) {
+      switch (phase) {
+        case 'REQUEST':
+          return 'frontend_tts_request_sent';
+        case 'RESPONSE':
+          return 'frontend_tts_response_received';
+        case 'ERROR':
+          return 'frontend_tts_response_error';
+      }
+    }
+
+    if (url.contains('/voice/stt')) {
+      switch (phase) {
+        case 'REQUEST':
+          return 'frontend_stt_request_sent';
+        case 'RESPONSE':
+          return 'frontend_stt_response_received';
+        case 'ERROR':
+          return 'frontend_stt_response_error';
+      }
+    }
+
+    return null;
   }
 
   static Object? _jsonSafe(Object? value) {

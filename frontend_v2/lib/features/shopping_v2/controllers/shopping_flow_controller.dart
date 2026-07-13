@@ -5,6 +5,7 @@ import 'package:record/record.dart';
 
 import '../../../core/services/android_native_speech_recognition_service.dart';
 import '../../../core/services/stt_vad_response_log_service.dart';
+import '../../../core/services/voice_timeline_log_service.dart';
 import '../../../core/network/api_client.dart';
 import '../models/shopping_v2_models.dart';
 import '../services/shopping_agent_service.dart';
@@ -171,6 +172,25 @@ class ShoppingFlowController extends ChangeNotifier {
   }
 
   bool get closeAppRequested => _closeAppRequested;
+
+  void _logVoiceTimelineEvent(
+    String event, {
+    Map<String, dynamic>? voiceTimeline,
+    Map<String, dynamic>? extra,
+  }) {
+    VoiceTimelineLogService.instance.logBestEffort(
+      event,
+      payload: {
+        'conversationId': _conversationId,
+        'step': _step.name,
+        'voiceTurnState': _voiceTurnState.name,
+        ...?voiceTimeline == null
+            ? null
+            : {'backendVoiceTimeline': voiceTimeline},
+        ...?extra,
+      },
+    );
+  }
 
   void _applyPreviewPreset(
     ShoppingVoicePreviewPreset preset, {
@@ -621,6 +641,7 @@ class ShoppingFlowController extends ChangeNotifier {
     await _presentAssistant(
       _normalizeSearchingAssistantMessage(response.assistantMessage),
       speechSegments: response.speechSegments,
+      voiceTimeline: response.voiceTimeline,
       nextStep: ShoppingStep.searchingProduct,
       expectVoiceReply: false,
     );
@@ -667,6 +688,7 @@ class ShoppingFlowController extends ChangeNotifier {
         await _presentAssistant(
           productMessage,
           speechSegments: response.speechSegments,
+          voiceTimeline: response.voiceTimeline,
           nextStep: ShoppingStep.showProduct,
           expectVoiceReply: true,
         );
@@ -681,6 +703,7 @@ class ShoppingFlowController extends ChangeNotifier {
         await _presentAssistant(
           response.assistantMessage,
           speechSegments: response.speechSegments,
+          voiceTimeline: response.voiceTimeline,
           nextStep: ShoppingStep.askQuantity,
           expectVoiceReply: true,
         );
@@ -724,6 +747,7 @@ class ShoppingFlowController extends ChangeNotifier {
         await _presentAssistant(
           response.assistantMessage,
           speechSegments: response.speechSegments,
+          voiceTimeline: response.voiceTimeline,
           nextStep: ShoppingStep.confirmAddress,
           expectVoiceReply: true,
         );
@@ -738,6 +762,7 @@ class ShoppingFlowController extends ChangeNotifier {
         await _presentAssistant(
           response.assistantMessage,
           speechSegments: response.speechSegments,
+          voiceTimeline: response.voiceTimeline,
           nextStep: ShoppingStep.enterPassword,
           expectVoiceReply: false,
         );
@@ -756,6 +781,7 @@ class ShoppingFlowController extends ChangeNotifier {
           waitForWebview: _pendingWebviewTask != null,
           introText: response.assistantMessage,
           introSpeechSegments: response.speechSegments,
+          voiceTimeline: response.voiceTimeline,
         );
         return;
       case ShoppingStep.askMoreOrCheckout:
@@ -768,6 +794,7 @@ class ShoppingFlowController extends ChangeNotifier {
         await _presentAssistant(
           response.assistantMessage,
           speechSegments: response.speechSegments,
+          voiceTimeline: response.voiceTimeline,
           nextStep: ShoppingStep.askMoreOrCheckout,
           expectVoiceReply: true,
         );
@@ -782,6 +809,7 @@ class ShoppingFlowController extends ChangeNotifier {
         await _showPaymentCompleted(
           response.assistantMessage,
           speechSegments: response.speechSegments,
+          voiceTimeline: response.voiceTimeline,
         );
         return;
       case ShoppingStep.searchingProduct:
@@ -794,6 +822,16 @@ class ShoppingFlowController extends ChangeNotifier {
           _assistantText = searchingAssistantMessage;
         }
         _voiceTurnState = VoiceTurnState.agentThinking;
+        _logVoiceTimelineEvent(
+          'assistant_text_presented',
+          voiceTimeline: response.voiceTimeline,
+          extra: {
+            'displayTextLength': _assistantText.runes.length,
+            'fullTextLength': searchingAssistantMessage.runes.length,
+            'speechSegmentCount': response.speechSegments.length,
+            'presentationMode': 'text_only_searching',
+          },
+        );
         notifyListeners();
         return;
       case ShoppingStep.error:
@@ -802,6 +840,7 @@ class ShoppingFlowController extends ChangeNotifier {
           await _presentAssistant(
             response.assistantMessage,
             speechSegments: response.speechSegments,
+            voiceTimeline: response.voiceTimeline,
             nextStep: ShoppingStep.error,
             expectVoiceReply: true,
           );
@@ -820,6 +859,7 @@ class ShoppingFlowController extends ChangeNotifier {
         await _presentAssistant(
           response.assistantMessage,
           speechSegments: response.speechSegments,
+          voiceTimeline: response.voiceTimeline,
           nextStep: ShoppingStep.askProduct,
           expectVoiceReply: true,
         );
@@ -847,6 +887,7 @@ class ShoppingFlowController extends ChangeNotifier {
     bool waitForWebview = false,
     String? introText,
     List<SpeechSegmentViewData> introSpeechSegments = const [],
+    Map<String, dynamic>? voiceTimeline,
   }) async {
     _cartTimer?.cancel();
     _step = ShoppingStep.addingToCart;
@@ -856,6 +897,7 @@ class ShoppingFlowController extends ChangeNotifier {
       await _presentAssistant(
         effectiveIntroText,
         speechSegments: introSpeechSegments,
+        voiceTimeline: voiceTimeline,
         nextStep: ShoppingStep.addingToCart,
         expectVoiceReply: false,
       );
@@ -965,6 +1007,7 @@ class ShoppingFlowController extends ChangeNotifier {
   Future<void> _showPaymentCompleted(
     String text, {
     List<SpeechSegmentViewData> speechSegments = const [],
+    Map<String, dynamic>? voiceTimeline,
   }) async {
     _completionSequenceTimer?.cancel();
     if (text.trim().isEmpty) {
@@ -979,6 +1022,7 @@ class ShoppingFlowController extends ChangeNotifier {
     await _presentAssistant(
       text,
       speechSegments: speechSegments,
+      voiceTimeline: voiceTimeline,
       nextStep: ShoppingStep.paymentCompleted,
       expectVoiceReply: false,
     );
@@ -1027,6 +1071,7 @@ class ShoppingFlowController extends ChangeNotifier {
   Future<void> _presentAssistant(
     String text, {
     List<SpeechSegmentViewData> speechSegments = const [],
+    Map<String, dynamic>? voiceTimeline,
     required ShoppingStep nextStep,
     required bool expectVoiceReply,
   }) async {
@@ -1043,14 +1088,47 @@ class ShoppingFlowController extends ChangeNotifier {
         : 0;
     _voiceTurnState = VoiceTurnState.agentSpeaking;
     _voiceLevel = 0.22;
+    _logVoiceTimelineEvent(
+      'assistant_text_presented',
+      voiceTimeline: voiceTimeline,
+      extra: {
+        'displayTextLength': _assistantText.runes.length,
+        'fullTextLength': text.runes.length,
+        'speechSegmentCount': speechSegments.length,
+        'hasSegmentedSpeech': hasSegmentedSpeech,
+        'expectedVoiceReply': expectVoiceReply,
+      },
+    );
     notifyListeners();
     if (hasSegmentedSpeech) {
-      await _presentAssistantSpeechQueue(text, speechSegments, epoch);
+      await _presentAssistantSpeechQueue(
+        text,
+        speechSegments,
+        epoch,
+        voiceTimeline: voiceTimeline,
+      );
     } else if (_shouldBypassTtsForDemo) {
       await _presentAssistantSilently(text, epoch);
     } else {
       try {
-        await _voiceTurnService.speak(text);
+        await _voiceTurnService.speak(
+          text,
+          onPlaybackStart: () {
+            _logVoiceTimelineEvent(
+              'assistant_audio_play_started',
+              voiceTimeline: voiceTimeline,
+              extra: {
+                'audioMode': 'direct_tts',
+                'textLength': text.runes.length,
+              },
+            );
+          },
+        );
+        _logVoiceTimelineEvent(
+          'assistant_audio_play_completed',
+          voiceTimeline: voiceTimeline,
+          extra: {'audioMode': 'direct_tts', 'textLength': text.runes.length},
+        );
       } catch (_) {
         await Future<void>.delayed(_estimateSilentSegmentDuration(text));
       }
@@ -1097,8 +1175,9 @@ class ShoppingFlowController extends ChangeNotifier {
   Future<void> _presentAssistantSpeechQueue(
     String fallbackText,
     List<SpeechSegmentViewData> speechSegments,
-    int epoch,
-  ) async {
+    int epoch, {
+    Map<String, dynamic>? voiceTimeline,
+  }) async {
     final playableSegments = speechSegments
         .where((segment) => _resolveSegmentAudioUrl(segment.audioUrl) != null)
         .length;
@@ -1127,6 +1206,14 @@ class ShoppingFlowController extends ChangeNotifier {
       }
 
       _assistantText = segment.text;
+      _logVoiceTimelineEvent(
+        'assistant_segment_text_presented',
+        voiceTimeline: voiceTimeline,
+        extra: {
+          'segmentIndex': segment.index,
+          'segmentTextLength': segment.text.runes.length,
+        },
+      );
       notifyListeners();
 
       final audioUrl = _resolveSegmentAudioUrl(segment.audioUrl);
@@ -1134,6 +1221,14 @@ class ShoppingFlowController extends ChangeNotifier {
         debugPrint(
           '[TTS] missing_audio_url '
           'runId=$runId epoch=$epoch index=${segment.index} text="${segment.text}"',
+        );
+        _logVoiceTimelineEvent(
+          'assistant_audio_missing',
+          voiceTimeline: voiceTimeline,
+          extra: {
+            'segmentIndex': segment.index,
+            'segmentTextLength': segment.text.runes.length,
+          },
         );
         await Future<void>.delayed(
           _estimateSilentSegmentDuration(segment.text),
@@ -1143,9 +1238,29 @@ class ShoppingFlowController extends ChangeNotifier {
 
       try {
         final startedAt = DateTime.now();
+        _logVoiceTimelineEvent(
+          'assistant_audio_play_requested',
+          voiceTimeline: voiceTimeline,
+          extra: {
+            'segmentIndex': segment.index,
+            'segmentDurationMs': segment.durationMs,
+            'audioUrl': audioUrl,
+          },
+        );
         await _voiceTurnService.playAudioUrl(
           audioUrl,
           expectedDurationMs: segment.durationMs,
+          onPlaybackStart: () {
+            _logVoiceTimelineEvent(
+              'assistant_audio_play_started',
+              voiceTimeline: voiceTimeline,
+              extra: {
+                'segmentIndex': segment.index,
+                'segmentDurationMs': segment.durationMs,
+                'audioUrl': audioUrl,
+              },
+            );
+          },
         );
         await _ensureMinimumSpeechWindow(
           startedAt: startedAt,
@@ -1153,11 +1268,30 @@ class ShoppingFlowController extends ChangeNotifier {
             milliseconds: (segment.durationMs ?? 1600).clamp(900, 5000),
           ),
         );
+        _logVoiceTimelineEvent(
+          'assistant_audio_play_completed',
+          voiceTimeline: voiceTimeline,
+          extra: {
+            'segmentIndex': segment.index,
+            'segmentDurationMs': segment.durationMs,
+            'audioUrl': audioUrl,
+          },
+        );
       } catch (error, stackTrace) {
         debugPrint(
           '[TTS] segment_playback_failed '
           'runId=$runId epoch=$epoch index=${segment.index} url="$audioUrl" '
           'text="${segment.text}" error=$error\n$stackTrace',
+        );
+        _logVoiceTimelineEvent(
+          'assistant_audio_play_failed',
+          voiceTimeline: voiceTimeline,
+          extra: {
+            'segmentIndex': segment.index,
+            'segmentDurationMs': segment.durationMs,
+            'audioUrl': audioUrl,
+            'error': error.toString(),
+          },
         );
         await Future<void>.delayed(
           _estimateSilentSegmentDuration(segment.text),
@@ -1248,6 +1382,7 @@ class ShoppingFlowController extends ChangeNotifier {
     await _presentAssistant(
       response.assistantMessage,
       speechSegments: response.speechSegments,
+      voiceTimeline: response.voiceTimeline,
       nextStep: nextStep,
       expectVoiceReply: expectVoiceReply,
     );

@@ -58,6 +58,8 @@ class GeminiVoiceService {
   final List<Timer> _segmentTimers = [];
   Future<Directory?>? _ttsCacheDirectoryFuture;
   LatencyRequestContext? _activeSpeakLatencyContext;
+  VoidCallback? _pendingPlaybackStartCallback;
+  bool _playbackStartNotified = false;
   bool _isSpeaking = false;
   bool _audioPlayEndLogged = false;
   DateTime? _playbackStartedAt;
@@ -140,6 +142,8 @@ class GeminiVoiceService {
     _isSpeaking = true;
     _audioPlayEndLogged = false;
     _activeSpeakLatencyContext = null;
+    _pendingPlaybackStartCallback = onPlaybackStart;
+    _playbackStartNotified = false;
     final speakCompleter = Completer<void>();
     _speakCompleter = speakCompleter;
 
@@ -149,6 +153,9 @@ class GeminiVoiceService {
       _handlePlaybackCompletion(expectedDurationMs);
     });
     _playerStateSubscription = _player.onPlayerStateChanged.listen((state) {
+      if (state == PlayerState.playing) {
+        _markPlaybackStart(debugLabel: 'remote segment playback');
+      }
       if (state == PlayerState.completed) {
         _handlePlaybackCompletion(expectedDurationMs);
       }
@@ -159,16 +166,10 @@ class GeminiVoiceService {
       _playbackFallbackTimer?.cancel();
     }
 
-    _playbackStartedAt = DateTime.now();
-    onPlaybackStart?.call();
-    debugPrint(
-      '[TTS] remote segment playback started '
-      'at=${_playbackStartedAt!.toIso8601String()} '
-      'url=$url',
-    );
     final source = await _createRemotePlaybackSource(url);
     await _player.setPlaybackRate(_ttsPlaybackRate);
     await _player.play(source);
+    _markPlaybackStart(debugLabel: 'remote segment playback');
     await speakCompleter.future;
   }
 
@@ -182,6 +183,8 @@ class GeminiVoiceService {
     _isSpeaking = true;
     _audioPlayEndLogged = false;
     _activeSpeakLatencyContext = latencyContext;
+    _pendingPlaybackStartCallback = onPlaybackStart;
+    _playbackStartNotified = false;
     final speakCompleter = Completer<void>();
     _speakCompleter = speakCompleter;
 
@@ -209,6 +212,9 @@ class GeminiVoiceService {
         _handlePlaybackCompletion(playbackData.totalDurationMs);
       });
       _playerStateSubscription = _player.onPlayerStateChanged.listen((state) {
+        if (state == PlayerState.playing) {
+          _markPlaybackStart();
+        }
         if (state == PlayerState.completed) {
           _handlePlaybackCompletion(playbackData.totalDurationMs);
         }
@@ -219,16 +225,9 @@ class GeminiVoiceService {
         onSegmentStart: onSegmentStart,
       );
 
-      if (latencyContext != null) {
-        FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
-      }
-      onPlaybackStart?.call();
-      _playbackStartedAt = DateTime.now();
-      debugPrint(
-        '[TTS] playback started at=${_playbackStartedAt!.toIso8601String()}',
-      );
       await _player.setPlaybackRate(_ttsPlaybackRate);
       await _player.play(speechSource);
+      _markPlaybackStart();
       await speakCompleter.future;
     } catch (e) {
       _finishSpeaking();
@@ -561,6 +560,8 @@ class GeminiVoiceService {
     _playerStateSubscription = null;
     _isSpeaking = false;
     _activeSpeakLatencyContext = null;
+    _pendingPlaybackStartCallback = null;
+    _playbackStartNotified = false;
     _audioPlayEndLogged = false;
     if (_speakCompleter != null && !_speakCompleter!.isCompleted) {
       _speakCompleter!.complete();
@@ -578,6 +579,22 @@ class GeminiVoiceService {
       FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_end');
     }
     _audioPlayEndLogged = true;
+  }
+
+  void _markPlaybackStart({String debugLabel = 'playback'}) {
+    if (_playbackStartNotified) {
+      return;
+    }
+    _playbackStartNotified = true;
+    _playbackStartedAt = DateTime.now();
+    final latencyContext = _activeSpeakLatencyContext;
+    if (latencyContext != null) {
+      FrontendLatencyLogger.instance.mark(latencyContext, 'audio_play_start');
+    }
+    _pendingPlaybackStartCallback?.call();
+    debugPrint(
+      '[TTS] $debugLabel started at=${_playbackStartedAt!.toIso8601String()}',
+    );
   }
 
   void _handlePlaybackCompletion(int? expectedDurationMs) {

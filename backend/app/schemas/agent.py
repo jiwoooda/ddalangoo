@@ -36,6 +36,7 @@ class AgentResponse(BaseModel):
     message: Optional[str] = None
     speechMode: Optional[str] = None
     speechSegments: Optional[List[SpeechSegment]] = None
+    voiceTimeline: Optional[Any] = None
     recommendationId: Optional[int] = None
     recommendations: List[RecommendationItemInAgent] = []
     selectedProduct: Optional[Any] = None

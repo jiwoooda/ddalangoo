@@ -14,7 +14,8 @@ class VoiceTurnService {
     await _voiceService.init();
   }
 
-  Future<void> speak(String text) => _voiceService.speak(text);
+  Future<void> speak(String text, {VoidCallback? onPlaybackStart}) =>
+      _voiceService.speak(text, onPlaybackStart: onPlaybackStart);
 
   Future<void> speakWithSegments(
     String text, {
@@ -23,8 +24,15 @@ class VoiceTurnService {
 
   Future<void> stopSpeaking() => _voiceService.stopSpeaking();
 
-  Future<void> playAudioUrl(String url, {int? expectedDurationMs}) =>
-      _voiceService.playAudioUrl(url, expectedDurationMs: expectedDurationMs);
+  Future<void> playAudioUrl(
+    String url, {
+    int? expectedDurationMs,
+    VoidCallback? onPlaybackStart,
+  }) => _voiceService.playAudioUrl(
+    url,
+    expectedDurationMs: expectedDurationMs,
+    onPlaybackStart: onPlaybackStart,
+  );
 
   Future<void> startRecording() => _voiceService.startRecording();
 

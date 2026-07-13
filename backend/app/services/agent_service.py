@@ -1966,16 +1966,27 @@ async def _with_speech_segments(response: AgentResponse) -> AgentResponse:
         return response
 
     request_id = f"agent_{response.conversationId}_{uuid4().hex}"
+    timeline = voice_service.create_voice_timeline(
+        request_id=request_id,
+        route="agent_response",
+        conversation_id=response.conversationId,
+        text_length=len(message),
+    )
+    voice_service.mark_voice_timeline(timeline, "agentTextReadyAt")
     speech_segments = await voice_service.build_agent_speech_segments(
         message,
         request_id=request_id,
         prefer_persistent_cache=True,
+        timeline=timeline,
     )
+    voice_service.mark_voice_timeline(timeline, "backendResponseReadyAt")
+    voice_service.log_voice_timeline("agent_response", timeline)
     return response.model_copy(
         update={
             "message": response.message or message,
             "speechMode": "segmented" if speech_segments else None,
             "speechSegments": speech_segments or None,
+            "voiceTimeline": timeline,
         }
     )
 

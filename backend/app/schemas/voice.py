@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 
 
 class SttResponse(BaseModel):
@@ -34,6 +34,7 @@ class TtsResponse(BaseModel):
     mimeType: str
     segments: list[TtsSegment] | None = None
     totalDurationMs: int | None = None
+    voiceTimeline: dict[str, Any] | None = None
 
 
 class SttErrorDetail(BaseModel):
