@@ -5,6 +5,7 @@ Context Agent Node.
   [Context Loading]  buy/refine/compare_platforms → 사용자 프로필/구매이력/선호 조회
   [Post-Payment]     stage == "completed" → 구매이력 저장 + 선호도 캐시 무효화 + 대화 요약
 """
+from datetime import datetime
 from typing import Any, Optional
 from langgraph.store.base import BaseStore
 from langchain_core.messages import HumanMessage
@@ -12,8 +13,10 @@ from pydantic import BaseModel, Field
 
 from src.utils.agent_logger import agent_logger
 from src.state.schema import ShoppingState
-from src.prompts.context_prompt import CONTEXT_CLASSIFICATION_PROMPT
+from src.state.routed_signal import RoutedSignal
+from src.prompts.context_prompt import CONTEXT_CLASSIFICATION_PROMPT, SAFETY_SYNC_PROMPT
 from src.tools import db_client
+from src.utils.priority_resolver import resolve_precedence
 from src.tools.mock_tools import (
     mock_get_preference_memory,
     mock_vector_search_personal,
@@ -23,15 +26,32 @@ from src.tools.mock_tools import (
 PERSONAL_VECTOR_THRESHOLD = 20
 
 
-class ContextClassificationLLM(BaseModel):
+class RoutedSignalLLM(BaseModel):
+    """LLM이 실제로 채우는 필드만. signal_id/timestamp는 코드가 나중에 붙인다."""
+    value: str
+    source: str  # RoutedSignal.SignalSource — Literal 강제는 ContextAgentOutput 파싱 시
+    evidence: str
+    decision_role: str  # RoutedSignal.DecisionRole
+
+
+class ContextAgentOutput(BaseModel):
     """
     Context Agent 구조화 출력. safety_constraints(알레르기 등)는 여기 없다 —
     프로필에서 코드로 직접 채워서, LLM이 안전 정보를 중복/변형 생성하지
-    않도록 한다.
+    않도록 한다 (새로 감지되는 안전 정보는 SAFETY_SYNC_PROMPT가 별도 처리).
     """
-    keyword_additions: list[str] = Field(default_factory=list)
-    exclude_additions: list[str] = Field(default_factory=list)
-    soft_preferences: list[str] = Field(default_factory=list)
+    routed_signals: list[RoutedSignalLLM] = Field(default_factory=list)
+
+
+class SafetySignalUpdate(BaseModel):
+    """세션 발화에서 새로 감지된 안전 정보. 감지 안 되면 둘 다 빈 리스트."""
+    new_allergens: list[str] = Field(default_factory=list)
+    new_diet_restrictions: list[str] = Field(default_factory=list)
+
+
+_SAFETY_TRIGGER_KEYWORDS = (
+    "알레르기", "알러지", "못먹", "안먹", "불내증", "제한식", "알레르겐", "먹으면 안",
+)
 
 _context_llm = None
 
@@ -46,6 +66,57 @@ def _get_llm():
             from langchain_anthropic import ChatAnthropic
             _context_llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0, max_tokens=400)
     return _context_llm
+
+
+# ── I: 세션 안전정보 동기 반영 ────────────────────────────────────────
+# 다른 선호 정보(브랜드, 가격대 등)와 달리, 이번 세션에서 "처음" 언급된
+# 알레르기/식이제약은 이번 요청 처리 전에 profile에 즉시 반영돼야 한다.
+# 그렇지 않으면 방금 말한 알레르기가 이번 추천에 전혀 반영되지 않는다
+# (safety_constraints는 profile에서만 읽고, LLM 분류 대상이 아니기 때문).
+
+def _detect_safety_trigger(messages: Optional[list]) -> bool:
+    text = _summarize_messages(messages or [])
+    return any(kw in text for kw in _SAFETY_TRIGGER_KEYWORDS)
+
+
+def _sync_safety_from_session(
+    user_id: str,
+    profile: Optional[dict[str, Any]],
+    messages: Optional[list],
+) -> dict[str, Any]:
+    """
+    세션 발화에 안전 관련 키워드가 감지될 때만(경량 트리거) LLM으로 추출해
+    profile에 동기적으로 merge 저장한다. 트리거가 없으면 LLM 호출 없이
+    프로필을 그대로 반환한다 — 매 요청마다 콜을 늘리지 않기 위함.
+    """
+    if not _detect_safety_trigger(messages):
+        return profile or {}
+
+    session_text = _summarize_messages(messages or [])
+    try:
+        result = _get_llm().with_structured_output(SafetySignalUpdate, method="json_schema").invoke(
+            [HumanMessage(content=SAFETY_SYNC_PROMPT.format(session_text=session_text))]
+        )
+        if not isinstance(result, SafetySignalUpdate):
+            return profile or {}
+    except Exception as e:
+        agent_logger.log(f"[context_agent] 안전정보 동기화 실패: {e}")
+        return profile or {}
+
+    if not result.new_allergens and not result.new_diet_restrictions:
+        return profile or {}
+
+    merged = dict(profile or {})
+    merged["allergens"] = sorted(set((profile or {}).get("allergens") or []) | set(result.new_allergens))
+    merged["diet_restrictions"] = sorted(
+        set((profile or {}).get("diet_restrictions") or []) | set(result.new_diet_restrictions)
+    )
+    db_client.save_profile(user_id, merged)
+    agent_logger.log(
+        f"[context_agent] 세션에서 안전정보 감지 → profile 즉시 갱신 "
+        f"allergens+={result.new_allergens} diet+={result.new_diet_restrictions}"
+    )
+    return merged
 
 
 # ── DB 접근은 전부 db_client(mock/real 모드 전환)를 경유한다 ────────────
@@ -208,21 +279,83 @@ def _format_keyword_history_lines(keyword_history: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _to_iso(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _purchase_history_timestamp(keyword_history: list[dict[str, Any]]) -> Optional[str]:
+    """
+    RoutedSignal.evidence는 자유 텍스트라 특정 구매이력 레코드에 정확히
+    매핑할 수 없다 — keyword_history는 이미 최신순 정렬돼 들어오므로
+    (mock_get_purchase_history/get_histories_by_user_id_db 둘 다 최신순),
+    첫 번째 항목의 purchased_at을 이 호출의 purchase_history 신호 전체의
+    대표 시각으로 쓴다 (근사치).
+    """
+    for h in keyword_history:
+        ts = _to_iso(h.get("purchased_at"))
+        if ts:
+            return ts
+    return None
+
+
+def _enrich_signals(
+    llm_signals: list[RoutedSignalLLM],
+    keyword_history: list[dict[str, Any]],
+    profile: Optional[dict[str, Any]],
+) -> list[RoutedSignal]:
+    """
+    signal_id/timestamp는 LLM이 추측하지 않고 코드가 채운다.
+
+    timestamp는 purchase_history 소스만 채운다 (실제 구매일 purchased_at —
+    "예전엔 프리미엄만, 최근엔 최저가"처럼 진짜 시간 비교가 의미 있는
+    유일한 케이스). general_context/session_smalltalk는 None으로 둔다:
+    - general_context vs session_smalltalk 충돌은 Priority Resolver의
+      카테고리 규칙(session이 항상 우선)으로 이미 해결되어 timestamp가
+      불필요하다.
+    - session_smalltalk끼리의 충돌은 routed_signals 리스트 순서(=발화
+      등장 순서, CONTEXT_CLASSIFICATION_PROMPT가 이 순서 유지를 지시함)로
+      판단한다 (priority_resolver.rank_by_recency 참고).
+    이전엔 general_context에 profile의 computed_at을 썼었는데, 그 필드가
+    안전정보 갱신 등 무관한 쓰기에도 같이 갱신돼서 recency 판단이 왜곡될
+    수 있는 결함이 있어 제거했다.
+    """
+    purchase_ts = _purchase_history_timestamp(keyword_history)
+
+    enriched: list[RoutedSignal] = []
+    for i, sig in enumerate(llm_signals):
+        source = sig.source if sig.source in ("general_context", "purchase_history", "session_smalltalk") else "session_smalltalk"
+        decision_role = sig.decision_role if sig.decision_role in ("retrieval", "explicit_exclusion", "soft_preference") else "soft_preference"
+        timestamp = purchase_ts if source == "purchase_history" else None
+        enriched.append(RoutedSignal(
+            signal_id=f"sig_{i}",
+            value=sig.value,
+            source=source,
+            evidence=sig.evidence,
+            decision_role=decision_role,
+            timestamp=timestamp,
+        ))
+    return enriched
+
+
 def _classify_context(
     general_pref: dict[str, Any],
     keyword_history: list[dict[str, Any]],
     profile: Optional[dict[str, Any]],
     messages: Optional[list],
     keywords: list[str],
-) -> ContextClassificationLLM:
+) -> list[RoutedSignal]:
     """
-    이번 요청에 쓸 keyword_additions/exclude_additions/soft_preferences를
-    한 번의 structured output 호출로 분류한다. safety_constraints는 여기
-    관여하지 않는다 (프로필에서 코드로 직접 채움 — build_preference_context 참고).
+    이번 요청에 쓸 신호를 routed_signals로 한 번의 structured output 호출로
+    분류한다. safety_constraints는 여기 관여하지 않는다 (프로필에서 코드로
+    직접 채움 — build_preference_context 참고).
     """
     try:
         profile_summary = "없음" if not profile else ", ".join(
-            f"{k}:{v}" for k, v in profile.items() if v not in (None, [], "")
+            f"{k}:{v}" for k, v in profile.items() if v not in (None, [], "") and k != "computed_at"
         ) or "없음"
 
         prompt = CONTEXT_CLASSIFICATION_PROMPT.format(
@@ -232,12 +365,15 @@ def _classify_context(
             session_text=_summarize_messages(messages or []) or "없음",
             current_keywords=", ".join(keywords) or "없음",
         )
-        llm = _get_llm().with_structured_output(ContextClassificationLLM)
-        result = llm.invoke([HumanMessage(content=prompt)])
-        return result if isinstance(result, ContextClassificationLLM) else ContextClassificationLLM()
+        result = _get_llm().with_structured_output(ContextAgentOutput, method="json_schema").invoke(
+            [HumanMessage(content=prompt)]
+        )
+        if not isinstance(result, ContextAgentOutput):
+            return []
+        return _enrich_signals(result.routed_signals, keyword_history, profile)
     except Exception as e:
         agent_logger.log(f"[context_agent] 분류 실패, 빈 분류로 대체: {e}")
-        return ContextClassificationLLM()
+        return []
 
 
 def build_preference_context(
@@ -245,9 +381,18 @@ def build_preference_context(
     keywords: list[str],
     messages: Optional[list] = None,
 ) -> dict[str, Any]:
+    # 장기 프로필(알레르기 등) — 구매이력 유무와 무관하게 항상 먼저 조회한다.
+    # 예전엔 구매이력이 없으면 함수 전체가 빈 dict를 반환해서, 구매이력 없는
+    # 신규 유저가 세션에서 알레르기를 처음 말해도 이번 요청에 전혀 반영이
+    # 안 되는 안전 문제가 있었다 — 그래서 profile/safety는 아래 히스토리
+    # 존재 여부 체크보다 먼저 처리한다.
+    profile = db_client.get_profile(user_id)
+    profile = _sync_safety_from_session(user_id, profile, messages)
+    safety_constraints = list((profile or {}).get("allergens") or []) + list((profile or {}).get("diet_restrictions") or [])
+
     histories = _fetch_purchase_histories(user_id)
     if not histories:
-        return {}
+        return {"safety_constraints": safety_constraints}
 
     # 일반 선호도: 캐시(mock 모드는 프로세스 메모리, real 모드는 DB) → 없으면 계산 + LLM 요약 저장
     general_pref = db_client.get_general_preference(user_id)
@@ -261,14 +406,10 @@ def build_preference_context(
         db_client.save_general_preference(user_id, general_pref)
         agent_logger.log("[context_agent] 일반 선호도 캐시 저장 완료")
 
-    # 장기 프로필 (알레르기/식이제약 등) — 스몰톡 에이전트가 채워넣는 값.
-    # TTL 없음, 구매 완료로도 무효화되지 않음 (invalidate_purchase_derived_preferences 참고).
-    profile = db_client.get_profile(user_id)
-
     # 키워드별 선호도 — satisfaction/memo도 함께 실어서 LLM이 직접 판단하게 한다
     # (별도 negative-feedback 집계 함수 없음, [:5] cap이 이미 크기를 제한함)
     keyword_history: list = []
-    classification = ContextClassificationLLM()
+    routed_signals: list[RoutedSignal] = []
     if keywords:
         keyword_history = [
             {
@@ -278,6 +419,7 @@ def build_preference_context(
                 "platform": h.get("platform"),
                 "satisfaction": h.get("satisfaction"),
                 "memo": h.get("memo"),
+                "purchased_at": h.get("purchased_at"),
             }
             for h in histories
             if any(
@@ -289,26 +431,39 @@ def build_preference_context(
         ][:5]
 
         if keyword_history:
-            classification = _classify_context(
+            routed_signals = _classify_context(
                 general_pref, keyword_history, profile, messages, keywords,
             )
+
+    # Priority Resolver: 이번 Intent(keywords)가 과거 explicit_exclusion과
+    # 같은 대상을 다시 명시하면 그 배제를 무효화한다. safety는 여기 관여
+    # 안 함 (위에서 이미 profile 기준으로 확정).
+    resolved = resolve_precedence(keywords, routed_signals)
+    keyword_additions = [s.value for s in resolved["retrieval_signals"]]
+    exclude_additions = [s.value for s in resolved["effective_exclusions"]]
+    soft_preference_signals = resolved["active_soft_preferences"]
+
+    if resolved["overridden_exclusions"]:
+        agent_logger.log(
+            "[context_agent] Priority Resolver: 이번 Intent가 명시적으로 재요청해서 배제 무효화 → "
+            + ", ".join(s.value for s in resolved["overridden_exclusions"])
+        )
 
     # keyword_summary는 response_agent._format_preference가 소비하는 기존
     # 필드 — 별도 LLM 호출 없이 분류 결과에서 코드로 합성한다 (초안, 문구는
     # 추후 조정 예정).
-    keyword_summary = ", ".join(classification.soft_preferences) if classification.soft_preferences else ""
-
-    safety_constraints = list((profile or {}).get("allergens") or []) + list((profile or {}).get("diet_restrictions") or [])
+    keyword_summary = ", ".join(s.value for s in soft_preference_signals) if soft_preference_signals else ""
 
     return {
         **general_pref,
         "keyword_history": keyword_history,
         "keyword_summary": keyword_summary,
         "_cache_hit": cache_hit,
-        "keyword_additions": classification.keyword_additions,
-        "exclude_additions": classification.exclude_additions,
-        "soft_preferences": classification.soft_preferences,
+        "keyword_additions": keyword_additions,
+        "exclude_additions": exclude_additions,
+        "soft_preferences": [s.model_dump() for s in soft_preference_signals],
         "safety_constraints": safety_constraints,
+        "overridden_exclusions": [s.model_dump() for s in resolved["overridden_exclusions"]],
     }
 
 
