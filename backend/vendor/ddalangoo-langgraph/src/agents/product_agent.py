@@ -190,17 +190,38 @@ def _assign_candidate_ids(candidates: list[dict[str, Any]]) -> list[dict[str, An
     return tagged
 
 
+def _format_soft_preferences(signals: list[dict[str, Any]]) -> str:
+    """
+    RoutedSignal(dict)을 프롬프트용 텍스트로. priority_resolver.rank_by_recency가
+    이미 최근 순으로 정렬해서 넘겨주므로, 순서 자체가 recency 정보다
+    (목록 위쪽일수록 최근). purchase_history 소스만 실제 timestamp(구매일)가
+    있어서 같이 보여준다 — 그 외(general_context/session_smalltalk)는
+    timestamp가 없다 (Priority Resolver의 카테고리 규칙/발화 순서로 이미
+    정렬 반영됨, computed_at 같은 걸 억지로 채우지 않는다).
+    """
+    if not signals:
+        return "없음"
+    lines = []
+    for i, s in enumerate(signals, 1):
+        value = s.get("value", "")
+        ts = s.get("timestamp")
+        source = s.get("source", "")
+        detail = f" (출처:{source}, 구매일:{ts})" if ts else f" (출처:{source})" if source else ""
+        lines.append(f"{i}. {value}{detail}")
+    return "\n".join(lines)
+
+
 def _run_scoring_llm(
     tagged_candidates: list[dict[str, Any]],
     keywords: list[str],
     condition: str | None,
-    soft_preferences: list[str],
+    soft_preferences: list[dict[str, Any]],
 ) -> ScoringLLMOutput:
     soft_preferences = soft_preferences[:_MAX_SOFT_PREFERENCES]
     prompt = SCORING_PROMPT.format(
         keywords=json.dumps(keywords, ensure_ascii=False),
         condition=condition or "없음",
-        soft_preferences=json.dumps(soft_preferences, ensure_ascii=False) if soft_preferences else "없음",
+        soft_preferences=_format_soft_preferences(soft_preferences),
         formatted_candidates=_format_products(tagged_candidates),
     )
     result = _get_llm().with_structured_output(ScoringLLMOutput, method="json_schema").invoke([HumanMessage(content=prompt)])

@@ -13,6 +13,7 @@ SEARCH_MODE와 동일한 패턴). context_agent.py/reorder_agent.py가 DB에
 import asyncio
 import os
 import sys
+from datetime import datetime, UTC
 from typing import Any, Literal
 
 from src.tools.mock_tools import (
@@ -181,7 +182,12 @@ def get_profile(user_id: str, mode: DbMode | None = None) -> dict[str, Any] | No
 
 def save_profile(user_id: str, profile: dict[str, Any], mode: DbMode | None = None) -> None:
     if (mode or _default_db_mode()) == "mock":
-        _mock_profile_store[str(user_id)] = dict(profile)
+        # real 모드(user_preference_repository)는 computed_at을 자동으로
+        # 붙여준다 — mock도 맞춰서 붙인다. RoutedSignal의 general_context
+        # timestamp가 이 값을 쓴다 (context_agent._enrich_signals 참고).
+        stamped = dict(profile)
+        stamped["computed_at"] = datetime.now(UTC).isoformat()
+        _mock_profile_store[str(user_id)] = stamped
         return
     try:
         from app.repositories import user_preference_repository
