@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voice Timeline Dashboard</title>
+    <style>
+      :root {
+        --bg: #f4efe7;
+        --bg-accent: #efe4d1;
+        --ink: #1f2d2f;
+        --muted: #63706e;
+        --card: rgba(255, 252, 246, 0.86);
+        --card-strong: rgba(255, 252, 246, 0.96);
+        --line: rgba(31, 45, 47, 0.12);
+        --accent: #0f766e;
+        --accent-soft: rgba(15, 118, 110, 0.12);
+        --warn: #c26a24;
+        --rose: #9f3a4b;
+        --shadow: 0 18px 48px rgba(31, 45, 47, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family:
+          "Avenir Next",
+          "Pretendard",
+          "Noto Sans KR",
+          "Segoe UI",
+          sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 32%),
+          radial-gradient(circle at top right, rgba(194, 106, 36, 0.16), transparent 28%),
+          linear-gradient(180deg, var(--bg), var(--bg-accent));
+      }
+
+      .shell {
+        max-width: 1420px;
+        margin: 0 auto;
+        padding: 28px 22px 56px;
+      }
+
+      .hero {
+        position: relative;
+        overflow: hidden;
+        padding: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        border-radius: 28px;
+        background:
+          linear-gradient(135deg, rgba(255, 252, 246, 0.92), rgba(248, 244, 236, 0.82)),
+          rgba(255, 255, 255, 0.7);
+        box-shadow: var(--shadow);
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        inset: auto -80px -80px auto;
+        width: 240px;
+        height: 240px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(15, 118, 110, 0.18), transparent 70%);
+        pointer-events: none;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 5vw, 50px);
+        line-height: 0.98;
+        letter-spacing: -0.04em;
+      }
+
+      .hero-copy {
+        max-width: 860px;
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 22px;
+      }
+
+      .button,
+      .field,
+      .toggle {
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--ink);
+        font: inherit;
+      }
+
+      .button {
+        cursor: pointer;
+        padding: 12px 18px;
+        font-weight: 700;
+        transition: transform 140ms ease, background 140ms ease;
+      }
+
+      .button:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.92);
+      }
+
+      .button.primary {
+        border-color: transparent;
+        background: linear-gradient(135deg, #0f766e, #155e75);
+        color: white;
+      }
+
+      .field {
+        min-width: min(360px, 100%);
+        padding: 12px 16px;
+      }
+
+      .toggle {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 14px;
+      }
+
+      .toggle input {
+        accent-color: var(--accent);
+      }
+
+      .status-strip {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.56);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 18px;
+        margin-top: 24px;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      }
+
+      .file-grid {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+
+      .card {
+        border: 1px solid rgba(255, 255, 255, 0.65);
+        border-radius: 24px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(8px);
+      }
+
+      .metric-card,
+      .file-card {
+        padding: 18px;
+      }
+
+      .metric-label,
+      .section-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .metric-value {
+        margin-top: 10px;
+        font-size: 32px;
+        line-height: 1;
+        letter-spacing: -0.04em;
+        font-weight: 800;
+      }
+
+      .metric-detail {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .top-events {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .section {
+        margin-top: 26px;
+        padding: 20px;
+      }
+
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: end;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+
+      .section-title {
+        margin: 4px 0 0;
+        font-size: 24px;
+        letter-spacing: -0.03em;
+      }
+
+      .section-copy {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .table-wrap {
+        overflow: auto;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: var(--card-strong);
+      }
+
+      table {
+        width: 100%;
+        min-width: 960px;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+        font-size: 13px;
+      }
+
+      th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(248, 244, 236, 0.98);
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      tr:hover td {
+        background: rgba(15, 118, 110, 0.04);
+      }
+
+      .mono {
+        font-family:
+          "SFMono-Regular",
+          "JetBrains Mono",
+          "Menlo",
+          monospace;
+        font-size: 12px;
+      }
+
+      .subtle {
+        color: var(--muted);
+      }
+
+      .json {
+        margin: 10px 0 0;
+        padding: 12px;
+        border-radius: 14px;
+        background: #152223;
+        color: #e8faf8;
+        overflow: auto;
+        white-space: pre-wrap;
+      }
+
+      details summary {
+        cursor: pointer;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .empty {
+        padding: 28px 18px;
+        text-align: center;
+        color: var(--muted);
+      }
+
+      .warn {
+        color: var(--warn);
+      }
+
+      .rose {
+        color: var(--rose);
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          padding: 16px 14px 36px;
+        }
+
+        .hero,
+        .section {
+          padding: 16px;
+          border-radius: 22px;
+        }
+
+        table {
+          min-width: 840px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <p class="eyebrow">Voice Telemetry</p>
+        <h1>STT/TTS Timeline Dashboard</h1>
+        <p class="hero-copy">
+          Native ASR, agent response, backend TTS build, static audio download, playback start/end,
+          그리고 turn latency를 한 화면에서 확인하는 로컬 대시보드입니다.
+        </p>
+
+        <div class="toolbar">
+          <button class="button primary" id="refreshButton" type="button">Refresh Now</button>
+          <label class="toggle">
+            <input id="autoRefreshToggle" type="checkbox" />
+            <span>Auto refresh every 5s</span>
+          </label>
+          <input
+            class="field"
+            id="searchInput"
+            type="search"
+            placeholder="requestId, event, route, status, raw JSON 검색"
+          />
+        </div>
+
+        <div class="status-strip" id="statusStrip"></div>
+      </section>
+
+      <section class="grid summary-grid" id="summaryGrid"></section>
+
+      <section class="card section">
+        <div class="section-head">
+          <div>
+            <div class="section-label">Log Files</div>
+            <h2 class="section-title">Sources</h2>
+            <p class="section-copy">현재 백엔드가 읽고 있는 JSONL 파일 상태입니다.</p>
+          </div>
+        </div>
+        <div class="grid file-grid" id="fileGrid"></div>
+      </section>
+
+      <section class="card section">
+        <div class="section-head">
+          <div>
+            <div class="section-label">Grouped Requests</div>
+            <h2 class="section-title">Recent Request Summaries</h2>
+            <p class="section-copy">
+              requestId 단위로 최근 이벤트를 묶은 요약입니다. Native ASR, backend TTS, total response latency를 한 줄에서 빠르게 봅니다.
+            </p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Request</th>
+                <th>Route</th>
+                <th>Last Event</th>
+                <th>Sources</th>
+                <th>Native ASR</th>
+                <th>Backend TTS</th>
+                <th>Total Response</th>
+                <th>API RTT</th>
+                <th>Speech Segments</th>
+              </tr>
+            </thead>
+            <tbody id="requestTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card section">
+        <div class="section-head">
+          <div>
+            <div class="section-label">Turn Metrics</div>
+            <h2 class="section-title">Recent Latency Turns</h2>
+            <p class="section-copy">턴 단위 핵심 지연값입니다.</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Request</th>
+                <th>Session / Turn</th>
+                <th>Total Response</th>
+                <th>Frontend STT</th>
+                <th>API RTT</th>
+                <th>Backend TTS RTT</th>
+                <th>TTS to Playback</th>
+                <th>Raw</th>
+              </tr>
+            </thead>
+            <tbody id="turnTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card section">
+        <div class="section-head">
+          <div>
+            <div class="section-label">Event Stream</div>
+            <h2 class="section-title">Recent Events</h2>
+            <p class="section-copy">
+              프론트 voice timeline, backend voice timeline, latency turn 로그를 시간순으로 합친 목록입니다.
+            </p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Source</th>
+                <th>Event</th>
+                <th>Request</th>
+                <th>Route</th>
+                <th>Details</th>
+                <th>Raw</th>
+              </tr>
+            </thead>
+            <tbody id="eventTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const DASHBOARD_ENDPOINT = "/api/dev/voice-timeline/dashboard-data?eventLimit=320&turnLimit=140";
+      const state = {
+        data: null,
+        searchText: "",
+        autoRefresh: false,
+        timerId: null,
+      };
+
+      const summaryGrid = document.getElementById("summaryGrid");
+      const fileGrid = document.getElementById("fileGrid");
+      const statusStrip = document.getElementById("statusStrip");
+      const requestTableBody = document.getElementById("requestTableBody");
+      const turnTableBody = document.getElementById("turnTableBody");
+      const eventTableBody = document.getElementById("eventTableBody");
+      const searchInput = document.getElementById("searchInput");
+      const refreshButton = document.getElementById("refreshButton");
+      const autoRefreshToggle = document.getElementById("autoRefreshToggle");
+
+      refreshButton.addEventListener("click", () => {
+        void loadDashboard();
+      });
+
+      searchInput.addEventListener("input", (event) => {
+        state.searchText = String(event.target.value || "").trim().toLowerCase();
+        render();
+      });
+
+      autoRefreshToggle.addEventListener("change", (event) => {
+        state.autoRefresh = Boolean(event.target.checked);
+        restartAutoRefresh();
+      });
+
+      function restartAutoRefresh() {
+        if (state.timerId) {
+          window.clearInterval(state.timerId);
+          state.timerId = null;
+        }
+        if (!state.autoRefresh) {
+          return;
+        }
+        state.timerId = window.setInterval(() => {
+          void loadDashboard({ quiet: true });
+        }, 5000);
+      }
+
+      async function loadDashboard({ quiet = false } = {}) {
+        if (!quiet) {
+          refreshButton.disabled = true;
+          refreshButton.textContent = "Loading...";
+        }
+        try {
+          const response = await fetch(DASHBOARD_ENDPOINT, { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error(`Dashboard API failed: ${response.status}`);
+          }
+          state.data = await response.json();
+          render();
+        } catch (error) {
+          statusStrip.innerHTML = "";
+          statusStrip.appendChild(
+            makePill(`Failed to load dashboard: ${error}`, "rose"),
+          );
+        } finally {
+          refreshButton.disabled = false;
+          refreshButton.textContent = "Refresh Now";
+        }
+      }
+
+      function render() {
+        const data = state.data;
+        if (!data) {
+          return;
+        }
+
+        renderStatus(data);
+        renderSummary(data.summary || {});
+        renderFiles(data.files || {});
+        renderRequestSummaries(data.requestSummaries || []);
+        renderTurns(data.recentTurns || []);
+        renderEvents(data.recentEvents || []);
+      }
+
+      function renderStatus(data) {
+        statusStrip.innerHTML = "";
+        statusStrip.appendChild(makePill(`Generated ${formatIso(data.generatedAt)}`));
+        statusStrip.appendChild(
+          makePill(`Search ${state.searchText ? `"${state.searchText}"` : "off"}`),
+        );
+        const latest = data.summary?.latestTimestamp;
+        if (latest) {
+          statusStrip.appendChild(makePill(`Latest log ${formatIso(latest)}`, "warn"));
+        }
+      }
+
+      function renderSummary(summary) {
+        summaryGrid.innerHTML = "";
+        const cards = [
+          {
+            label: "Frontend Voice Events",
+            value: formatInt(summary.frontendVoiceEventCount),
+            detail: `Backend voice events ${formatInt(summary.backendVoiceEventCount)} / Turn logs ${formatInt(summary.latencyTurnCount)}`,
+          },
+          {
+            label: "Total Response p50",
+            value: formatMetric(summary.totalResponseLatencyMs?.p50),
+            detail: metricDetail(summary.totalResponseLatencyMs),
+          },
+          {
+            label: "API RTT p50",
+            value: formatMetric(summary.apiRoundTripMs?.p50),
+            detail: metricDetail(summary.apiRoundTripMs),
+          },
+          {
+            label: "Native ASR p50",
+            value: formatMetric(summary.nativeAsrListenToFinalMs?.p50),
+            detail: metricDetail(summary.nativeAsrListenToFinalMs),
+          },
+          {
+            label: "Backend TTS Build p50",
+            value: formatMetric(summary.backendTtsBuildMs?.p50),
+            detail: metricDetail(summary.backendTtsBuildMs),
+          },
+          {
+            label: "Agent TTS Build p50",
+            value: formatMetric(summary.agentResponseTtsBuildMs?.p50),
+            detail: metricDetail(summary.agentResponseTtsBuildMs),
+          },
+        ];
+
+        for (const card of cards) {
+          const node = document.createElement("section");
+          node.className = "card metric-card";
+          node.innerHTML = `
+            <div class="metric-label">${escapeHtml(card.label)}</div>
+            <div class="metric-value">${escapeHtml(card.value)}</div>
+            <div class="metric-detail">${escapeHtml(card.detail)}</div>
+          `;
+          summaryGrid.appendChild(node);
+        }
+
+        const topEvents = document.createElement("section");
+        topEvents.className = "card metric-card";
+        topEvents.innerHTML = `
+          <div class="metric-label">Top Events</div>
+          <div class="metric-detail">가장 자주 찍힌 이벤트입니다.</div>
+          <div class="top-events" id="topEventsWrap"></div>
+        `;
+        const wrap = topEvents.querySelector("#topEventsWrap");
+        const entries = Object.entries(summary.topEvents || {});
+        if (!entries.length) {
+          wrap.innerHTML = `<span class="subtle">No event data yet.</span>`;
+        } else {
+          for (const [eventName, count] of entries) {
+            const chip = document.createElement("span");
+            chip.className = "chip";
+            chip.textContent = `${eventName} ${formatInt(count)}`;
+            wrap.appendChild(chip);
+          }
+        }
+        summaryGrid.appendChild(topEvents);
+      }
+
+      function renderFiles(files) {
+        fileGrid.innerHTML = "";
+        for (const [key, info] of Object.entries(files)) {
+          const card = document.createElement("section");
+          card.className = "card file-card";
+          card.innerHTML = `
+            <div class="metric-label">${escapeHtml(key)}</div>
+            <div class="metric-value">${info.exists ? "Ready" : "Missing"}</div>
+            <div class="metric-detail">
+              ${escapeHtml(info.path || "")}<br />
+              Parsed ${formatInt(info.parsedCount)} rows<br />
+              Size ${formatBytes(info.sizeBytes)}<br />
+              Updated ${info.modifiedAt ? escapeHtml(formatIso(info.modifiedAt)) : "not yet"}
+            </div>
+          `;
+          fileGrid.appendChild(card);
+        }
+      }
+
+      function renderRequestSummaries(items) {
+        requestTableBody.innerHTML = "";
+        const filtered = items.filter((item) => matchesSearch(item));
+        if (!filtered.length) {
+          requestTableBody.innerHTML = `<tr><td class="empty" colspan="9">No request summaries match the current filter.</td></tr>`;
+          return;
+        }
+
+        for (const item of filtered) {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td class="mono">${escapeHtml(shorten(item.requestId))}</td>
+            <td>${escapeHtml(item.route || "-")}</td>
+            <td>${escapeHtml(item.lastEvent || "-")}<br /><span class="subtle">${escapeHtml(formatIso(item.lastSeenAt))}</span></td>
+            <td>${escapeHtml((item.sources || []).join(", ") || "-")}<br /><span class="subtle">${formatInt(item.eventCount)} events</span></td>
+            <td>${formatMetric(item.nativeAsrListenToFinalMs)}</td>
+            <td>${formatMetric(item.backendTtsBuildMs)}</td>
+            <td>${formatMetric(item.totalResponseLatencyMs)}</td>
+            <td>${formatMetric(item.apiRoundTripMs)}</td>
+            <td>${escapeHtml(item.speechSegmentCount != null ? String(item.speechSegmentCount) : "-")}</td>
+          `;
+          requestTableBody.appendChild(row);
+        }
+      }
+
+      function renderTurns(items) {
+        turnTableBody.innerHTML = "";
+        const filtered = items.filter((item) => matchesSearch(item));
+        if (!filtered.length) {
+          turnTableBody.innerHTML = `<tr><td class="empty" colspan="8">No latency turns match the current filter.</td></tr>`;
+          return;
+        }
+
+        for (const item of filtered) {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td class="mono">${escapeHtml(shorten(item.requestId))}</td>
+            <td>${escapeHtml(item.sessionId || "-")}<br /><span class="subtle">turn ${escapeHtml(String(item.turnIndex ?? "-"))}</span></td>
+            <td>${formatMetric(item.totalResponseLatencyMs)}</td>
+            <td>${formatMetric(item.frontendSttProcessingMs)}</td>
+            <td>${formatMetric(item.apiRoundTripMs)}</td>
+            <td>${formatMetric(item.backendTtsRoundTripMs)}</td>
+            <td>${formatMetric(item.ttsToPlaybackMs)}</td>
+            <td>${renderJsonDetails(item.raw)}</td>
+          `;
+          turnTableBody.appendChild(row);
+        }
+      }
+
+      function renderEvents(items) {
+        eventTableBody.innerHTML = "";
+        const filtered = items.filter((item) => matchesSearch(item));
+        if (!filtered.length) {
+          eventTableBody.innerHTML = `<tr><td class="empty" colspan="7">No events match the current filter.</td></tr>`;
+          return;
+        }
+
+        for (const item of filtered) {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${escapeHtml(formatIso(item.sortAt))}</td>
+            <td>${escapeHtml(item.source || "-")}</td>
+            <td>${escapeHtml(item.event || "-")}</td>
+            <td class="mono">${escapeHtml(shorten(item.requestId))}</td>
+            <td>${escapeHtml(item.route || "-")}</td>
+            <td>${renderDetailsList(item.details || {})}</td>
+            <td>${renderJsonDetails(item.raw)}</td>
+          `;
+          eventTableBody.appendChild(row);
+        }
+      }
+
+      function renderDetailsList(details) {
+        const entries = Object.entries(details).filter(([, value]) => value !== null && value !== undefined);
+        if (!entries.length) {
+          return `<span class="subtle">-</span>`;
+        }
+        return entries
+          .slice(0, 6)
+          .map(([key, value]) => `<div><span class="subtle">${escapeHtml(key)}</span> ${escapeHtml(String(value))}</div>`)
+          .join("");
+      }
+
+      function renderJsonDetails(raw) {
+        return `
+          <details>
+            <summary>JSON</summary>
+            <pre class="json mono">${escapeHtml(JSON.stringify(raw, null, 2))}</pre>
+          </details>
+        `;
+      }
+
+      function matchesSearch(item) {
+        if (!state.searchText) {
+          return true;
+        }
+        return JSON.stringify(item).toLowerCase().includes(state.searchText);
+      }
+
+      function makePill(label, className = "") {
+        const pill = document.createElement("div");
+        pill.className = `pill ${className}`.trim();
+        pill.textContent = label;
+        return pill;
+      }
+
+      function metricDetail(summary) {
+        if (!summary || !summary.count) {
+          return "No data yet";
+        }
+        return `avg ${formatMetric(summary.avg)} / p95 ${formatMetric(summary.p95)} / n ${formatInt(summary.count)}`;
+      }
+
+      function formatMetric(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+          return "-";
+        }
+        return `${Number(value).toLocaleString()} ms`;
+      }
+
+      function formatInt(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+          return "0";
+        }
+        return Number(value).toLocaleString();
+      }
+
+      function formatBytes(bytes) {
+        const numeric = Number(bytes || 0);
+        if (numeric < 1024) {
+          return `${numeric} B`;
+        }
+        if (numeric < 1024 * 1024) {
+          return `${(numeric / 1024).toFixed(1)} KB`;
+        }
+        return `${(numeric / (1024 * 1024)).toFixed(1)} MB`;
+      }
+
+      function formatIso(value) {
+        if (!value) {
+          return "-";
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return String(value);
+        }
+        return date.toLocaleString();
+      }
+
+      function shorten(value) {
+        const text = String(value || "");
+        if (!text) {
+          return "-";
+        }
+        if (text.length <= 22) {
+          return text;
+        }
+        return `${text.slice(0, 10)}...${text.slice(-8)}`;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      void loadDashboard();
+    </script>
+  </body>
+</html>

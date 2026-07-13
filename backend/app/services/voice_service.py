@@ -73,6 +73,8 @@ _DYNAMIC_TTS_TTL_SECONDS = int(os.getenv("DYNAMIC_TTS_TTL_SECONDS", str(6 * 60 *
 _CACHED_TTS_TTL_SECONDS = int(
     os.getenv("CACHED_TTS_TTL_SECONDS", str(10 * 365 * 24 * 60 * 60))
 )
+_VOICE_TIMELINE_LOG_DIR = Path(__file__).resolve().parents[3] / "stt_tts_latency_test"
+_BACKEND_VOICE_TIMELINE_LOG_PATH = _VOICE_TIMELINE_LOG_DIR / "backend_voice_timeline.jsonl"
 
 
 @dataclass
@@ -116,6 +118,7 @@ def mark_voice_timeline(timeline: dict[str, Any] | None, key: str) -> str | None
 def log_voice_timeline(label: str, timeline: dict[str, Any] | None) -> None:
     if not timeline:
         return
+    _append_backend_voice_timeline_log(label, timeline)
     logger.info(
         "[voice.timeline.%s] %s",
         label,
@@ -153,6 +156,25 @@ def _update_segment_timing(
     for key, value in fields.items():
         if value is not None:
             segment[key] = value
+
+
+def _append_backend_voice_timeline_log(
+    label: str,
+    timeline: dict[str, Any],
+) -> None:
+    try:
+        _VOICE_TIMELINE_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        record = {
+            "loggedAt": _utc_now_iso(),
+            "event": "backend_voice_timeline",
+            "timelineLabel": label,
+            **timeline,
+        }
+        with _BACKEND_VOICE_TIMELINE_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, default=str))
+            handle.write("\n")
+    except Exception:
+        logger.exception("[voice.timeline] failed to append backend timeline log")
 
 
 def _get_openai_client(feature: str = "stt") -> AsyncOpenAI:

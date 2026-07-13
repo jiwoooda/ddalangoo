@@ -157,10 +157,12 @@ class MainActivity : FlutterActivity() {
                     }
 
                     val locale = call.argument<String>("locale") ?: Locale.getDefault().toLanguageTag()
+                    val requestId = call.argument<String>("requestId")
                     try {
                         speechSession?.cancel()
                         speechSession = NativeSpeechRecognizerSession(
                             activity = this,
+                            requestId = requestId ?: "native_asr_${System.currentTimeMillis()}",
                             onEvent = { event -> emitSpeechEvent(event) },
                         )
                         val pendingSession = speechSession
@@ -231,6 +233,7 @@ class MainActivity : FlutterActivity() {
 
     private class NativeSpeechRecognizerSession(
         private val activity: FlutterActivity,
+        private val requestId: String,
         private val onEvent: (Map<String, Any>) -> Unit,
     ) : RecognitionListener {
         private val handler = Handler(Looper.getMainLooper())
@@ -253,7 +256,7 @@ class MainActivity : FlutterActivity() {
         fun stop() {
             stopRequested = true
             cancelPendingRestart()
-            onEvent(mapOf("type" to "state", "value" to "stop_requested"))
+            emitEvent(mapOf("type" to "state", "value" to "stop_requested"))
             speechRecognizer?.stopListening()
         }
 
@@ -265,22 +268,22 @@ class MainActivity : FlutterActivity() {
         }
 
         override fun onReadyForSpeech(params: Bundle?) {
-            onEvent(mapOf("type" to "state", "value" to "ready"))
+            emitEvent(mapOf("type" to "state", "value" to "ready"))
         }
 
         override fun onBeginningOfSpeech() {
-            onEvent(mapOf("type" to "state", "value" to "speech_begin"))
+            emitEvent(mapOf("type" to "state", "value" to "speech_begin"))
         }
 
         override fun onRmsChanged(rmsdB: Float) {
             val mappedDb = (rmsdB.toDouble() - 12.0).coerceIn(MIN_DB, 0.0)
-            onEvent(mapOf("type" to "rms", "currentDb" to mappedDb))
+            emitEvent(mapOf("type" to "rms", "currentDb" to mappedDb))
         }
 
         override fun onBufferReceived(buffer: ByteArray?) = Unit
 
         override fun onEndOfSpeech() {
-            onEvent(mapOf("type" to "state", "value" to "speech_end"))
+            emitEvent(mapOf("type" to "state", "value" to "speech_end"))
         }
 
         override fun onError(error: Int) {
@@ -309,7 +312,7 @@ class MainActivity : FlutterActivity() {
                     consecutiveRecoverableErrors < MAX_RECOVERABLE_ERRORS
 
             if (!stopRequested && hasPartialTranscript) {
-                onEvent(
+                emitEvent(
                     mapOf(
                         "type" to "result",
                         "text" to latestPartial,
@@ -320,7 +323,7 @@ class MainActivity : FlutterActivity() {
                 return
             }
 
-            onEvent(
+            emitEvent(
                 mapOf(
                     "type" to "error",
                     "code" to code,
@@ -342,7 +345,7 @@ class MainActivity : FlutterActivity() {
 
         override fun onResults(results: Bundle?) {
             val transcript = extractTopResult(results)?.trim().orEmpty()
-            onEvent(mapOf("type" to "result", "text" to transcript))
+            emitEvent(mapOf("type" to "result", "text" to transcript))
             destroyRecognizer()
         }
 
@@ -353,7 +356,7 @@ class MainActivity : FlutterActivity() {
             }
             latestPartial = transcript
             consecutiveRecoverableErrors = 0
-            onEvent(mapOf("type" to "partial", "text" to transcript))
+            emitEvent(mapOf("type" to "partial", "text" to transcript))
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -397,14 +400,14 @@ class MainActivity : FlutterActivity() {
                 )
             }
 
-            onEvent(mapOf("type" to "state", "value" to "start_requested"))
+            emitEvent(mapOf("type" to "state", "value" to "start_requested"))
             recognizer.startListening(intent)
         }
 
         private fun scheduleRestart() {
             cancelPendingRestart()
             destroyRecognizer()
-            onEvent(
+            emitEvent(
                 mapOf(
                     "type" to "state",
                     "value" to "restart_scheduled",
@@ -415,7 +418,7 @@ class MainActivity : FlutterActivity() {
                 if (stopRequested) {
                     return@Runnable
                 }
-                onEvent(
+                emitEvent(
                     mapOf(
                         "type" to "state",
                         "value" to "restart_requested",
@@ -429,6 +432,15 @@ class MainActivity : FlutterActivity() {
         private fun cancelPendingRestart() {
             pendingRestart?.let(handler::removeCallbacks)
             pendingRestart = null
+        }
+
+        private fun emitEvent(event: Map<String, Any>) {
+            onEvent(
+                event + mapOf(
+                    "requestId" to requestId,
+                    "emittedAtMs" to System.currentTimeMillis(),
+                ),
+            )
         }
 
         private fun destroyRecognizer() {
