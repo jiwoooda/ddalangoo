@@ -22,6 +22,13 @@ dependencies = [
     "deepeval>=1.5.0",
 ]
 
+[project.optional-dependencies]
+# 로컬 eval 대시보드 전용 (evals/dashboard.py) — LangSmith 없이
+# evals/local_runner.py 결과를 시각 비교하는 개발용 도구.
+dev = [
+    "streamlit>=1.38.0",
+]
+
 [project.scripts]
 ddalangoo = "main:main"
 
