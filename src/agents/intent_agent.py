@@ -17,7 +17,7 @@ from src.utils.agent_logger import agent_logger
 IntentType = Literal[
     "buy", "reorder", "confirm", "deny", "next", "refine",
     "compare_platforms", "quantity_change", "address_change",
-    "option_select", "ask", "cancel", "unclear",
+    "option_select", "ask", "cancel", "unclear", "smalltalk",
 ]
 
 ConditionType = Literal["최저가", "가성비", "빠른배송", "인기순", "무료배송", "리뷰좋은"]
@@ -138,7 +138,11 @@ def _get_llm():
     global _llm, _structured_llm
     if _llm is None:
         _llm = get_llm("intent", temperature=0)
-        _structured_llm = _llm.with_structured_output(IntentOutput, method="json_schema")
+        # method="json_schema"(엄격 모드)는 IntentOutput처럼 필드/Optional/enum이
+        # 많은 큰 스키마에서 "Schema is too complex" 에러로 API가 거부할 수 있어
+        # 기본값(function_calling)을 쓴다. 작은 스키마(SafetySignalUpdate 등)엔
+        # json_schema가 안전하니 거기선 그대로 유지.
+        _structured_llm = _llm.with_structured_output(IntentOutput)
     return _structured_llm
 
 
@@ -153,6 +157,21 @@ def _extract_user_input(state: ShoppingState) -> str:
             if role == "human":
                 return getattr(msg, "content", "")
     return ""
+
+
+def _is_cold_start_first_turn(state: ShoppingState) -> bool:
+    """
+    이 대화의 첫 턴(아직 assistant 응답 없음)이고, 이 유저가 구매이력이
+    한 건도 없는 신규유저인지 확인한다. 두 조건 다 맞을 때만 스몰토크
+    온보딩 인사로 우회한다 — 기존 유저가 새 대화를 시작한 경우는 제외.
+    """
+    if len(state.get("messages") or []) > 1:
+        return False
+    user_id = state.get("user_id", "")
+    if not user_id:
+        return False
+    from src.tools import db_client
+    return not db_client.get_purchase_histories(user_id)
 
 
 def _is_ambiguous_reorder(user_input: str, keywords: list[str]) -> bool:
@@ -268,6 +287,14 @@ def intent_agent_node(state: ShoppingState) -> dict:
         needs_clarification = True
         clarification_reason = "어떤 상품을 다시 주문할지 알려주세요."
         immediate_response = "어떤 상품을 다시 주문할까요?"
+
+    # 신규유저(구매이력 0건) 첫 턴 → 쇼핑 라우팅 대신 스몰토크 온보딩 인사로 우회.
+    # keywords 등은 그대로 보존해서, 다음 턴에 이어갈 수 있게 한다.
+    if _is_cold_start_first_turn(state):
+        intent = "smalltalk"
+        needs_clarification = False
+        clarification_reason = None
+        confidence = max(confidence, 0.9)
 
     # recipe 필드는 buy intent일 때만 갱신, 그 외엔 state 값 유지
     recipe_dish = parsed.recipe_dish if intent == "buy" else (parsed.recipe_dish or state.get("recipe_dish"))

@@ -9,6 +9,7 @@ RouteName = Literal[
     "response_agent",
     "payment_agent",
     "recipe_agent",
+    "smalltalk_agent",
     "ask_what_to_buy",
     "respond",
     "cancel",
@@ -141,6 +142,7 @@ def route(state: ShoppingState) -> RouteName:
         "option_select": "respond",
         "quantity_change": "respond",
         "address_change": "respond",
+        "smalltalk": "smalltalk_agent",
     }
     return _decide(routing_map.get(intent, "respond"))
 

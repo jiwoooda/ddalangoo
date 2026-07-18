@@ -31,6 +31,7 @@ Intent = Literal[
     "ask",
     "cancel",
     "unclear",
+    "smalltalk",
 ]
 
 Condition = Literal[
