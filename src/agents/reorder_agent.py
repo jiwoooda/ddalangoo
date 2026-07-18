@@ -7,6 +7,16 @@ Reorder Agent Node.
   3. product_confirming 또는 product_agent(no_match)로 직접 반환
 
 기존 memory_agent(reorder 분기) + reorder_node 통합.
+
+[미구현 — 설계 vs 현재 구현 괴리]
+원래 설계는 (1) product_name/keyword/category/brand/option_text 가중치
+매칭 + 최근성 + 만족도로 점수를 매기는 `_score_history`, (2) 상위 두 후보
+점수가 근접할 때만 LLM으로 재랭킹하는 `_rerank_with_llm`(confidence 임계값
+0.75) 두 단계였다. 지금은 둘 다 구현 안 돼 있고:
+  - 모든 후보의 score를 0.8로 하드코딩 (`_resolve_reorder_candidates` 참고)
+  - 후보가 2개 이상이면 무조건 사용자에게 되물음 (LLM 재랭킹 없음)
+당장 동작에는 문제없지만(사용자가 직접 고르므로), 재구매 정확도를 높이려면
+이 설계대로 구현하는 작업이 남아있다.
 """
 from typing import Any
 from src.state.schema import ShoppingState
@@ -70,6 +80,8 @@ def _resolve_reorder_candidates(
             "price_at_purchase": item.get("price_at_purchase", 0),
             "platform": item.get("platform"),
             "purchased_at": item.get("purchased_at"),
+            # 하드코딩 — 설계했던 _score_history(가중치 매칭+최근성+만족도)
+            # 미구현 상태라 전부 동일 점수. 모듈 docstring의 "미구현" 참고.
             "score": 0.8,
         })
 
@@ -86,6 +98,9 @@ def _resolve_reorder_candidates(
             seen_names.add(name)
             distinct.append(c)
 
+    # 설계했던 _rerank_with_llm(상위 두 후보 점수가 근접할 때만 LLM으로
+    # 재랭킹, confidence 0.75 임계값)이 미구현이라, 후보가 2개 이상이면
+    # 점수 차이와 무관하게 항상 사용자에게 되묻는다.
     if len(distinct) >= 2:
         names = ", ".join(
             f"{i+1}. {c.get('product_name', '상품')}"

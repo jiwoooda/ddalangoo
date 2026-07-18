@@ -292,7 +292,10 @@ def _rank_with_metadata(
     soft_preferences = (preference_context.get("soft_preferences") or [])[:_MAX_SOFT_PREFERENCES]
     try:
         scoring = _run_scoring_llm(tagged, keywords, condition, soft_preferences)
-        if not scoring.preference_item_scores:
+        # soft_preferences 자체가 없으면 preference_item_scores가 비는 게 정상
+        # (채점할 항목이 없음, aggregate()도 빈 items를 중립점수로 안전하게
+        # 처리한다) — soft_preferences가 있는데도 LLM이 안 채운 경우만 실패로 본다.
+        if soft_preferences and not scoring.preference_item_scores:
             raise ValueError("empty_preference_item_scores")
 
         fixed_normalized = normalize_fixed_axes(tagged)
@@ -328,7 +331,9 @@ def _rank_with_metadata(
             "conflict_note": scoring.conflict_note,
         }
     except Exception as e:
-        agent_logger.log(f"[product_agent] Stage4 스코어링 실패: {e}")
+        agent_logger.log_scoring_fallback(
+            {"candidates": len(candidates), "keywords": keywords, "condition": condition}, str(e),
+        )
         return {
             "ranked_products": candidates,
             "tool_call_success": False,

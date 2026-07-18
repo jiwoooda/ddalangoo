@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Callable, Literal
 from src.state.schema import ShoppingState
 from src.utils.agent_logger import agent_logger, _ptype
 
@@ -16,6 +16,123 @@ RouteName = Literal[
     "end",
 ]
 
+Decide = Callable[[RouteName], RouteName]
+
+# stage별 서브라우터 시그니처를 통일한다 — 일부 함수는 state/pending_type을
+# 안 쓰기도 하지만, 통일된 시그니처라야 _STAGE_ROUTERS를 dict dispatch로
+# 단순하게 유지할 수 있다. 각 함수는 자기 stage 로직만 알면 되고, 다른
+# stage 블록과 변수를 공유하지 않는다 (route() 하나에 다 있을 때보다
+# 블록 간 결합이 낮다).
+
+
+def _route_cart_shopping(state: ShoppingState, intent: str | None, pending_type: str, decide: Decide) -> RouteName:
+    if intent in ("buy", "reorder", "refine", "compare_platforms"):
+        if intent == "reorder":
+            return decide("reorder_agent")
+        return decide("product_agent")
+    if pending_type == "what_to_buy":
+        if intent == "reorder":
+            return decide("reorder_agent")
+        if intent in ("buy", "refine", "compare_platforms"):
+            return decide("product_agent")
+        if intent == "confirm":
+            return decide("payment_agent")
+        return decide("respond")
+    if pending_type == "cart_review":
+        if intent in ("confirm", "quantity_change"):
+            return decide("payment_agent")
+        if intent in ("deny", "cancel"):
+            return decide("cancel")
+        return decide("respond")
+    if intent == "confirm":
+        return decide("payment_agent")
+    if intent in ("deny", "next"):
+        return decide("ask_what_to_buy")
+    return decide("respond")
+
+
+def _route_product_confirming(state: ShoppingState, intent: str | None, pending_type: str, decide: Decide) -> RouteName:
+    pa_type = (state.get("pending_action") or {}).get("type")
+
+    if pa_type == "quantity_confirm":
+        if state.get("quantity"):
+            return decide("payment_agent")
+        return decide("respond")
+
+    if pa_type == "product_select":
+        if intent in ("confirm", "option_select"):
+            return decide("reorder_agent")
+        return decide("respond")
+
+    if pa_type == "price_change_confirm":
+        if intent in ("confirm", "deny", "cancel", "next"):
+            return decide("payment_agent")
+        return decide("respond")
+
+    if intent == "confirm":
+        if not state.get("quantity"):
+            return decide("respond")
+        return decide("payment_agent")
+
+    # LLM이 수량 변경을 quantity_change로 분류했지만 실제로는 구매 확정 수량 입력
+    if intent == "quantity_change" and state.get("quantity"):
+        return decide("payment_agent")
+
+    if intent in ("buy", "reorder"):
+        if intent == "reorder":
+            return decide("reorder_agent")
+        return decide("product_agent")
+
+    if intent in ("deny", "next"):
+        return decide("product_agent")
+
+    if intent == "ask":
+        return decide("response_agent")
+
+    if intent in ("refine", "compare_platforms"):
+        return decide("product_agent")
+
+    return decide("respond")
+
+
+def _route_searching(state: ShoppingState, intent: str | None, pending_type: str, decide: Decide) -> RouteName:
+    if intent in ("refine", "compare_platforms"):
+        return decide("product_agent")
+    if intent == "ask":
+        return decide("response_agent")
+    return decide("respond")
+
+
+def _route_recipe_planning(state: ShoppingState, intent: str | None, pending_type: str, decide: Decide) -> RouteName:
+    if pending_type == "ingredient_confirm":
+        if intent in ("confirm", "deny", "refine"):
+            return decide("recipe_agent")
+    return decide("respond")
+
+
+_STAGE_ROUTERS: dict[str, Callable[[ShoppingState, str | None, str, Decide], RouteName]] = {
+    "cart_shopping": _route_cart_shopping,
+    "product_confirming": _route_product_confirming,
+    "searching": _route_searching,
+    "recipe_planning": _route_recipe_planning,
+}
+
+# idle 등 stage별 서브라우터가 없을 때의 기본 매핑
+_DEFAULT_ROUTING_MAP: dict[str, RouteName] = {
+    "buy": "context_agent",
+    "reorder": "reorder_agent",
+    "compare_platforms": "product_agent",
+    "refine": "product_agent",
+    "ask": "response_agent",
+    "next": "product_agent",
+    "confirm": "respond",
+    "deny": "respond",
+    "option_select": "respond",
+    "quantity_change": "respond",
+    "address_change": "respond",
+    "smalltalk": "smalltalk_agent",
+}
+
 
 def route(state: ShoppingState) -> RouteName:
     """
@@ -23,8 +140,8 @@ def route(state: ShoppingState) -> RouteName:
     1. clarification 우선
     2. cancel 우선
     3. payment_processing이면 Payment로 위임
-    4. product_confirming에서 intent별 분기
-    5. idle/searching에서 intent 기반 분기
+    4. stage별 서브라우터(_STAGE_ROUTERS)로 위임
+    5. 해당 없으면 idle 기본 매핑(_DEFAULT_ROUTING_MAP)
     """
     intent = state.get("intent")
     stage = state.get("stage", "idle")
@@ -45,106 +162,14 @@ def route(state: ShoppingState) -> RouteName:
     if stage == "payment_processing":
         return _decide("payment_agent")
 
-    if stage == "cart_shopping":
-        if intent in ("buy", "reorder", "refine", "compare_platforms"):
-            if intent == "reorder":
-                return _decide("reorder_agent")
-            return _decide("product_agent")
-        if pending_type == "what_to_buy":
-            if intent == "reorder":
-                return _decide("reorder_agent")
-            if intent in ("buy", "refine", "compare_platforms"):
-                return _decide("product_agent")
-            if intent == "confirm":
-                return _decide("payment_agent")
-            return _decide("respond")
-        if pending_type == "cart_review":
-            if intent in ("confirm", "quantity_change"):
-                return _decide("payment_agent")
-            if intent in ("deny", "cancel"):
-                return _decide("cancel")
-            return _decide("respond")
-        if intent == "confirm":
-            return _decide("payment_agent")
-        if intent in ("deny", "next"):
-            return _decide("ask_what_to_buy")
-        return _decide("respond")
-
-    if stage == "product_confirming":
-        pa_type = (state.get("pending_action") or {}).get("type")
-
-        if pa_type == "quantity_confirm":
-            if state.get("quantity"):
-                return _decide("payment_agent")
-            return _decide("respond")
-
-        if pa_type == "product_select":
-            if intent in ("confirm", "option_select"):
-                return _decide("reorder_agent")
-            return _decide("respond")
-
-        if pa_type == "price_change_confirm":
-            if intent in ("confirm", "deny", "cancel", "next"):
-                return _decide("payment_agent")
-            return _decide("respond")
-
-        if intent == "confirm":
-            if not state.get("quantity"):
-                return _decide("respond")
-            return _decide("payment_agent")
-
-        # LLM이 수량 변경을 quantity_change로 분류했지만 실제로는 구매 확정 수량 입력
-        if intent == "quantity_change" and state.get("quantity"):
-            return _decide("payment_agent")
-
-        if intent in ("buy", "reorder"):
-            if intent == "reorder":
-                return _decide("reorder_agent")
-            return _decide("product_agent")
-
-        if intent in ("deny", "next"):
-            return _decide("product_agent")
-
-        if intent == "ask":
-            return _decide("response_agent")
-
-        if intent in ("refine", "compare_platforms"):
-            return _decide("product_agent")
-
-        return _decide("respond")
-
-    if stage == "searching":
-        if intent in ("refine", "compare_platforms"):
-            return _decide("product_agent")
-        if intent == "ask":
-            return _decide("response_agent")
-        return _decide("respond")
-
-    if stage == "recipe_planning":
-        if pending_type == "ingredient_confirm":
-            if intent in ("confirm", "deny", "refine"):
-                return _decide("recipe_agent")
-        return _decide("respond")
+    if stage_router := _STAGE_ROUTERS.get(stage):
+        return stage_router(state, intent, pending_type, _decide)
 
     # buy + recipe_dish (아직 recipe_items 없음) → recipe_agent
     if intent == "buy" and state.get("recipe_dish") and not state.get("recipe_items"):
         return _decide("recipe_agent")
 
-    routing_map: dict[str, RouteName] = {
-        "buy": "context_agent",
-        "reorder": "reorder_agent",
-        "compare_platforms": "product_agent",
-        "refine": "product_agent",
-        "ask": "response_agent",
-        "next": "product_agent",
-        "confirm": "respond",
-        "deny": "respond",
-        "option_select": "respond",
-        "quantity_change": "respond",
-        "address_change": "respond",
-        "smalltalk": "smalltalk_agent",
-    }
-    return _decide(routing_map.get(intent, "respond"))
+    return _decide(_DEFAULT_ROUTING_MAP.get(intent, "respond"))
 
 
 def after_product_agent(state: ShoppingState) -> Literal["response_agent", "respond"]:

@@ -97,7 +97,7 @@ _LOOSE_REQUIRED = {"intent", "keywords", "needs_clarification", "confidence"}
 _VALID_INTENTS = {
     "buy", "reorder", "confirm", "deny", "next", "refine",
     "compare_platforms", "quantity_change", "address_change",
-    "option_select", "ask", "cancel", "unclear",
+    "option_select", "ask", "cancel", "unclear", "smalltalk",
 }
 
 

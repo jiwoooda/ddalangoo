@@ -147,6 +147,27 @@ class AgentLogger:
             "ranked_top_score": outputs.get("ranked_top_score"),
         })
 
+    def log_scoring_fallback(self, inputs: dict, error: str) -> None:
+        """
+        Stage4 스코어링 실패 → 원본 순서로 폴백한 경우 전용 로그.
+        기존엔 log()로 텍스트만 남겨서 "폴백이 몇 번 발생했는지"를 집계하려면
+        문자열 매칭에 의존해야 했다 — event="scoring_agent_fallback"로 구조화
+        해서 scripts/check_fallback_rate.py가 안정적으로 집계할 수 있게 한다.
+        """
+        if not self._enabled:
+            return
+        lines = [
+            "[scoring_agent] 폴백 (원본 순서 유지)",
+            f"  입력  | 후보 {inputs.get('candidates')}개  keywords={inputs.get('keywords')}",
+            f"  에러  | {error}",
+        ]
+        self._append_txt("\n".join(lines) + "\n")
+        self._log_jsonl({
+            "event": "scoring_agent_fallback", "turn": self._turn,
+            "candidates": inputs.get("candidates"), "keywords": inputs.get("keywords"),
+            "condition": inputs.get("condition"), "error": error,
+        })
+
     def log_payment_agent(self, inputs: dict, outputs: dict) -> None:
         if not self._enabled:
             return
@@ -318,8 +339,10 @@ class AgentLogger:
 
     def _log_jsonl(self, data: dict) -> None:
         if self._jsonl_path:
+            # 이벤트마다 타임스탬프를 찍어둬야 turn_start~respond 사이 소요시간을
+            # 나중에 scripts/check_turn_latency.py가 역산할 수 있다.
             with self._jsonl_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(data, ensure_ascii=False) + "\n")
+                f.write(json.dumps({"ts": datetime.now().isoformat(), **data}, ensure_ascii=False) + "\n")
 
     @property
     def enabled(self) -> bool:

@@ -9,7 +9,7 @@ Recipe Agent Node.
 """
 from typing import Optional
 from pydantic import BaseModel, Field
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage
 
 from configs.llm_config import get_llm
 from src.state.schema import ShoppingState
@@ -54,7 +54,9 @@ def _extract_user_input(state: ShoppingState) -> str:
 def _generate_items(dish: str, people: int) -> list[dict]:
     prompt = RECIPE_GENERATE_PROMPT.format(dish=dish, people=people)
     try:
-        result: RecipeOutput = _get_llm().invoke([SystemMessage(content=prompt)])
+        # Claude API는 system 메시지만 있고 user 메시지가 없으면 거부한다
+        # ("messages: at least one message is required") — HumanMessage로 보낸다.
+        result: RecipeOutput = _get_llm().invoke([HumanMessage(content=prompt)])
         return [item.model_dump() for item in result.items]
     except Exception as e:
         agent_logger.log(f"[recipe_agent] 재료 생성 오류: {e}")

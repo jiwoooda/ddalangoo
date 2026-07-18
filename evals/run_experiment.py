@@ -159,7 +159,10 @@ def run_intent_experiment(backend: str, model: str | None) -> None:
         with tracing_context(enabled=False):
             _init_usage()
             started = time.perf_counter()
-            state = get_default_shopping_state("user_eval", "eval-session")
+            # "user_eval"(구매이력 0건)이면 intent_agent의 신규유저 첫턴 감지가
+            # 매 케이스마다 intent를 smalltalk로 덮어써버린다 — 순수 분류
+            # 정확도 테스트이므로 구매이력 있는 user_001을 쓴다.
+            state = get_default_shopping_state("user_001", "eval-session")
             state["messages"] = [{"role": "user", "content": inputs["user_input"]}]
             state["stage"] = inputs.get("stage", "idle")
             if pending := inputs.get("pending_action"):

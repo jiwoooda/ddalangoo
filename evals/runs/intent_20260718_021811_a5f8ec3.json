@@ -1,0 +1,3515 @@
+{
+  "agent": "intent",
+  "timestamp": "2026-07-18T02:18:11.582013+00:00",
+  "git_commit": "a5f8ec3",
+  "backend": "api",
+  "model": "default",
+  "case_count": 40,
+  "aggregate": {
+    "cost_usd": {
+      "mean": 0.0041,
+      "n": 40
+    },
+    "input_tokens": {
+      "mean": 4414.65,
+      "n": 40
+    },
+    "intent_accuracy": {
+      "mean": 0.0,
+      "n": 40
+    },
+    "keyword_overlap": {
+      "mean": 0.875,
+      "n": 12
+    },
+    "latency_ms": {
+      "mean": 2078.0166,
+      "n": 40
+    },
+    "needs_clarification_accuracy": {
+      "mean": 0.775,
+      "n": 40
+    },
+    "output_tokens": {
+      "mean": 136.525,
+      "n": 40
+    },
+    "schema_compliance": {
+      "mean": 1.0,
+      "n": 40
+    },
+    "schema_loose": {
+      "mean": 0.0,
+      "n": 40
+    },
+    "ttft_ms": {
+      "mean": 2078.0166,
+      "n": 40
+    }
+  },
+  "cases": [
+    {
+      "case_id": "사과 두 개 사줘",
+      "input": {
+        "user_input": "사과 두 개 사줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "사과"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 2,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "사과 2개를 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 7631.452700006776,
+        "ttft_ms": 7631.452700006776,
+        "input_tokens": 4412,
+        "output_tokens": 124,
+        "cost_usd": 0.004025600000000001
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['사과'], expected=['사과']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 7631.452700006776,
+          "comment": "7631.5ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 7631.452700006776,
+          "comment": "7631.5ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4412.0,
+          "comment": "4412 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 124.0,
+          "comment": "124 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004025600000000001,
+          "comment": "$0.004026"
+        }
+      }
+    },
+    {
+      "case_id": "유기농 두부 사고 싶어",
+      "input": {
+        "user_input": "유기농 두부 사고 싶어",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "유기농 두부"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "유기농 두부를 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1218.4145000064746,
+        "ttft_ms": 1218.4145000064746,
+        "input_tokens": 4415,
+        "output_tokens": 112,
+        "cost_usd": 0.00398
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['유기농 두부'], expected=['유기농 두부']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1218.4145000064746,
+          "comment": "1218.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1218.4145000064746,
+          "comment": "1218.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4415.0,
+          "comment": "4415 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 112.0,
+          "comment": "112 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.00398,
+          "comment": "$0.003980"
+        }
+      }
+    },
+    {
+      "case_id": "쿠팡에서 라면 주문해줘",
+      "input": {
+        "user_input": "쿠팡에서 라면 주문해줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "라면"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": "쿠팡",
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "쿠팡에서 라면을 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1338.9436999859754,
+        "ttft_ms": 1338.9436999859754,
+        "input_tokens": 4418,
+        "output_tokens": 135,
+        "cost_usd": 0.0040744
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['라면'], expected=['라면']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1338.9436999859754,
+          "comment": "1338.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1338.9436999859754,
+          "comment": "1338.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4418.0,
+          "comment": "4418 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 135.0,
+          "comment": "135 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0040744,
+          "comment": "$0.004074"
+        }
+      }
+    },
+    {
+      "case_id": "제일 싼 걸로 우유 사줘",
+      "input": {
+        "user_input": "제일 싼 걸로 우유 사줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "우유"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": "최저가",
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "최저가 우유를 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1748.4340000082739,
+        "ttft_ms": 1748.4340000082739,
+        "input_tokens": 4418,
+        "output_tokens": 127,
+        "cost_usd": 0.0040424
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['우유'], expected=['우유']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1748.4340000082739,
+          "comment": "1748.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1748.4340000082739,
+          "comment": "1748.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4418.0,
+          "comment": "4418 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 127.0,
+          "comment": "127 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0040424,
+          "comment": "$0.004042"
+        }
+      }
+    },
+    {
+      "case_id": "빨리 오는 걸로 계란 사줘",
+      "input": {
+        "user_input": "빨리 오는 걸로 계란 사줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "계란"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": "빠른배송",
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "빠른 배송으로 계란을 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1334.579999995185,
+        "ttft_ms": 1334.579999995185,
+        "input_tokens": 4419,
+        "output_tokens": 134,
+        "cost_usd": 0.0040712000000000005
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['계란'], expected=['계란']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1334.579999995185,
+          "comment": "1334.6ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1334.579999995185,
+          "comment": "1334.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4419.0,
+          "comment": "4419 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 134.0,
+          "comment": "134 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0040712000000000005,
+          "comment": "$0.004071"
+        }
+      }
+    },
+    {
+      "case_id": "저번에 산 두부 또 줘",
+      "input": {
+        "user_input": "저번에 산 두부 또 줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "두부"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "저번에 구매하신 두부를 다시 주문하시려는 것 같습니다. 정확한 상품을 확인해주시겠어요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 2491.2963999959175,
+        "ttft_ms": 2491.2963999959175,
+        "input_tokens": 4415,
+        "output_tokens": 226,
+        "cost_usd": 0.004436
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='reorder'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['두부'], expected=['두부']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2491.2963999959175,
+          "comment": "2491.3ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2491.2963999959175,
+          "comment": "2491.3ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4415.0,
+          "comment": "4415 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 226.0,
+          "comment": "226 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004436,
+          "comment": "$0.004436"
+        }
+      }
+    },
+    {
+      "case_id": "그거 다시 시켜줘",
+      "input": {
+        "user_input": "그거 다시 시켜줘",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "다시",
+          "시켜줘"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "지난번에 주문하신 상품을 다시 주문하시려는 것 같은데, 정확한 상품명을 말씀해주시겠어요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 2956.3253999804147,
+        "ttft_ms": 2956.3253999804147,
+        "input_tokens": 4418,
+        "output_tokens": 195,
+        "cost_usd": 0.0043143999999999995
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='reorder'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2956.3253999804147,
+          "comment": "2956.3ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2956.3253999804147,
+          "comment": "2956.3ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4418.0,
+          "comment": "4418 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 195.0,
+          "comment": "195 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0043143999999999995,
+          "comment": "$0.004314"
+        }
+      }
+    },
+    {
+      "case_id": "지난번에 주문한 거 똑같이",
+      "input": {
+        "user_input": "지난번에 주문한 거 똑같이",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "지난번에",
+          "주문한",
+          "똑같이"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "지난번에 주문하신 상품을 다시 주문해드리겠습니다. 어떤 상품이었는지 말씀해주시겠어요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 2176.925300009316,
+        "ttft_ms": 2176.925300009316,
+        "input_tokens": 4417,
+        "output_tokens": 215,
+        "cost_usd": 0.0043936
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='reorder'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2176.925300009316,
+          "comment": "2176.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2176.925300009316,
+          "comment": "2176.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4417.0,
+          "comment": "4417 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 215.0,
+          "comment": "215 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0043936,
+          "comment": "$0.004394"
+        }
+      }
+    },
+    {
+      "case_id": "딸기 또 주문해줘",
+      "input": {
+        "user_input": "딸기 또 주문해줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "딸기"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "딸기를 다시 주문하시는 거네요. 확인하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1595.515199995134,
+        "ttft_ms": 1595.515199995134,
+        "input_tokens": 4413,
+        "output_tokens": 119,
+        "cost_usd": 0.0040064
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='reorder'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['딸기'], expected=['딸기']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1595.515199995134,
+          "comment": "1595.5ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1595.515199995134,
+          "comment": "1595.5ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4413.0,
+          "comment": "4413 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 119.0,
+          "comment": "119 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0040064,
+          "comment": "$0.004006"
+        }
+      }
+    },
+    {
+      "case_id": "저번에 샀던 세제 재주문",
+      "input": {
+        "user_input": "저번에 샀던 세제 재주문",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "저번에",
+          "샀던",
+          "세제"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "저번에 구매하신 세제를 다시 주문하려고 하시는군요. 어떤 세제인지 구체적으로 말씀해주시겠어요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1900.2055000164546,
+        "ttft_ms": 1900.2055000164546,
+        "input_tokens": 4416,
+        "output_tokens": 203,
+        "cost_usd": 0.0043448
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='reorder'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 0.5,
+          "comment": "predicted=['샀던', '세제', '저번에'], expected=['세제']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1900.2055000164546,
+          "comment": "1900.2ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1900.2055000164546,
+          "comment": "1900.2ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4416.0,
+          "comment": "4416 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 203.0,
+          "comment": "203 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0043448,
+          "comment": "$0.004345"
+        }
+      }
+    },
+    {
+      "case_id": "응",
+      "input": {
+        "user_input": "응",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "네, 주문을 진행하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1025.133699993603,
+        "ttft_ms": 1025.133699993603,
+        "input_tokens": 4408,
+        "output_tokens": 85,
+        "cost_usd": 0.0038664000000000003
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='confirm'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1025.133699993603,
+          "comment": "1025.1ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1025.133699993603,
+          "comment": "1025.1ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4408.0,
+          "comment": "4408 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 85.0,
+          "comment": "85 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0038664000000000003,
+          "comment": "$0.003866"
+        }
+      }
+    },
+    {
+      "case_id": "아니 다른 거",
+      "input": {
+        "user_input": "아니 다른 거",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "다른 상품을 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1238.906600017799,
+        "ttft_ms": 1238.906600017799,
+        "input_tokens": 4414,
+        "output_tokens": 87,
+        "cost_usd": 0.0038792
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='next'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1238.906600017799,
+          "comment": "1238.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1238.906600017799,
+          "comment": "1238.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4414.0,
+          "comment": "4414 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 87.0,
+          "comment": "87 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0038792,
+          "comment": "$0.003879"
+        }
+      }
+    },
+    {
+      "case_id": "싫어",
+      "input": {
+        "user_input": "싫어",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "알겠습니다. 다른 상품을 찾아드릴까요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1230.367699987255,
+        "ttft_ms": 1230.367699987255,
+        "input_tokens": 4410,
+        "output_tokens": 94,
+        "cost_usd": 0.003904
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='deny'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1230.367699987255,
+          "comment": "1230.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1230.367699987255,
+          "comment": "1230.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4410.0,
+          "comment": "4410 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 94.0,
+          "comment": "94 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.003904,
+          "comment": "$0.003904"
+        }
+      }
+    },
+    {
+      "case_id": "세 개",
+      "input": {
+        "user_input": "세 개",
+        "stage": "product_confirming",
+        "pending_action": "quantity_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 3,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "3개로 주문하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1225.8103000058327,
+        "ttft_ms": 1225.8103000058327,
+        "input_tokens": 4410,
+        "output_tokens": 99,
+        "cost_usd": 0.003924
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='confirm'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1225.8103000058327,
+          "comment": "1225.8ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1225.8103000058327,
+          "comment": "1225.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4410.0,
+          "comment": "4410 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 99.0,
+          "comment": "99 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.003924,
+          "comment": "$0.003924"
+        }
+      }
+    },
+    {
+      "case_id": "열 개 주세요",
+      "input": {
+        "user_input": "열 개 주세요",
+        "stage": "product_confirming",
+        "pending_action": "quantity_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 3,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "10개로 확인했습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1979.9018000194337,
+        "ttft_ms": 1979.9018000194337,
+        "input_tokens": 4414,
+        "output_tokens": 97,
+        "cost_usd": 0.0039192
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='confirm'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1979.9018000194337,
+          "comment": "1979.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1979.9018000194337,
+          "comment": "1979.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4414.0,
+          "comment": "4414 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 97.0,
+          "comment": "97 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0039192,
+          "comment": "$0.003919"
+        }
+      }
+    },
+    {
+      "case_id": "1234",
+      "input": {
+        "user_input": "1234",
+        "stage": "payment_processing",
+        "pending_action": "payment_password"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "비밀번호를 확인했습니다. 결제를 진행하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1119.708600017475,
+        "ttft_ms": 1119.708600017475,
+        "input_tokens": 4408,
+        "output_tokens": 97,
+        "cost_usd": 0.0039144
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='confirm'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1119.708600017475,
+          "comment": "1119.7ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1119.708600017475,
+          "comment": "1119.7ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4408.0,
+          "comment": "4408 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 97.0,
+          "comment": "97 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0039144,
+          "comment": "$0.003914"
+        }
+      }
+    },
+    {
+      "case_id": "좋아 결제해줘",
+      "input": {
+        "user_input": "좋아 결제해줘",
+        "stage": "payment_processing",
+        "pending_action": "payment_method_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "결제를 진행하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1178.428699990036,
+        "ttft_ms": 1178.428699990036,
+        "input_tokens": 4417,
+        "output_tokens": 82,
+        "cost_usd": 0.0038616
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='confirm'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1178.428699990036,
+          "comment": "1178.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1178.428699990036,
+          "comment": "1178.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4417.0,
+          "comment": "4417 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 82.0,
+          "comment": "82 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0038616,
+          "comment": "$0.003862"
+        }
+      }
+    },
+    {
+      "case_id": "다음 거 보여줘",
+      "input": {
+        "user_input": "다음 거 보여줘",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "다른 상품을 보여드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1283.592799998587,
+        "ttft_ms": 1283.592799998587,
+        "input_tokens": 4416,
+        "output_tokens": 86,
+        "cost_usd": 0.0038768
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='next'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1283.592799998587,
+          "comment": "1283.6ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1283.592799998587,
+          "comment": "1283.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4416.0,
+          "comment": "4416 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 86.0,
+          "comment": "86 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0038768,
+          "comment": "$0.003877"
+        }
+      }
+    },
+    {
+      "case_id": "더 싼 걸로 바꿔줘",
+      "input": {
+        "user_input": "더 싼 걸로 바꿔줘",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "걸로",
+          "바꿔줘"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": "최저가",
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.92,
+        "immediate_response": "더 저렴한 상품으로 다시 검색해드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1581.3130000024103,
+        "ttft_ms": 1581.3130000024103,
+        "input_tokens": 4422,
+        "output_tokens": 115,
+        "cost_usd": 0.0039976000000000005
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='refine'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1581.3130000024103,
+          "comment": "1581.3ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1581.3130000024103,
+          "comment": "1581.3ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4422.0,
+          "comment": "4422 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 115.0,
+          "comment": "115 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0039976000000000005,
+          "comment": "$0.003998"
+        }
+      }
+    },
+    {
+      "case_id": "리뷰 좋은 걸로 바꿔줘",
+      "input": {
+        "user_input": "리뷰 좋은 걸로 바꿔줘",
+        "stage": "searching",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "리뷰",
+          "좋은",
+          "걸로"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": "리뷰좋은",
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.92,
+        "immediate_response": "리뷰 좋은 상품으로 검색 조건을 변경하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1725.6792999978643,
+        "ttft_ms": 1725.6792999978643,
+        "input_tokens": 4421,
+        "output_tokens": 123,
+        "cost_usd": 0.0040288
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='refine'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1725.6792999978643,
+          "comment": "1725.7ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1725.6792999978643,
+          "comment": "1725.7ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4421.0,
+          "comment": "4421 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 123.0,
+          "comment": "123 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0040288,
+          "comment": "$0.004029"
+        }
+      }
+    },
+    {
+      "case_id": "취소할게",
+      "input": {
+        "user_input": "취소할게",
+        "stage": "payment_processing",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "결제를 취소하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1064.0647000109311,
+        "ttft_ms": 1064.0647000109311,
+        "input_tokens": 4408,
+        "output_tokens": 82,
+        "cost_usd": 0.0038544
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='cancel'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1064.0647000109311,
+          "comment": "1064.1ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1064.0647000109311,
+          "comment": "1064.1ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4408.0,
+          "comment": "4408 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 82.0,
+          "comment": "82 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0038544,
+          "comment": "$0.003854"
+        }
+      }
+    },
+    {
+      "case_id": "이거 몇 그람이에요?",
+      "input": {
+        "user_input": "이거 몇 그람이에요?",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "추천 상품의 용량을 확인해드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1250.4581999965012,
+        "ttft_ms": 1250.4581999965012,
+        "input_tokens": 4419,
+        "output_tokens": 91,
+        "cost_usd": 0.0038992000000000002
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='ask'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1250.4581999965012,
+          "comment": "1250.5ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1250.4581999965012,
+          "comment": "1250.5ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4419.0,
+          "comment": "4419 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 91.0,
+          "comment": "91 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0038992000000000002,
+          "comment": "$0.003899"
+        }
+      }
+    },
+    {
+      "case_id": "그거 주문해줘",
+      "input": {
+        "user_input": "그거 주문해줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "어떤 상품을 주문해드릴까요? 상품명을 말씀해주세요.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1748.5390999936499,
+        "ttft_ms": 1748.5390999936499,
+        "input_tokens": 4410,
+        "output_tokens": 189,
+        "cost_usd": 0.004284
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='unclear'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1748.5390999936499,
+          "comment": "1748.5ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1748.5390999936499,
+          "comment": "1748.5ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4410.0,
+          "comment": "4410 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 189.0,
+          "comment": "189 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004284,
+          "comment": "$0.004284"
+        }
+      }
+    },
+    {
+      "case_id": "빨리",
+      "input": {
+        "user_input": "빨리",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "무엇을 빨리 도와드릴까요? 상품을 찾으시거나 주문하고 싶으신 건가요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 2857.206300017424,
+        "ttft_ms": 2857.206300017424,
+        "input_tokens": 4405,
+        "output_tokens": 283,
+        "cost_usd": 0.004656
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='unclear'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2857.206300017424,
+          "comment": "2857.2ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2857.206300017424,
+          "comment": "2857.2ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4405.0,
+          "comment": "4405 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 283.0,
+          "comment": "283 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004656,
+          "comment": "$0.004656"
+        }
+      }
+    },
+    {
+      "case_id": "좋아",
+      "input": {
+        "user_input": "좋아",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "무엇을 도와드릴까요? 상품을 찾아드리거나 주문을 진행해드릴 수 있습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 5950.429899996379,
+        "ttft_ms": 5950.429899996379,
+        "input_tokens": 4405,
+        "output_tokens": 192,
+        "cost_usd": 0.004292
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='unclear'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5950.429899996379,
+          "comment": "5950.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5950.429899996379,
+          "comment": "5950.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4405.0,
+          "comment": "4405 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 192.0,
+          "comment": "192 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004292,
+          "comment": "$0.004292"
+        }
+      }
+    },
+    {
+      "case_id": "저번에 그거",
+      "input": {
+        "user_input": "저번에 그거",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "저번에"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "저번에 주문하신 상품을 다시 사고 싶으신 것 같은데, 어떤 상품인지 말씀해 주실 수 있을까요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1983.6325999931432,
+        "ttft_ms": 1983.6325999931432,
+        "input_tokens": 4408,
+        "output_tokens": 209,
+        "cost_usd": 0.0043624
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='reorder'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1983.6325999931432,
+          "comment": "1983.6ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1983.6325999931432,
+          "comment": "1983.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4408.0,
+          "comment": "4408 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 209.0,
+          "comment": "209 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0043624,
+          "comment": "$0.004362"
+        }
+      }
+    },
+    {
+      "case_id": "비싼 거 말고",
+      "input": {
+        "user_input": "비싼 거 말고",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [
+          "비싼 상품"
+        ],
+        "quantity": null,
+        "condition": "가성비",
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "어떤 상품을 찾으시나요? 상품명이나 카테고리를 말씀해주세요.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 2439.9204999790527,
+        "ttft_ms": 2439.9204999790527,
+        "input_tokens": 4410,
+        "output_tokens": 239,
+        "cost_usd": 0.004484
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='unclear'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2439.9204999790527,
+          "comment": "2439.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2439.9204999790527,
+          "comment": "2439.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4410.0,
+          "comment": "4410 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 239.0,
+          "comment": "239 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004484,
+          "comment": "$0.004484"
+        }
+      }
+    },
+    {
+      "case_id": "하나만 사줘",
+      "input": {
+        "user_input": "하나만 사줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "하나만"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "어떤 상품을 하나 사드릴까요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1669.5804999908432,
+        "ttft_ms": 1669.5804999908432,
+        "input_tokens": 4409,
+        "output_tokens": 168,
+        "cost_usd": 0.004199200000000001
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1669.5804999908432,
+          "comment": "1669.6ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1669.5804999908432,
+          "comment": "1669.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4409.0,
+          "comment": "4409 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 168.0,
+          "comment": "168 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004199200000000001,
+          "comment": "$0.004199"
+        }
+      }
+    },
+    {
+      "case_id": "두 개",
+      "input": {
+        "user_input": "두 개",
+        "stage": "product_confirming",
+        "pending_action": "quantity_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 2,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "2개로 주문하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1088.883199961856,
+        "ttft_ms": 1088.883199961856,
+        "input_tokens": 4410,
+        "output_tokens": 99,
+        "cost_usd": 0.003924
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='confirm'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1088.883199961856,
+          "comment": "1088.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1088.883199961856,
+          "comment": "1088.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4410.0,
+          "comment": "4410 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 99.0,
+          "comment": "99 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.003924,
+          "comment": "$0.003924"
+        }
+      }
+    },
+    {
+      "case_id": "스무 개 주세요",
+      "input": {
+        "user_input": "스무 개 주세요",
+        "stage": "product_confirming",
+        "pending_action": "quantity_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 20,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "스무 개, 확인했습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1857.1835999609903,
+        "ttft_ms": 1857.1835999609903,
+        "input_tokens": 4415,
+        "output_tokens": 99,
+        "cost_usd": 0.003928
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='confirm'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1857.1835999609903,
+          "comment": "1857.2ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1857.1835999609903,
+          "comment": "1857.2ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4415.0,
+          "comment": "4415 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 99.0,
+          "comment": "99 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.003928,
+          "comment": "$0.003928"
+        }
+      }
+    },
+    {
+      "case_id": "풀무원 말고 CJ 두부 최저가로 찾아줘",
+      "input": {
+        "user_input": "풀무원 말고 CJ 두부 최저가로 찾아줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "CJ",
+          "두부"
+        ],
+        "exclude_keywords": [
+          "풀무원"
+        ],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": "최저가",
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": "CJ",
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.92,
+        "immediate_response": "CJ 두부를 최저가로 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 2029.9394000321627,
+        "ttft_ms": 2029.9394000321627,
+        "input_tokens": 4426,
+        "output_tokens": 179,
+        "cost_usd": 0.0042568
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 0.0,
+          "comment": "predicted=['cj', '두부'], expected=['cj 두부']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2029.9394000321627,
+          "comment": "2029.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2029.9394000321627,
+          "comment": "2029.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4426.0,
+          "comment": "4426 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 179.0,
+          "comment": "179 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0042568,
+          "comment": "$0.004257"
+        }
+      }
+    },
+    {
+      "case_id": "신선한 걸로 찾아줘",
+      "input": {
+        "user_input": "신선한 걸로 찾아줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "신선한 상품을 찾아드리겠습니다. 어떤 상품을 원하시나요?",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 2269.472800020594,
+        "ttft_ms": 2269.472800020594,
+        "input_tokens": 4415,
+        "output_tokens": 190,
+        "cost_usd": 0.004292
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 0.0,
+          "comment": "predicted=False, expected=True"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2269.472800020594,
+          "comment": "2269.5ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2269.472800020594,
+          "comment": "2269.5ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4415.0,
+          "comment": "4415 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 190.0,
+          "comment": "190 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004292,
+          "comment": "$0.004292"
+        }
+      }
+    },
+    {
+      "case_id": "유기농으로 바꿔줘",
+      "input": {
+        "user_input": "유기농으로 바꿔줘",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "유기농"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.9,
+        "immediate_response": "유기농 상품으로 다시 검색해드릴게요.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1649.431400001049,
+        "ttft_ms": 1649.431400001049,
+        "input_tokens": 4419,
+        "output_tokens": 112,
+        "cost_usd": 0.0039832
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='refine'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1649.431400001049,
+          "comment": "1649.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1649.431400001049,
+          "comment": "1649.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4419.0,
+          "comment": "4419 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 112.0,
+          "comment": "112 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0039832,
+          "comment": "$0.003983"
+        }
+      }
+    },
+    {
+      "case_id": "계란 10구짜리 두 판 사줘",
+      "input": {
+        "user_input": "계란 10구짜리 두 판 사줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "계란 10구"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 2,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "계란 10구짜리 2판을 구매하시는 거네요.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 5594.759400002658,
+        "ttft_ms": 5594.759400002658,
+        "input_tokens": 4418,
+        "output_tokens": 132,
+        "cost_usd": 0.0040624
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['계란 10구'], expected=['계란 10구']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5594.759400002658,
+          "comment": "5594.8ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5594.759400002658,
+          "comment": "5594.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4418.0,
+          "comment": "4418 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 132.0,
+          "comment": "132 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0040624,
+          "comment": "$0.004062"
+        }
+      }
+    },
+    {
+      "case_id": "우유 1L짜리 세 개 사줘",
+      "input": {
+        "user_input": "우유 1L짜리 세 개 사줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "우유 1L"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 3,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "1L 우유 3개를 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1426.6727999784052,
+        "ttft_ms": 1426.6727999784052,
+        "input_tokens": 4418,
+        "output_tokens": 130,
+        "cost_usd": 0.0040544
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['우유 1l'], expected=['우유 1l']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1426.6727999784052,
+          "comment": "1426.7ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1426.6727999784052,
+          "comment": "1426.7ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4418.0,
+          "comment": "4418 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 130.0,
+          "comment": "130 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0040544,
+          "comment": "$0.004054"
+        }
+      }
+    },
+    {
+      "case_id": "라면 5개입 두 박스 사줘",
+      "input": {
+        "user_input": "라면 5개입 두 박스 사줘",
+        "stage": "idle",
+        "pending_action": null
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [
+          "라면 5개입"
+        ],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 2,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "라면 5개입 2박스를 주문하시겠네요.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 2368.4261000016704,
+        "ttft_ms": 2368.4261000016704,
+        "input_tokens": 4417,
+        "output_tokens": 131,
+        "cost_usd": 0.004057600000000001
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='buy'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": 1.0,
+          "comment": "predicted=['라면 5개입'], expected=['라면 5개입']"
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2368.4261000016704,
+          "comment": "2368.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2368.4261000016704,
+          "comment": "2368.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4417.0,
+          "comment": "4417 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 131.0,
+          "comment": "131 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004057600000000001,
+          "comment": "$0.004058"
+        }
+      }
+    },
+    {
+      "case_id": "아니 다른 걸로 보여줘",
+      "input": {
+        "user_input": "아니 다른 걸로 보여줘",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "다른 상품을 보여드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1527.2927000187337,
+        "ttft_ms": 1527.2927000187337,
+        "input_tokens": 4421,
+        "output_tokens": 86,
+        "cost_usd": 0.0038808000000000002
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='next'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1527.2927000187337,
+          "comment": "1527.3ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1527.2927000187337,
+          "comment": "1527.3ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4421.0,
+          "comment": "4421 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 86.0,
+          "comment": "86 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0038808000000000002,
+          "comment": "$0.003881"
+        }
+      }
+    },
+    {
+      "case_id": "싫어 다른 거",
+      "input": {
+        "user_input": "싫어 다른 거",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": null,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "다른 상품을 찾아드리겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 3017.964900005609,
+        "ttft_ms": 3017.964900005609,
+        "input_tokens": 4415,
+        "output_tokens": 87,
+        "cost_usd": 0.00388
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='next'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 3017.964900005609,
+          "comment": "3018.0ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 3017.964900005609,
+          "comment": "3018.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4415.0,
+          "comment": "4415 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 87.0,
+          "comment": "87 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.00388,
+          "comment": "$0.003880"
+        }
+      }
+    },
+    {
+      "case_id": "다섯 개로 바꿔줘",
+      "input": {
+        "user_input": "다섯 개로 바꿔줘",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 5,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "수량을 5개로 변경하겠습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1916.7360000428744,
+        "ttft_ms": 1916.7360000428744,
+        "input_tokens": 4420,
+        "output_tokens": 105,
+        "cost_usd": 0.003956
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='quantity_change'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1916.7360000428744,
+          "comment": "1916.7ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1916.7360000428744,
+          "comment": "1916.7ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4420.0,
+          "comment": "4420 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 105.0,
+          "comment": "105 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.003956,
+          "comment": "$0.003956"
+        }
+      }
+    },
+    {
+      "case_id": "세 개로 변경해줘",
+      "input": {
+        "user_input": "세 개로 변경해줘",
+        "stage": "product_confirming",
+        "pending_action": "product_confirm"
+      },
+      "outputs": {
+        "intent": "smalltalk",
+        "keywords": [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": 3,
+        "condition": null,
+        "recipe_dish": null,
+        "recipe_people": null,
+        "target_platforms": [],
+        "override_platform": null,
+        "current_option_value": null,
+        "address_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "confidence": 0.95,
+        "immediate_response": "수량을 3개로 변경했습니다.",
+        "last_agent": "intent_agent",
+        "tool_calls": null,
+        "tool_results": null,
+        "latency_ms": 1429.1364999953657,
+        "ttft_ms": 1429.1364999953657,
+        "input_tokens": 4417,
+        "output_tokens": 103,
+        "cost_usd": 0.0039456000000000005
+      },
+      "scores": {
+        "intent_accuracy": {
+          "key": "intent_accuracy",
+          "score": 0.0,
+          "comment": "predicted='smalltalk', expected='quantity_change'"
+        },
+        "keyword_overlap": {
+          "key": "keyword_overlap",
+          "score": null
+        },
+        "needs_clarification_accuracy": {
+          "key": "needs_clarification_accuracy",
+          "score": 1.0,
+          "comment": "predicted=False, expected=False"
+        },
+        "schema_compliance": {
+          "key": "schema_compliance",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "schema_loose": {
+          "key": "schema_loose",
+          "score": 0.0,
+          "comment": "missing=[], intent_valid=False"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1429.1364999953657,
+          "comment": "1429.1ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1429.1364999953657,
+          "comment": "1429.1ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 4417.0,
+          "comment": "4417 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 103.0,
+          "comment": "103 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0039456000000000005,
+          "comment": "$0.003946"
+        }
+      }
+    }
+  ]
+}
