@@ -167,8 +167,118 @@ def run_context_local(backend: str = "api", model: str | None = None) -> Path:
     return _save_run("context", backend, model, case_results)
 
 
+# ── intent_agent ────────────────────────────────────────────────────────────
+
+def run_intent_local(backend: str = "api", model: str | None = None) -> Path:
+    from evals.run_experiment import _set_backend, _init_usage, _attach_metrics
+    from evals.evaluators import INTENT_EVALUATORS
+    from src.state.schema import get_default_shopping_state
+    from src.agents.intent_agent import intent_agent_node
+
+    _set_backend(backend, model, "intent")
+    cases = _load_cases("intent_agent.json")
+
+    def predict(inputs: dict[str, Any]) -> dict[str, Any]:
+        _init_usage()
+        started = time.perf_counter()
+        # "user_eval"(구매이력 0건)로 두면 intent_agent의 신규유저 첫턴 감지
+        # (_is_cold_start_first_turn)가 매 케이스마다 intent를 smalltalk로
+        # 덮어써버린다 — 이 데이터셋은 순수 분류 정확도 테스트라 그 분기를
+        # 피하려고 구매이력 있는 user_001을 쓴다.
+        state = get_default_shopping_state("user_001", "eval-session")
+        state["messages"] = [{"role": "user", "content": inputs["user_input"]}]
+        state["stage"] = inputs.get("stage", "idle")
+        if pending := inputs.get("pending_action"):
+            state["pending_action"] = {"type": pending}
+        try:
+            result = intent_agent_node(state)
+            result["_schema_ok"] = True
+        except Exception as e:
+            result = {"intent": "unclear", "keywords": [], "_schema_ok": False, "_error": str(e)}
+        return _attach_metrics(result, (time.perf_counter() - started) * 1000, "intent", backend)
+
+    case_results = _score_cases(cases, predict, INTENT_EVALUATORS)
+    return _save_run("intent", backend, model, case_results)
+
+
+# ── product_agent ───────────────────────────────────────────────────────────
+
+def run_product_local(backend: str = "api", model: str | None = None) -> Path:
+    from evals.run_experiment import _set_backend, _init_usage, _attach_metrics
+    from evals.evaluators import PRODUCT_EVALUATORS
+    from src.agents.product_agent import _filter_results, _rank_with_metadata
+
+    _set_backend(backend, model, "product")
+    cases = _load_cases("product_agent.json")
+
+    def predict(inputs: dict[str, Any]) -> dict[str, Any]:
+        _init_usage()
+        started = time.perf_counter()
+        try:
+            candidates = _filter_results(inputs["candidates"], inputs.get("exclude_keywords", []))
+            ranked_result = _rank_with_metadata(
+                candidates=candidates,
+                keywords=inputs.get("keywords", []),
+                condition=inputs.get("condition"),
+                preference_context=inputs.get("preference_context", {}),
+            )
+            ranked = ranked_result["ranked_products"]
+            result = {
+                "ranked_products": ranked,
+                "top_product": ranked[0] if ranked else None,
+                "tool_call_success": ranked_result.get("tool_call_success", False),
+                "tool_call_error": ranked_result.get("tool_call_error"),
+            }
+        except Exception as e:
+            result = {
+                "ranked_products": [],
+                "top_product": None,
+                "tool_call_success": False,
+                "tool_call_error": str(e),
+                "_error": str(e),
+            }
+        return _attach_metrics(result, (time.perf_counter() - started) * 1000, "product", backend)
+
+    case_results = _score_cases(cases, predict, PRODUCT_EVALUATORS)
+    return _save_run("product", backend, model, case_results)
+
+
+# ── response_agent ──────────────────────────────────────────────────────────
+
+def run_response_local(backend: str = "api", model: str | None = None) -> Path:
+    from evals.run_experiment import _set_backend, _init_usage, _attach_metrics
+    from evals.evaluators import RESPONSE_EVALUATORS
+    from src.state.schema import get_default_shopping_state
+    from src.agents.response_agent import response_agent_node
+
+    _set_backend(backend, model, "response")
+    cases = _load_cases("response_agent.json")
+
+    def predict(inputs: dict[str, Any]) -> dict[str, Any]:
+        _init_usage()
+        started = time.perf_counter()
+        state = get_default_shopping_state("user_eval", "eval-session")
+        state["intent"] = "ask" if inputs.get("task") == "qa" else "buy"
+        state["selected_product"] = inputs["product"]
+        state["keywords"] = inputs.get("keywords", [])
+        state["condition"] = inputs.get("condition")
+        state["messages"] = [{"role": "user", "content": inputs.get("question") or "이 상품 설명해줘"}]
+        state["recommendation_context"] = {"preference_context": inputs.get("preference_context", {})}
+        try:
+            result = response_agent_node(state)
+        except Exception as e:
+            result = {"explanation": "", "_error": str(e)}
+        return _attach_metrics(result, (time.perf_counter() - started) * 1000, "response", backend)
+
+    case_results = _score_cases(cases, predict, RESPONSE_EVALUATORS)
+    return _save_run("response", backend, model, case_results)
+
+
 AGENT_RUNNERS: dict[str, Callable[..., Path]] = {
     "context": run_context_local,
+    "intent": run_intent_local,
+    "product": run_product_local,
+    "response": run_response_local,
 }
 
 

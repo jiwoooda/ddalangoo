@@ -1,0 +1,1799 @@
+{
+  "agent": "response",
+  "timestamp": "2026-07-18T02:29:31.033942+00:00",
+  "git_commit": "a5f8ec3",
+  "backend": "api",
+  "model": "default",
+  "case_count": 20,
+  "aggregate": {
+    "cost_usd": {
+      "mean": 0.0041,
+      "n": 20
+    },
+    "elderly_friendliness": {
+      "mean": 0.95,
+      "n": 20
+    },
+    "g_eval_elderly": {
+      "mean": 0.95,
+      "n": 20
+    },
+    "haiku_fallback_rate": {
+      "mean": 0.35,
+      "n": 20
+    },
+    "input_tokens": {
+      "mean": 964.55,
+      "n": 20
+    },
+    "latency_ms": {
+      "mean": 2796.0305,
+      "n": 20
+    },
+    "output_tokens": {
+      "mean": 78.5,
+      "n": 20
+    },
+    "preference_adherence": {
+      "mean": 0.7,
+      "n": 5
+    },
+    "reflection_pass_rate": {
+      "mean": 0.65,
+      "n": 20
+    },
+    "ttft_ms": {
+      "mean": 2796.0305,
+      "n": 20
+    }
+  },
+  "cases": [
+    {
+      "case_id": "── 일반 설명 (5) ──",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "딸기 500g",
+          "price": 6900,
+          "platform": "naver",
+          "rating": 4.3,
+          "review_count": 850,
+          "delivery": "2-3일",
+          "product_url": "https://example.com/r1"
+        },
+        "keywords": [
+          "딸기"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "딸기 500g, 6,900원이에요. 리뷰가 850개로 많이 팔린 상품이에요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "딸기 500g, 6,900원이에요. 리뷰가 850개로 많이 팔린 상품이에요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 5460.617700009607,
+        "ttft_ms": 5460.617700009607,
+        "input_tokens": 1109,
+        "output_tokens": 51,
+        "cost_usd": 0.004092
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5460.617700009607,
+          "comment": "5460.6ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5460.617700009607,
+          "comment": "5460.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1109.0,
+          "comment": "1109 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 51.0,
+          "comment": "51 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004092,
+          "comment": "$0.004092"
+        }
+      }
+    },
+    {
+      "case_id": "case_1",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "계란 30개",
+          "price": 6200,
+          "platform": "coupang",
+          "rating": 4.1,
+          "review_count": 7800,
+          "delivery": "내일 도착",
+          "product_url": "https://example.com/r2"
+        },
+        "keywords": [
+          "계란"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "계란 30개, 6,200원이에요. 리뷰가 7,800개로 많은 인기 상품이에요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "계란 30개, 6,200원이에요. 리뷰가 7,800개로 많은 인기 상품이에요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 2150.37879999727,
+        "ttft_ms": 2150.37879999727,
+        "input_tokens": 1110,
+        "output_tokens": 51,
+        "cost_usd": 0.004095
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2150.37879999727,
+          "comment": "2150.4ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2150.37879999727,
+          "comment": "2150.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1110.0,
+          "comment": "1110 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 51.0,
+          "comment": "51 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004095,
+          "comment": "$0.004095"
+        }
+      }
+    },
+    {
+      "case_id": "case_2",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "서울우유 1L",
+          "price": 2400,
+          "platform": "coupang",
+          "rating": 4.3,
+          "review_count": 7800,
+          "delivery": "내일 도착",
+          "product_url": "https://example.com/r3"
+        },
+        "keywords": [
+          "우유"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "서울우유 1L, 2,400원이에요. 리뷰가 7,800개로 많은 인기 상품이에요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "서울우유 1L, 2,400원이에요. 리뷰가 7,800개로 많은 인기 상품이에요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 2022.7561999927275,
+        "ttft_ms": 2022.7561999927275,
+        "input_tokens": 1112,
+        "output_tokens": 53,
+        "cost_usd": 0.004131
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2022.7561999927275,
+          "comment": "2022.8ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2022.7561999927275,
+          "comment": "2022.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1112.0,
+          "comment": "1112 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 53.0,
+          "comment": "53 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004131,
+          "comment": "$0.004131"
+        }
+      }
+    },
+    {
+      "case_id": "case_3",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "풀무원 국산콩 두부 300g",
+          "price": 2490,
+          "platform": "kurly",
+          "rating": 4.7,
+          "review_count": 1820,
+          "delivery": "새벽배송",
+          "product_url": "https://example.com/r4"
+        },
+        "keywords": [
+          "두부"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "풀무원 국산콩 두부 300g, 2,490원이에요. 리뷰가 1,820개로 많은 인기 상품이에요, 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "풀무원 국산콩 두부 300g, 2,490원이에요. 리뷰가 1,820개로 많은 인기 상품이에요,\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 2660.872799984645,
+        "ttft_ms": 2660.872799984645,
+        "input_tokens": 1119,
+        "output_tokens": 61,
+        "cost_usd": 0.004272
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2660.872799984645,
+          "comment": "2660.9ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2660.872799984645,
+          "comment": "2660.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1119.0,
+          "comment": "1119 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 61.0,
+          "comment": "61 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004272,
+          "comment": "$0.004272"
+        }
+      }
+    },
+    {
+      "case_id": "case_4",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "GAP 인증 홍로 사과 1.5kg",
+          "price": 9900,
+          "platform": "naver",
+          "rating": 4.7,
+          "review_count": 2300,
+          "delivery": "내일 도착",
+          "product_url": "https://example.com/r5"
+        },
+        "keywords": [
+          "사과"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "GAP 인증 홍로 사과 1.5kg, 9,900원이에요.\n리뷰 2,300개, 평점 높아 믿을 수 있어요.",
+        "reflection_passed": false,
+        "haiku_fallback": true,
+        "reflection_reason": "문장 수 과다(4개)",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "GAP 인증 홍로 사과 1.5kg, 9,900원이에요.\n리뷰 2,300개, 평점 높아 믿을 수 있어요.\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 3594.5708000217564,
+        "ttft_ms": 3594.5708000217564,
+        "input_tokens": 1328,
+        "output_tokens": 133,
+        "cost_usd": 0.005979
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 0.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 1.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 3594.5708000217564,
+          "comment": "3594.6ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 3594.5708000217564,
+          "comment": "3594.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1328.0,
+          "comment": "1328 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 133.0,
+          "comment": "133 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.005979,
+          "comment": "$0.005979"
+        }
+      }
+    },
+    {
+      "case_id": "── Reflection 트리거 (5) ──",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "기본 운동화",
+          "price": 35000,
+          "platform": "coupang",
+          "rating": 4.0,
+          "review_count": 320,
+          "delivery": "내일 도착",
+          "product_url": "https://example.com/r6"
+        },
+        "keywords": [
+          "운동화"
+        ],
+        "condition": "최저가",
+        "preference_context": {},
+        "trigger_note": "condition 단어를 설명에 넣으면 Reflection이 잡아야 한다."
+      },
+      "outputs": {
+        "explanation": "기본 운동화, 35,000원이에요.\n검색하신 운동화 중 가장 저렴해요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "기본 운동화, 35,000원이에요.\n검색하신 운동화 중 가장 저렴해요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 1683.2456999691203,
+        "ttft_ms": 1683.2456999691203,
+        "input_tokens": 1112,
+        "output_tokens": 48,
+        "cost_usd": 0.004056
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1683.2456999691203,
+          "comment": "1683.2ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1683.2456999691203,
+          "comment": "1683.2ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1112.0,
+          "comment": "1112 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 48.0,
+          "comment": "48 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004056,
+          "comment": "$0.004056"
+        }
+      }
+    },
+    {
+      "case_id": "case_6",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "종합비타민 90정",
+          "price": 24000,
+          "platform": "naver",
+          "rating": 4.5,
+          "review_count": 4200,
+          "delivery": "무료배송",
+          "product_url": "https://example.com/r7"
+        },
+        "keywords": [
+          "비타민"
+        ],
+        "condition": "무료배송",
+        "preference_context": {},
+        "trigger_note": "혜택/프로모션 같은 단어를 피해야 한다."
+      },
+      "outputs": {
+        "explanation": "종합비타민 90정, 24,000원이에요.\n리뷰가 4,200개로 많은 인기 상품이에요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "종합비타민 90정, 24,000원이에요.\n리뷰가 4,200개로 많은 인기 상품이에요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 1922.5556000019424,
+        "ttft_ms": 1922.5556000019424,
+        "input_tokens": 1114,
+        "output_tokens": 54,
+        "cost_usd": 0.004152
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1922.5556000019424,
+          "comment": "1922.6ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1922.5556000019424,
+          "comment": "1922.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1114.0,
+          "comment": "1114 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 54.0,
+          "comment": "54 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004152,
+          "comment": "$0.004152"
+        }
+      }
+    },
+    {
+      "case_id": "case_7",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "프리미엄 딸기 1kg",
+          "price": 24000,
+          "platform": "naver",
+          "rating": 4.9,
+          "review_count": 310,
+          "delivery": "2일 후 도착",
+          "product_url": "https://example.com/r8"
+        },
+        "keywords": [
+          "딸기"
+        ],
+        "condition": "리뷰좋은",
+        "preference_context": {},
+        "trigger_note": "긴 미사여구 없이 짧게 설명해야 한다."
+      },
+      "outputs": {
+        "explanation": "프리미엄 딸기 1kg에 24,000원이에요. 많은 분들이 좋아하는 상품인데 주문할까요?",
+        "reflection_passed": false,
+        "haiku_fallback": true,
+        "reflection_reason": "문장 수 과다(4개)",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "프리미엄 딸기 1kg에 24,000원이에요. 많은 분들이 좋아하는 상품인데\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 3786.2606000271626,
+        "ttft_ms": 3786.2606000271626,
+        "input_tokens": 1328,
+        "output_tokens": 124,
+        "cost_usd": 0.005844
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 0.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 1.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 3786.2606000271626,
+          "comment": "3786.3ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 3786.2606000271626,
+          "comment": "3786.3ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1328.0,
+          "comment": "1328 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 124.0,
+          "comment": "124 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.005844,
+          "comment": "$0.005844"
+        }
+      }
+    },
+    {
+      "case_id": "case_8",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "참들이향 참기름 500ml",
+          "price": 17500,
+          "platform": "naver",
+          "rating": 4.8,
+          "review_count": 540,
+          "delivery": "내일 도착",
+          "product_url": "https://example.com/r9"
+        },
+        "keywords": [
+          "참기름"
+        ],
+        "condition": "가성비",
+        "preference_context": {},
+        "trigger_note": "가성비 같은 금지어를 쉬운 말로 바꿔야 한다."
+      },
+      "outputs": {
+        "explanation": "참들이향 참기름 500ml, 17,500원이에요. 가격이 저렴한 편이라 부담 없이 사실 수 있어요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "참들이향 참기름 500ml, 17,500원이에요. 가격이 저렴한 편이라 부담 없이 사실 수 있어요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 2697.488699981477,
+        "ttft_ms": 2697.488699981477,
+        "input_tokens": 1116,
+        "output_tokens": 61,
+        "cost_usd": 0.004263
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2697.488699981477,
+          "comment": "2697.5ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2697.488699981477,
+          "comment": "2697.5ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1116.0,
+          "comment": "1116 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 61.0,
+          "comment": "61 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004263,
+          "comment": "$0.004263"
+        }
+      }
+    },
+    {
+      "case_id": "case_9",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "방풍 점퍼 M",
+          "price": 58000,
+          "platform": "naver",
+          "rating": 4.4,
+          "review_count": 780,
+          "delivery": "3-4일",
+          "product_url": "https://example.com/r10"
+        },
+        "keywords": [
+          "점퍼"
+        ],
+        "condition": null,
+        "preference_context": {},
+        "trigger_note": "문장 길이가 길어지면 Reflection이 잡아야 한다."
+      },
+      "outputs": {
+        "explanation": "방풍 점퍼 M, 58,000원이에요. 리뷰가 많아 믿을 수 있는 상품이에요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "방풍 점퍼 M, 58,000원이에요. 리뷰가 많아 믿을 수 있는 상품이에요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 2281.7248000064865,
+        "ttft_ms": 2281.7248000064865,
+        "input_tokens": 1114,
+        "output_tokens": 56,
+        "cost_usd": 0.004182
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2281.7248000064865,
+          "comment": "2281.7ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2281.7248000064865,
+          "comment": "2281.7ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1114.0,
+          "comment": "1114 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 56.0,
+          "comment": "56 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004182,
+          "comment": "$0.004182"
+        }
+      }
+    },
+    {
+      "case_id": "── QA (5) ──",
+      "input": {
+        "task": "qa",
+        "question": "언제 와?",
+        "product": {
+          "product_name": "동물복지 계란 15구",
+          "price": 7200,
+          "platform": "kurly",
+          "rating": 4.8,
+          "review_count": 1900,
+          "delivery": "새벽배송",
+          "product_url": "https://example.com/r11"
+        },
+        "keywords": [
+          "계란"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "밤에 주문하면 다음 날 아침에 받아요.\n새벽에 배송해드리는 상품이에요.",
+        "reflection_passed": false,
+        "haiku_fallback": true,
+        "reflection_reason": "긴 문장(36자): 보통 밤에 주문하면 다음 날 이른 아...",
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 3564.635500020813,
+        "ttft_ms": 3564.635500020813,
+        "input_tokens": 391,
+        "output_tokens": 112,
+        "cost_usd": 0.002853
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 0.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 1.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 0.8,
+          "comment": "fallback(No module named 'deepeval'): 4/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 3564.635500020813,
+          "comment": "3564.6ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 3564.635500020813,
+          "comment": "3564.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 391.0,
+          "comment": "391 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 112.0,
+          "comment": "112 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.002853,
+          "comment": "$0.002853"
+        }
+      }
+    },
+    {
+      "case_id": "case_11",
+      "input": {
+        "task": "qa",
+        "question": "가격이 얼마야?",
+        "product": {
+          "product_name": "서울우유 1L",
+          "price": 2800,
+          "platform": "coupang",
+          "rating": 4.5,
+          "review_count": 5100,
+          "delivery": "로켓배송",
+          "product_url": "https://example.com/r12"
+        },
+        "keywords": [
+          "우유"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "서울우유 1L의 가격은 **2,800원**입니다. 쿠팡 로켓배송으로 빠르게 받아보실 수 있어요!",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 1793.958299967926,
+        "ttft_ms": 1793.958299967926,
+        "input_tokens": 173,
+        "output_tokens": 58,
+        "cost_usd": 0.001389
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1793.958299967926,
+          "comment": "1794.0ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1793.958299967926,
+          "comment": "1794.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 173.0,
+          "comment": "173 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 58.0,
+          "comment": "58 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.001389,
+          "comment": "$0.001389"
+        }
+      }
+    },
+    {
+      "case_id": "case_12",
+      "input": {
+        "task": "qa",
+        "question": "리뷰가 많아?",
+        "product": {
+          "product_name": "나이키 운동화",
+          "price": 89000,
+          "platform": "naver",
+          "rating": 4.8,
+          "review_count": 5200,
+          "delivery": "2-3일",
+          "product_url": "https://example.com/r13"
+        },
+        "keywords": [
+          "운동화"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "네, 리뷰가 5,200개예요.\n많은 사람들이 샀다는 뜻이에요.",
+        "reflection_passed": false,
+        "haiku_fallback": true,
+        "reflection_reason": "긴 문장(39자): 높은 리뷰 수는 그만큼 많은 구매자들...",
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 3614.583600021433,
+        "ttft_ms": 3614.583600021433,
+        "input_tokens": 404,
+        "output_tokens": 119,
+        "cost_usd": 0.002997
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 0.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 1.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 3614.583600021433,
+          "comment": "3614.6ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 3614.583600021433,
+          "comment": "3614.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 404.0,
+          "comment": "404 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 119.0,
+          "comment": "119 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.002997,
+          "comment": "$0.002997"
+        }
+      }
+    },
+    {
+      "case_id": "case_13",
+      "input": {
+        "task": "qa",
+        "question": "상품 정보가 충분해?",
+        "product": {
+          "product_name": "상품명 미상",
+          "price": null,
+          "platform": "naver",
+          "product_url": "https://example.com/r14"
+        },
+        "keywords": [
+          "상품"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "상품명이 없어요.\n가격도 없어요.",
+        "reflection_passed": false,
+        "haiku_fallback": true,
+        "reflection_reason": "긴 문장(37자): 상품명과 가격 모두 확인되지 않아 정...",
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 2774.2445999756455,
+        "ttft_ms": 2774.2445999756455,
+        "input_tokens": 355,
+        "output_tokens": 81,
+        "cost_usd": 0.00228
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 0.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 1.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 0.8,
+          "comment": "fallback(No module named 'deepeval'): 4/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2774.2445999756455,
+          "comment": "2774.2ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2774.2445999756455,
+          "comment": "2774.2ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 355.0,
+          "comment": "355 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 81.0,
+          "comment": "81 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.00228,
+          "comment": "$0.002280"
+        }
+      }
+    },
+    {
+      "case_id": "case_14",
+      "input": {
+        "task": "qa",
+        "question": "어느 쇼핑몰이야?",
+        "product": {
+          "product_name": "컬리 국산 참기름 200ml",
+          "price": 13800,
+          "platform": "kurly",
+          "rating": 4.7,
+          "review_count": 329,
+          "delivery": "새벽배송",
+          "product_url": "https://example.com/r15"
+        },
+        "keywords": [
+          "참기름"
+        ],
+        "condition": null,
+        "preference_context": {}
+      },
+      "outputs": {
+        "explanation": "이 상품은 마켓컬리에서 팝니다.\n새벽에 배송해주는 식품 쇼핑몰이에요.",
+        "reflection_passed": false,
+        "haiku_fallback": true,
+        "reflection_reason": "긴 문장(37자): 이 상품은 **마켓컬리(Kurly)*...",
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 3495.889400015585,
+        "ttft_ms": 3495.889400015585,
+        "input_tokens": 420,
+        "output_tokens": 139,
+        "cost_usd": 0.003345
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 0.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 1.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 0.8,
+          "comment": "fallback(No module named 'deepeval'): 4/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": null
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 3495.889400015585,
+          "comment": "3495.9ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 3495.889400015585,
+          "comment": "3495.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 420.0,
+          "comment": "420 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 139.0,
+          "comment": "139 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.003345,
+          "comment": "$0.003345"
+        }
+      }
+    },
+    {
+      "case_id": "── 선호도 반영 (5) ──",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "동물복지 계란 15구",
+          "price": 7200,
+          "platform": "kurly",
+          "rating": 4.8,
+          "review_count": 1900,
+          "delivery": "새벽배송",
+          "product_url": "https://example.com/r16"
+        },
+        "keywords": [
+          "계란"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "컬리 새벽배송과 동물복지 계란을 반복 구매합니다.",
+          "keyword_summary": "계란 구매 이력이 많습니다."
+        }
+      },
+      "outputs": {
+        "explanation": "동물복지 계란 15구, 7,200원이에요. 자주 사시던 계란이라 골라봤어요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "동물복지 계란 15구, 7,200원이에요. 자주 사시던 계란이라 골라봤어요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 2180.6490999879315,
+        "ttft_ms": 2180.6490999879315,
+        "input_tokens": 1152,
+        "output_tokens": 51,
+        "cost_usd": 0.004221
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": 0.5,
+          "comment": "1/2 반영"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2180.6490999879315,
+          "comment": "2180.6ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2180.6490999879315,
+          "comment": "2180.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1152.0,
+          "comment": "1152 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 51.0,
+          "comment": "51 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004221,
+          "comment": "$0.004221"
+        }
+      }
+    },
+    {
+      "case_id": "case_16",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "풀무원 국산콩 두부 300g",
+          "price": 2490,
+          "platform": "kurly",
+          "rating": 4.7,
+          "review_count": 1820,
+          "delivery": "새벽배송",
+          "product_url": "https://example.com/r17"
+        },
+        "keywords": [
+          "두부"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "풀무원 두부를 자주 구매합니다.",
+          "keyword_summary": "두부 구매 이력이 있습니다."
+        }
+      },
+      "outputs": {
+        "explanation": "풀무원 국산콩 두부 300g, 2,490원이에요.\n평소 즐겨 사시는 풀무원 두부예요. 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "풀무원 국산콩 두부 300g, 2,490원이에요.\n평소 즐겨 사시는 풀무원 두부예요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 1959.3014999991283,
+        "ttft_ms": 1959.3014999991283,
+        "input_tokens": 1146,
+        "output_tokens": 59,
+        "cost_usd": 0.004323
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": 1.0,
+          "comment": "1/1 반영"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1959.3014999991283,
+          "comment": "1959.3ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1959.3014999991283,
+          "comment": "1959.3ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1146.0,
+          "comment": "1146 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 59.0,
+          "comment": "59 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004323,
+          "comment": "$0.004323"
+        }
+      }
+    },
+    {
+      "case_id": "case_17",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "BerryFarm 생딸기 500g",
+          "price": 10900,
+          "platform": "naver",
+          "rating": 4.6,
+          "review_count": 900,
+          "delivery": "내일 도착",
+          "product_url": "https://example.com/r18"
+        },
+        "keywords": [
+          "딸기"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "BerryFarm 딸기 구매 이력이 있습니다.",
+          "keyword_summary": "딸기를 여러 번 구매했습니다."
+        }
+      },
+      "outputs": {
+        "explanation": "BerryFarm 생딸기 500g, 10,900원이에요. 전에 즐겨 사셨던 딸기예요, 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "BerryFarm 생딸기 500g, 10,900원이에요. 전에 즐겨 사셨던 딸기예요,\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 1937.797499995213,
+        "ttft_ms": 1937.797499995213,
+        "input_tokens": 1150,
+        "output_tokens": 53,
+        "cost_usd": 0.004245
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": 1.0,
+          "comment": "1/1 반영"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1937.797499995213,
+          "comment": "1937.8ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1937.797499995213,
+          "comment": "1937.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1150.0,
+          "comment": "1150 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 53.0,
+          "comment": "53 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.004245,
+          "comment": "$0.004245"
+        }
+      }
+    },
+    {
+      "case_id": "case_18",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "CJ 국산 참기름 300ml",
+          "price": 8200,
+          "platform": "naver",
+          "rating": 4.6,
+          "review_count": 900,
+          "delivery": "내일 도착",
+          "product_url": "https://example.com/r19"
+        },
+        "keywords": [
+          "참기름"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "CJ 참기름을 네이버에서 만족 구매했습니다.",
+          "keyword_summary": "참기름 구매 이력이 있습니다."
+        }
+      },
+      "outputs": {
+        "explanation": "CJ 국산 참기름 300ml, 8,200원이에요. 전에 만족하셨던 브랜드예요, 주문할까요?",
+        "reflection_passed": true,
+        "haiku_fallback": false,
+        "reflection_reason": "",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "CJ 국산 참기름 300ml, 8,200원이에요. 전에 만족하셨던 브랜드예요,\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 2209.6834999974817,
+        "ttft_ms": 2209.6834999974817,
+        "input_tokens": 1150,
+        "output_tokens": 50,
+        "cost_usd": 0.0042
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 1.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 0.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 1.0,
+          "comment": "fallback(No module named 'deepeval'): 5/5; 짧고 쉬움"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": 1.0,
+          "comment": "1/1 반영"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2209.6834999974817,
+          "comment": "2209.7ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2209.6834999974817,
+          "comment": "2209.7ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1150.0,
+          "comment": "1150 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 50.0,
+          "comment": "50 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0042,
+          "comment": "$0.004200"
+        }
+      }
+    },
+    {
+      "case_id": "case_19",
+      "input": {
+        "task": "explain",
+        "product": {
+          "product_name": "산지직송 꿀사과 2kg",
+          "price": 14500,
+          "platform": "kurly",
+          "rating": 4.6,
+          "review_count": 870,
+          "delivery": "새벽배송",
+          "product_url": "https://example.com/r20"
+        },
+        "keywords": [
+          "사과"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "컬리 신선식품과 새벽배송을 자주 이용합니다.",
+          "keyword_summary": "과일 구매 이력이 있습니다."
+        }
+      },
+      "outputs": {
+        "explanation": "산지직송 꿀사과 2kg입니다.\n14,500원이에요.\n\n새벽에 받을 수 있어요.\n과일을 자주 사시는 분께 좋아요.\n\n주문할까요?",
+        "reflection_passed": false,
+        "haiku_fallback": true,
+        "reflection_reason": "긴 문장(44자): 컬리 새벽배송으로 받으실 수 있고, ...",
+        "pending_action": {
+          "type": "product_confirm",
+          "message": "산지직송 꿀사과 2kg입니다.\n14,500원이에요.\n\n새벽에 받을 수 있어요.\n과일을 자주 사시는 분께 좋아요\n주문을 원하시면 수량을 말씀해 주세요."
+        },
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": null,
+        "latency_ms": 4129.395299998578,
+        "ttft_ms": 4129.395299998578,
+        "input_tokens": 1388,
+        "output_tokens": 156,
+        "cost_usd": 0.006504
+      },
+      "scores": {
+        "reflection_pass_rate": {
+          "key": "reflection_pass_rate",
+          "score": 0.0
+        },
+        "haiku_fallback_rate": {
+          "key": "haiku_fallback_rate",
+          "score": 1.0
+        },
+        "elderly_friendliness": {
+          "key": "elderly_friendliness",
+          "score": 0.0,
+          "comment": "문장 수 과다(5개)"
+        },
+        "g_eval_elderly": {
+          "key": "g_eval_elderly",
+          "score": 0.6,
+          "comment": "fallback(No module named 'deepeval'): 3/5; 문장 수 과다(5개)"
+        },
+        "preference_adherence": {
+          "key": "preference_adherence",
+          "score": 0.0,
+          "comment": "0/1 반영"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 4129.395299998578,
+          "comment": "4129.4ms"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 4129.395299998578,
+          "comment": "4129.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 1388.0,
+          "comment": "1388 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 156.0,
+          "comment": "156 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.006504,
+          "comment": "$0.006504"
+        }
+      }
+    }
+  ]
+}

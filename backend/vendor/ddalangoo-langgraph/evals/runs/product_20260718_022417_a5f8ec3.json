@@ -1,0 +1,4206 @@
+{
+  "agent": "product",
+  "timestamp": "2026-07-18T02:24:17.194976+00:00",
+  "git_commit": "a5f8ec3",
+  "backend": "api",
+  "model": "default",
+  "case_count": 25,
+  "aggregate": {
+    "condition_adherence": {
+      "mean": 0.6,
+      "n": 15
+    },
+    "cost_usd": {
+      "mean": 0.0142,
+      "n": 25
+    },
+    "hallucination_free_rate": {
+      "mean": null,
+      "n": 0
+    },
+    "input_tokens": {
+      "mean": 2966.16,
+      "n": 25
+    },
+    "latency_ms": {
+      "mean": 7454.3295,
+      "n": 25
+    },
+    "mrr": {
+      "mean": 0.82,
+      "n": 25
+    },
+    "ndcg_at_3": {
+      "mean": 0.9322,
+      "n": 25
+    },
+    "output_tokens": {
+      "mean": 352.08,
+      "n": 25
+    },
+    "tool_call_success_rate": {
+      "mean": 0.2,
+      "n": 25
+    },
+    "ttft_ms": {
+      "mean": 7454.3295,
+      "n": 25
+    }
+  },
+  "cases": [
+    {
+      "case_id": "── 선호도 기반 (5) ── keyword_history + repurchase_patterns 포함",
+      "input": {
+        "keywords": [
+          "달걀"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "컬리 새벽배송 신선식품을 주로 구매하며 동물복지 달걀을 반복 구매합니다.",
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 11
+            },
+            {
+              "brand": "풀무원",
+              "count": 2
+            }
+          ],
+          "price_range": {
+            "avg": 5200,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "keyword_history": [
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly"
+            }
+          ],
+          "keyword_summary": "달걀은 주로 컬리 새벽배송으로 동물복지 달걀을 반복 구매해 왔습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "일반 계란 15구",
+            "price": 3500,
+            "platform": "naver",
+            "rating": 4.3,
+            "review_count": 1800,
+            "product_url": "https://example.com/p1",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "[조인] 동물복지 달걀 10구",
+            "price": 4608,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 1750,
+            "product_url": "https://example.com/p2",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "구운 계란 20구",
+            "price": 7900,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 5000,
+            "product_url": "https://example.com/p3",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "일반 계란 15구",
+            "price": 3500,
+            "platform": "naver",
+            "rating": 4.3,
+            "review_count": 1800,
+            "product_url": "https://example.com/p1",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "[조인] 동물복지 달걀 10구",
+            "price": 4608,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 1750,
+            "product_url": "https://example.com/p2",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "구운 계란 20구",
+            "price": 7900,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 5000,
+            "product_url": "https://example.com/p3",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "일반 계란 15구",
+          "price": 3500,
+          "platform": "naver",
+          "rating": 4.3,
+          "review_count": 1800,
+          "product_url": "https://example.com/p1",
+          "delivery": "내일 도착"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 8946.426499984227,
+        "ttft_ms": 8946.426499984227,
+        "input_tokens": 2980,
+        "output_tokens": 282,
+        "cost_usd": 0.01317
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.736,
+          "comment": "expected=['[조인] 동물복지 달걀 10구', '구운 계란 20구', '일반 계란 15구']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 8946.426499984227,
+          "comment": "8946.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 8946.426499984227,
+          "comment": "8946.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2980.0,
+          "comment": "2980 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 282.0,
+          "comment": "282 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.01317,
+          "comment": "$0.013170"
+        }
+      }
+    },
+    {
+      "case_id": "case_1",
+      "input": {
+        "keywords": [
+          "두부"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "풀무원 두부를 컬리 새벽배송으로 자주 구매합니다.",
+          "preferred_brands": [
+            {
+              "brand": "풀무원",
+              "count": 2
+            },
+            {
+              "brand": "컬리",
+              "count": 11
+            }
+          ],
+          "price_range": {
+            "avg": 4000,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "풀무원 국산콩 두부 (부침) 300g"
+          ],
+          "preferred_platform": "kurly",
+          "keyword_history": [
+            {
+              "product_name": "풀무원 국산콩 두부 (부침) 300g",
+              "brand": "풀무원",
+              "price": 2490,
+              "platform": "kurly"
+            }
+          ],
+          "keyword_summary": "두부는 풀무원 국산콩 두부를 컬리에서 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "풀무원 국산콩 두부 300g",
+            "price": 2490,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 1200,
+            "product_url": "https://example.com/p4",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "CJ 단단한 두부 300g",
+            "price": 2300,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 2500,
+            "product_url": "https://example.com/p5",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "행복한콩 두부 300g",
+            "price": 2800,
+            "platform": "naver",
+            "rating": 4.5,
+            "review_count": 900,
+            "product_url": "https://example.com/p6",
+            "delivery": "내일 도착"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "풀무원 국산콩 두부 300g",
+            "price": 2490,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 1200,
+            "product_url": "https://example.com/p4",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "CJ 단단한 두부 300g",
+            "price": 2300,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 2500,
+            "product_url": "https://example.com/p5",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "행복한콩 두부 300g",
+            "price": 2800,
+            "platform": "naver",
+            "rating": 4.5,
+            "review_count": 900,
+            "product_url": "https://example.com/p6",
+            "delivery": "내일 도착"
+          }
+        ],
+        "top_product": {
+          "product_name": "풀무원 국산콩 두부 300g",
+          "price": 2490,
+          "platform": "kurly",
+          "rating": 4.6,
+          "review_count": 1200,
+          "product_url": "https://example.com/p4",
+          "delivery": "새벽배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 6578.6406000261195,
+        "ttft_ms": 6578.6406000261195,
+        "input_tokens": 2983,
+        "output_tokens": 293,
+        "cost_usd": 0.013344
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['풀무원 국산콩 두부 300g', 'CJ 단단한 두부 300g', '행복한콩 두부 300g']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 6578.6406000261195,
+          "comment": "6578.6ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 6578.6406000261195,
+          "comment": "6578.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2983.0,
+          "comment": "2983 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 293.0,
+          "comment": "293 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.013344,
+          "comment": "$0.013344"
+        }
+      }
+    },
+    {
+      "case_id": "case_2",
+      "input": {
+        "keywords": [
+          "딸기"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "BerryFarm 딸기를 네이버에서 주로 구매합니다.",
+          "preferred_brands": [
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            },
+            {
+              "brand": "컬리",
+              "count": 11
+            }
+          ],
+          "price_range": {
+            "avg": 9900,
+            "min": 8900,
+            "max": 10900
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "naver",
+          "keyword_history": [
+            {
+              "product_name": "Fresh strawberry 500g",
+              "brand": "BerryFarm",
+              "price": 10900,
+              "platform": "naver"
+            },
+            {
+              "product_name": "Frozen strawberry 1kg",
+              "brand": "BerryFarm",
+              "price": 8900,
+              "platform": "naver"
+            }
+          ],
+          "keyword_summary": "딸기는 BerryFarm 제품을 네이버에서 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "BerryFarm 생딸기 500g",
+            "price": 10900,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 900,
+            "product_url": "https://example.com/p7",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "프리미엄 딸기 500g",
+            "price": 12900,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 980,
+            "product_url": "https://example.com/p8",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "논산 딸기 500g",
+            "price": 9900,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 1100,
+            "product_url": "https://example.com/p9",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "BerryFarm 생딸기 500g",
+            "price": 10900,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 900,
+            "product_url": "https://example.com/p7",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "프리미엄 딸기 500g",
+            "price": 12900,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 980,
+            "product_url": "https://example.com/p8",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "논산 딸기 500g",
+            "price": 9900,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 1100,
+            "product_url": "https://example.com/p9",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "BerryFarm 생딸기 500g",
+          "price": 10900,
+          "platform": "naver",
+          "rating": 4.6,
+          "review_count": 900,
+          "product_url": "https://example.com/p7",
+          "delivery": "내일 도착"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 8321.065800031647,
+        "ttft_ms": 8321.065800031647,
+        "input_tokens": 2978,
+        "output_tokens": 375,
+        "cost_usd": 0.014559
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.972,
+          "comment": "expected=['BerryFarm 생딸기 500g', '논산 딸기 500g', '프리미엄 딸기 500g']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 8321.065800031647,
+          "comment": "8321.1ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 8321.065800031647,
+          "comment": "8321.1ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2978.0,
+          "comment": "2978 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 375.0,
+          "comment": "375 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.014559,
+          "comment": "$0.014559"
+        }
+      }
+    },
+    {
+      "case_id": "case_3",
+      "input": {
+        "keywords": [
+          "참기름"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "CJ 참기름을 네이버에서 8천 원대에 만족 구매했습니다.",
+          "preferred_brands": [
+            {
+              "brand": "CJ",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 8000,
+            "min": 8000,
+            "max": 8000
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "naver",
+          "keyword_history": [
+            {
+              "product_name": "국산 참기름 300ml",
+              "brand": "CJ",
+              "price": 8000,
+              "platform": "naver"
+            }
+          ],
+          "keyword_summary": "참기름은 CJ 국산 참기름을 네이버에서 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "CJ 국산 참기름 300ml",
+            "price": 8200,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 900,
+            "product_url": "https://example.com/p10",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "오뚜기 참기름 500ml",
+            "price": 15900,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 892,
+            "product_url": "https://example.com/p11",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "컬리 국산 참기름 200ml",
+            "price": 13800,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 329,
+            "product_url": "https://example.com/p12",
+            "delivery": "새벽배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "CJ 국산 참기름 300ml",
+            "price": 8200,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 900,
+            "product_url": "https://example.com/p10",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "오뚜기 참기름 500ml",
+            "price": 15900,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 892,
+            "product_url": "https://example.com/p11",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "컬리 국산 참기름 200ml",
+            "price": 13800,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 329,
+            "product_url": "https://example.com/p12",
+            "delivery": "새벽배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "CJ 국산 참기름 300ml",
+          "price": 8200,
+          "platform": "naver",
+          "rating": 4.6,
+          "review_count": 900,
+          "product_url": "https://example.com/p10",
+          "delivery": "내일 도착"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 8331.795300007798,
+        "ttft_ms": 8331.795300007798,
+        "input_tokens": 2979,
+        "output_tokens": 374,
+        "cost_usd": 0.014547
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['CJ 국산 참기름 300ml', '오뚜기 참기름 500ml', '컬리 국산 참기름 200ml']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 8331.795300007798,
+          "comment": "8331.8ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 8331.795300007798,
+          "comment": "8331.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2979.0,
+          "comment": "2979 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 374.0,
+          "comment": "374 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.014547,
+          "comment": "$0.014547"
+        }
+      }
+    },
+    {
+      "case_id": "case_4",
+      "input": {
+        "keywords": [
+          "사과"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "컬리 신선식품과 새벽배송을 자주 이용합니다. 과일은 1~2만 원대를 선호합니다.",
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 11
+            }
+          ],
+          "price_range": {
+            "avg": 8000,
+            "min": 2990,
+            "max": 18000
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "kurly",
+          "keyword_history": [],
+          "keyword_summary": ""
+        },
+        "candidates": [
+          {
+            "product_name": "GAP 인증 홍로 사과 1.5kg",
+            "price": 9900,
+            "platform": "naver",
+            "rating": 4.7,
+            "review_count": 2300,
+            "product_url": "https://example.com/p13",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "산지직송 꿀사과 2kg",
+            "price": 14500,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 870,
+            "product_url": "https://example.com/p14",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "경북 부사 사과 3kg",
+            "price": 18900,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 1560,
+            "product_url": "https://example.com/p15",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "GAP 인증 홍로 사과 1.5kg",
+            "price": 9900,
+            "platform": "naver",
+            "rating": 4.7,
+            "review_count": 2300,
+            "product_url": "https://example.com/p13",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "산지직송 꿀사과 2kg",
+            "price": 14500,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 870,
+            "product_url": "https://example.com/p14",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "경북 부사 사과 3kg",
+            "price": 18900,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 1560,
+            "product_url": "https://example.com/p15",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "GAP 인증 홍로 사과 1.5kg",
+          "price": 9900,
+          "platform": "naver",
+          "rating": 4.7,
+          "review_count": 2300,
+          "product_url": "https://example.com/p13",
+          "delivery": "내일 도착"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 7313.97180003114,
+        "ttft_ms": 7313.97180003114,
+        "input_tokens": 2986,
+        "output_tokens": 338,
+        "cost_usd": 0.014028
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.843,
+          "comment": "expected=['산지직송 꿀사과 2kg', 'GAP 인증 홍로 사과 1.5kg', '경북 부사 사과 3kg']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 7313.97180003114,
+          "comment": "7314.0ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 7313.97180003114,
+          "comment": "7314.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2986.0,
+          "comment": "2986 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 338.0,
+          "comment": "338 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.014028,
+          "comment": "$0.014028"
+        }
+      }
+    },
+    {
+      "case_id": "── 조건 + 선호도 충돌 (5) ── 1위=조건, 2위=선호도 브랜드/플랫폼",
+      "input": {
+        "keywords": [
+          "딸기"
+        ],
+        "condition": "최저가",
+        "preference_context": {
+          "summary": "BerryFarm 딸기를 주로 구매하며 1만 원 내외를 선호합니다.",
+          "preferred_brands": [
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            }
+          ],
+          "price_range": {
+            "avg": 9900,
+            "min": 8900,
+            "max": 10900
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "naver",
+          "keyword_history": [
+            {
+              "product_name": "BerryFarm 생딸기 500g",
+              "brand": "BerryFarm",
+              "price": 10900,
+              "platform": "naver"
+            }
+          ],
+          "keyword_summary": "딸기는 BerryFarm을 선호합니다."
+        },
+        "candidates": [
+          {
+            "product_name": "BerryFarm 생딸기 500g",
+            "price": 10900,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 900,
+            "product_url": "https://example.com/c1",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "딸기 500g",
+            "price": 6900,
+            "platform": "naver",
+            "rating": 4.3,
+            "review_count": 850,
+            "product_url": "https://example.com/c2",
+            "delivery": "2-3일"
+          },
+          {
+            "product_name": "신선 딸기 800g",
+            "price": 12500,
+            "platform": "kurly",
+            "rating": 4.5,
+            "review_count": 1200,
+            "product_url": "https://example.com/c3",
+            "delivery": "새벽배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "BerryFarm 생딸기 500g",
+            "price": 10900,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 900,
+            "product_url": "https://example.com/c1",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "딸기 500g",
+            "price": 6900,
+            "platform": "naver",
+            "rating": 4.3,
+            "review_count": 850,
+            "product_url": "https://example.com/c2",
+            "delivery": "2-3일"
+          },
+          {
+            "product_name": "신선 딸기 800g",
+            "price": 12500,
+            "platform": "kurly",
+            "rating": 4.5,
+            "review_count": 1200,
+            "product_url": "https://example.com/c3",
+            "delivery": "새벽배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "BerryFarm 생딸기 500g",
+          "price": 10900,
+          "platform": "naver",
+          "rating": 4.6,
+          "review_count": 900,
+          "product_url": "https://example.com/c1",
+          "delivery": "내일 도착"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 6349.796700000297,
+        "ttft_ms": 6349.796700000297,
+        "input_tokens": 2971,
+        "output_tokens": 272,
+        "cost_usd": 0.012993
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.843,
+          "comment": "expected=['딸기 500g', 'BerryFarm 생딸기 500g', '신선 딸기 800g']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 0.0,
+          "comment": "price_lowest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 6349.796700000297,
+          "comment": "6349.8ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 6349.796700000297,
+          "comment": "6349.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2971.0,
+          "comment": "2971 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 272.0,
+          "comment": "272 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.012993,
+          "comment": "$0.012993"
+        }
+      }
+    },
+    {
+      "case_id": "case_6",
+      "input": {
+        "keywords": [
+          "계란"
+        ],
+        "condition": "리뷰좋은",
+        "preference_context": {
+          "summary": "쿠팡 로켓배송을 주로 이용하며 풀무원 유정란을 구매한 이력이 있습니다.",
+          "preferred_brands": [
+            {
+              "brand": "풀무원",
+              "count": 2
+            }
+          ],
+          "price_range": {
+            "avg": 5200,
+            "min": 4900,
+            "max": 5500
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "coupang",
+          "keyword_history": [
+            {
+              "product_name": "풀무원 유정란 10구",
+              "brand": "풀무원",
+              "price": 4900,
+              "platform": "coupang"
+            }
+          ],
+          "keyword_summary": "계란은 쿠팡에서 풀무원 유정란을 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "풀무원 유정란 10구",
+            "price": 5200,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2100,
+            "product_url": "https://example.com/c4",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "동물복지 달걀 10구",
+            "price": 4608,
+            "platform": "kurly",
+            "rating": 4.9,
+            "review_count": 3200,
+            "product_url": "https://example.com/c5",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "일반 계란 30개",
+            "price": 6200,
+            "platform": "naver",
+            "rating": 4.2,
+            "review_count": 500,
+            "product_url": "https://example.com/c6",
+            "delivery": "내일 도착"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "동물복지 달걀 10구",
+            "price": 4608,
+            "platform": "kurly",
+            "rating": 4.9,
+            "review_count": 3200,
+            "product_url": "https://example.com/c5",
+            "delivery": "새벽배송",
+            "_candidate_id": "B",
+            "final_score": 1.0,
+            "axis_contributions": {
+              "price": 0.15,
+              "review": 0.75,
+              "preference": 0.1
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "리뷰좋은",
+                "match_level": "강한부합",
+                "reasoning": "⭐4.9에 리뷰 3,200개로 세 후보 중 평점과 리뷰 수 모두 가장 높아 '리뷰좋은' 조건에 가장 강하게 부합합니다."
+              }
+            ]
+          },
+          {
+            "product_name": "풀무원 유정란 10구",
+            "price": 5200,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2100,
+            "product_url": "https://example.com/c4",
+            "delivery": "로켓배송",
+            "_candidate_id": "A",
+            "final_score": 0.4816,
+            "axis_contributions": {
+              "price": 0.0942,
+              "review": 0.3214,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "리뷰좋은",
+                "match_level": "부합",
+                "reasoning": "⭐4.5에 리뷰 2,100개로 평점과 리뷰 수 모두 준수한 수준입니다. 다만 B 후보 대비 평점과 리뷰 수 모두 낮습니다."
+              }
+            ]
+          },
+          {
+            "product_name": "일반 계란 30개",
+            "price": 6200,
+            "platform": "naver",
+            "rating": 4.2,
+            "review_count": 500,
+            "product_url": "https://example.com/c6",
+            "delivery": "내일 도착",
+            "_candidate_id": "C",
+            "final_score": 0.0,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.0,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "리뷰좋은",
+                "match_level": "배치",
+                "reasoning": "⭐4.2에 리뷰 500개로 세 후보 중 평점과 리뷰 수 모두 가장 낮아 '리뷰좋은' 조건에 배치됩니다."
+              }
+            ]
+          }
+        ],
+        "top_product": {
+          "product_name": "동물복지 달걀 10구",
+          "price": 4608,
+          "platform": "kurly",
+          "rating": 4.9,
+          "review_count": 3200,
+          "product_url": "https://example.com/c5",
+          "delivery": "새벽배송",
+          "_candidate_id": "B",
+          "final_score": 1.0,
+          "axis_contributions": {
+            "price": 0.15,
+            "review": 0.75,
+            "preference": 0.1
+          },
+          "preference_item_breakdown": [
+            {
+              "preference_item": "리뷰좋은",
+              "match_level": "강한부합",
+              "reasoning": "⭐4.9에 리뷰 3,200개로 세 후보 중 평점과 리뷰 수 모두 가장 높아 '리뷰좋은' 조건에 가장 강하게 부합합니다."
+            }
+          ]
+        },
+        "tool_call_success": true,
+        "tool_call_error": null,
+        "latency_ms": 10217.82770002028,
+        "ttft_ms": 10217.82770002028,
+        "input_tokens": 2981,
+        "output_tokens": 581,
+        "cost_usd": 0.017658
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['동물복지 달걀 10구', '풀무원 유정란 10구', '일반 계란 30개']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "rating_highest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 10217.82770002028,
+          "comment": "10217.8ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 10217.82770002028,
+          "comment": "10217.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2981.0,
+          "comment": "2981 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 581.0,
+          "comment": "581 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.017658,
+          "comment": "$0.017658"
+        }
+      }
+    },
+    {
+      "case_id": "case_7",
+      "input": {
+        "keywords": [
+          "우유"
+        ],
+        "condition": "빠른배송",
+        "preference_context": {
+          "summary": "연세우유를 컬리에서 구매해 왔습니다.",
+          "preferred_brands": [
+            {
+              "brand": "연세",
+              "count": 3
+            }
+          ],
+          "price_range": {
+            "avg": 3500,
+            "min": 3200,
+            "max": 4200
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "kurly",
+          "keyword_history": [
+            {
+              "product_name": "연세 우유 1L",
+              "brand": "연세",
+              "price": 3500,
+              "platform": "kurly"
+            }
+          ],
+          "keyword_summary": "우유는 연세 우유를 컬리에서 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "연세 우유 1L",
+            "price": 3500,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 980,
+            "product_url": "https://example.com/c7",
+            "delivery": "2일 후 도착"
+          },
+          {
+            "product_name": "서울우유 1L",
+            "price": 2400,
+            "platform": "coupang",
+            "rating": 4.3,
+            "review_count": 7800,
+            "product_url": "https://example.com/c8",
+            "delivery": "오늘 도착"
+          },
+          {
+            "product_name": "매일우유 900ml",
+            "price": 3200,
+            "platform": "naver",
+            "rating": 4.4,
+            "review_count": 3200,
+            "product_url": "https://example.com/c9",
+            "delivery": "2일"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "서울우유 1L",
+            "price": 2400,
+            "platform": "coupang",
+            "rating": 4.3,
+            "review_count": 7800,
+            "product_url": "https://example.com/c8",
+            "delivery": "오늘 도착",
+            "_candidate_id": "B",
+            "final_score": 0.7,
+            "axis_contributions": {
+              "price": 0.2,
+              "review": 0.0,
+              "preference": 0.5
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "빠른배송",
+                "match_level": "강한부합",
+                "reasoning": "서울우유는 오늘 도착으로 세 후보 중 배송이 가장 빠릅니다. 빠른배송 조건에 강하게 부합합니다."
+              }
+            ]
+          },
+          {
+            "product_name": "연세 우유 1L",
+            "price": 3500,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 980,
+            "product_url": "https://example.com/c7",
+            "delivery": "2일 후 도착",
+            "_candidate_id": "A",
+            "final_score": 0.3,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.3,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "빠른배송",
+                "match_level": "배치",
+                "reasoning": "연세우유는 2일 후 도착으로 세 후보 중 배송이 가장 느립니다. 빠른배송 조건에 부합하지 않습니다."
+              }
+            ]
+          },
+          {
+            "product_name": "매일우유 900ml",
+            "price": 3200,
+            "platform": "naver",
+            "rating": 4.4,
+            "review_count": 3200,
+            "product_url": "https://example.com/c9",
+            "delivery": "2일",
+            "_candidate_id": "C",
+            "final_score": 0.1295,
+            "axis_contributions": {
+              "price": 0.0545,
+              "review": 0.075,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "빠른배송",
+                "match_level": "배치",
+                "reasoning": "매일우유는 2일 후 도착으로 빠른배송 조건에 부합하지 않습니다."
+              }
+            ]
+          }
+        ],
+        "top_product": {
+          "product_name": "서울우유 1L",
+          "price": 2400,
+          "platform": "coupang",
+          "rating": 4.3,
+          "review_count": 7800,
+          "product_url": "https://example.com/c8",
+          "delivery": "오늘 도착",
+          "_candidate_id": "B",
+          "final_score": 0.7,
+          "axis_contributions": {
+            "price": 0.2,
+            "review": 0.0,
+            "preference": 0.5
+          },
+          "preference_item_breakdown": [
+            {
+              "preference_item": "빠른배송",
+              "match_level": "강한부합",
+              "reasoning": "서울우유는 오늘 도착으로 세 후보 중 배송이 가장 빠릅니다. 빠른배송 조건에 강하게 부합합니다."
+            }
+          ]
+        },
+        "tool_call_success": true,
+        "tool_call_error": null,
+        "latency_ms": 10158.277900016401,
+        "ttft_ms": 10158.277900016401,
+        "input_tokens": 2971,
+        "output_tokens": 530,
+        "cost_usd": 0.016863
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['서울우유 1L', '연세 우유 1L', '매일우유 900ml']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "delivery_fastest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 10158.277900016401,
+          "comment": "10158.3ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 10158.277900016401,
+          "comment": "10158.3ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2971.0,
+          "comment": "2971 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 530.0,
+          "comment": "530 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.016863,
+          "comment": "$0.016863"
+        }
+      }
+    },
+    {
+      "case_id": "case_8",
+      "input": {
+        "keywords": [
+          "사과"
+        ],
+        "condition": "무료배송",
+        "preference_context": {
+          "summary": "네이버에서 GAP 인증 사과를 구매한 이력이 있습니다.",
+          "preferred_brands": [
+            {
+              "brand": "GAP",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 9900,
+            "min": 9800,
+            "max": 10000
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "naver",
+          "keyword_history": [
+            {
+              "product_name": "GAP 인증 홍로 사과 1.5kg",
+              "brand": "GAP",
+              "price": 9900,
+              "platform": "naver"
+            }
+          ],
+          "keyword_summary": "사과는 네이버에서 GAP 인증 사과를 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "GAP 인증 홍로 사과 1.5kg",
+            "price": 9800,
+            "platform": "naver",
+            "rating": 4.0,
+            "review_count": 300,
+            "delivery_fee": 3000,
+            "product_url": "https://example.com/c10",
+            "delivery": "배송비 3,000원"
+          },
+          {
+            "product_name": "아오리 사과 2kg",
+            "price": 19500,
+            "platform": "kurly",
+            "rating": 4.5,
+            "review_count": 5000,
+            "delivery_fee": 0,
+            "product_url": "https://example.com/c11",
+            "delivery": "무료배송"
+          },
+          {
+            "product_name": "홍로 사과 3kg",
+            "price": 28000,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 2200,
+            "delivery_fee": 2500,
+            "product_url": "https://example.com/c12",
+            "delivery": "배송비 2,500원"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "아오리 사과 2kg",
+            "price": 19500,
+            "platform": "kurly",
+            "rating": 4.5,
+            "review_count": 5000,
+            "delivery_fee": 0,
+            "product_url": "https://example.com/c11",
+            "delivery": "무료배송",
+            "_candidate_id": "B",
+            "final_score": 0.6901,
+            "axis_contributions": {
+              "price": 0.1401,
+              "review": 0.25,
+              "preference": 0.3
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "무료배송",
+                "match_level": "강한부합",
+                "reasoning": "무료배송으로 명시되어 있어 사용자의 정렬 조건에 완전히 부합합니다."
+              }
+            ]
+          },
+          {
+            "product_name": "홍로 사과 3kg",
+            "price": 28000,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 2200,
+            "delivery_fee": 2500,
+            "product_url": "https://example.com/c12",
+            "delivery": "배송비 2,500원",
+            "_candidate_id": "C",
+            "final_score": 0.4,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.4,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "무료배송",
+                "match_level": "배치",
+                "reasoning": "배송비 2,500원이 부과되어 무료배송 조건에 부합하지 않습니다."
+              }
+            ]
+          },
+          {
+            "product_name": "GAP 인증 홍로 사과 1.5kg",
+            "price": 9800,
+            "platform": "naver",
+            "rating": 4.0,
+            "review_count": 300,
+            "delivery_fee": 3000,
+            "product_url": "https://example.com/c10",
+            "delivery": "배송비 3,000원",
+            "_candidate_id": "A",
+            "final_score": 0.3,
+            "axis_contributions": {
+              "price": 0.3,
+              "review": 0.0,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "무료배송",
+                "match_level": "배치",
+                "reasoning": "배송비 3,000원이 부과되어 무료배송 조건에 부합하지 않습니다."
+              }
+            ]
+          }
+        ],
+        "top_product": {
+          "product_name": "아오리 사과 2kg",
+          "price": 19500,
+          "platform": "kurly",
+          "rating": 4.5,
+          "review_count": 5000,
+          "delivery_fee": 0,
+          "product_url": "https://example.com/c11",
+          "delivery": "무료배송",
+          "_candidate_id": "B",
+          "final_score": 0.6901,
+          "axis_contributions": {
+            "price": 0.1401,
+            "review": 0.25,
+            "preference": 0.3
+          },
+          "preference_item_breakdown": [
+            {
+              "preference_item": "무료배송",
+              "match_level": "강한부합",
+              "reasoning": "무료배송으로 명시되어 있어 사용자의 정렬 조건에 완전히 부합합니다."
+            }
+          ]
+        },
+        "tool_call_success": true,
+        "tool_call_error": null,
+        "latency_ms": 9894.388199958485,
+        "ttft_ms": 9894.388199958485,
+        "input_tokens": 2987,
+        "output_tokens": 542,
+        "cost_usd": 0.017091
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.972,
+          "comment": "expected=['아오리 사과 2kg', 'GAP 인증 홍로 사과 1.5kg', '홍로 사과 3kg']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "free_shipping"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 9894.388199958485,
+          "comment": "9894.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 9894.388199958485,
+          "comment": "9894.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2987.0,
+          "comment": "2987 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 542.0,
+          "comment": "542 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.017091,
+          "comment": "$0.017091"
+        }
+      }
+    },
+    {
+      "case_id": "case_9",
+      "input": {
+        "keywords": [
+          "운동화"
+        ],
+        "condition": "인기순",
+        "preference_context": {
+          "summary": "아디다스 러닝화를 선호하며 네이버에서 구매한 이력이 있습니다.",
+          "preferred_brands": [
+            {
+              "brand": "아디다스",
+              "count": 2
+            }
+          ],
+          "price_range": {
+            "avg": 65000,
+            "min": 55000,
+            "max": 75000
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "naver",
+          "keyword_history": [
+            {
+              "product_name": "아디다스 러닝화",
+              "brand": "아디다스",
+              "price": 65000,
+              "platform": "naver"
+            }
+          ],
+          "keyword_summary": "운동화는 아디다스 러닝화를 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "나이키 운동화",
+            "price": 89000,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 5200,
+            "product_url": "https://example.com/c13",
+            "delivery": "2-3일"
+          },
+          {
+            "product_name": "아디다스 러닝화",
+            "price": 65000,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 1800,
+            "product_url": "https://example.com/c14",
+            "delivery": "3-4일"
+          },
+          {
+            "product_name": "뉴발란스 운동화",
+            "price": 79000,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2300,
+            "product_url": "https://example.com/c15",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "나이키 운동화",
+            "price": 89000,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 5200,
+            "product_url": "https://example.com/c13",
+            "delivery": "2-3일"
+          },
+          {
+            "product_name": "아디다스 러닝화",
+            "price": 65000,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 1800,
+            "product_url": "https://example.com/c14",
+            "delivery": "3-4일"
+          },
+          {
+            "product_name": "뉴발란스 운동화",
+            "price": 79000,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2300,
+            "product_url": "https://example.com/c15",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "나이키 운동화",
+          "price": 89000,
+          "platform": "naver",
+          "rating": 4.8,
+          "review_count": 5200,
+          "product_url": "https://example.com/c13",
+          "delivery": "2-3일"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 6937.974400003441,
+        "ttft_ms": 6937.974400003441,
+        "input_tokens": 2974,
+        "output_tokens": 290,
+        "cost_usd": 0.013272
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['나이키 운동화', '아디다스 러닝화', '뉴발란스 운동화']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "review_count_highest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 6937.974400003441,
+          "comment": "6938.0ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 6937.974400003441,
+          "comment": "6938.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2974.0,
+          "comment": "2974 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 290.0,
+          "comment": "290 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.013272,
+          "comment": "$0.013272"
+        }
+      }
+    },
+    {
+      "case_id": "── 제외 키워드 + 선호도 복합 (5) ──",
+      "input": {
+        "keywords": [
+          "두부"
+        ],
+        "exclude_keywords": [
+          "순두부"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "풀무원 두부를 컬리에서 자주 구매합니다.",
+          "preferred_brands": [
+            {
+              "brand": "풀무원",
+              "count": 2
+            }
+          ],
+          "price_range": {
+            "avg": 2500,
+            "min": 2490,
+            "max": 2500
+          },
+          "repurchase_patterns": [
+            "풀무원 국산콩 두부 (부침) 300g"
+          ],
+          "preferred_platform": "kurly",
+          "keyword_history": [
+            {
+              "product_name": "풀무원 국산콩 두부 (부침) 300g",
+              "brand": "풀무원",
+              "price": 2490,
+              "platform": "kurly"
+            }
+          ],
+          "keyword_summary": "두부는 풀무원 국산콩 두부를 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "순두부 350g",
+            "price": 2200,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 2000,
+            "product_url": "https://example.com/e1",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "풀무원 국산콩 두부 300g",
+            "price": 2490,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 1200,
+            "product_url": "https://example.com/e2",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "두부면 100g",
+            "price": 2600,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 1500,
+            "product_url": "https://example.com/e3",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "풀무원 국산콩 두부 300g",
+            "price": 2490,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 1200,
+            "product_url": "https://example.com/e2",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "두부면 100g",
+            "price": 2600,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 1500,
+            "product_url": "https://example.com/e3",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "풀무원 국산콩 두부 300g",
+          "price": 2490,
+          "platform": "kurly",
+          "rating": 4.6,
+          "review_count": 1200,
+          "product_url": "https://example.com/e2",
+          "delivery": "새벽배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 6209.914800012484,
+        "ttft_ms": 6209.914800012484,
+        "input_tokens": 2930,
+        "output_tokens": 286,
+        "cost_usd": 0.01308
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['풀무원 국산콩 두부 300g', '두부면 100g']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 6209.914800012484,
+          "comment": "6209.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 6209.914800012484,
+          "comment": "6209.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2930.0,
+          "comment": "2930 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 286.0,
+          "comment": "286 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.01308,
+          "comment": "$0.013080"
+        }
+      }
+    },
+    {
+      "case_id": "case_11",
+      "input": {
+        "keywords": [
+          "우유"
+        ],
+        "exclude_keywords": [
+          "저지방"
+        ],
+        "condition": "리뷰좋은",
+        "preference_context": {
+          "summary": "서울우유를 쿠팡에서 자주 구매합니다.",
+          "preferred_brands": [
+            {
+              "brand": "서울우유",
+              "count": 3
+            }
+          ],
+          "price_range": {
+            "avg": 2800,
+            "min": 2800,
+            "max": 2800
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "coupang",
+          "keyword_history": [
+            {
+              "product_name": "서울우유 1L",
+              "brand": "서울우유",
+              "price": 2800,
+              "platform": "coupang"
+            }
+          ],
+          "keyword_summary": "우유는 서울우유를 쿠팡에서 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "연세 저지방 우유 1L",
+            "price": 3500,
+            "platform": "kurly",
+            "rating": 4.9,
+            "review_count": 980,
+            "product_url": "https://example.com/e4",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "서울우유 1L",
+            "price": 2800,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 5100,
+            "product_url": "https://example.com/e5",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "매일 ESL 흰우유 900ml",
+            "price": 3200,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 2800,
+            "product_url": "https://example.com/e6",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "서울우유 1L",
+            "price": 2800,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 5100,
+            "product_url": "https://example.com/e5",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "매일 ESL 흰우유 900ml",
+            "price": 3200,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 2800,
+            "product_url": "https://example.com/e6",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "서울우유 1L",
+          "price": 2800,
+          "platform": "coupang",
+          "rating": 4.5,
+          "review_count": 5100,
+          "product_url": "https://example.com/e5",
+          "delivery": "로켓배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 6007.662100018933,
+        "ttft_ms": 6007.662100018933,
+        "input_tokens": 2935,
+        "output_tokens": 256,
+        "cost_usd": 0.012645
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.797,
+          "comment": "expected=['매일 ESL 흰우유 900ml', '서울우유 1L']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 0.0,
+          "comment": "rating_highest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 6007.662100018933,
+          "comment": "6007.7ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 6007.662100018933,
+          "comment": "6007.7ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2935.0,
+          "comment": "2935 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 256.0,
+          "comment": "256 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.012645,
+          "comment": "$0.012645"
+        }
+      }
+    },
+    {
+      "case_id": "case_12",
+      "input": {
+        "keywords": [
+          "딸기"
+        ],
+        "exclude_keywords": [
+          "냉동"
+        ],
+        "condition": "최저가",
+        "preference_context": {},
+        "candidates": [
+          {
+            "product_name": "냉동 딸기 1kg",
+            "price": 6900,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 2200,
+            "product_url": "https://example.com/e7",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "생딸기 500g",
+            "price": 9900,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 900,
+            "product_url": "https://example.com/e8",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "논산 딸기 500g",
+            "price": 10900,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 1100,
+            "product_url": "https://example.com/e9",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "생딸기 500g",
+            "price": 9900,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 900,
+            "product_url": "https://example.com/e8",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "논산 딸기 500g",
+            "price": 10900,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 1100,
+            "product_url": "https://example.com/e9",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "생딸기 500g",
+          "price": 9900,
+          "platform": "kurly",
+          "rating": 4.6,
+          "review_count": 900,
+          "product_url": "https://example.com/e8",
+          "delivery": "새벽배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 5606.377300049644,
+        "ttft_ms": 5606.377300049644,
+        "input_tokens": 2925,
+        "output_tokens": 256,
+        "cost_usd": 0.012615
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['생딸기 500g', '논산 딸기 500g']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "price_lowest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5606.377300049644,
+          "comment": "5606.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5606.377300049644,
+          "comment": "5606.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2925.0,
+          "comment": "2925 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 256.0,
+          "comment": "256 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.012615,
+          "comment": "$0.012615"
+        }
+      }
+    },
+    {
+      "case_id": "case_13",
+      "input": {
+        "keywords": [
+          "운동화"
+        ],
+        "exclude_keywords": [
+          "나이키"
+        ],
+        "condition": "인기순",
+        "preference_context": {
+          "summary": "아디다스 운동화를 선호합니다.",
+          "preferred_brands": [
+            {
+              "brand": "아디다스",
+              "count": 2
+            }
+          ],
+          "price_range": {
+            "avg": 65000,
+            "min": 55000,
+            "max": 75000
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "naver",
+          "keyword_history": [
+            {
+              "product_name": "아디다스 러닝화",
+              "brand": "아디다스",
+              "price": 65000,
+              "platform": "naver"
+            }
+          ],
+          "keyword_summary": "운동화는 아디다스를 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "나이키 운동화",
+            "price": 89000,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 5200,
+            "product_url": "https://example.com/e10",
+            "delivery": "2-3일"
+          },
+          {
+            "product_name": "아디다스 러닝화",
+            "price": 65000,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 1800,
+            "product_url": "https://example.com/e11",
+            "delivery": "3-4일"
+          },
+          {
+            "product_name": "뉴발란스 운동화",
+            "price": 79000,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2300,
+            "product_url": "https://example.com/e12",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "아디다스 러닝화",
+            "price": 65000,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 1800,
+            "product_url": "https://example.com/e11",
+            "delivery": "3-4일"
+          },
+          {
+            "product_name": "뉴발란스 운동화",
+            "price": 79000,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2300,
+            "product_url": "https://example.com/e12",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "아디다스 러닝화",
+          "price": 65000,
+          "platform": "naver",
+          "rating": 4.6,
+          "review_count": 1800,
+          "product_url": "https://example.com/e11",
+          "delivery": "3-4일"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 6568.289599963464,
+        "ttft_ms": 6568.289599963464,
+        "input_tokens": 2929,
+        "output_tokens": 287,
+        "cost_usd": 0.013092
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.797,
+          "comment": "expected=['뉴발란스 운동화', '아디다스 러닝화']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 0.0,
+          "comment": "review_count_highest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 6568.289599963464,
+          "comment": "6568.3ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 6568.289599963464,
+          "comment": "6568.3ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2929.0,
+          "comment": "2929 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 287.0,
+          "comment": "287 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.013092,
+          "comment": "$0.013092"
+        }
+      }
+    },
+    {
+      "case_id": "case_14",
+      "input": {
+        "keywords": [
+          "참기름"
+        ],
+        "exclude_keywords": [
+          "들기름"
+        ],
+        "condition": "최저가",
+        "preference_context": {
+          "summary": "오뚜기 참기름을 쿠팡에서 구매합니다.",
+          "preferred_brands": [
+            {
+              "brand": "오뚜기",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 15900,
+            "min": 15900,
+            "max": 15900
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "coupang",
+          "keyword_history": [
+            {
+              "product_name": "오뚜기 참기름 500ml",
+              "brand": "오뚜기",
+              "price": 15900,
+              "platform": "coupang"
+            }
+          ],
+          "keyword_summary": "참기름은 오뚜기를 쿠팡에서 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "국산 들기름 300ml",
+            "price": 7900,
+            "platform": "naver",
+            "rating": 4.9,
+            "review_count": 2100,
+            "product_url": "https://example.com/e13",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "CJ 참기름 320ml",
+            "price": 11900,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 1203,
+            "product_url": "https://example.com/e14",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "오뚜기 참기름 500ml",
+            "price": 15900,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 892,
+            "product_url": "https://example.com/e15",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "CJ 참기름 320ml",
+            "price": 11900,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 1203,
+            "product_url": "https://example.com/e14",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "오뚜기 참기름 500ml",
+            "price": 15900,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 892,
+            "product_url": "https://example.com/e15",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "CJ 참기름 320ml",
+          "price": 11900,
+          "platform": "coupang",
+          "rating": 4.5,
+          "review_count": 1203,
+          "product_url": "https://example.com/e14",
+          "delivery": "로켓배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 5547.90539998794,
+        "ttft_ms": 5547.90539998794,
+        "input_tokens": 2930,
+        "output_tokens": 276,
+        "cost_usd": 0.01293
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['CJ 참기름 320ml', '오뚜기 참기름 500ml']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "price_lowest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5547.90539998794,
+          "comment": "5547.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5547.90539998794,
+          "comment": "5547.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2930.0,
+          "comment": "2930 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 276.0,
+          "comment": "276 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.01293,
+          "comment": "$0.012930"
+        }
+      }
+    },
+    {
+      "case_id": "── 콜드스타트 + 조건 (5) ──",
+      "input": {
+        "keywords": [
+          "사과"
+        ],
+        "condition": "리뷰좋은",
+        "preference_context": {},
+        "candidates": [
+          {
+            "product_name": "GAP 인증 홍로 사과 1.5kg",
+            "price": 9900,
+            "platform": "naver",
+            "rating": 4.7,
+            "review_count": 2300,
+            "product_url": "https://example.com/s1",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "경북 부사 사과 3kg",
+            "price": 18900,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 1560,
+            "product_url": "https://example.com/s2",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "산지직송 꿀사과 2kg",
+            "price": 14500,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 870,
+            "product_url": "https://example.com/s3",
+            "delivery": "새벽배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "GAP 인증 홍로 사과 1.5kg",
+            "price": 9900,
+            "platform": "naver",
+            "rating": 4.7,
+            "review_count": 2300,
+            "product_url": "https://example.com/s1",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "경북 부사 사과 3kg",
+            "price": 18900,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 1560,
+            "product_url": "https://example.com/s2",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "산지직송 꿀사과 2kg",
+            "price": 14500,
+            "platform": "kurly",
+            "rating": 4.6,
+            "review_count": 870,
+            "product_url": "https://example.com/s3",
+            "delivery": "새벽배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "GAP 인증 홍로 사과 1.5kg",
+          "price": 9900,
+          "platform": "naver",
+          "rating": 4.7,
+          "review_count": 2300,
+          "product_url": "https://example.com/s1",
+          "delivery": "내일 도착"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 5944.893900013994,
+        "ttft_ms": 5944.893900013994,
+        "input_tokens": 2991,
+        "output_tokens": 285,
+        "cost_usd": 0.013248
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.843,
+          "comment": "expected=['경북 부사 사과 3kg', 'GAP 인증 홍로 사과 1.5kg', '산지직송 꿀사과 2kg']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 0.0,
+          "comment": "rating_highest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5944.893900013994,
+          "comment": "5944.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5944.893900013994,
+          "comment": "5944.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2991.0,
+          "comment": "2991 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 285.0,
+          "comment": "285 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.013248,
+          "comment": "$0.013248"
+        }
+      }
+    },
+    {
+      "case_id": "case_16",
+      "input": {
+        "keywords": [
+          "우유"
+        ],
+        "condition": "최저가",
+        "preference_context": {},
+        "candidates": [
+          {
+            "product_name": "서울우유 1L",
+            "price": 2800,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 5100,
+            "product_url": "https://example.com/s4",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "매일 ESL 흰우유 900ml",
+            "price": 3200,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 2800,
+            "product_url": "https://example.com/s5",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "연세 우유 1L",
+            "price": 3500,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 980,
+            "product_url": "https://example.com/s6",
+            "delivery": "새벽배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "서울우유 1L",
+            "price": 2800,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 5100,
+            "product_url": "https://example.com/s4",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "매일 ESL 흰우유 900ml",
+            "price": 3200,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 2800,
+            "product_url": "https://example.com/s5",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "연세 우유 1L",
+            "price": 3500,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 980,
+            "product_url": "https://example.com/s6",
+            "delivery": "새벽배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "서울우유 1L",
+          "price": 2800,
+          "platform": "coupang",
+          "rating": 4.5,
+          "review_count": 5100,
+          "product_url": "https://example.com/s4",
+          "delivery": "로켓배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 5997.395599959418,
+        "ttft_ms": 5997.395599959418,
+        "input_tokens": 2976,
+        "output_tokens": 273,
+        "cost_usd": 0.013023
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['서울우유 1L', '매일 ESL 흰우유 900ml', '연세 우유 1L']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "price_lowest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5997.395599959418,
+          "comment": "5997.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5997.395599959418,
+          "comment": "5997.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2976.0,
+          "comment": "2976 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 273.0,
+          "comment": "273 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.013023,
+          "comment": "$0.013023"
+        }
+      }
+    },
+    {
+      "case_id": "case_17",
+      "input": {
+        "keywords": [
+          "참기름"
+        ],
+        "condition": "무료배송",
+        "preference_context": {},
+        "candidates": [
+          {
+            "product_name": "오뚜기 참기름 500ml",
+            "price": 15900,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 892,
+            "delivery_fee": 0,
+            "product_url": "https://example.com/s7",
+            "delivery": "무료배송"
+          },
+          {
+            "product_name": "CJ 백설 참기름 320ml",
+            "price": 11900,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 1203,
+            "delivery_fee": 2500,
+            "product_url": "https://example.com/s8",
+            "delivery": "배송비 2,500원"
+          },
+          {
+            "product_name": "참들이향 참기름 500ml",
+            "price": 17500,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 540,
+            "delivery_fee": 3000,
+            "product_url": "https://example.com/s9",
+            "delivery": "배송비 3,000원"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "오뚜기 참기름 500ml",
+            "price": 15900,
+            "platform": "coupang",
+            "rating": 4.7,
+            "review_count": 892,
+            "delivery_fee": 0,
+            "product_url": "https://example.com/s7",
+            "delivery": "무료배송",
+            "_candidate_id": "A",
+            "final_score": 0.6167,
+            "axis_contributions": {
+              "price": 0.1,
+              "review": 0.2667,
+              "preference": 0.25
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "무료배송",
+                "match_level": "강한부합",
+                "reasoning": "오뚜기 참기름 500ml은 무료배송으로 사용자가 명시한 정렬 조건에 완전히 부합합니다."
+              }
+            ]
+          },
+          {
+            "product_name": "참들이향 참기름 500ml",
+            "price": 17500,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 540,
+            "delivery_fee": 3000,
+            "product_url": "https://example.com/s9",
+            "delivery": "배송비 3,000원",
+            "_candidate_id": "C",
+            "final_score": 0.4,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.4,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "무료배송",
+                "match_level": "배치",
+                "reasoning": "참들이향 참기름은 배송비 3,000원이 발생하여 사용자가 명시한 무료배송 조건에 배치됩니다."
+              }
+            ]
+          },
+          {
+            "product_name": "CJ 백설 참기름 320ml",
+            "price": 11900,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 1203,
+            "delivery_fee": 2500,
+            "product_url": "https://example.com/s8",
+            "delivery": "배송비 2,500원",
+            "_candidate_id": "B",
+            "final_score": 0.35,
+            "axis_contributions": {
+              "price": 0.35,
+              "review": 0.0,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "무료배송",
+                "match_level": "배치",
+                "reasoning": "CJ 백설 참기름은 배송비 2,500원이 발생하여 사용자가 명시한 무료배송 조건에 배치됩니다."
+              }
+            ]
+          }
+        ],
+        "top_product": {
+          "product_name": "오뚜기 참기름 500ml",
+          "price": 15900,
+          "platform": "coupang",
+          "rating": 4.7,
+          "review_count": 892,
+          "delivery_fee": 0,
+          "product_url": "https://example.com/s7",
+          "delivery": "무료배송",
+          "_candidate_id": "A",
+          "final_score": 0.6167,
+          "axis_contributions": {
+            "price": 0.1,
+            "review": 0.2667,
+            "preference": 0.25
+          },
+          "preference_item_breakdown": [
+            {
+              "preference_item": "무료배송",
+              "match_level": "강한부합",
+              "reasoning": "오뚜기 참기름 500ml은 무료배송으로 사용자가 명시한 정렬 조건에 완전히 부합합니다."
+            }
+          ]
+        },
+        "tool_call_success": true,
+        "tool_call_error": null,
+        "latency_ms": 10495.607299963012,
+        "ttft_ms": 10495.607299963012,
+        "input_tokens": 2987,
+        "output_tokens": 603,
+        "cost_usd": 0.018006
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.972,
+          "comment": "expected=['오뚜기 참기름 500ml', 'CJ 백설 참기름 320ml', '참들이향 참기름 500ml']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "free_shipping"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 10495.607299963012,
+          "comment": "10495.6ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 10495.607299963012,
+          "comment": "10495.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2987.0,
+          "comment": "2987 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 603.0,
+          "comment": "603 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.018006,
+          "comment": "$0.018006"
+        }
+      }
+    },
+    {
+      "case_id": "case_18",
+      "input": {
+        "keywords": [
+          "운동화"
+        ],
+        "condition": "빠른배송",
+        "preference_context": {},
+        "candidates": [
+          {
+            "product_name": "아디다스 슈퍼스타",
+            "price": 89000,
+            "platform": "naver",
+            "rating": 4.5,
+            "review_count": 3201,
+            "product_url": "https://example.com/s10",
+            "delivery": "3일"
+          },
+          {
+            "product_name": "뉴발란스 993 운동화",
+            "price": 119000,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 2870,
+            "product_url": "https://example.com/s11",
+            "delivery": "오늘 도착"
+          },
+          {
+            "product_name": "아식스 젤 카야노 운동화",
+            "price": 159000,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 1430,
+            "product_url": "https://example.com/s12",
+            "delivery": "내일 도착"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "뉴발란스 993 운동화",
+            "price": 119000,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 2870,
+            "product_url": "https://example.com/s11",
+            "delivery": "오늘 도착",
+            "_candidate_id": "B",
+            "final_score": 0.7143,
+            "axis_contributions": {
+              "price": 0.1143,
+              "review": 0.1,
+              "preference": 0.5
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "빠른배송",
+                "match_level": "강한부합",
+                "reasoning": "뉴발란스 993은 오늘 도착으로, 세 후보 중 가장 빠른 배송을 제공합니다. 사용자의 빠른배송 조건에 가장 잘 부합합니다."
+              }
+            ]
+          },
+          {
+            "product_name": "아식스 젤 카야노 운동화",
+            "price": 159000,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 1430,
+            "product_url": "https://example.com/s12",
+            "delivery": "내일 도착",
+            "_candidate_id": "C",
+            "final_score": 0.63,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.3,
+              "preference": 0.33
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "빠른배송",
+                "match_level": "부합",
+                "reasoning": "아식스 젤 카야노는 내일 도착으로, 오늘 도착인 B보다는 느리지만 3일 소요인 A보다는 빠릅니다. 빠른배송 조건에 어느 정도 부합합니다."
+              }
+            ]
+          },
+          {
+            "product_name": "아디다스 슈퍼스타",
+            "price": 89000,
+            "platform": "naver",
+            "rating": 4.5,
+            "review_count": 3201,
+            "product_url": "https://example.com/s10",
+            "delivery": "3일",
+            "_candidate_id": "A",
+            "final_score": 0.2,
+            "axis_contributions": {
+              "price": 0.2,
+              "review": 0.0,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "빠른배송",
+                "match_level": "배치",
+                "reasoning": "아디다스 슈퍼스타는 배송 기간이 3일로, 세 후보 중 가장 느립니다. 사용자가 명시한 빠른배송 조건에 부합하지 않습니다."
+              }
+            ]
+          }
+        ],
+        "top_product": {
+          "product_name": "뉴발란스 993 운동화",
+          "price": 119000,
+          "platform": "coupang",
+          "rating": 4.6,
+          "review_count": 2870,
+          "product_url": "https://example.com/s11",
+          "delivery": "오늘 도착",
+          "_candidate_id": "B",
+          "final_score": 0.7143,
+          "axis_contributions": {
+            "price": 0.1143,
+            "review": 0.1,
+            "preference": 0.5
+          },
+          "preference_item_breakdown": [
+            {
+              "preference_item": "빠른배송",
+              "match_level": "강한부합",
+              "reasoning": "뉴발란스 993은 오늘 도착으로, 세 후보 중 가장 빠른 배송을 제공합니다. 사용자의 빠른배송 조건에 가장 잘 부합합니다."
+            }
+          ]
+        },
+        "tool_call_success": true,
+        "tool_call_error": null,
+        "latency_ms": 11031.229300017003,
+        "ttft_ms": 11031.229300017003,
+        "input_tokens": 2989,
+        "output_tokens": 625,
+        "cost_usd": 0.018342
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 1.0,
+          "comment": "통과"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['뉴발란스 993 운동화', '아식스 젤 카야노 운동화', '아디다스 슈퍼스타']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 1.0,
+          "comment": "delivery_fastest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 11031.229300017003,
+          "comment": "11031.2ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 11031.229300017003,
+          "comment": "11031.2ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2989.0,
+          "comment": "2989 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 625.0,
+          "comment": "625 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.018342,
+          "comment": "$0.018342"
+        }
+      }
+    },
+    {
+      "case_id": "case_19",
+      "input": {
+        "keywords": [
+          "딸기"
+        ],
+        "condition": null,
+        "preference_context": {},
+        "candidates": [
+          {
+            "product_name": "설향 딸기 500g",
+            "price": 12900,
+            "platform": "kurly",
+            "rating": 4.8,
+            "review_count": 1523,
+            "product_url": "https://example.com/s13",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "논산 딸기 500g 특품",
+            "price": 11500,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2104,
+            "product_url": "https://example.com/s14",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "딸기 500g 당일수확",
+            "price": 10900,
+            "platform": "naver",
+            "rating": 4.4,
+            "review_count": 780,
+            "product_url": "https://example.com/s15",
+            "delivery": "내일 도착"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "설향 딸기 500g",
+            "price": 12900,
+            "platform": "kurly",
+            "rating": 4.8,
+            "review_count": 1523,
+            "product_url": "https://example.com/s13",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "논산 딸기 500g 특품",
+            "price": 11500,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2104,
+            "product_url": "https://example.com/s14",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "딸기 500g 당일수확",
+            "price": 10900,
+            "platform": "naver",
+            "rating": 4.4,
+            "review_count": 780,
+            "product_url": "https://example.com/s15",
+            "delivery": "내일 도착"
+          }
+        ],
+        "top_product": {
+          "product_name": "설향 딸기 500g",
+          "price": 12900,
+          "platform": "kurly",
+          "rating": 4.8,
+          "review_count": 1523,
+          "product_url": "https://example.com/s13",
+          "delivery": "새벽배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 5688.676499994472,
+        "ttft_ms": 5688.676499994472,
+        "input_tokens": 2979,
+        "output_tokens": 235,
+        "cost_usd": 0.012462
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['설향 딸기 500g', '논산 딸기 500g 특품', '딸기 500g 당일수확']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5688.676499994472,
+          "comment": "5688.7ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5688.676499994472,
+          "comment": "5688.7ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2979.0,
+          "comment": "2979 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 235.0,
+          "comment": "235 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.012462,
+          "comment": "$0.012462"
+        }
+      }
+    },
+    {
+      "case_id": "── 엣지 케이스 (5) ──",
+      "input": {
+        "keywords": [
+          "달걀"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "동물복지 달걀을 반복 구매해 왔습니다.",
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 5
+            }
+          ],
+          "price_range": {
+            "avg": 4608,
+            "min": 4608,
+            "max": 4608
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "keyword_history": [
+            {
+              "product_name": "[조인] 동물복지 달걀 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly"
+            },
+            {
+              "product_name": "[조인] 동물복지 달걀 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly"
+            },
+            {
+              "product_name": "[조인] 동물복지 달걀 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly"
+            }
+          ],
+          "keyword_summary": "달걀은 항상 동물복지 달걀을 컬리에서 구매해 왔습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "구운 계란 30개",
+            "price": 7900,
+            "platform": "coupang",
+            "rating": 4.9,
+            "review_count": 8500,
+            "product_url": "https://example.com/x1",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "[조인] 동물복지 달걀 10구",
+            "price": 4608,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 1750,
+            "product_url": "https://example.com/x2",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "일반 계란 30개",
+            "price": 3500,
+            "platform": "naver",
+            "rating": 4.2,
+            "review_count": 800,
+            "product_url": "https://example.com/x3",
+            "delivery": "내일 도착"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "구운 계란 30개",
+            "price": 7900,
+            "platform": "coupang",
+            "rating": 4.9,
+            "review_count": 8500,
+            "product_url": "https://example.com/x1",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "[조인] 동물복지 달걀 10구",
+            "price": 4608,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 1750,
+            "product_url": "https://example.com/x2",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "일반 계란 30개",
+            "price": 3500,
+            "platform": "naver",
+            "rating": 4.2,
+            "review_count": 800,
+            "product_url": "https://example.com/x3",
+            "delivery": "내일 도착"
+          }
+        ],
+        "top_product": {
+          "product_name": "구운 계란 30개",
+          "price": 7900,
+          "platform": "coupang",
+          "rating": 4.9,
+          "review_count": 8500,
+          "product_url": "https://example.com/x1",
+          "delivery": "로켓배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 7198.967200005427,
+        "ttft_ms": 7198.967200005427,
+        "input_tokens": 2978,
+        "output_tokens": 338,
+        "cost_usd": 0.014004
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.843,
+          "comment": "expected=['[조인] 동물복지 달걀 10구', '구운 계란 30개', '일반 계란 30개']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 7198.967200005427,
+          "comment": "7199.0ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 7198.967200005427,
+          "comment": "7199.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2978.0,
+          "comment": "2978 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 338.0,
+          "comment": "338 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.014004,
+          "comment": "$0.014004"
+        }
+      }
+    },
+    {
+      "case_id": "case_21",
+      "input": {
+        "keywords": [
+          "우유"
+        ],
+        "condition": null,
+        "preference_context": {
+          "summary": "연세우유를 선호하지만 구매이력은 컬리 3,000~4,000원대 제품입니다.",
+          "preferred_brands": [
+            {
+              "brand": "연세",
+              "count": 3
+            }
+          ],
+          "price_range": {
+            "avg": 3400,
+            "min": 3000,
+            "max": 4200
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "kurly",
+          "keyword_history": [],
+          "keyword_summary": ""
+        },
+        "candidates": [
+          {
+            "product_name": "서울우유 1L",
+            "price": 3200,
+            "platform": "kurly",
+            "rating": 4.5,
+            "review_count": 3100,
+            "product_url": "https://example.com/x4",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "매일 ESL 흰우유 900ml",
+            "price": 3500,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 2800,
+            "product_url": "https://example.com/x5",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "남양 우유 500ml",
+            "price": 1900,
+            "platform": "coupang",
+            "rating": 4.0,
+            "review_count": 500,
+            "product_url": "https://example.com/x6",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "서울우유 1L",
+            "price": 3200,
+            "platform": "kurly",
+            "rating": 4.5,
+            "review_count": 3100,
+            "product_url": "https://example.com/x4",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "매일 ESL 흰우유 900ml",
+            "price": 3500,
+            "platform": "naver",
+            "rating": 4.6,
+            "review_count": 2800,
+            "product_url": "https://example.com/x5",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "남양 우유 500ml",
+            "price": 1900,
+            "platform": "coupang",
+            "rating": 4.0,
+            "review_count": 500,
+            "product_url": "https://example.com/x6",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "서울우유 1L",
+          "price": 3200,
+          "platform": "kurly",
+          "rating": 4.5,
+          "review_count": 3100,
+          "product_url": "https://example.com/x4",
+          "delivery": "새벽배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 6945.824000053108,
+        "ttft_ms": 6945.824000053108,
+        "input_tokens": 2974,
+        "output_tokens": 326,
+        "cost_usd": 0.013812
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['서울우유 1L', '매일 ESL 흰우유 900ml', '남양 우유 500ml']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 6945.824000053108,
+          "comment": "6945.8ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 6945.824000053108,
+          "comment": "6945.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2974.0,
+          "comment": "2974 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 326.0,
+          "comment": "326 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.013812,
+          "comment": "$0.013812"
+        }
+      }
+    },
+    {
+      "case_id": "case_22",
+      "input": {
+        "keywords": [
+          "우유"
+        ],
+        "exclude_keywords": [
+          "저지방",
+          "두유"
+        ],
+        "condition": null,
+        "preference_context": {},
+        "candidates": [
+          {
+            "product_name": "연세 저지방 우유 1L",
+            "price": 3500,
+            "platform": "kurly",
+            "rating": 4.9,
+            "review_count": 980,
+            "product_url": "https://example.com/x7",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "검은콩 두유 190ml 24팩",
+            "price": 12000,
+            "platform": "coupang",
+            "rating": 4.5,
+            "review_count": 2100,
+            "product_url": "https://example.com/x8",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "서울우유 1L",
+            "price": 2800,
+            "platform": "naver",
+            "rating": 4.5,
+            "review_count": 5100,
+            "product_url": "https://example.com/x9",
+            "delivery": "내일 도착"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "서울우유 1L",
+            "price": 2800,
+            "platform": "naver",
+            "rating": 4.5,
+            "review_count": 5100,
+            "product_url": "https://example.com/x9",
+            "delivery": "내일 도착"
+          }
+        ],
+        "top_product": {
+          "product_name": "서울우유 1L",
+          "price": 2800,
+          "platform": "naver",
+          "rating": 4.5,
+          "review_count": 5100,
+          "product_url": "https://example.com/x9",
+          "delivery": "내일 도착"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 7554.365399992093,
+        "ttft_ms": 7554.365399992093,
+        "input_tokens": 2876,
+        "output_tokens": 347,
+        "cost_usd": 0.013833
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 1.0,
+          "comment": "rank=1"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 1.0,
+          "comment": "expected=['서울우유 1L']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": null
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 7554.365399992093,
+          "comment": "7554.4ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 7554.365399992093,
+          "comment": "7554.4ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2876.0,
+          "comment": "2876 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 347.0,
+          "comment": "347 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.013833,
+          "comment": "$0.013833"
+        }
+      }
+    },
+    {
+      "case_id": "case_23",
+      "input": {
+        "keywords": [
+          "딸기"
+        ],
+        "condition": "리뷰좋은",
+        "preference_context": {
+          "summary": "설향 딸기를 쿠팡에서 구매한 이력이 있습니다.",
+          "preferred_brands": [
+            {
+              "brand": "설향",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 9900,
+            "min": 9900,
+            "max": 9900
+          },
+          "repurchase_patterns": [],
+          "preferred_platform": "coupang",
+          "keyword_history": [
+            {
+              "product_name": "설향 딸기 500g",
+              "brand": "설향",
+              "price": 9900,
+              "platform": "coupang"
+            }
+          ],
+          "keyword_summary": "딸기는 설향 딸기를 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "설향 딸기 500g",
+            "price": 9900,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 1523,
+            "product_url": "https://example.com/x10",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "논산 딸기 500g 특품",
+            "price": 11500,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 2104,
+            "product_url": "https://example.com/x11",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "프리미엄 딸기 1kg",
+            "price": 24000,
+            "platform": "kurly",
+            "rating": 4.9,
+            "review_count": 310,
+            "product_url": "https://example.com/x12",
+            "delivery": "새벽배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "설향 딸기 500g",
+            "price": 9900,
+            "platform": "coupang",
+            "rating": 4.6,
+            "review_count": 1523,
+            "product_url": "https://example.com/x10",
+            "delivery": "로켓배송"
+          },
+          {
+            "product_name": "논산 딸기 500g 특품",
+            "price": 11500,
+            "platform": "naver",
+            "rating": 4.8,
+            "review_count": 2104,
+            "product_url": "https://example.com/x11",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "프리미엄 딸기 1kg",
+            "price": 24000,
+            "platform": "kurly",
+            "rating": 4.9,
+            "review_count": 310,
+            "product_url": "https://example.com/x12",
+            "delivery": "새벽배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "설향 딸기 500g",
+          "price": 9900,
+          "platform": "coupang",
+          "rating": 4.6,
+          "review_count": 1523,
+          "product_url": "https://example.com/x10",
+          "delivery": "로켓배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 6553.849300020374,
+        "ttft_ms": 6553.849300020374,
+        "input_tokens": 2985,
+        "output_tokens": 293,
+        "cost_usd": 0.01335
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.843,
+          "comment": "expected=['논산 딸기 500g 특품', '설향 딸기 500g', '프리미엄 딸기 1kg']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 0.0,
+          "comment": "rating_highest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 6553.849300020374,
+          "comment": "6553.8ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 6553.849300020374,
+          "comment": "6553.8ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2985.0,
+          "comment": "2985 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 293.0,
+          "comment": "293 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.01335,
+          "comment": "$0.013350"
+        }
+      }
+    },
+    {
+      "case_id": "case_24",
+      "input": {
+        "keywords": [
+          "계란"
+        ],
+        "condition": "최저가",
+        "preference_context": {
+          "summary": "동물복지 달걀을 컬리 새벽배송으로 주로 구매하며 4,600원대를 선호합니다.",
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 5
+            }
+          ],
+          "price_range": {
+            "avg": 4608,
+            "min": 4608,
+            "max": 4608
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "keyword_history": [
+            {
+              "product_name": "[조인] 동물복지 달걀 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly"
+            }
+          ],
+          "keyword_summary": "달걀은 컬리에서 동물복지 달걀을 구매한 이력이 있습니다."
+        },
+        "candidates": [
+          {
+            "product_name": "[조인] 동물복지 달걀 10구",
+            "price": 4608,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 1750,
+            "product_url": "https://example.com/x13",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "일반 계란 15구",
+            "price": 3500,
+            "platform": "naver",
+            "rating": 4.3,
+            "review_count": 1800,
+            "product_url": "https://example.com/x14",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "구운 계란 20구",
+            "price": 7900,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 5000,
+            "product_url": "https://example.com/x15",
+            "delivery": "로켓배송"
+          }
+        ]
+      },
+      "outputs": {
+        "ranked_products": [
+          {
+            "product_name": "[조인] 동물복지 달걀 10구",
+            "price": 4608,
+            "platform": "kurly",
+            "rating": 4.7,
+            "review_count": 1750,
+            "product_url": "https://example.com/x13",
+            "delivery": "새벽배송"
+          },
+          {
+            "product_name": "일반 계란 15구",
+            "price": 3500,
+            "platform": "naver",
+            "rating": 4.3,
+            "review_count": 1800,
+            "product_url": "https://example.com/x14",
+            "delivery": "내일 도착"
+          },
+          {
+            "product_name": "구운 계란 20구",
+            "price": 7900,
+            "platform": "coupang",
+            "rating": 4.8,
+            "review_count": 5000,
+            "product_url": "https://example.com/x15",
+            "delivery": "로켓배송"
+          }
+        ],
+        "top_product": {
+          "product_name": "[조인] 동물복지 달걀 10구",
+          "price": 4608,
+          "platform": "kurly",
+          "rating": 4.7,
+          "review_count": 1750,
+          "product_url": "https://example.com/x13",
+          "delivery": "새벽배송"
+        },
+        "tool_call_success": false,
+        "tool_call_error": "empty_preference_item_scores",
+        "latency_ms": 5957.11499999743,
+        "ttft_ms": 5957.11499999743,
+        "input_tokens": 2980,
+        "output_tokens": 239,
+        "cost_usd": 0.012525
+      },
+      "scores": {
+        "tool_call_success_rate": {
+          "key": "tool_call_success_rate",
+          "score": 0.0,
+          "comment": "empty_preference_item_scores"
+        },
+        "mrr": {
+          "key": "mrr",
+          "score": 0.5,
+          "comment": "rank=2"
+        },
+        "ndcg_at_3": {
+          "key": "ndcg_at_3",
+          "score": 0.843,
+          "comment": "expected=['일반 계란 15구', '[조인] 동물복지 달걀 10구', '구운 계란 20구']"
+        },
+        "condition_adherence": {
+          "key": "condition_adherence",
+          "score": 0.0,
+          "comment": "price_lowest"
+        },
+        "hallucination_free_rate": {
+          "key": "hallucination_free_rate",
+          "score": null,
+          "comment": "expected_candidate_names 없음"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 5957.11499999743,
+          "comment": "5957.1ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 5957.11499999743,
+          "comment": "5957.1ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2980.0,
+          "comment": "2980 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 239.0,
+          "comment": "239 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.012525,
+          "comment": "$0.012525"
+        }
+      }
+    }
+  ]
+}

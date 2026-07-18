@@ -34,3 +34,9 @@ ddalangoo = "main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not llm_smoke'"
+markers = [
+    "llm_smoke: 실 LLM API를 호출하는 구조화출력 스모크 테스트 (기본 실행에서 제외, `pytest -m llm_smoke`로 수동 실행)",
+]

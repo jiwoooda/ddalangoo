@@ -12,6 +12,7 @@
 import difflib
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import streamlit as st
@@ -348,17 +349,57 @@ def _write_worktree(rel_path: str, content: str) -> None:
     (BASE_DIR / rel_path).write_text(content, encoding="utf-8")
 
 
+def _tab_operational_metrics() -> None:
+    st.caption(
+        "agent_logger가 남긴 .jsonl 로그를 집계합니다. LOG_AGENT_TRACE=true로 "
+        "돌린 세션이 있어야 데이터가 쌓입니다."
+    )
+    sys.path.insert(0, str(BASE_DIR))
+    from scripts.check_fallback_rate import compute_fallback_stats, _DEFAULT_LOG_DIRS
+    from scripts.check_turn_latency import compute_turn_latencies
+
+    st.subheader("Stage4 스코어링 폴백률")
+    fb_stats = compute_fallback_stats(_DEFAULT_LOG_DIRS)
+    if fb_stats["total"] == 0:
+        st.info("scoring_agent 이벤트가 아직 없습니다.")
+    else:
+        col1, col2, col3 = st.columns(3)
+        col1.metric("총 스코어링 호출", fb_stats["total"])
+        col2.metric("폴백 발생", fb_stats["fallback"])
+        col3.metric("폴백률", f"{fb_stats['fallback_rate']*100:.1f}%")
+        if fb_stats["fallback_error_breakdown"]:
+            st.markdown("**폴백 원인별 건수**")
+            rows = [{"원인": err, "건수": n} for err, n in fb_stats["fallback_error_breakdown"].items()]
+            st.dataframe(rows, width='stretch', hide_index=True)
+
+    st.subheader("턴당 총 소요시간 (turn_start → respond)")
+    lat_stats = compute_turn_latencies(_DEFAULT_LOG_DIRS)
+    if lat_stats["n"] == 0:
+        st.info("측정된 턴이 아직 없습니다 (ts 필드가 찍힌 이후 로그부터 집계됩니다).")
+    else:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("평균", f"{lat_stats['mean_ms']:.0f}ms")
+        col2.metric("p50", f"{lat_stats['p50_ms']:.0f}ms")
+        col3.metric("p90", f"{lat_stats['p90_ms']:.0f}ms")
+        col4.metric("최대", f"{lat_stats['max_ms']:.0f}ms")
+        st.caption(f"측정된 턴 수: {lat_stats['n']}")
+
+
 def main() -> None:
     st.set_page_config(page_title="딸랑구 로컬 Eval 대시보드", layout="wide")
     st.title("딸랑구 로컬 프롬프트/성능 비교 대시보드")
     st.caption("LangSmith 없이 evals/runs/*.json + git log 기반")
 
     runs = _load_runs()
-    tab_metrics, tab_history = st.tabs(["지표 비교 (eval run)", "프롬프트 히스토리 (버전 전체보기)"])
+    tab_metrics, tab_history, tab_ops = st.tabs([
+        "지표 비교 (eval run)", "프롬프트 히스토리 (버전 전체보기)", "운영 지표 (폴백률)",
+    ])
     with tab_metrics:
         _tab_metric_comparison(runs)
     with tab_history:
         _tab_prompt_history()
+    with tab_ops:
+        _tab_operational_metrics()
 
 
 if __name__ == "__main__":
