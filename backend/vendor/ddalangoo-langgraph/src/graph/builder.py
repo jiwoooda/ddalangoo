@@ -30,6 +30,7 @@ from src.agents.product_agent import product_agent_node
 from src.agents.response_agent import response_agent_node
 from src.agents.nodes import wait_for_input_node, respond_node, cancel_node, ask_what_to_buy_node
 from src.agents.recipe_agent import recipe_agent_node
+from src.agents.smalltalk_agent import smalltalk_agent_node
 from src.payment.subgraph import payment_agent_node
 
 
@@ -59,6 +60,7 @@ def build_graph(checkpointer=None, store: Optional[BaseStore] = None):
     builder.add_node("product_agent", product_agent_node)
     builder.add_node("response_agent", response_agent_node)
     builder.add_node("recipe_agent", recipe_agent_node)
+    builder.add_node("smalltalk_agent", smalltalk_agent_node)
     builder.add_node("payment_agent", payment_agent_node)
     builder.add_node("respond", respond_node)
     builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
@@ -77,6 +79,7 @@ def build_graph(checkpointer=None, store: Optional[BaseStore] = None):
             "response_agent": "response_agent",
             "recipe_agent": "recipe_agent",
             "payment_agent": "payment_agent",
+            "smalltalk_agent": "smalltalk_agent",
             "ask_what_to_buy": "ask_what_to_buy",
             "respond": "respond",
             "cancel": "cancel",
@@ -121,6 +124,7 @@ def build_graph(checkpointer=None, store: Optional[BaseStore] = None):
         {"context_agent": "context_agent", "recipe_agent": "recipe_agent", "respond": "respond"},
     )
     builder.add_edge("cancel", "respond")
+    builder.add_edge("smalltalk_agent", "respond")
 
     builder.add_conditional_edges(
         "respond",
