@@ -5,6 +5,7 @@ Context Agent Node.
   [Context Loading]  buy/refine/compare_platforms → 사용자 프로필/구매이력/선호 조회
   [Post-Payment]     stage == "completed" → 구매이력 저장 + 선호도 캐시 무효화 + 대화 요약
 """
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Optional
 from langgraph.store.base import BaseStore
@@ -467,12 +468,17 @@ def build_preference_context(
     }
 
 
-def get_recommendation_context(
+def _build_local_recommendation_context(
     user_id: str,
     keywords: list[str],
-    intent: Optional[str] = None,
-    messages: Optional[list] = None,
+    intent: Optional[str],
 ) -> dict[str, Any]:
+    """
+    get_recommendation_context 중 build_preference_context(Stage0, LLM콜 있음)와
+    무관한 부분만 떼어낸 것 — user_profile/구매이력/벡터검색은 서로만 의존하고
+    preference_context 쪽 결과를 전혀 안 쓴다. 아래 get_recommendation_context가
+    이 함수와 build_preference_context를 스레드로 동시에 돌린다.
+    """
     user_profile = _fetch_user_from_db(user_id) or {}
     default_address = _fetch_default_address_for_context(user_id)
     preference_memory = mock_get_preference_memory(user_id)
@@ -506,8 +512,6 @@ def get_recommendation_context(
         intent=intent,
     )
 
-    preference_context = build_preference_context(user_id, keywords, messages)
-
     return {
         "user_profile": {
             "user_id": user_id,
@@ -522,6 +526,29 @@ def get_recommendation_context(
         "personal_vector_results": personal_vector_results,
         "collective_vector_results": collective_vector_results,
         "merged_context": merged_context,
+    }
+
+
+def get_recommendation_context(
+    user_id: str,
+    keywords: list[str],
+    intent: Optional[str] = None,
+    messages: Optional[list] = None,
+) -> dict[str, Any]:
+    # _build_local_recommendation_context(DB/mock 조회 위주, 빠름)와
+    # build_preference_context(Stage0 LLM콜 포함, 느림)는 서로 결과를
+    # 안 쓰는 독립 브랜치라 스레드로 동시에 돌린다 — LLM 콜이 훨씬 오래
+    # 걸리므로 로컬 브랜치의 지연시간은 사실상 겹쳐서 사라진다.
+    # (안전정보 동기화→분류 순서 의존성은 build_preference_context 내부에서
+    # 이미 순차로 지켜지고 있고, 이 병렬화와는 무관하다.)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        local_future = executor.submit(_build_local_recommendation_context, user_id, keywords, intent)
+        preference_future = executor.submit(build_preference_context, user_id, keywords, messages)
+        local_context = local_future.result()
+        preference_context = preference_future.result()
+
+    return {
+        **local_context,
         "preference_context": preference_context,
     }
 
