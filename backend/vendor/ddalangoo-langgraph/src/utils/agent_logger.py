@@ -7,6 +7,7 @@ logs/<session_id>_<timestamp>.jsonl: 분석용 구조화 데이터
 """
 import json
 import os
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,11 @@ class AgentLogger:
         self._txt_path: Path | None = None
         self._jsonl_path: Path | None = None
         self._turn: int = 0
+        # context_agent가 로컬 컨텍스트 조회와 build_preference_context를
+        # 스레드로 동시에 돌리면서 두 브랜치가 같은 로그 파일에 동시에
+        # append할 수 있게 됐다 — 파일 쓰기가 끼어들어(interleave) 줄이
+        # 깨지지 않도록 write 구간만 락으로 보호한다.
+        self._write_lock = threading.Lock()
 
     def start_session(self, session_id: str, log_dir: str = "logs", console: bool = False) -> None:
         env_on = os.getenv("LOG_AGENT_TRACE", "").lower() in ("1", "true", "yes")
@@ -332,7 +338,7 @@ class AgentLogger:
 
     def _append_txt(self, text: str) -> None:
         if self._txt_path:
-            with self._txt_path.open("a", encoding="utf-8") as f:
+            with self._write_lock, self._txt_path.open("a", encoding="utf-8") as f:
                 f.write(text)
         if self._console:
             print(text, end="", flush=True)
@@ -341,7 +347,7 @@ class AgentLogger:
         if self._jsonl_path:
             # 이벤트마다 타임스탬프를 찍어둬야 turn_start~respond 사이 소요시간을
             # 나중에 scripts/check_turn_latency.py가 역산할 수 있다.
-            with self._jsonl_path.open("a", encoding="utf-8") as f:
+            with self._write_lock, self._jsonl_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps({"ts": datetime.now().isoformat(), **data}, ensure_ascii=False) + "\n")
 
     @property
