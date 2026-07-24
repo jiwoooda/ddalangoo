@@ -7,6 +7,7 @@ import com.ddalangoo.ddalangoo.accessibility.DdalangooAccessibilityService
 import com.ddalangoo.ddalangoo.accessibility.AutomationTask
 import com.ddalangoo.ddalangoo.accessibility.AutomationTaskStore
 import com.ddalangoo.ddalangoo.accessibility.PurchaseHistoryExtractionStore
+import com.ddalangoo.ddalangoo.accessibility.SearchInspectionStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -27,6 +28,8 @@ class MainActivity : FlutterActivity() {
                         taskType = call.argument<String>(AutomationContract.Argument.TASK_TYPE)
                             ?: AutomationContract.TaskType.SEARCH_AND_ADD_TO_CART,
                         targetProductName = call.argument<String>(AutomationContract.Argument.TARGET_PRODUCT_NAME).orEmpty(),
+                        searchKeyword = call.argument<String>(AutomationContract.Argument.SEARCH_KEYWORD).orEmpty(),
+                        optionName = call.argument<String>(AutomationContract.Argument.OPTION_NAME).orEmpty(),
                         quantity = call.argument<Int>(AutomationContract.Argument.QUANTITY) ?: 1,
                         platform = call.argument<String>(AutomationContract.Argument.PLATFORM)
                             ?: AutomationContract.Platform.UNKNOWN,
@@ -62,8 +65,17 @@ class MainActivity : FlutterActivity() {
                     result.success(PurchaseHistoryExtractionStore.accumulatedCandidatesJson())
                 }
 
+                AutomationContract.Method.GET_SEARCH_INSPECTION_RESULT -> {
+                    result.success(SearchInspectionStore.resultJson())
+                }
+
                 AutomationContract.Method.CLEAR_PURCHASE_HISTORY_RESULT -> {
                     PurchaseHistoryExtractionStore.clear()
+                    result.success(true)
+                }
+
+                AutomationContract.Method.CLEAR_SEARCH_INSPECTION_RESULT -> {
+                    SearchInspectionStore.clear()
                     result.success(true)
                 }
 
@@ -92,6 +104,8 @@ class MainActivity : FlutterActivity() {
 
     private fun shouldLaunchPackageForTask(task: AutomationTask): Boolean {
         return task.currentStep == AutomationContract.Step.OPEN_MY_KURLY ||
-            task.currentStep == AutomationContract.Step.OPEN_MY_COUPANG
+            task.currentStep == AutomationContract.Step.OPEN_MY_COUPANG ||
+            task.currentStep == AutomationContract.Step.OPEN_SEARCH ||
+            task.taskType == AutomationContract.TaskType.INSPECT_SEARCH_FLOW
     }
 }

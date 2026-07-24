@@ -17,8 +17,15 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
     'serviceConnected',
     'lastPackageName',
     'lastStep',
+    'taskCompleted',
+    'purchaseHistoryFinishHandled',
+    'searchKeyword',
+    'targetProductName',
+    'optionName',
+    'lastScreenType',
     'lastTrigger',
     'currentRetryCount',
+    'currentRecoveryCount',
     'rawNodeCount',
     'filteredNodeCount',
     'lastActionType',
@@ -31,6 +38,16 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
     'lastMessage',
     'latestPurchaseHistoryCount',
     'accumulatedPurchaseHistoryCount',
+    'searchEntryCandidateCount',
+    'searchInputCandidateCount',
+    'rawProductNodeCandidateCount',
+    'productCandidateCount',
+    'accumulatedProductCandidateCount',
+    'searchResultDumpCount',
+    'searchInspectionPreview',
+    'aiFallbackSuggested',
+    'fallbackType',
+    'fallbackReasonCode',
   ];
 
   final AccessibilityAutomationService _automationService =
@@ -38,6 +55,7 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
 
   Map<String, dynamic>? _status;
   String _purchaseHistoryJson = '';
+  String _searchInspectionJson = '';
   List<AccessibilityPurchaseHistoryItem> _purchaseHistoryItems = const [];
   String? _errorMessage;
   bool _isBusy = false;
@@ -64,6 +82,48 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
   Future<void> _setKurlyPurchaseHistoryTask() {
     return _runChannelAction(() async {
       await _automationService.startKurlyPurchaseHistoryExtraction();
+      await _readStatus();
+    });
+  }
+
+  Future<void> _setKurlySearchEntryInspectionTask() {
+    return _runChannelAction(() async {
+      await _automationService.startKurlySearchEntryInspection();
+      await _readStatus();
+    });
+  }
+
+  Future<void> _setKurlySearchInputInspectionTask() {
+    return _runChannelAction(() async {
+      await _automationService.startKurlySearchInputInspection();
+      await _readStatus();
+    });
+  }
+
+  Future<void> _setKurlySearchResultsInspectionTask() {
+    return _runChannelAction(() async {
+      await _automationService.startKurlySearchResultsInspection();
+      await _readStatus();
+    });
+  }
+
+  Future<void> _setKurlySearchResultCollectionTask() {
+    return _runChannelAction(() async {
+      await _automationService.startKurlySearchResultCollection();
+      await _readStatus();
+    });
+  }
+
+  Future<void> _setKurlyMangoTargetSearchTask() {
+    return _runChannelAction(() async {
+      await _automationService.startKurlyMangoTargetSearchTest();
+      await _readStatus();
+    });
+  }
+
+  Future<void> _setKurlyEtudeOptionAddToCartTask() {
+    return _runChannelAction(() async {
+      await _automationService.startKurlyEtudeOptionAddToCartTest();
       await _readStatus();
     });
   }
@@ -98,6 +158,16 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
     });
   }
 
+  Future<void> _loadSearchInspectionResult() {
+    return _runChannelAction(() async {
+      final result = await _automationService.getSearchInspectionResult();
+      if (!mounted) return;
+      setState(() {
+        _searchInspectionJson = _prettyJson(result);
+      });
+    });
+  }
+
   Future<void> _clearPurchaseHistoryResult() {
     return _runChannelAction(() async {
       await _automationService.clearPurchaseHistoryResult();
@@ -106,6 +176,15 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
         _purchaseHistoryJson = '';
         _purchaseHistoryItems = const [];
       });
+      await _readStatus();
+    });
+  }
+
+  Future<void> _clearSearchInspectionResult() {
+    return _runChannelAction(() async {
+      await _automationService.clearSearchInspectionResult();
+      if (!mounted) return;
+      setState(() => _searchInspectionJson = '');
       await _readStatus();
     });
   }
@@ -197,6 +276,48 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
           const SizedBox(height: 8),
           OutlinedButton.icon(
             style: buttonStyle,
+            onPressed: _isBusy ? null : _setKurlySearchEntryInspectionTask,
+            icon: const Icon(Icons.search, size: 20),
+            label: const Text('마켓컬리 검색 진입 node dump'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            style: buttonStyle,
+            onPressed: _isBusy ? null : _setKurlySearchInputInspectionTask,
+            icon: const Icon(Icons.edit, size: 20),
+            label: const Text('마켓컬리 검색 입력 화면 dump'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            style: buttonStyle,
+            onPressed: _isBusy ? null : _setKurlySearchResultsInspectionTask,
+            icon: const Icon(Icons.inventory_2_outlined, size: 20),
+            label: const Text('마켓컬리 검색 결과 node dump'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            style: buttonStyle,
+            onPressed: _isBusy ? null : _setKurlySearchResultCollectionTask,
+            icon: const Icon(Icons.manage_search, size: 20),
+            label: const Text('마켓컬리 검색 결과 수집 task 시작'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            style: buttonStyle,
+            onPressed: _isBusy ? null : _setKurlyMangoTargetSearchTask,
+            icon: const Icon(Icons.travel_explore, size: 20),
+            label: const Text('망고 검색 후 목표 골드망고 찾기'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            style: buttonStyle,
+            onPressed: _isBusy ? null : _setKurlyEtudeOptionAddToCartTask,
+            icon: const Icon(Icons.add_shopping_cart, size: 20),
+            label: const Text('에뛰드 옵션 상품 장바구니 담기'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            style: buttonStyle,
             onPressed: _isBusy ? null : _refreshStatus,
             icon: const Icon(Icons.refresh, size: 20),
             label: const Text('Automation status 조회'),
@@ -209,6 +330,13 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
             label: const Text('누적 구매이력 JSON 조회'),
           ),
           const SizedBox(height: 8),
+          OutlinedButton.icon(
+            style: buttonStyle,
+            onPressed: _isBusy ? null : _loadSearchInspectionResult,
+            icon: const Icon(Icons.account_tree_outlined, size: 20),
+            label: const Text('검색 inspection JSON 조회'),
+          ),
+          const SizedBox(height: 8),
           TextButton.icon(
             onPressed: _isBusy ? null : _clearTask,
             icon: const Icon(Icons.clear, size: 20),
@@ -218,6 +346,11 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
             onPressed: _isBusy ? null : _clearPurchaseHistoryResult,
             icon: const Icon(Icons.delete_sweep_outlined, size: 20),
             label: const Text('누적 구매이력 clear'),
+          ),
+          TextButton.icon(
+            onPressed: _isBusy ? null : _clearSearchInspectionResult,
+            icon: const Icon(Icons.cleaning_services_outlined, size: 20),
+            label: const Text('검색 inspection clear'),
           ),
           if (_errorMessage != null) ...[
             const SizedBox(height: 8),
@@ -234,6 +367,13 @@ class _AccessibilityDebugPanelState extends State<AccessibilityDebugPanel> {
             text: _purchaseHistoryJson.isEmpty
                 ? '아직 조회된 JSON이 없습니다.'
                 : _purchaseHistoryJson,
+          ),
+          const SizedBox(height: 10),
+          _DebugTextBlock(
+            title: 'Search Inspection',
+            text: _searchInspectionJson.isEmpty
+                ? '아직 조회된 검색 inspection JSON이 없습니다.'
+                : _searchInspectionJson,
           ),
           const SizedBox(height: 10),
           _DebugTextBlock(

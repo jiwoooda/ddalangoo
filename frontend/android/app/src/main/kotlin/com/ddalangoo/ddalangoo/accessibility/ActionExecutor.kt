@@ -31,12 +31,19 @@ class ActionExecutor(private val service: AccessibilityService) {
         return when (actionPlan.actionType) {
             AutomationActionType.CLICK.value -> executeClick(targetNode)
             AutomationActionType.INPUT_TEXT.value -> executeInputText(targetNode, actionPlan.textToInput.orEmpty())
+            AutomationActionType.PRESS_KEYBOARD_SEARCH.value -> executeKeyboardSearch()
             AutomationActionType.SCROLL.value -> executeScroll(targetNode)
             AutomationActionType.DUMP_PURCHASE_HISTORY.value -> ActionResult(
                 success = true,
                 method = ActionExecutionMethod.NONE.value,
                 errorCode = null,
                 message = "Purchase history candidates dumped"
+            )
+            AutomationActionType.DUMP_SEARCH_RESULTS.value -> ActionResult(
+                success = true,
+                method = ActionExecutionMethod.NONE.value,
+                errorCode = null,
+                message = "Search result candidates dumped"
             )
             AutomationActionType.STOP_FOR_SENSITIVE_SCREEN.value -> ActionResult(
                 success = false,
@@ -181,6 +188,33 @@ class ActionExecutor(private val service: AccessibilityService) {
                 method = ActionExecutionMethod.DISPATCH_GESTURE.value,
                 errorCode = "SCROLL_FAILED",
                 message = "Failed to dispatch fallback swipe up"
+            )
+        }
+    }
+
+    private fun executeKeyboardSearch(): ActionResult {
+        val displayMetrics = service.resources.displayMetrics
+        val tapPath = Path().apply {
+            moveTo(displayMetrics.widthPixels * 0.92f, displayMetrics.heightPixels * 0.88f)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(tapPath, 0L, 80L))
+            .build()
+
+        val dispatched = service.dispatchGesture(gesture, null, null)
+        return if (dispatched) {
+            ActionResult(
+                success = true,
+                method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                errorCode = null,
+                message = "Dispatched keyboard search tap"
+            )
+        } else {
+            ActionResult(
+                success = false,
+                method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                errorCode = "KEYBOARD_SEARCH_FAILED",
+                message = "Failed to dispatch keyboard search tap"
             )
         }
     }

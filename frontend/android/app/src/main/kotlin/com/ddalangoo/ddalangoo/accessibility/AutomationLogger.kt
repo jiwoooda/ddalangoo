@@ -76,6 +76,42 @@ object AutomationLogger {
         }
     }
 
+    fun searchInspectionDump(
+        packageName: String?,
+        snapshot: SearchInspectionSnapshot
+    ) {
+        info(
+            "search_inspection_dump packageName=${packageName.orEmpty()} step=${snapshot.step} " +
+                "rawNodeCount=${snapshot.rawNodeCount} filteredNodeCount=${snapshot.filteredNodeCount} " +
+                "candidateCount=${snapshot.candidates.size} " +
+                "aiFallbackSuggested=${snapshot.aiFallbackSuggested} " +
+                "fallbackReasonCode=${snapshot.fallbackReasonCode.orEmpty()}"
+        )
+        snapshot.candidates.forEach { candidate ->
+            info(
+                "search_inspection_candidate nodeId=${candidate.nodeId} " +
+                    "text=${candidate.previewText()} className=${candidate.className} " +
+                    "clickable=${candidate.clickable} editable=${candidate.editable} " +
+                    "focusable=${candidate.focusable} price=${candidate.hasPricePattern} " +
+                    "unit=${candidate.hasUnitPattern} addToCart=${candidate.hasAddToCartKeyword} " +
+                    "bounds=${candidate.boundsLeft},${candidate.boundsTop}," +
+                    "${candidate.boundsRight},${candidate.boundsBottom} " +
+                    "centerX=${candidate.centerX} centerY=${candidate.centerY}"
+            )
+        }
+        snapshot.productCandidates.forEach { candidate ->
+            info(
+                "product_candidate productName=${candidate.productName.orEmpty()} " +
+                    "price=${candidate.price ?: ""} " +
+                    "productNameNodeId=${candidate.productNameNodeId ?: ""} " +
+                    "priceNodeId=${candidate.priceNodeId ?: ""} " +
+                    "addToCartNodeId=${candidate.addToCartNodeId ?: ""} " +
+                    "confidence=${candidate.confidence} reasonCode=${candidate.reasonCode} " +
+                    "section=${candidate.section.orEmpty()} rawTexts=${candidate.rawTexts.joinToString("|")}"
+            )
+        }
+    }
+
     fun parsedPurchaseHistory(
         platform: String?,
         packageName: String?,
