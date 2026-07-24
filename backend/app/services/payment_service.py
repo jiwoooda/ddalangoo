@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -342,7 +342,7 @@ async def handle_webview_result_db(
             {
                 "status": "order_completed",
                 "stage": "completed",
-                "ended_at": datetime.now(UTC),
+                "ended_at": datetime.now(timezone.utc),
             },
         )
         await agent_event_repository.create_agent_event_db(
@@ -398,7 +398,7 @@ async def handle_webview_result_db(
             {
                 "status": "payment_button_attempted",
                 "stage": "completed",
-                "ended_at": datetime.now(UTC),
+                "ended_at": datetime.now(timezone.utc),
             },
         )
         await agent_event_repository.create_agent_event_db(
@@ -689,7 +689,7 @@ async def handle_webview_result_db(
             {
                 "status": "cancelled",
                 "stage": "cancelled",
-                "ended_at": datetime.now(UTC),
+                "ended_at": datetime.now(timezone.utc),
             },
         )
         await agent_event_repository.create_agent_event_db(
@@ -744,7 +744,7 @@ async def handle_webview_result_db(
         {
             "status": "failed",
             "stage": "failed",
-            "ended_at": datetime.now(UTC),
+            "ended_at": datetime.now(timezone.utc),
         },
     )
     await agent_event_repository.create_agent_event_db(
