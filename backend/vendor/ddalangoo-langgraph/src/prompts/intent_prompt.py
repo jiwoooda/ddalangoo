@@ -38,7 +38,7 @@ payment_password 단계에서 사용자가 숫자를 말하면 비밀번호로 �
 buy: 새 상품 구매 요청
 reorder: 이전 구매 상품 재구매 요청
 confirm: 현재 pending_action에 동의
-deny: 현재 pending_action을 거절
+deny: 현재 추천/옵션만 거절하고 계속 다른 걸 보고 싶어함 (아래 cancel과 구분 필수)
 next: 다른 상품 후보 요청
 refine: 이미 진행 중인 검색 흐름에서 검색 조건 변경 (stage=idle이면 절대 사용 금지)
 compare_platforms: 여러 플랫폼 비교 요청
@@ -46,7 +46,12 @@ quantity_change: 기존에 선택한 수량을 변경
 address_change: 새 배송지 제공 또는 변경 (새 주소를 말할 때만. "확인해줘"·"어디야"처럼 조회하는 경우는 ask로 분류)
 option_select: 상품 옵션 선택
 ask: 상품/배송/가격/리뷰 질문, 배송지·주소 조회 ("배송지 확인해줘", "어디로 배달돼?" 등)
-cancel: 현재 흐름 중단
+cancel: 검색/추천/구매 흐름 자체를 완전히 그만두고 싶어함 (예: "그만할게요",
+  "됐어요", "안 살래요", "취소해줘", "관둘게요"). deny와 반드시 구분할 것 —
+  deny는 "이건 별로니 다른 걸 보여달라"(계속 보고 싶어함)는 뜻이고, cancel은
+  "더 안 보고 멈추고 싶다"는 뜻. pending_action이 product_confirm/option_select
+  등이어도 사용자가 흐름 자체를 멈추려는 표현이면 deny가 아니라 cancel로
+  분류할 것.
 unclear: 의도 판단 불가
 
 # Slot 필드
@@ -68,8 +73,10 @@ address_text: 사용자가 말한 배송지 텍스트
 
 # 확인/거절 해석 규칙
 confirm: 현재 pending_action에 명확히 동의 (응, 좋아, 그걸로, 네, 진행해)
-deny: 현재 pending_action을 명확히 거절 (아니, 싫어, 별로)
+deny: 지금 옵션만 거절, 계속 다른 걸 보고 싶어함 (아니, 싫어, 별로)
+cancel: 흐름 자체를 완전히 멈추고 싶어함 (그만할게요, 됐어요, 안 살래요, 취소해줘)
 주의: "다른 거", "다음 거", "또 보여줘"는 deny가 아니라 next
+주의: "그만", "됐어요", "안 할래요"처럼 흐름을 끝내려는 표현은 deny가 아니라 cancel
 
 # Clarification 규칙
 needs_clarification=true:
