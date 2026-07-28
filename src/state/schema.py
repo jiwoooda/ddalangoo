@@ -31,7 +31,6 @@ Intent = Literal[
     "ask",
     "cancel",
     "unclear",
-    "smalltalk",
 ]
 
 Condition = Literal[
@@ -51,7 +50,6 @@ PendingActionType = Literal[
     "address_confirm",
     "address_required",
     "price_change_confirm",
-    "quantity_confirm",
     "continue_shopping",
     "what_to_buy",
     "no_more_products",
@@ -59,6 +57,7 @@ PendingActionType = Literal[
     "ingredient_confirm",
     "payment_method_confirm",
     "payment_password",
+    "payment_retry_confirm",
 ]
 
 class PendingAction(TypedDict, total=False):
@@ -80,6 +79,16 @@ class ShoppingState(TypedDict):
     intent: Optional[Intent]
     last_agent: Optional[str]
     error: Optional[str]
+
+    # ── 실패 관측성(이번 턴 결과 요약) ── attempt_count/fallback_path처럼
+    # 노드·시도 횟수에 종속적인 값은 여기 넣지 않는다 — JSONL 로그와
+    # runtime.execution_info.node_attempt로만 추적한다(docs/resilience_plan.md
+    # Phase 2 참고). 매 턴 시작 시 reset_turn_observability_node가 초기화한다.
+    degraded_mode: bool
+    degradation_reason: Optional[str]
+    failure_stage: Optional[str]  # "intent_llm" | "scoring_llm" | "search" | ...
+    ranking_mode: Optional[str]  # "llm" | "baseline"
+    source_used: Optional[str]  # "remote_mcp" | "local_mcp" | "naver_api" | "kurly_url_fallback"
 
     # ── Intent Agent 출력 ──
     confidence: Optional[float]
@@ -118,6 +127,9 @@ class ShoppingState(TypedDict):
     order: Optional[dict[str, Any]]
     payment: Optional[dict[str, Any]]
     checkout_session: Optional[dict[str, Any]]
+    # 결제 플로우 진입 시 1회 생성, 이후 턴에서 재사용 — mock_place_order가
+    # 동일 키+동일 요청 해시면 기존 주문을 반환하도록 중복 생성을 막는다.
+    payment_idempotency_key: Optional[str]
 
     # ── 세션 식별자 ──
     session_id: str
@@ -146,65 +158,14 @@ class ShoppingState(TypedDict):
     conversation_summary: Optional[str]
     order_id: Optional[str]
 
-# ══════════════════════════════════════════════
-# 2. PaymentState
-# ══════════════════════════════════════════════
-
-PaymentStage = Literal[
-    "idle",
-    "validate_input",
-    "open_product_page",
-    "option_selecting",
-    "option_confirming",
-    "cart",
-    "address_confirming",
-    "payment_precheck",
-    "payment_password_required",
-    "processing",
-    "success",
-    "failed",
-]
-
-PaymentStatus = Literal[
-    "pending",
-    "pending_user_action",
-    "processing",
-    "success",
-    "failed",
-]
-
-class PaymentState(TypedDict):
-    user_id: str
-    conversation_id: Optional[int]
-
-    selected_product: dict[str, Any]
-    product_url: str
-    quantity: int
-    selected_platform: Optional[str]
-
-    available_options: list[dict[str, Any]]
-    current_option_index: int
-    current_option_key: Optional[str]
-    current_option_value: Optional[str]
-    selected_options: dict[str, Any]
-
-    delivery_address: Optional[dict[str, Any]]
-    address_confirmed: bool
-
-    playwright_session: Optional[str]
-    checkout_session_id: Optional[str]
-    order_id: Optional[str]
-
-    payment_stage: PaymentStage
-    payment_status: PaymentStatus
-    payment_step: Optional[str]
-    payment_retry: int
-    payment_error: Optional[str]
-
-    pending_action: Optional[dict[str, Any]]
+    # ── 스몰토크 온보딩 이벤트 타이머 ── 온보딩 1턴째(smalltalk_agent)에
+    # 찍고, 이후 턴마다 경과 시간을 재서 너무 길어지면(_MAX_ONBOARDING_MINUTES)
+    # 강제 종료하는 안전장치용. 온보딩이 끝나면(onboarded_at 기록) 더 이상
+    # 쓰이지 않는다.
+    onboarding_started_at: Optional[str]
 
 # ══════════════════════════════════════════════
-# 3. MemoryState
+# 2. MemoryState
 # ══════════════════════════════════════════════
 
 class MemoryState(TypedDict):
@@ -223,68 +184,6 @@ def bridge_memory_to_shopping(memory: MemoryState) -> dict:
     return {"last_agent": "memory_agent"}
 
 
-def bridge_shopping_to_payment(
-    state: ShoppingState,
-    delivery_address: Optional[dict[str, Any]] = None,
-) -> PaymentState:
-    selected_product = state.get("selected_product") or {}
-    product_url = (
-        state.get("product_url")
-        or selected_product.get("product_url")
-        or selected_product.get("url")
-        or ""
-    )
-
-    return {
-        "user_id": state["user_id"],
-        "conversation_id": state.get("conversation_id"),
-        "selected_product": selected_product,
-        "product_url": product_url,
-        "quantity": state.get("quantity") or 1,
-        "selected_platform": state.get("selected_platform"),
-        "available_options": [],
-        "current_option_index": 0,
-        "current_option_key": None,
-        "current_option_value": None,
-        "selected_options": {},
-        "delivery_address": delivery_address,
-        "address_confirmed": False,
-        "playwright_session": None,
-        "checkout_session_id": None,
-        "order_id": None,
-        "payment_stage": "validate_input",
-        "payment_status": "pending",
-        "payment_step": None,
-        "payment_retry": 0,
-        "payment_error": None,
-        "pending_action": None,
-    }
-
-
-def bridge_payment_to_shopping(payment: PaymentState) -> dict:
-    if payment["payment_status"] == "success":
-        return {
-            "stage": "completed",
-            "error": None,
-            "last_agent": "payment_agent",
-            "pending_action": payment.get("pending_action"),
-        }
-
-    if payment["payment_status"] == "failed":
-        return {
-            "stage": "failed",
-            "error": payment.get("payment_error"),
-            "last_agent": "payment_agent",
-        }
-
-    return {
-        "stage": "payment_processing",
-        "error": payment.get("payment_error"),
-        "last_agent": "payment_agent",
-        "pending_action": payment.get("pending_action"),
-    }
-
-
 def get_default_shopping_state(user_id: str, session_id: str) -> dict:
     return {
         "messages": [],
@@ -292,6 +191,11 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "intent": None,
         "last_agent": None,
         "error": None,
+        "degraded_mode": False,
+        "degradation_reason": None,
+        "failure_stage": None,
+        "ranking_mode": None,
+        "source_used": None,
         "confidence": None,
         "immediate_response": None,
         "needs_clarification": False,
@@ -335,4 +239,6 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "order": None,
         "payment": None,
         "checkout_session": None,
+        "payment_idempotency_key": None,
+        "onboarding_started_at": None,
     }

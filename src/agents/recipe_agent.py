@@ -13,8 +13,10 @@ from langchain_core.messages import HumanMessage
 
 from configs.llm_config import get_llm
 from src.state.schema import ShoppingState
+from src.state.node_inputs import RecipeAgentInput, RecipeAgentUpdate
 from src.prompts.recipe_prompt import RECIPE_GENERATE_PROMPT
 from src.utils.agent_logger import agent_logger
+from src.utils.retry import classify_failure, retry_call
 
 
 class RecipeItem(BaseModel):
@@ -34,7 +36,9 @@ _structured_llm = None
 def _get_llm():
     global _llm, _structured_llm
     if _llm is None:
-        _llm = get_llm("recipe", temperature=0.2)
+        # retry_owner="application": _generate_items가 retry_call()로 이 호출을
+        # 감싸므로 SDK 자체 재시도는 꺼서 중첩 재시도를 막는다.
+        _llm = get_llm("recipe", temperature=0.2, retry_owner="application")
         _structured_llm = _llm.with_structured_output(RecipeOutput)
     return _structured_llm
 
@@ -56,10 +60,13 @@ def _generate_items(dish: str, people: int) -> list[dict]:
     try:
         # Claude API는 system 메시지만 있고 user 메시지가 없으면 거부한다
         # ("messages: at least one message is required") — HumanMessage로 보낸다.
-        result: RecipeOutput = _get_llm().invoke([HumanMessage(content=prompt)])
+        # retry_call: TRANSIENT_TECHNICAL(연결/타임아웃/429/5xx)만 최대 3회 재시도,
+        # 그 외(PERMANENT_TECHNICAL/QUALITY_VALIDATION)는 즉시 re-raise되어 아래 except로.
+        result: RecipeOutput = retry_call(_get_llm().invoke, [HumanMessage(content=prompt)])
         return [item.model_dump() for item in result.items]
     except Exception as e:
-        agent_logger.log(f"[recipe_agent] 재료 생성 오류: {e}")
+        fc = classify_failure(e)
+        agent_logger.log(f"[recipe_agent] 재료 생성 오류({fc.value}): {e}")
         return []
 
 
@@ -76,7 +83,7 @@ def _format_list_message(dish: str, people: Optional[int], items: list[dict]) ->
     return "\n".join(lines)
 
 
-def recipe_agent_node(state: ShoppingState) -> dict:
+def recipe_agent_node(state: RecipeAgentInput) -> RecipeAgentUpdate:
     stage = state.get("stage")
     intent = state.get("intent")
     recipe_dish = state.get("recipe_dish") or ""
@@ -172,6 +179,8 @@ def recipe_agent_node(state: ShoppingState) -> dict:
             "stage": "idle",
             "error": "recipe_generation_failed",
             "last_agent": "recipe_agent",
+            "degraded_mode": True,
+            "failure_stage": "recipe_llm",
         }
 
     msg = _format_list_message(recipe_dish, recipe_people, items)

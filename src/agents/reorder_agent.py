@@ -20,6 +20,7 @@ Reorder Agent Node.
 """
 from typing import Any
 from src.state.schema import ShoppingState
+from src.state.node_inputs import ReorderAgentInput, ReorderAgentUpdate
 from src.tools import db_client
 from src.utils.agent_logger import agent_logger
 
@@ -201,7 +202,7 @@ def _select_from_pending(state: ShoppingState) -> dict | None:
 
 # ── 메인 노드 ────────────────────────────────────────────────────
 
-def reorder_agent_node(state: ShoppingState) -> dict:
+def reorder_agent_node(state: ReorderAgentInput) -> ReorderAgentUpdate:
     """
     Reorder Agent.
 

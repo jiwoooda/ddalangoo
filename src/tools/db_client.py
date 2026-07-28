@@ -144,28 +144,6 @@ def validate_product_url(url: str, mode: DbMode | None = None) -> bool:
         return any(domain in url for domain in valid_domains)
 
 
-def save_purchase_history_from_completed(
-    user_id: str,
-    completed_purchase: dict[str, Any],
-    mode: DbMode | None = None,
-) -> None:
-    if (mode or _default_db_mode()) == "mock":
-        # mock 결제 플로우(mock_place_order)가 결제 시점에 이미
-        # MOCK_PURCHASE_HISTORY에 기록한다 — 여기서 별도로 할 일 없음.
-        return
-    order_id = completed_purchase.get("order_id")
-    if not order_id:
-        return
-
-    async def _from_db(session):
-        from app.repositories.purchase_history_repository import create_histories_from_order_db
-        return await create_histories_from_order_db(session, order_id=int(order_id))
-    try:
-        _run_async_with_fresh_engine(_from_db)
-    except Exception:
-        pass
-
-
 def get_profile(user_id: str, mode: DbMode | None = None) -> dict[str, Any] | None:
     """
     장기 프로필(알레르기 등). mock 모드는 프로세스 메모리에만 저장되므로
@@ -194,6 +172,18 @@ def save_profile(user_id: str, profile: dict[str, Any], mode: DbMode | None = No
         user_preference_repository.save_profile(int(user_id), profile)
     except Exception:
         pass
+
+
+def merge_list_field(existing: list[str] | None, new: list[str]) -> list[str]:
+    """profile의 리스트 필드(allergens/diet_restrictions 등) 정렬된 합집합 병합.
+
+    context_agent._sync_safety_from_session과 smalltalk_agent가 각자
+    sorted(set(existing) | set(new))를 따로 구현하던 걸 여기로 합쳤다 —
+    두 곳 다 "새 값이 없으면 기존 그대로, 있으면 합집합"이라는 같은 규칙.
+    """
+    if not new:
+        return list(existing or [])
+    return sorted(set(existing or []) | set(new))
 
 
 def get_general_preference(user_id: str, mode: DbMode | None = None) -> dict[str, Any] | None:

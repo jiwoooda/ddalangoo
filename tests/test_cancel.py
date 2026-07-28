@@ -210,7 +210,7 @@ class TestPaymentAgentCancelledWebview:
         state = self._make_shopping_state(cart_items=[])
         state["selected_product"] = product
 
-        from src.payment.subgraph import payment_agent_node
+        from src.payment.node import payment_agent_node
         result = payment_agent_node(state)
 
         assert result["stage"] == "idle"
@@ -235,7 +235,7 @@ class TestPaymentAgentCancelledWebview:
         state = self._make_shopping_state(cart_items=existing_cart)
         state["selected_product"] = product
 
-        from src.payment.subgraph import payment_agent_node
+        from src.payment.node import payment_agent_node
         result = payment_agent_node(state)
 
         assert result["stage"] == "idle"

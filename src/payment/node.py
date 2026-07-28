@@ -7,15 +7,28 @@ Payment Agent Node.
   3. 결제수단 확인 → 배송지 확인
   4. 배송지 확인 → 비밀번호 요청
   5. 비밀번호 입력 → mock_place_order → 완료
+
+파일명: 예전엔 payment/subgraph.py였는데, 실제로는 LangGraph subgraph가
+아니라 ShoppingState를 직접 받는 플랫 노드 함수라 이름이 실제 역할과
+안 맞았다 — payment/node.py로 정리했다.
+
+한때 Payment를 Subgraph로 분리하려던 시도(PaymentState, payment_flow(),
+bridge_shopping_to_payment/bridge_payment_to_shopping)가 있었지만 실제
+그래프에 연결된 적이 없고, selected_product가 단수라 장바구니(다중 상품)
+지원과도 안 맞아 제거했다 — 필요해지면 장바구니 지원을 포함해 다시
+설계해야 한다.
 """
 import re
+import uuid
 from src.state.schema import ShoppingState
+from src.state.node_inputs import PaymentAgentInput, PaymentAgentUpdate
 from src.utils.agent_logger import agent_logger, _ptype
 from src.tools.mock_tools import (
     mock_add_to_cart,
     mock_get_cart,
     mock_place_order,
     mock_get_default_address,
+    IdempotencyConflictError,
 )
 
 _KR_NUMBERS = {
@@ -76,7 +89,7 @@ def _delivery_msg(delivery_info: str) -> str:
     return ""
 
 
-def payment_agent_node(state: ShoppingState) -> dict:
+def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
     stage = state.get("stage")
     pending_type = (state.get("pending_action") or {}).get("type")
     user_id = state.get("user_id", "")
@@ -96,7 +109,7 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ── Step 0: 상품 확인 → 장바구니 담기 ──
     if (
         stage == "product_confirming"
-        and pending_type in ("product_confirm", "quantity_confirm")
+        and pending_type == "product_confirm"
         and intent in ("confirm", "quantity_change")
     ):
         mock_add_to_cart(user_id, selected_product, quantity, keywords)
@@ -112,6 +125,9 @@ def payment_agent_node(state: ShoppingState) -> dict:
             "error": None,
             "last_agent": "payment_agent",
             "pending_action": {"type": "continue_shopping", "message": cart_msg},
+            # 장바구니가 바뀌었으므로 새 결제 멱등성 키 발급 — 이전 키로
+            # mock_place_order를 호출하면 IdempotencyConflictError가 나야 정상.
+            "payment_idempotency_key": str(uuid.uuid4()),
         }
         agent_logger.log_payment_agent(_log_in, output)
         agent_logger.log(f"[payment_agent] Step 0 완료 | 장바구니 {len(cart)}개  총액 {sum(i['total'] for i in cart):,}원")
@@ -173,6 +189,8 @@ def payment_agent_node(state: ShoppingState) -> dict:
                 "error": None,
                 "last_agent": "payment_agent",
                 "pending_action": {"type": "cart_review", "message": review_msg},
+                # 장바구니가 바뀌었으므로 새 결제 멱등성 키 발급.
+                "payment_idempotency_key": str(uuid.uuid4()),
             }
             agent_logger.log_payment_agent(_log_in, output)
             return output
@@ -235,12 +253,55 @@ def payment_agent_node(state: ShoppingState) -> dict:
     # ── Step 4: 비밀번호 → mock 결제 실행 ──
     if pending_type == "payment_password":
         delivery_address = _build_delivery_address(state)
-        order = mock_place_order(
-            user_id=user_id,
-            delivery_address=delivery_address,
-            payment_method="naver_pay",
-            conversation_id=state.get("conversation_id"),
-        )
+        # 정상 플로우라면 Step 0/1-5에서 이미 발급됐어야 하지만, 방어적으로
+        # 없으면 여기서라도 생성한다 — 결제 실행 노드에 자동 Retry를 붙이지
+        # 않는 대신(1-6 참고), 재시도/중복 요청은 이 키로 멱등하게 처리된다.
+        idem_key = state.get("payment_idempotency_key") or str(uuid.uuid4())
+        try:
+            order = mock_place_order(
+                user_id=user_id,
+                delivery_address=delivery_address,
+                payment_method="naver_pay",
+                conversation_id=state.get("conversation_id"),
+                idempotency_key=idem_key,
+            )
+        except IdempotencyConflictError as e:
+            agent_logger.log(f"[payment_agent] 결제 멱등성 충돌: {e}")
+            output = {
+                # stage="failed"로 두면 after_respond()가 그래프를 바로 end해서
+                # 사용자가 "다시 시도할까요?"에 답할 수 없다 — payment_processing을
+                # 유지해 route()가 다음 턴에도 무조건 payment_agent로 되돌리게 한다.
+                "stage": "payment_processing",
+                "error": "payment_idempotency_conflict",
+                "last_agent": "payment_agent",
+                "pending_action": {
+                    "type": "payment_retry_confirm",
+                    "message": "결제 처리 중 문제가 있었어요. 다시 시도할까요?",
+                },
+                "payment_idempotency_key": None,
+                "degraded_mode": True,
+                "failure_stage": "payment_execute",
+                "degradation_reason": type(e).__name__,
+            }
+            agent_logger.log_payment_agent(_log_in, output)
+            return output
+        except Exception as e:
+            agent_logger.log(f"[payment_agent] 주문 처리 오류: {e}")
+            output = {
+                "stage": "payment_processing",
+                "error": "payment_failed",
+                "last_agent": "payment_agent",
+                "pending_action": {
+                    "type": "payment_retry_confirm",
+                    "message": "결제 처리 중 문제가 있었어요. 다시 시도할까요?",
+                },
+                "degraded_mode": True,
+                "failure_stage": "payment_execute",
+                "degradation_reason": type(e).__name__,
+            }
+            agent_logger.log_payment_agent(_log_in, output)
+            return output
+
         arrival = _delivery_msg(delivery_info)
         completion_msg = f"완료!{arrival}" if arrival else "완료! 주문이 접수됐어요."
         output = {
@@ -251,6 +312,8 @@ def payment_agent_node(state: ShoppingState) -> dict:
             "last_agent": "payment_agent",
             "pending_action": {"type": "payment_confirm", "message": completion_msg},
             "storage_state_path": None,
+            # 주문 완료 → 다음 결제 플로우엔 새 키가 발급돼야 하므로 비운다.
+            "payment_idempotency_key": None,
         }
         agent_logger.log_payment_agent(_log_in, output)
         agent_logger.log(

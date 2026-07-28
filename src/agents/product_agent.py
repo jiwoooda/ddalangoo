@@ -18,10 +18,12 @@ from pydantic import BaseModel, Field
 from configs.llm_config import get_llm
 
 from src.state.schema import ShoppingState
+from src.state.node_inputs import ProductAgentInput, ProductAgentUpdate
 from src.tools.mock_search import search_products
 from src.prompts.scoring_prompt import SCORING_PROMPT
 from src.utils.agent_logger import agent_logger
 from src.utils.aggregator import aggregate, normalize_fixed_axes, normalize_weights
+from src.utils.retry import classify_failure, retry_call
 
 ALL_PLATFORMS = ["naver", "coupang", "kurly"]
 
@@ -89,7 +91,9 @@ _llm: BaseChatModel | None = None
 def _get_llm() -> BaseChatModel:
     global _llm
     if _llm is None:
-        _llm = get_llm("product", temperature=0, max_tokens=800)
+        # retry_owner="application": _run_scoring_llm이 retry_call()로 이 호출을
+        # 감싸므로 SDK 자체 재시도는 꺼서 중첩 재시도를 막는다.
+        _llm = get_llm("product", temperature=0, max_tokens=800, retry_owner="application")
     return _llm
 
 
@@ -224,7 +228,8 @@ def _run_scoring_llm(
         soft_preferences=_format_soft_preferences(soft_preferences),
         formatted_candidates=_format_products(tagged_candidates),
     )
-    result = _get_llm().with_structured_output(ScoringLLMOutput, method="json_schema").invoke([HumanMessage(content=prompt)])
+    structured = _get_llm().with_structured_output(ScoringLLMOutput, method="json_schema")
+    result = retry_call(structured.invoke, [HumanMessage(content=prompt)])
     return result if isinstance(result, ScoringLLMOutput) else ScoringLLMOutput()
 
 
@@ -267,13 +272,28 @@ def _filter_results(
     return filtered
 
 
-def _rank(
-    candidates: list[dict[str, Any]],
-    keywords: list[str],
-    condition: str | None,
-    preference_context: dict[str, Any],
-) -> list[dict[str, Any]]:
-    return _rank_with_metadata(candidates, keywords, condition, preference_context)["ranked_products"]
+def _baseline_rank(candidates: list[dict[str, Any]], keywords: list[str]) -> list[dict[str, Any]]:
+    """LLM 스코어링 실패 시 결정론적 폴백(Graceful Degradation).
+
+    candidates는 이미 _filter_results로 안전조건/명시적 제외를 통과한 상태이므로
+    별도 안전 필터링 없이, 키워드 매치 개수 → 평점 → 리뷰 수 → product_url(안정적
+    tie-break) 순으로만 정렬한다. 동일 입력이면 항상 동일 순서가 나온다."""
+    kw_lower = [k.lower() for k in keywords if k]
+
+    def _keyword_match_count(p: dict[str, Any]) -> int:
+        name = str(p.get("product_name") or "").lower()
+        brand = str(p.get("brand") or "").lower()
+        return sum(1 for k in kw_lower if k in name or k in brand)
+
+    def _sort_key(p: dict[str, Any]) -> tuple:
+        return (
+            -_keyword_match_count(p),
+            -float(p.get("rating") or 0),
+            -int(p.get("review_count") or 0),
+            str(p.get("product_url") or ""),
+        )
+
+    return sorted(candidates, key=_sort_key)
 
 
 def _rank_with_metadata(
@@ -329,19 +349,29 @@ def _rank_with_metadata(
             "tool_call_error": None,
             "axis_weights": [aw.model_dump() for aw in scoring.axis_weights],
             "conflict_note": scoring.conflict_note,
+            "ranking_mode": "llm",
+            "degraded_mode": False,
+            "failure_stage": None,
         }
     except Exception as e:
+        fc = classify_failure(e)
         agent_logger.log_scoring_fallback(
             {"candidates": len(candidates), "keywords": keywords, "condition": condition}, str(e),
         )
+        agent_logger.log_graceful_degradation(node="product_agent", reason=f"{fc.value}:{e}", stage="scoring_llm")
         return {
-            "ranked_products": candidates,
+            "ranked_products": _baseline_rank(candidates, keywords),
+            # 검색(tool)은 성공했고 스코어링 LLM만 실패한 것이므로 이 필드는
+            # 보조 신호로만 쓴다 — 실제 축소 여부는 ranking_mode/degraded_mode로 판단.
             "tool_call_success": False,
             "tool_call_error": str(e),
+            "ranking_mode": "baseline",
+            "degraded_mode": True,
+            "failure_stage": "scoring_llm",
         }
 
 
-def product_agent_node(state: ShoppingState) -> dict:
+def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
     intent = state.get("intent")
     keywords = state.get("keywords") or []
     exclude_keywords = state.get("exclude_keywords") or []
@@ -363,7 +393,8 @@ def product_agent_node(state: ShoppingState) -> dict:
     # ── next/deny: 재검색 없이 다음 후보 ──
     if intent in ("next", "deny") and existing_ranked:
         if condition:
-            reranked = _rank(existing_ranked, keywords, condition, preference_context)
+            rank_meta = _rank_with_metadata(existing_ranked, keywords, condition, preference_context)
+            reranked = rank_meta["ranked_products"]
             top_product = reranked[0] if reranked else None
             if not top_product:
                 return {
@@ -385,6 +416,9 @@ def product_agent_node(state: ShoppingState) -> dict:
                 "quantity": None,
                 "last_agent": "product_agent",
                 "error": None,
+                "ranking_mode": rank_meta.get("ranking_mode"),
+                "degraded_mode": rank_meta.get("degraded_mode", False),
+                "failure_stage": rank_meta.get("failure_stage"),
             }
 
         next_idx = current_idx + 1
@@ -441,7 +475,8 @@ def product_agent_node(state: ShoppingState) -> dict:
         }
 
     agent_logger.log(f"[product_agent] 랭킹 | 후보 {len(candidates)}개")
-    ranked_products = _rank(candidates, keywords, condition, preference_context)
+    rank_meta = _rank_with_metadata(candidates, keywords, condition, preference_context)
+    ranked_products = rank_meta["ranked_products"]
 
     top_product = ranked_products[0] if ranked_products else None
     if not top_product:
@@ -466,4 +501,7 @@ def product_agent_node(state: ShoppingState) -> dict:
         "quantity": None,
         "last_agent": "product_agent",
         "error": None,
+        "ranking_mode": rank_meta.get("ranking_mode"),
+        "degraded_mode": rank_meta.get("degraded_mode", False),
+        "failure_stage": rank_meta.get("failure_stage"),
     }

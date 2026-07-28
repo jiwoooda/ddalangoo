@@ -28,7 +28,12 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
-load_dotenv(ROOT / ".env")
+# ROOT는 벤더 패키지 루트(backend/vendor/ddalangoo-langgraph)라 실제 .env가
+# 있는 프로젝트 루트(backend/vendor/ddalangoo-langgraph/../../..)와 다르다 —
+# load_dotenv(ROOT / ".env")로 고정 경로를 주면 파일이 없어 조용히 아무것도
+# 안 불러온다. 인자 없이 호출하면 cwd부터 상위로 올라가며 .env를 찾으므로
+# 다른 파일들(main.py 등)과 동일한 방식으로 실제 루트 .env를 찾는다.
+load_dotenv()
 
 from src.graph.builder import build_graph
 from src.state.schema import get_default_shopping_state

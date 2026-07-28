@@ -174,6 +174,69 @@ class AgentLogger:
             "condition": inputs.get("condition"), "error": error,
         })
 
+    # ── 실패 관측성 — Technical Retry / Fallback / Recovery / Graceful Degradation ──
+    # docs/resilience_plan.md Phase 2 참고. 노드 진입 시점에는 직전 실패의 예외
+    # 타입을 알 수 없으므로, "재시도 시작"과 "실패 발생"을 별도 메서드로 분리한다.
+
+    def log_retry_attempt_started(self, node: str, node_attempt: int) -> None:
+        """노드 진입부에서 node_attempt(=runtime.execution_info.node_attempt) > 1일 때만 호출."""
+        if not self._enabled:
+            return
+        self._append_txt(f"[{node}] 재시도 진입 | attempt={node_attempt}\n")
+        self._log_jsonl({"event": "retry_attempt_started", "turn": self._turn, "node": node, "node_attempt": node_attempt})
+
+    def log_transient_failure(self, node: str, node_attempt: int, exception_type: str) -> None:
+        """일시적 기술 오류(TRANSIENT_TECHNICAL) 발생 시, re-raise 직전 호출.
+        여기서만 실제 예외 객체를 알 수 있다 — RetryPolicy가 이어서 노드를 재실행한다."""
+        if not self._enabled:
+            return
+        self._append_txt(f"[{node}] Technical Retry 대상 실패 | attempt={node_attempt}  exception={exception_type}\n")
+        self._log_jsonl({
+            "event": "transient_failure", "turn": self._turn,
+            "node": node, "node_attempt": node_attempt, "exception_type": exception_type,
+        })
+
+    def log_retry_exhausted(self, node: str, exception_type: str) -> None:
+        """RetryPolicy의 max_attempts 소진 후 error_handler 내부에서 호출."""
+        if not self._enabled:
+            return
+        self._append_txt(f"[{node}] Retry 소진 → Graceful Degradation | exception={exception_type}\n")
+        self._log_jsonl({"event": "retry_exhausted", "turn": self._turn, "node": node, "exception_type": exception_type})
+
+    def log_permanent_technical_error(self, node: str, exception_type: str) -> None:
+        """PERMANENT_TECHNICAL(401 등, 재시도 대상 아님) — error_handler 내부에서 호출."""
+        if not self._enabled:
+            return
+        self._append_txt(f"[{node}] 영구적 기술 오류(재시도 안함) | exception={exception_type}\n")
+        self._log_jsonl({"event": "permanent_technical_error", "turn": self._turn, "node": node, "exception_type": exception_type})
+
+    def log_source_fallback(self, from_source: str, to_source: str, reason: str) -> None:
+        """Fallback: 다른 데이터 소스/도구로 전환 (예: meta_mcp_client의 원격MCP→로컬MCP→네이버→컬리)."""
+        if not self._enabled:
+            return
+        self._append_txt(f"[source_fallback] {from_source} → {to_source} | reason={reason}\n")
+        self._log_jsonl({
+            "event": "source_fallback", "turn": self._turn,
+            "from_source": from_source, "to_source": to_source, "reason": reason,
+        })
+
+    def log_quality_regeneration(self, node: str, reason: str) -> None:
+        """Recovery: 품질 재생성(예: response_agent의 Reflection 실패 → Haiku 재생성)."""
+        if not self._enabled:
+            return
+        self._append_txt(f"[{node}] 품질 재생성(Recovery) | reason={reason}\n")
+        self._log_jsonl({"event": "quality_regeneration", "turn": self._turn, "node": node, "reason": reason})
+
+    def log_graceful_degradation(self, node: str, reason: str, stage: str) -> None:
+        """Graceful Degradation: 기능을 축소해도 유효 응답 반환 (예: baseline ranking, 코드 기반 설명)."""
+        if not self._enabled:
+            return
+        self._append_txt(f"[{node}] Graceful Degradation | stage={stage}  reason={reason}\n")
+        self._log_jsonl({
+            "event": "graceful_degradation", "turn": self._turn,
+            "node": node, "failure_stage": stage, "reason": reason,
+        })
+
     def log_payment_agent(self, inputs: dict, outputs: dict) -> None:
         if not self._enabled:
             return

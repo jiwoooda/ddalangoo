@@ -69,9 +69,14 @@ _ENV_KEYS: dict[str, str] = {
 }
 
 
-def get_llm(agent: str, **kwargs) -> BaseChatModel:
+def get_llm(agent: str, *, retry_owner: str = "sdk", **kwargs) -> BaseChatModel:
     """
     agent: "intent" | "product" | "response" | "context"
+    retry_owner: "sdk"(기본값) | "application". anthropic/openai SDK는 연결 오류·429·5xx를
+        기본 자동 재시도한다. LangGraph RetryPolicy/retry_call()이 재시도를 전담하는
+        그래프 노드 호출부만 "application"으로 넘겨 SDK 자체 재시도를 꺼서, LangGraph
+        재시도와 중첩(최대 9회 호출)되지 않게 한다. evals/scripts 등 그래프 밖 호출부는
+        기본값을 그대로 쓴다.
     kwargs: temperature, max_tokens 등 — 백엔드별로 자동 변환
     """
     backend = os.getenv("LLM_BACKEND", "api")
@@ -95,6 +100,10 @@ def get_llm(agent: str, **kwargs) -> BaseChatModel:
             **ollama_kwargs,
         )
 
+    # anthropic/openai SDK 기본 재시도(커넥션 오류·429·5xx)와 LangGraph 재시도가
+    # 중첩되지 않도록, retry_owner="application"이면 SDK 재시도를 끈다.
+    kwargs.setdefault("max_retries", 0 if retry_owner == "application" else 2)
+
     if backend == "vllm":
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
@@ -104,9 +113,12 @@ def get_llm(agent: str, **kwargs) -> BaseChatModel:
             **kwargs,
         )
 
-    # intent도 Anthropic으로 통일 (gpt-4o-mini 할당량 없을 때 대비)
-    # INTENT_MODEL 환경변수로 OpenAI 모델 지정 시 ChatOpenAI 사용
-    if agent == "intent" and model.startswith("gpt"):
+    # 기본은 전부 Anthropic로 통일. 에이전트별 *_MODEL 환경변수에 gpt* 모델명을
+    # 지정하면 그 에이전트만 OpenAI로 전환된다 — 원래는 intent만 이 분기를 탔는데
+    # (gpt-4o-mini 할당량 없을 때 대비), Anthropic 계정에 크레딧이 없고 OpenAI
+    # 계정만 있는 경우 등 다른 에이전트도 같은 방식으로 전환할 수 있어야 해서
+    # agent 조건을 없앴다. 아무 *_MODEL도 gpt*로 안 바꾸면 기존 동작과 동일.
+    if model.startswith("gpt"):
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(model=model, **kwargs)
 

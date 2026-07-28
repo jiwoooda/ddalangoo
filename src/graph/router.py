@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 from typing import Callable, Literal
+from src.agents.intent_agent import _BUY_TRIGGERS, _REORDER_SIGNALS
 from src.state.schema import ShoppingState
 from src.utils.agent_logger import agent_logger, _ptype
 
@@ -53,11 +55,6 @@ def _route_cart_shopping(state: ShoppingState, intent: str | None, pending_type:
 
 def _route_product_confirming(state: ShoppingState, intent: str | None, pending_type: str, decide: Decide) -> RouteName:
     pa_type = (state.get("pending_action") or {}).get("type")
-
-    if pa_type == "quantity_confirm":
-        if state.get("quantity"):
-            return decide("payment_agent")
-        return decide("respond")
 
     if pa_type == "product_select":
         if intent in ("confirm", "option_select"):
@@ -130,8 +127,69 @@ _DEFAULT_ROUTING_MAP: dict[str, RouteName] = {
     "option_select": "respond",
     "quantity_change": "respond",
     "address_change": "respond",
-    "smalltalk": "smalltalk_agent",
 }
+
+
+def _extract_last_user_text(state: ShoppingState) -> str:
+    for msg in reversed(state.get("messages") or []):
+        if isinstance(msg, dict):
+            if msg.get("role") == "user":
+                return msg.get("content", "")
+        else:
+            role = getattr(msg, "type", None) or getattr(msg, "role", None)
+            if role == "human":
+                return getattr(msg, "content", "")
+    return ""
+
+
+def _looks_like_order_request(text: str) -> bool:
+    """route_entry 전용 순수 키워드 휴리스틱(LLM 판단 아님) — intent_agent가
+    사후 교정에 쓰는 트리거 세트(_BUY_TRIGGERS/_REORDER_SIGNALS)를 그대로
+    재사용해서, 이 발화가 주문 요청처럼 보이는지만 값싸게 체크한다."""
+    return any(t in text for t in _BUY_TRIGGERS) or any(t in text for t in _REORDER_SIGNALS)
+
+
+def route_entry(state: ShoppingState) -> Literal["smalltalk_agent", "intent_agent"]:
+    """
+    온보딩 미완료 신규유저는 intent_agent를 거치지 않고 바로 smalltalk_agent로
+    보낸다 — smalltalk 트리거는 LLM의 intent 분류 대상이 아니라, 코드가 결정적으로
+    판단하는 온보딩 이벤트다(intent_agent가 매 턴 "이거 잡담인가?"를 판단하지 않는다).
+
+    "이미 온보딩됨" 판정은 두 신호의 OR:
+    - profile.onboarded_at: smalltalk_agent가 온보딩을 완료(onboarding_complete=true)
+      하면 찍는 플래그.
+    - 구매이력 존재: onboarded_at 플래그가 생기기 전부터 이미 구매 이력이 있던
+      기존 유저를 신규유저로 오판하지 않기 위한 하위호환 신호.
+
+    예외: 위 조건상 아직 온보딩 중이라도, 이번 발화가 _looks_like_order_request로
+    명확한 주문 요청이면 smalltalk을 건너뛰고 바로 intent_agent로 보낸다.
+    smalltalk_agent를 거치면 확인 질문만 하고 onboarding_complete=true로
+    끝내는데, 이때 실제 요청 키워드("된장찌개 재료" 등)는 어디에도 안 남아서
+    다음 턴엔 "네" 같은 짧은 답만 남고 원래 요청이 사라지는 문제가 실측
+    테스트로 확인됐다 — 그래서 이 경우엔 아예 그 턴에 intent_agent가 원문
+    그대로 받아 처리하게 한다. 이미 쇼핑 의사를 명확히 보였으므로 온보딩도
+    여기서 끝난 걸로 보고 onboarded_at을 남긴다(안 그러면 다음 idle 턴에
+    다시 온보딩 게이트에 걸린다).
+    """
+    if state.get("stage", "idle") != "idle":
+        return "intent_agent"
+    user_id = state.get("user_id", "")
+    if not user_id:
+        return "intent_agent"
+    from src.tools import db_client
+    profile = db_client.get_profile(user_id)
+    already_onboarded = bool(profile and profile.get("onboarded_at"))
+    has_purchase_history = bool(db_client.get_purchase_histories(user_id))
+    if already_onboarded or has_purchase_history:
+        return "intent_agent"
+
+    if _looks_like_order_request(_extract_last_user_text(state)):
+        merged = dict(profile or {})
+        merged["onboarded_at"] = datetime.now(timezone.utc).isoformat()
+        db_client.save_profile(user_id, merged)
+        return "intent_agent"
+
+    return "smalltalk_agent"
 
 
 def route(state: ShoppingState) -> RouteName:
