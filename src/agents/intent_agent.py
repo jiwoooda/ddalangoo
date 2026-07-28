@@ -78,7 +78,10 @@ def _fallback_search_keywords(user_input: str) -> list[str]:
     return result[:3]
 
 
-_BUY_TRIGGERS = frozenset({"사줘", "사줄래", "사주세요", "구매해", "구매해줘", "주문해", "사고싶어", "사 줘"})
+_BUY_TRIGGERS = frozenset({
+    "사줘", "사줄래", "사주세요", "구매해", "구매해줘", "주문해",
+    "사고싶어", "사고 싶어", "사 줘",
+})
 _REORDER_SIGNALS = frozenset({"저번에", "지난번에", "재주문", "똑같이 다시", "예전에 산"})
 
 def _should_force_buy_from_freeform(user_input: str, intent: str, stage: str) -> bool:
