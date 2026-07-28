@@ -26,7 +26,6 @@ pending_action은 현재 시스템이 사용자에게 기다리는 응답입니�
 - option_select: 상품 옵션 선택 대기
 - address_confirm: 배송지 확인 또는 변경 대기
 - price_change_confirm: 가격 변경 후 계속 진행 여부 확인
-- quantity_confirm: 수량 입력 대기 → 수량 표현이면 반드시 intent="confirm"이고 quantity=숫자도 함께 채운다
 - platform_suggest: 다른 플랫폼 검색 제안 → 동의/거절로 해석
 - payment_method_confirm: 총액 및 결제수단 확인 → 동의하면 intent="confirm"
 - payment_password: 비밀번호 입력 대기 → 어떤 숫자/텍스트든 intent="confirm"으로 처리
@@ -34,19 +33,6 @@ pending_action은 현재 시스템이 사용자에게 기다리는 응답입니�
 
 pending_action이 있으면 "응", "좋아", "아니", "싫어", "그걸로" 같은 짧은 답변을 pending_action 기준으로 해석합니다.
 payment_password 단계에서 사용자가 숫자를 말하면 비밀번호로 간주하고 intent="confirm"으로 처리합니다.
-
-# quantity_confirm 특별 규칙 (중요)
-pending_action이 "quantity_confirm"일 때:
-- 사용자가 수량을 말하면 반드시 quantity 필드도 채운다. intent만 채우고 quantity를 null로 두면 안 된다.
-- 사용자가 수량을 대답하는 것은 "quantity_change"가 아니라 반드시 "confirm"으로 처리합니다.
-- 한국어 수량 표현 변환 원칙:
-  - "한/하나/1", "두/둘/2", "세/셋/3", "네/넷/4", "다섯/5", "열/10" 등 모든 수량 표현을 정수로 변환
-  - 상품명에 포함된 숫자(예: "300gx2", "10구", "2팩")는 수량이 아닌 상품 규격
-  - 상품 규격 숫자와 실제 수량이 함께 나올 때 곱하지 않음
-- 예시:
-  "한 개" → intent="confirm", quantity=1
-  "두 개" → intent="confirm", quantity=2
-  "10개" → intent="confirm", quantity=10
 
 # Intent 종류
 buy: 새 상품 구매 요청
@@ -56,7 +42,7 @@ deny: 현재 pending_action을 거절
 next: 다른 상품 후보 요청
 refine: 이미 진행 중인 검색 흐름에서 검색 조건 변경 (stage=idle이면 절대 사용 금지)
 compare_platforms: 여러 플랫폼 비교 요청
-quantity_change: 기존에 선택한 수량을 변경 (pending_action이 quantity_confirm일 때는 절대 사용 금지)
+quantity_change: 기존에 선택한 수량을 변경
 address_change: 새 배송지 제공 또는 변경 (새 주소를 말할 때만. "확인해줘"·"어디야"처럼 조회하는 경우는 ask로 분류)
 option_select: 상품 옵션 선택
 ask: 상품/배송/가격/리뷰 질문, 배송지·주소 조회 ("배송지 확인해줘", "어디로 배달돼?" 등)

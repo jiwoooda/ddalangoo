@@ -8,16 +8,18 @@ Context Agent Node.
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Optional
-from langgraph.store.base import BaseStore
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
 from src.utils.agent_logger import agent_logger
 from src.state.schema import ShoppingState
+from src.state.node_inputs import ContextAgentInput, ContextAgentUpdate
 from src.state.routed_signal import RoutedSignal
+from src.state.smalltalk_schema import SMALLTALK_PROFILE_FIELDS, format_smalltalk_profile
 from src.prompts.context_prompt import CONTEXT_CLASSIFICATION_PROMPT, SAFETY_SYNC_PROMPT
 from src.tools import db_client
 from src.utils.priority_resolver import resolve_precedence
+from src.utils.retry import classify_failure, retry_call
 from src.tools.mock_tools import (
     mock_get_preference_memory,
     mock_vector_search_personal,
@@ -62,10 +64,12 @@ def _get_llm():
     if _context_llm is None:
         try:
             from configs.llm_config import get_llm
-            _context_llm = get_llm("context", temperature=0, max_tokens=400)
+            # retry_owner="application": 호출부(_sync_safety_from_session/
+            # _classify_context)가 retry_call()로 감싸므로 SDK 자체 재시도는 끈다.
+            _context_llm = get_llm("context", temperature=0, max_tokens=400, retry_owner="application")
         except Exception:
             from langchain_anthropic import ChatAnthropic
-            _context_llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0, max_tokens=400)
+            _context_llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0, max_tokens=400, max_retries=0)
     return _context_llm
 
 
@@ -95,22 +99,23 @@ def _sync_safety_from_session(
 
     session_text = _summarize_messages(messages or [])
     try:
-        result = _get_llm().with_structured_output(SafetySignalUpdate, method="json_schema").invoke(
-            [HumanMessage(content=SAFETY_SYNC_PROMPT.format(session_text=session_text))]
+        structured = _get_llm().with_structured_output(SafetySignalUpdate, method="json_schema")
+        result = retry_call(
+            structured.invoke, [HumanMessage(content=SAFETY_SYNC_PROMPT.format(session_text=session_text))]
         )
         if not isinstance(result, SafetySignalUpdate):
             return profile or {}
     except Exception as e:
-        agent_logger.log(f"[context_agent] 안전정보 동기화 실패: {e}")
+        agent_logger.log(f"[context_agent] 안전정보 동기화 실패({classify_failure(e).value}): {e}")
         return profile or {}
 
     if not result.new_allergens and not result.new_diet_restrictions:
         return profile or {}
 
     merged = dict(profile or {})
-    merged["allergens"] = sorted(set((profile or {}).get("allergens") or []) | set(result.new_allergens))
-    merged["diet_restrictions"] = sorted(
-        set((profile or {}).get("diet_restrictions") or []) | set(result.new_diet_restrictions)
+    merged["allergens"] = db_client.merge_list_field((profile or {}).get("allergens"), result.new_allergens)
+    merged["diet_restrictions"] = db_client.merge_list_field(
+        (profile or {}).get("diet_restrictions"), result.new_diet_restrictions
     )
     db_client.save_profile(user_id, merged)
     agent_logger.log(
@@ -134,15 +139,6 @@ def _fetch_user_from_db(user_id: str) -> dict[str, Any] | None:
 
 def _fetch_default_address_for_context(user_id: str) -> dict[str, Any] | None:
     return db_client.get_default_address(user_id)
-
-
-def _save_purchase_history_from_completed(user_id: str, completed_purchase: dict[str, Any]) -> None:
-    order_id = completed_purchase.get("order_id")
-    if not order_id:
-        agent_logger.log("[context_agent] 구매이력 저장 스킵: order_id 없음")
-        return
-    db_client.save_purchase_history_from_completed(user_id, completed_purchase)
-    agent_logger.log(f"[context_agent] 구매이력 저장 완료 (order_id={order_id})")
 
 
 def _invalidate_preference_cache(user_id: str) -> None:
@@ -356,24 +352,25 @@ def _classify_context(
     """
     try:
         profile_summary = "없음" if not profile else ", ".join(
-            f"{k}:{v}" for k, v in profile.items() if v not in (None, [], "") and k != "computed_at"
+            f"{k}:{v}" for k, v in profile.items()
+            if v not in (None, [], "") and k != "computed_at" and k not in SMALLTALK_PROFILE_FIELDS
         ) or "없음"
 
         prompt = CONTEXT_CLASSIFICATION_PROMPT.format(
             profile_summary=profile_summary,
+            smalltalk_profile_summary=format_smalltalk_profile(profile),
             general_preference_summary=general_pref.get("summary") or "없음",
             keyword_history_lines=_format_keyword_history_lines(keyword_history),
             session_text=_summarize_messages(messages or []) or "없음",
             current_keywords=", ".join(keywords) or "없음",
         )
-        result = _get_llm().with_structured_output(ContextAgentOutput, method="json_schema").invoke(
-            [HumanMessage(content=prompt)]
-        )
+        structured = _get_llm().with_structured_output(ContextAgentOutput, method="json_schema")
+        result = retry_call(structured.invoke, [HumanMessage(content=prompt)])
         if not isinstance(result, ContextAgentOutput):
             return []
         return _enrich_signals(result.routed_signals, keyword_history, profile)
     except Exception as e:
-        agent_logger.log(f"[context_agent] 분류 실패, 빈 분류로 대체: {e}")
+        agent_logger.log(f"[context_agent] 분류 실패({classify_failure(e).value}), 빈 분류로 대체: {e}")
         return []
 
 
@@ -390,28 +387,31 @@ def build_preference_context(
     profile = db_client.get_profile(user_id)
     profile = _sync_safety_from_session(user_id, profile, messages)
     safety_constraints = list((profile or {}).get("allergens") or []) + list((profile or {}).get("diet_restrictions") or [])
+    smalltalk_profile_summary = format_smalltalk_profile(profile)
+    has_smalltalk_signals = smalltalk_profile_summary != "없음"
 
     histories = _fetch_purchase_histories(user_id)
-    if not histories:
-        return {"safety_constraints": safety_constraints}
 
-    # 일반 선호도: 캐시(mock 모드는 프로세스 메모리, real 모드는 DB) → 없으면 계산 + LLM 요약 저장
-    general_pref = db_client.get_general_preference(user_id)
-    cache_hit = general_pref is not None
-    if cache_hit:
-        agent_logger.log(f"[context_agent] 일반 선호도 캐시 HIT (user_id={user_id})")
-    else:
-        agent_logger.log("[context_agent] 일반 선호도 캐시 MISS → LLM 요약 생성 중...")
-        general_pref = _compute_general_preference(histories)
-        general_pref["summary"] = _generate_llm_summary(general_pref)
-        db_client.save_general_preference(user_id, general_pref)
-        agent_logger.log("[context_agent] 일반 선호도 캐시 저장 완료")
+    # 일반 선호도: 구매이력이 있을 때만 계산 — 캐시(mock 모드는 프로세스
+    # 메모리, real 모드는 DB) → 없으면 계산 + LLM 요약 저장
+    general_pref: dict[str, Any] = {}
+    cache_hit = False
+    if histories:
+        general_pref = db_client.get_general_preference(user_id)
+        cache_hit = general_pref is not None
+        if cache_hit:
+            agent_logger.log(f"[context_agent] 일반 선호도 캐시 HIT (user_id={user_id})")
+        else:
+            agent_logger.log("[context_agent] 일반 선호도 캐시 MISS → LLM 요약 생성 중...")
+            general_pref = _compute_general_preference(histories)
+            general_pref["summary"] = _generate_llm_summary(general_pref)
+            db_client.save_general_preference(user_id, general_pref)
+            agent_logger.log("[context_agent] 일반 선호도 캐시 저장 완료")
 
     # 키워드별 선호도 — satisfaction/memo도 함께 실어서 LLM이 직접 판단하게 한다
     # (별도 negative-feedback 집계 함수 없음, [:5] cap이 이미 크기를 제한함)
     keyword_history: list = []
-    routed_signals: list[RoutedSignal] = []
-    if keywords:
+    if keywords and histories:
         keyword_history = [
             {
                 "product_name": h.get("product_name"),
@@ -431,10 +431,16 @@ def build_preference_context(
             )
         ][:5]
 
-        if keyword_history:
-            routed_signals = _classify_context(
-                general_pref, keyword_history, profile, messages, keywords,
-            )
+    # 구매이력 keyword 매치가 있거나, smalltalk_agent가 수집한 신호가 있으면
+    # 분류한다. 구매이력이 아예 없는 신규유저도 smalltalk 신호만으로 분류
+    # 대상이 되어야 한다 — 예전엔 histories가 없으면 함수 전체가 조기
+    # 반환해서, 신규유저의 잡담 신호가 tier 분류 기회 자체가 없었다
+    # (context_routing_eval 스팟체크로 확인된 문제).
+    routed_signals: list[RoutedSignal] = []
+    if keyword_history or has_smalltalk_signals:
+        routed_signals = _classify_context(
+            general_pref, keyword_history, profile, messages, keywords,
+        )
 
     # Priority Resolver: 이번 Intent(keywords)가 과거 explicit_exclusion과
     # 같은 대상을 다시 명시하면 그 배제를 무효화한다. safety는 여기 관여
@@ -566,12 +572,17 @@ def _summarize_messages(messages: list) -> str:
     return " | ".join(parts)
 
 
-def context_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) -> dict:
+def context_agent_node(state: ContextAgentInput) -> ContextAgentUpdate:
     """
     Context Agent.
 
     [결제 완료 후] stage == "completed": 구매이력 저장 + 선호도 캐시 무효화 + 대화 요약.
     [Context Loading] buy/refine/compare_platforms: 프로필+선호도 컨텍스트 생성.
+
+    recommendation_context는 ShoppingState가 유일한 source of truth다 — 이전엔
+    Store에도 같은 값을 write했었는데, 그걸 읽는 코드가 어디에도 없어서 순수
+    낭비였다(get_recommendation_context_from_store가 아무 데서도 호출되지
+    않음). 세션 간 재사용이 실제로 필요해지면 그때 다시 연결한다.
     """
     stage = state.get("stage")
     intent = state.get("intent")
@@ -586,12 +597,11 @@ def context_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) 
     updates: dict[str, Any] = {"last_agent": "context_agent"}
 
     if stage == "completed":
-        # 구매이력 저장
-        completed_purchase = state.get("completed_purchase")
-        if completed_purchase and completed_purchase.get("order_id"):
-            _save_purchase_history_from_completed(user_id, completed_purchase)
-        else:
-            agent_logger.log("[context_agent] completed_purchase 없음, 구매이력 저장 스킵")
+        # 구매이력 저장은 payment_agent_node → mock_place_order →
+        # mock_save_purchase_history 경로로 이미 결제 시점에 이루어진다.
+        # 여기서 별도로 할 일 없음 — 예전엔 state["completed_purchase"]를
+        # 읽어서 다시 저장하려 했는데, 그 필드가 애초에 어디서도 write되지
+        # 않아 항상 스킵되는 죽은 코드였다(제거함).
 
         # 선호도 캐시 무효화
         _invalidate_preference_cache(user_id)
@@ -625,9 +635,6 @@ def context_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) 
         {"preference_context": pref_ctx},
     )
 
-    if store is not None:
-        store.put(("recommendation_context", user_id), "latest", recommendation_context)
-
     # tier1(safety_constraints)/tier2(exclude_additions)는 검색 단계에서 바로
     # 걸러지도록 exclude_keywords에 병합. tier1은 keywords 쪽엔 넣지 않는다
     # (알레르기 성분명을 검색어로 쓰면 오히려 그 성분이 든 상품만 더 잡힘).
@@ -647,15 +654,3 @@ def context_agent_node(state: ShoppingState, store: Optional[BaseStore] = None) 
         "keywords": merged_keywords,
         "exclude_keywords": merged_exclude,
     }
-
-
-def get_recommendation_context_from_store(
-    user_id: str,
-    store: Optional[BaseStore] = None,
-) -> dict[str, Any]:
-    if store is None:
-        return {}
-    item = store.get(("recommendation_context", user_id), "latest")
-    if item is None:
-        return {}
-    return item.value if hasattr(item, "value") else {}

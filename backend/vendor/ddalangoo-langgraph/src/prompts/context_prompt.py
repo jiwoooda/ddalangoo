@@ -11,6 +11,14 @@ safety_constraints(알레르기 등)는 이 프롬프트의 출력 대상이 아
 프로필에서 코드로 직접 채워 넣는다 (LLM이 안전 판단에 관여하지 않도록).
 새로 감지되는 안전 정보는 SAFETY_SYNC_PROMPT가 별도로, 이 분류보다
 먼저 동기적으로 처리한다 (build_preference_context 참고).
+
+smalltalk_agent가 수집한 구조화 프로필(food_dislikes/value_priority/
+delivery_priority/household_size/household_notes/cooking_frequency/
+additional_signals, src.state.smalltalk_schema.SmalltalkProfileSchema)은
+"장기 프로필 요약"과 별도 섹션으로 보여준다 — 일반 profile 필드와 섞이면
+안전정보(allergens 등 tier1)와 구분이 흐려지기 쉬워서다. food_dislikes는
+안전 배제(tier1)가 아니라 명시적 제외(tier2)에 가깝다는 점을 LLM이
+구분하도록 아래 explicit_exclusion 기준을 그대로 적용한다.
 """
 
 SAFETY_SYNC_PROMPT = """\
@@ -110,10 +118,31 @@ explicit_exclusion과 안전 관련 신호는 이 제한에 포함되지 않습�
   - 상품명/브랜드에 실제 나타날 단순 키워드로 표현 가능한 명확한
     배제 신호 → explicit_exclusion으로 보내세요.
 
+[잡담에서 수집된 정보 섹션 — 반드시 분류할 것]
+아래 "잡담(smalltalk_agent)에서 수집된 정보" 섹션에 "없음"이 아닌 내용이
+있으면, 절대 무시하지 말고 각 항목을 반드시 routed_signal로 분류하세요:
+- food_dislikes: explicit_exclusion 우선 고려 (알레르기처럼 확정적인 배제는
+  아니지만, 상품명/재료명에 나타날 단순 키워드로 바꿀 수 있으면
+  explicit_exclusion — 위 explicit_exclusion 기준을 그대로 적용).
+- health_notes: food_dislikes와 동일하게 취급 — 상품명/재료명에 나타날
+  단순 키워드로 바꿀 수 있는 위험도 있는 건강 정보면(예: "당뇨라서 단 거
+  조심해야 해" → "설탕") explicit_exclusion 우선 고려, 애매하면
+  soft_preference.
+- value_priority/delivery_priority/cooking_frequency/household_notes/
+  favorite_foods/usual_order_platform/inconveniences/additional_signals:
+  soft_preference 우선 고려 (배제 근거로 쓰기엔 확신이 없는 성향 정보 —
+  위 soft_preference 기준을 그대로 적용). usual_order_platform은 "평소
+  습관"일 뿐 이번 요청의 명시적 플랫폼 지정이 아니므로 override_platform/
+  retrieval로 쓰지 마세요.
+이 섹션에서 온 신호는 source="session_smalltalk"로 분류하세요(아래
+[source] 기준과 동일 — smalltalk_agent가 이미 이번 세션 대화에서
+추출해둔 것이므로).
+
 [source — 신호가 어느 입력 섹션에서 왔는지]
 - "general_context": 아래 "장기 프로필 요약" 섹션에서 온 신호
 - "purchase_history": 아래 "구매이력" 섹션에서 온 신호
-- "session_smalltalk": 아래 "이번 세션 대화" 섹션에서 온 신호
+- "session_smalltalk": 아래 "이번 세션 대화" 섹션 또는 "잡담에서 수집된
+  정보" 섹션에서 온 신호
 반드시 실제로 그 정보가 등장한 섹션을 그대로 쓰세요 — source가 우선순위
 판단(Priority Resolver, Stage4)의 근거가 됩니다.
 
@@ -133,6 +162,9 @@ explicit_exclusion과 안전 관련 신호는 이 제한에 포함되지 않습�
 
 # 장기 프로필 요약 (알레르기 등 안전 정보는 이미 별도 처리되어 여기 없음)
 {profile_summary}
+
+# 잡담(smalltalk_agent)에서 수집된 정보 — 구매이력과 무관하게 항상 참고
+{smalltalk_profile_summary}
 
 # 구매이력 통계 (집계본)
 {general_preference_summary}

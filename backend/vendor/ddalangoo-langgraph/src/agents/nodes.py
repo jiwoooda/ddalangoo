@@ -1,5 +1,6 @@
 """공통 Graph 노드: wait_for_input, respond, cancel 등."""
 from src.state.schema import ShoppingState
+from src.state.node_inputs import RespondNodeInput, CancelNodeInput
 from src.utils.agent_logger import agent_logger
 
 
@@ -11,7 +12,23 @@ def wait_for_input_node(state: ShoppingState) -> dict:
     return {}
 
 
-def respond_node(state: ShoppingState) -> dict:
+def reset_turn_observability_node(state: ShoppingState) -> dict:
+    """매 턴 시작 시 실패 관측 필드를 초기화한다.
+
+    intent_agent_node 진입부에 끼워 넣지 않고 전용 노드로 분리한 이유: intent_agent는
+    "의도 분류"라는 단일 책임을 유지하고, 나중에 intent_agent를 거치지 않는 새 진입
+    경로가 생기더라도 리셋 누락 위험이 없게 하기 위함(wait_for_input → 이 노드 →
+    intent_agent 순서로 배선, docs/resilience_plan.md Phase 2 참고)."""
+    return {
+        "degraded_mode": False,
+        "degradation_reason": None,
+        "failure_stage": None,
+        "ranking_mode": None,
+        "source_used": None,
+    }
+
+
+def respond_node(state: RespondNodeInput) -> dict:
     """사용자에게 보낼 메시지 생성."""
     stage = state.get("stage", "idle")
     intent = state.get("intent")
@@ -86,7 +103,7 @@ def ask_what_to_buy_node(state: ShoppingState) -> dict:
     }
 
 
-def cancel_node(state: ShoppingState) -> dict:
+def cancel_node(state: CancelNodeInput) -> dict:
     """모든 stage에서의 cancel 처리. state 완전 리셋."""
     cart_items = state.get("cart_items") or []
     if cart_items:
@@ -111,4 +128,6 @@ def cancel_node(state: ShoppingState) -> dict:
         "current_product_index": 0,
         "quantity": None,
         "reorder_resolution": None,
+        # 취소 시 진행 중이던 결제 플로우도 무효화 — 다음 결제엔 새 키 발급.
+        "payment_idempotency_key": None,
     }

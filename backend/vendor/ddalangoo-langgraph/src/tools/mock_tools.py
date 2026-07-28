@@ -4,6 +4,7 @@
 인터페이스/contract는 실제와 동일하게 유지.
 Playwright, 결제 SDK, Meta-MCP, DB, VectorDB 모두 mock.
 """
+import hashlib
 import uuid
 import json
 from pathlib import Path
@@ -1048,14 +1049,64 @@ def mock_clear_cart(user_id: str) -> None:
     _mock_carts[user_id] = []
 
 
+class IdempotencyConflictError(Exception):
+    """동일 idempotency_key가 이전과 다른 장바구니 내용으로 재사용됐다 — 장바구니가
+    바뀐 채로 이전 결제 키가 남아있었을 가능성이 높다(docs/resilience_plan.md
+    Phase 4 참고). 자동으로 새 주문을 만들지 않고 예외로 알린다."""
+
+
+# idempotency_key → {"request_hash": ..., "order": {...}}. 같은 키+같은 요청이면
+# 새 주문을 만들지 않고 기존 결과를 그대로 반환해 재시도가 주문을 중복
+# 생성하지 않게 한다. 키가 다르거나 없으면(=idempotency_key 미지정) 항상 새로
+# 생성하는 기존 동작 그대로.
+_IDEMPOTENCY_STORE: dict[str, dict[str, Any]] = {}
+
+
+def _compute_request_hash(user_id: str, cart: list[dict[str, Any]]) -> str:
+    """장바구니 내용을 정렬·정규화 후 직렬화해 해싱 — 필드 순서가 달라도
+    내용이 같으면 항상 같은 해시가 나온다."""
+    normalized_items = sorted(
+        (
+            {
+                "product_url": item.get("product_url", ""),
+                "price": item.get("price", 0),
+                "quantity": item.get("quantity", 0),
+            }
+            for item in cart
+        ),
+        key=lambda x: (x["product_url"], x["price"], x["quantity"]),
+    )
+    payload = json.dumps({"user_id": user_id, "items": normalized_items}, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def mock_place_order(
     user_id: str,
     delivery_address: dict[str, Any],
     payment_method: str = "naver_pay",
     conversation_id: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
 ) -> dict[str, Any]:
     from datetime import datetime
     cart = mock_get_cart(user_id)
+
+    if idempotency_key:
+        cached = _IDEMPOTENCY_STORE.get(idempotency_key)
+        if cached is not None:
+            if not cart:
+                # 이전 호출이 이미 성공해서 장바구니가 비워진 뒤의 재시도(응답만
+                # 유실된 경우)다 — 비교할 장바구니가 없으니 새로 해싱하지 않고
+                # 캐시된 결과를 그대로 반환한다. cart가 남아있는데 해시가
+                # 다르면(아래) 그건 실제 내용 변경으로 보고 충돌 처리한다.
+                return cached["order"]
+            if cached["request_hash"] == _compute_request_hash(user_id, cart):
+                # 동일 요청 재시도 — 새 주문/구매이력을 만들지 않고 기존 결과 반환
+                return cached["order"]
+            raise IdempotencyConflictError(
+                f"idempotency_key={idempotency_key}가 이전과 다른 요청 내용으로 재사용됨"
+            )
+
+    request_hash = _compute_request_hash(user_id, cart) if cart else None
     order_id = f"ORDER-{str(uuid.uuid4())[:8].upper()}"
     total = sum(item["total"] for item in cart)
 
@@ -1073,8 +1124,7 @@ def mock_place_order(
         )
 
     mock_clear_cart(user_id)
-    pass  # 주문 완료
-    return {
+    order = {
         "order_id": order_id,
         "total": total,
         "item_count": len(cart),
@@ -1082,6 +1132,9 @@ def mock_place_order(
         "delivery_address": delivery_address,
         "status": "confirmed",
     }
+    if idempotency_key:
+        _IDEMPOTENCY_STORE[idempotency_key] = {"request_hash": request_hash, "order": order}
+    return order
 
 
 # ══════════════════════════════════════════════

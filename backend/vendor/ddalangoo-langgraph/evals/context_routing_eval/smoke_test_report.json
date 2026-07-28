@@ -1,0 +1,4080 @@
+{
+  "dataset_path": "C:\\Users\\82108\\ddalangoo\\backend\\vendor\\ddalangoo-langgraph\\evals\\data\\final_dataset.jsonl",
+  "total_records": 255,
+  "step2_node_checks": {
+    "1_prepare_candidates": {
+      "pass": true,
+      "candidate_count": 20,
+      "gold_included": true
+    },
+    "2_filter_results": {
+      "pass": true,
+      "in_count": 20,
+      "out_count": 17,
+      "critical": false
+    },
+    "4_intent_agent": {
+      "pass": true,
+      "intent": "buy",
+      "keywords": [
+        "olives"
+      ],
+      "degraded_mode": false
+    },
+    "5_context_agent": {
+      "pass": true,
+      "preference_context_raw": {
+        "safety_constraints": []
+      }
+    },
+    "3_rank_with_metadata": {
+      "pass": true,
+      "ranked_count": 17,
+      "sorted_desc": true,
+      "ranking_mode": "baseline",
+      "degraded_mode": true
+    },
+    "6_response_agent": {
+      "pass": true,
+      "explanation_len": 42,
+      "had_selected_product": true,
+      "degraded_mode": false
+    }
+  },
+  "step3_graph_check": {
+    "pass": true,
+    "stage": "recipe_planning",
+    "selected_product": null,
+    "recommended_products_count": 0,
+    "degraded_mode": false
+  },
+  "step4_edge_cases": {
+    "A_no_history": {
+      "pass": false,
+      "record_id": "rec129",
+      "steps": {
+        "1_prepare_candidates": {
+          "pass": true,
+          "candidate_count": 20,
+          "gold_included": true
+        },
+        "2_filter_results": {
+          "pass": true,
+          "in_count": 20,
+          "out_count": 16,
+          "critical": false
+        },
+        "4_intent_agent": {
+          "pass": false,
+          "intent": "unclear",
+          "keywords": [],
+          "degraded_mode": false
+        },
+        "5_context_agent": {
+          "pass": true,
+          "preference_context_raw": {
+            "safety_constraints": []
+          }
+        },
+        "3_rank_with_metadata": {
+          "pass": true,
+          "ranked_count": 16,
+          "sorted_desc": true,
+          "ranking_mode": "baseline",
+          "degraded_mode": true
+        },
+        "6_response_agent": {
+          "pass": true,
+          "explanation_len": 43,
+          "had_selected_product": true,
+          "degraded_mode": false
+        }
+      }
+    },
+    "B_no_signal": {
+      "pass": true,
+      "record_id": "rec132",
+      "steps": {
+        "1_prepare_candidates": {
+          "pass": true,
+          "candidate_count": 20,
+          "gold_included": true
+        },
+        "2_filter_results": {
+          "pass": true,
+          "in_count": 20,
+          "out_count": 12,
+          "critical": false
+        },
+        "4_intent_agent": {
+          "pass": true,
+          "intent": "buy",
+          "keywords": [
+            "snacks",
+            "dominos"
+          ],
+          "degraded_mode": false
+        },
+        "5_context_agent": {
+          "pass": true,
+          "preference_context_raw": {
+            "safety_constraints": []
+          }
+        },
+        "3_rank_with_metadata": {
+          "pass": true,
+          "ranked_count": 12,
+          "sorted_desc": true,
+          "ranking_mode": "llm",
+          "degraded_mode": false
+        },
+        "6_response_agent": {
+          "pass": true,
+          "explanation_len": 51,
+          "had_selected_product": true,
+          "degraded_mode": false
+        }
+      }
+    },
+    "C_no_smalltalk": {
+      "pass": true,
+      "record_id": "rec106",
+      "steps": {
+        "1_prepare_candidates": {
+          "pass": true,
+          "candidate_count": 20,
+          "gold_included": true
+        },
+        "2_filter_results": {
+          "pass": true,
+          "in_count": 20,
+          "out_count": 10,
+          "critical": false
+        },
+        "4_intent_agent": {
+          "pass": true,
+          "intent": "buy",
+          "keywords": [
+            "blueberry flavored coffee",
+            "highly recommended brand",
+            "top choices",
+            "best in terms of taste"
+          ],
+          "degraded_mode": false
+        },
+        "5_context_agent": {
+          "pass": true,
+          "preference_context_raw": {
+            "safety_constraints": []
+          }
+        },
+        "3_rank_with_metadata": {
+          "pass": true,
+          "ranked_count": 10,
+          "sorted_desc": true,
+          "ranking_mode": "baseline",
+          "degraded_mode": true
+        },
+        "6_response_agent": {
+          "pass": true,
+          "explanation_len": 42,
+          "had_selected_product": true,
+          "degraded_mode": false
+        }
+      }
+    },
+    "safety_trigger": {
+      "pass": true,
+      "detected_allergens": [
+        "땅콩"
+      ],
+      "base_record_id": "rec000"
+    },
+    "candidate_shortfall": {
+      "count": 0,
+      "records": []
+    }
+  },
+  "step5_batch": {
+    "n": 19,
+    "crash_count": 0,
+    "crashed_records": [],
+    "filter_pass_rate": 0.6,
+    "elapsed_ms_avg": 11708.5,
+    "elapsed_ms_max": 13646.7,
+    "estimated_909_total_minutes": 177.4,
+    "records": [
+      {
+        "record_id": "rec167",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 10,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": false,
+            "intent": "ask",
+            "keywords": [
+              "rice paper",
+              "spring rolls"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 10,
+            "sorted_desc": true,
+            "ranking_mode": "llm",
+            "degraded_mode": false
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 35,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Quaker Rice Crisps, Chocolate, 3.52 oz Bag (Packaging May Vary)",
+            "price": 3.19,
+            "rating": 4.6,
+            "platform": "Quaker",
+            "product_url": "https://example.com/B06WLL8B5M",
+            "_asin": "B06WLL8B5M",
+            "_candidate_id": "F",
+            "final_score": 0.85,
+            "axis_contributions": {
+              "price": 0.6,
+              "review": 0.25,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "배치",
+                "reasoning": "Rice crisps are not rice paper and do not meet the request."
+              }
+            ]
+          },
+          {
+            "product_name": "30 Sheets Premium Rice Papers, 30~32 Sheets Per Pack, 10.5 oz, Vietnamese Spring Roll Wrapper, Premium Rice Paper, Round 22cm by ASIADELI(Pack of 1 Bag)",
+            "price": 7.4,
+            "rating": 4.4,
+            "platform": "ASIADELI",
+            "product_url": "https://example.com/B0BKPV6Q63",
+            "_asin": "B0BKPV6Q63",
+            "_candidate_id": "A",
+            "final_score": 0.7207,
+            "axis_contributions": {
+              "price": 0.4707,
+              "review": 0.15,
+              "preference": 0.1
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "강한부합",
+                "reasoning": "This product is specifically rice paper, which directly matches the request."
+              }
+            ]
+          },
+          {
+            "product_name": "Canoe Wild Rice 6oz",
+            "price": 4.99,
+            "rating": 4.3,
+            "platform": "Canoe",
+            "product_url": "https://example.com/B00L3N711O",
+            "_asin": "B00L3N711O",
+            "_candidate_id": "D",
+            "final_score": 0.6447,
+            "axis_contributions": {
+              "price": 0.5447,
+              "review": 0.1,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "배치",
+                "reasoning": "This is also wild rice, which does not fulfill the request for rice paper."
+              }
+            ]
+          },
+          {
+            "product_name": "White Sushi Rice, Premium Japanese Short Grain Rice, Specially Selected, Kosher Certified, 16 Oz (Single)",
+            "price": 9.99,
+            "rating": 4.6,
+            "platform": "NATURAL EARTH PRODUCTS B\"H",
+            "product_url": "https://example.com/B0C5F65JBZ",
+            "_asin": "B0C5F65JBZ",
+            "_candidate_id": "G",
+            "final_score": 0.6411,
+            "axis_contributions": {
+              "price": 0.3911,
+              "review": 0.25,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "배치",
+                "reasoning": "This is sushi rice, which is not suitable for spring rolls."
+              }
+            ]
+          },
+          {
+            "product_name": "Three Ladies Brand Spring Roll Rice Paper Wrapper (2 Packs) Round, 22cm",
+            "price": 11.94,
+            "rating": 4.5,
+            "platform": "Three Ladies",
+            "product_url": "https://example.com/B07TTQZ95N",
+            "_asin": "B07TTQZ95N",
+            "_candidate_id": "J",
+            "final_score": 0.5972,
+            "axis_contributions": {
+              "price": 0.3312,
+              "review": 0.2,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "부합",
+                "reasoning": "This is a spring roll rice paper wrapper, which is relevant but not as directly matching as [A]."
+              }
+            ]
+          },
+          {
+            "product_name": "Canoe Wild Rice, 12-ounces",
+            "price": 6.99,
+            "rating": 4.3,
+            "platform": "Canoe",
+            "product_url": "https://example.com/B004727D1G",
+            "_asin": "B004727D1G",
+            "_candidate_id": "B",
+            "final_score": 0.5833,
+            "axis_contributions": {
+              "price": 0.4833,
+              "review": 0.1,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "배치",
+                "reasoning": "This is wild rice, which does not match the request for rice paper."
+              }
+            ]
+          },
+          {
+            "product_name": "Japanese Rice Cake Mochi Daifuku (Peanut), (2 Packs) 14.8Ounces",
+            "price": 9.99,
+            "rating": 4.4,
+            "platform": "Fusion Select",
+            "product_url": "https://example.com/B07QD7C6PP",
+            "_asin": "B07QD7C6PP",
+            "_candidate_id": "I",
+            "final_score": 0.5411,
+            "axis_contributions": {
+              "price": 0.3911,
+              "review": 0.15,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "배치",
+                "reasoning": "This is mochi, which does not match the request for rice paper."
+              }
+            ]
+          },
+          {
+            "product_name": "Chung Jung One O'Food BAP, Instant Cooked Sticky White Rice, Ready to Eat, Microwavable & Gluten-Free, Pack of 3",
+            "price": 12.95,
+            "rating": 4.5,
+            "platform": "C O'Food",
+            "product_url": "https://example.com/B0BMMZDKC7",
+            "_asin": "B0BMMZDKC7",
+            "_candidate_id": "E",
+            "final_score": 0.5002,
+            "axis_contributions": {
+              "price": 0.3002,
+              "review": 0.2,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "배치",
+                "reasoning": "This is sticky rice, not rice paper, and is not suitable for making spring rolls."
+              }
+            ]
+          },
+          {
+            "product_name": "Nishiki Premium Rice, Medium Grain,15 Pound (Pack of 1)",
+            "price": 20.19,
+            "rating": 4.7,
+            "platform": "Nishiki",
+            "product_url": "https://example.com/B0BS8HG7T5",
+            "_asin": "B0BS8HG7T5",
+            "_candidate_id": "C",
+            "final_score": 0.3777,
+            "axis_contributions": {
+              "price": 0.0777,
+              "review": 0.3,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "배치",
+                "reasoning": "This is premium rice, not rice paper, thus not suitable for spring rolls."
+              }
+            ]
+          },
+          {
+            "product_name": "Thai Kitchen Jasmine Rice, 8.8 oz (Pack of 6)",
+            "price": 22.72,
+            "rating": 4.1,
+            "platform": "Thai Kitchen",
+            "product_url": "https://example.com/B0B5RJS78R",
+            "_asin": "B0B5RJS78R",
+            "_candidate_id": "H",
+            "final_score": 0.0,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.0,
+              "preference": 0.0
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "rice paper",
+                "match_level": "배치",
+                "reasoning": "This is jasmine rice, not rice paper, thus not applicable."
+              }
+            ]
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Three Ladies Brand Spring Roll Rice Paper Wrapper (2 Packs) Round, 22cm",
+          "expected_ranking": [
+            "Three Ladies Brand Spring Roll Rice Paper Wrapper (2 Packs) Round, 22cm"
+          ]
+        },
+        "elapsed_ms": 9553.1
+      },
+      {
+        "record_id": "rec028",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 11,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": false,
+            "intent": "ask",
+            "keywords": [
+              "rice substitute",
+              "vegetal flavor",
+              "palmini rice",
+              "texture",
+              "odorless",
+              "convenient",
+              "easy to use"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 11,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 60,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Spicy World Minnesota Grown Black Wild Rice 24oz Bag (1.5LB) | Premium Quality | All Natural, Hearty Grain with Rich Flavor | Perfect for Rice Dishes & Recipes",
+            "price": 14.99,
+            "rating": 4.7,
+            "platform": "Spicy World",
+            "product_url": "https://example.com/B08JD3FKTZ",
+            "_asin": "B08JD3FKTZ"
+          },
+          {
+            "product_name": "Knorr Rice Sides For a Tasty Rice Side Dish Herb & Butter Long Grain Rice and Vermicelli Pasta Blend No Artificial Flavors, No Preservatives, No Added MSG 5.4 oz",
+            "price": 1.79,
+            "rating": 4.7,
+            "platform": "Knorr",
+            "product_url": "https://example.com/B09PZX6XKS",
+            "_asin": "B09PZX6XKS"
+          },
+          {
+            "product_name": "Knorr Rice Sides For a Tasty Rice Side Dish Chicken Broccoli with Long Grain Rice and Vermicelli Pasta No Artificial Flavors, No Preservatives, No Added MSG 5.5 oz",
+            "price": 1.79,
+            "rating": 4.6,
+            "platform": "Knorr",
+            "product_url": "https://example.com/B06XW6XYYG",
+            "_asin": "B06XW6XYYG"
+          },
+          {
+            "product_name": "White Sushi Rice, Premium Japanese Short Grain Rice, Specially Selected, Kosher Certified, 16 Oz (Single)",
+            "price": 9.99,
+            "rating": 4.6,
+            "platform": "NATURAL EARTH PRODUCTS B\"H",
+            "product_url": "https://example.com/B0C5F65JBZ",
+            "_asin": "B0C5F65JBZ"
+          },
+          {
+            "product_name": "Otafuku Yakisoba Sauce for Japanese Stir Fry Noodles, Vegan Yakisoba Sauce Authentic Umami Flavor - No Artificial Flavors, Colors or Preservatives (17.6 Oz)",
+            "price": 13.99,
+            "rating": 4.4,
+            "platform": "Otafuku",
+            "product_url": "https://example.com/B00886E9DM",
+            "_asin": "B00886E9DM"
+          },
+          {
+            "product_name": "[LENITH] Mokpo Hamcho Seaweed Doljaban Rice Seasoning, Laver korea - 2.3 oz",
+            "price": 7.99,
+            "rating": 4.4,
+            "platform": "LENITH",
+            "product_url": "https://example.com/B07T4ZQTQR",
+            "_asin": "B07T4ZQTQR"
+          },
+          {
+            "product_name": "Otafuku Sweet & Spicy Okonomi Sauce for Japanese Okonomiyaki, Sushi, Tonkatsu, and French Fries, Soy Free Vegetarian and Vegan, 10.6 OZ (300g)",
+            "price": 9.99,
+            "rating": 4.4,
+            "platform": "Otafuku",
+            "product_url": "https://example.com/B09TV3TNDP",
+            "_asin": "B09TV3TNDP"
+          },
+          {
+            "product_name": "Earth's Promise - Organic Basmati Brown Rice 32 oz (1-Pack) - Organic, Non-GMO, Low-Glycemic Index, Natural Aged Aroma, Gluten Free, Allergen Free, Sustainably Sourced, Non-Sticky Rice",
+            "price": 12.99,
+            "rating": 4.2,
+            "platform": "Earth's Promise",
+            "product_url": "https://example.com/B08T25F5W1",
+            "_asin": "B08T25F5W1"
+          },
+          {
+            "product_name": "Japanese Teriyaki with Udon Noodles Entree Meal Kit for Two - Authentic Asian Flavor - Japanese Home Cooked Meal Solution [Plant-Based, Flexitarian Friendly]",
+            "price": 9.99,
+            "rating": 4.1,
+            "platform": "Rootworks",
+            "product_url": "https://example.com/B09D41BGKM",
+            "_asin": "B09D41BGKM"
+          },
+          {
+            "product_name": "Thai Kitchen Jasmine Rice, 8.8 oz (Pack of 6)",
+            "price": 22.72,
+            "rating": 4.1,
+            "platform": "Thai Kitchen",
+            "product_url": "https://example.com/B0B5RJS78R",
+            "_asin": "B0B5RJS78R"
+          },
+          {
+            "product_name": "Ty Ling Traditional Vegetable Fried Rice 9.9oz (Pack of 10)",
+            "price": 45.62,
+            "rating": 3.9,
+            "platform": "Ty Ling",
+            "product_url": "https://example.com/B09WSYJWP3",
+            "_asin": "B09WSYJWP3"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Better Than Rice - New ODORLESS. Certified USDA Organic, Vegan, Gluten-Free, Non-GMO, Konjac, ZERO Net Carbs, Paleo, Keto and Diabetic Friendly, Shirataki, Fully Cooked, Low Calorie, Plant Based 7 Ounces (6 Pack)",
+          "expected_ranking": [
+            "Better Than Rice - New ODORLESS. Certified USDA Organic, Vegan, Gluten-Free, Non-GMO, Konjac, ZERO Net Carbs, Paleo, Keto and Diabetic Friendly, Shirataki, Fully Cooked, Low Calorie, Plant Based 7 Ounces (6 Pack)"
+          ]
+        },
+        "elapsed_ms": 13288.8
+      },
+      {
+        "record_id": "rec006",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 9,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "coffee"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 9,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 58,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Peet's Coffee, Medium Roast Decaffeinated Coffee K-Cup Pods for Keurig Brewers - Decaf Especial 32 Count (1 Box of 32 K-Cup Pods)",
+            "price": 28.39,
+            "rating": 4.8,
+            "platform": "Peet's Coffee",
+            "product_url": "https://example.com/B0BZ3NXGKY",
+            "_asin": "B0BZ3NXGKY"
+          },
+          {
+            "product_name": "Peet's Coffee, Medium Roast K-Cup Pods for Keurig Brewers - Café Domingo 88 Count (4 Boxes of 22 K-Cup Pods)",
+            "price": 71.68,
+            "rating": 4.7,
+            "platform": "Peet's Coffee",
+            "product_url": "https://example.com/B01LXIRZ9X",
+            "_asin": "B01LXIRZ9X"
+          },
+          {
+            "product_name": "Peet's Coffee, Dark Roast K-Cup Pods for Keurig Brewers - Major Dickason's Blend 32 Count (1 Box of 32 K-Cup Pods)",
+            "price": 24.99,
+            "rating": 4.7,
+            "platform": "Peet's Coffee",
+            "product_url": "https://example.com/B0CBQS316F",
+            "_asin": "B0CBQS316F"
+          },
+          {
+            "product_name": "Bizzy Organic Cold Brew Coffee | Breakfast Blend | Coarse Ground Coffee | Micro Sifted | Specialty Grade | 100% Arabica | 2 LB",
+            "price": 29.99,
+            "rating": 4.6,
+            "platform": "Bizzy",
+            "product_url": "https://example.com/B0BCL2X5XW",
+            "_asin": "B0BCL2X5XW"
+          },
+          {
+            "product_name": "Peet's Coffee, Medium Roast Ground Coffee - Big Bang 18 Ounce Bag",
+            "price": 13.99,
+            "rating": 4.6,
+            "platform": "Peet's Coffee",
+            "product_url": "https://example.com/B0CBQSSRN1",
+            "_asin": "B0CBQSSRN1"
+          },
+          {
+            "product_name": "Utica Coffee Roasting Co. Competitor's Espresso Blend | Specialty Medium Roast Whole Bean Coffee | 16 Oz Reclosable Bag",
+            "price": 17.99,
+            "rating": 4.5,
+            "platform": "Utica Coffee Roasting Co.",
+            "product_url": "https://example.com/B08TMV7ZZS",
+            "_asin": "B08TMV7ZZS"
+          },
+          {
+            "product_name": "Amazon Brand - Happy Belly French Vanilla Flavored Ground Coffee, Medium Roast, 12 Ounce",
+            "price": 7.56,
+            "rating": 4.3,
+            "platform": "Happy Belly",
+            "product_url": "https://example.com/B0B962YG68",
+            "_asin": "B0B962YG68"
+          },
+          {
+            "product_name": "Amazon Brand - Happy Belly Decaf Breakfast Blend Ground Coffee, Light Roast, 32 Ounce",
+            "price": 9.47,
+            "rating": 4.3,
+            "platform": "Happy Belly",
+            "product_url": "https://example.com/B0B9CBB8KT",
+            "_asin": "B0B9CBB8KT"
+          },
+          {
+            "product_name": "Clean Coffee Co. | Low Acid Coffee, 12oz Bag Ground Coffee | Medium Roast from Papua New Guinea | Toxin and Mold Free, Antioxidant Rich, Smooth Taste for Espresso, French Press, or Iced Coffee",
+            "price": 14.99,
+            "rating": 4.2,
+            "platform": "CLEAN COFFEE CO",
+            "product_url": "https://example.com/B0BFBNFC7Q",
+            "_asin": "B0BFBNFC7Q"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Peet's Coffee, Medium Roast Decaffeinated Coffee K-Cup Pods for Keurig Brewers - Decaf Especial 32 Count (1 Box of 32 K-Cup Pods)",
+          "expected_ranking": [
+            "Peet's Coffee, Medium Roast Decaffeinated Coffee K-Cup Pods for Keurig Brewers - Decaf Especial 32 Count (1 Box of 32 K-Cup Pods)"
+          ]
+        },
+        "elapsed_ms": 13646.7
+      },
+      {
+        "record_id": "rec197",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 7,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "gift",
+              "tasty",
+              "good value"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 7,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 44,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Nut Gift Basket | 2 Gifts in 1; Nut Platter AND Elegant Section Dish | XL Nuts Presented in Ceramic Sectional | Gift Basket for Delivery, Gifts for Dad or Mom, Gourmet Snack Gift Box, Thank You Gifts",
+            "price": 39.99,
+            "rating": 4.6,
+            "platform": "Savor Gifts",
+            "product_url": "https://example.com/B0BYBDYDN2",
+            "_asin": "B0BYBDYDN2"
+          },
+          {
+            "product_name": "Michel et Augustin Gourmet Chocolate Cookie Gift Baskets for Valentines Day Gifts, Holidays and Birthdays, “Butter and Amour” Gift Box of 12 French Cookie Bars, 4 Shortbread Cookies per Bar",
+            "price": 24.99,
+            "rating": 4.5,
+            "platform": "Michel Et Augustin",
+            "product_url": "https://example.com/B0BHJMT13H",
+            "_asin": "B0BHJMT13H"
+          },
+          {
+            "product_name": "Gifted Nut Holiday Gift Tray - Assorted Fresh Gourmet Dry Fruits and Nuts Gift Box - Elegant Drawer Design for Corporate Gifts, Christmas Gifts - Mixed Nuts Sectional Tray - Condolence Care Package",
+            "price": 25.99,
+            "rating": 4.3,
+            "platform": "The Gifted Nut",
+            "product_url": "https://example.com/B09S6W1WTN",
+            "_asin": "B09S6W1WTN"
+          },
+          {
+            "product_name": "Sour Candy Small Gift Box by Brain Blasterz, Sour Chew Bar, Lollipop, Sour Powder, Taffy, Birthday Gift, Halloween Candy, 12 pieces, 13oz",
+            "price": 9.99,
+            "rating": 3.7,
+            "platform": "Brain Blasterz",
+            "product_url": "https://example.com/B09HXQWXJ6",
+            "_asin": "B09HXQWXJ6"
+          },
+          {
+            "product_name": "Uncle Butch's Fudge - Creamy and Smooth Vanilla Walnut - Decadent and Delicious Handcrafted Fudge (32oz)",
+            "price": 34.74,
+            "rating": 5.0,
+            "platform": "Uncle Butch's Fudge",
+            "product_url": "https://example.com/B0BGJS7KQV",
+            "_asin": "B0BGJS7KQV"
+          },
+          {
+            "product_name": "KIND KIDS Chewy Granola Bars, Chocolate Chip and Peanut Butter Chocolate Chip, Variety Pack, 100% Whole Grains, Gluten Free Bars, 0.81 oz (20 Count)",
+            "price": 10.24,
+            "rating": 4.7,
+            "platform": "KIND",
+            "product_url": "https://example.com/B0BCHCDG54",
+            "_asin": "B0BCHCDG54"
+          },
+          {
+            "product_name": "Bob's Sweet Stripes Soft Mint Candy Peppermint Stir Sticks, Christmas Candy Dish Holiday Classic, 5oz Box, Pack of 12",
+            "price": 25.98,
+            "rating": 3.8,
+            "platform": "Brach's",
+            "product_url": "https://example.com/B0B845MQVL",
+            "_asin": "B0B845MQVL"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Lindor Milk Chocolate Truffles Kosher, 19 Ounce",
+          "expected_ranking": [
+            "Lindor Milk Chocolate Truffles Kosher, 19 Ounce"
+          ]
+        },
+        "elapsed_ms": 11481.5
+      },
+      {
+        "record_id": "rec070",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 8,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": false,
+            "intent": "ask",
+            "keywords": [
+              "chocolate cookie",
+              "vegan",
+              "flavor",
+              "creamy cream"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 8,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 58,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Unreal Dark Chocolate Coconut Bars | Certified Vegan, Gluten Free, Fair Trade, Non-GMO | No Sugar Alcohols or Soy 1.3 Oz (Pack of 12)",
+            "price": 37.99,
+            "rating": 4.6,
+            "platform": "UNREAL",
+            "product_url": "https://example.com/B07SZX8PLL",
+            "_asin": "B07SZX8PLL"
+          },
+          {
+            "product_name": "Simple Mills Almond Flour Crunchy Cookies Variety Pack (Chocolate Chip, Double Chocolate Chip, Toasted Pecan) - Gluten Free, Vegan, Healthy Snacks, Made with Organic Coconut Oil, 5.5 Ounce (Pack of 3)",
+            "price": 17.25,
+            "rating": 4.4,
+            "platform": "Simple Mills",
+            "product_url": "https://example.com/B07QVMPK69",
+            "_asin": "B07QVMPK69"
+          },
+          {
+            "product_name": "Rip Van Dark Chocolate Wafer Cookies - Healthy Snacks - Non GMO, Keto, Low Carb, Low Sugar (2g), Low Calorie and Vegan - 16 Count",
+            "price": 19.99,
+            "rating": 4.2,
+            "platform": "Rip Van Wafels",
+            "product_url": "https://example.com/B0BF3Z27JN",
+            "_asin": "B0BF3Z27JN"
+          },
+          {
+            "product_name": "Simply Candy Bars | Chocolate Date Bar | Salted Peanut | Vegan + Kosher + Non-GMO (4.5 oz (Pack of 3))",
+            "price": 19.99,
+            "rating": 3.7,
+            "platform": "Simply Gum",
+            "product_url": "https://example.com/B09MJJGQZY",
+            "_asin": "B09MJJGQZY"
+          },
+          {
+            "product_name": "Shiroi Koibito Cookies Assortments White Chocolate 12 Pcs x 2 Boxes (24 Pcs)",
+            "price": 49.0,
+            "rating": 4.9,
+            "platform": "Japanese Decor Sakura",
+            "product_url": "https://example.com/B0BSKH3FT8",
+            "_asin": "B0BSKH3FT8"
+          },
+          {
+            "product_name": "Hydrox Cookies, Master Pack of 6",
+            "price": 33.59,
+            "rating": 4.6,
+            "platform": "Hydrox",
+            "product_url": "https://example.com/B014DE6Z1G",
+            "_asin": "B014DE6Z1G"
+          },
+          {
+            "product_name": "Cookies by Grandma's Value Pack Bundle Curated by Tribeca Curations | 2.5 Ounce | Pack of 30 (Peanut Butter)",
+            "price": 31.18,
+            "rating": 4.6,
+            "platform": "Tribeca Curations",
+            "product_url": "https://example.com/B09T4RYFYC",
+            "_asin": "B09T4RYFYC"
+          },
+          {
+            "product_name": "Pepperidge Farm Chocolate Collection, 7 Cookie Varieties, 13-oz Box",
+            "price": 7.78,
+            "rating": 4.5,
+            "platform": "Pepperidge Farm",
+            "product_url": "https://example.com/B0C86KBJ1P",
+            "_asin": "B0C86KBJ1P"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Hydrox Cookies, Master Pack of 6",
+          "expected_ranking": [
+            "Hydrox Cookies, Master Pack of 6"
+          ]
+        },
+        "elapsed_ms": 11960.1
+      },
+      {
+        "record_id": "rec062",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 18,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "chai",
+              "authentic recipe",
+              "good taste"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 18,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 48,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Blue Lotus Chai - Golden Masala Flavor Chai - Makes 100 Cups - 3 Ounce Masala Spiced Chai Powder with Organic Spices - Instant Indian Tea No Steeping - No Gluten",
+            "price": 15.99,
+            "rating": 4.7,
+            "platform": "BLUE LOTUS CHAI",
+            "product_url": "https://example.com/B08H52NF3Z",
+            "_asin": "B08H52NF3Z"
+          },
+          {
+            "product_name": "Chaism Ceremonial Grade Matcha Green Tea Powder - 6 Single Serve Packets, Premium First Harvest USDA Organic Gluten-Free Vegan, 100% Pure, 12g/0.42oz",
+            "price": 6.99,
+            "rating": 4.6,
+            "platform": "Chaism",
+            "product_url": "https://example.com/B0BPNKS1R3",
+            "_asin": "B0BPNKS1R3"
+          },
+          {
+            "product_name": "Go-Yogik Chai Tea spice masala powder-3.5oz (80 servings|| Ayurvedic Goodness of 6 Spices Blend | Supports Immunity and Digestion | Caffiene Free| No Sugar | Vegan | No Additives",
+            "price": 13.99,
+            "rating": 4.3,
+            "platform": "Go-Yogik",
+            "product_url": "https://example.com/B08N9WT9W6",
+            "_asin": "B08N9WT9W6"
+          },
+          {
+            "product_name": "Rani Organic Tea (Chai) Masala Indian Spice Blend 3oz (85g) PET Jar ~ All Natural | Vegan | Gluten Friendly | NON-GMO | Indian Origin | USDA Certified Organic",
+            "price": 10.99,
+            "rating": 4.3,
+            "platform": "Rani Brand Authentic Indian Products",
+            "product_url": "https://example.com/B0BBRW1STS",
+            "_asin": "B0BBRW1STS"
+          },
+          {
+            "product_name": "Pacific Chai Latte Mix Canister - Spice Chai - 10 oz",
+            "price": 7.0,
+            "rating": 4.2,
+            "platform": "Pacific Chai",
+            "product_url": "https://example.com/B07CLFBY4T",
+            "_asin": "B07CLFBY4T"
+          },
+          {
+            "product_name": "The Tea Heaven Kashmiri Kahwa Tea, Indian Loose Leaf Chai Tea with 8 All-Natural Ingredients, Spiced Green Tea, Loose Chai Tea for Hot or Cold Brewing, 100 Grams (3.5oz)",
+            "price": 18.0,
+            "rating": 4.2,
+            "platform": "The Tea Heaven",
+            "product_url": "https://example.com/B093QKZVX4",
+            "_asin": "B093QKZVX4"
+          },
+          {
+            "product_name": "Vanilla Chai Black Tea by La Tea Dah | Premium Spiced Chai Tea Bags made with Organic Black Tea Leaves, Cardamom, & Vanilla | Floral Tea Gift Collection | Contains Caffeine (12 Sachets)",
+            "price": 14.95,
+            "rating": 4.0,
+            "platform": "La Tea Dah",
+            "product_url": "https://example.com/B0BZ35RF8F",
+            "_asin": "B0BZ35RF8F"
+          },
+          {
+            "product_name": "French Seasoning Gift Set - Tastes of France - Artisanal Spice Blends Six Pack - Non GMO, All Natural, Small Batch - Made By Hand in USA - Gustus Vitae - #498",
+            "price": 36.99,
+            "rating": 4.8,
+            "platform": "Gustus Vitae",
+            "product_url": "https://example.com/B0B7GNSB8Q",
+            "_asin": "B0B7GNSB8Q"
+          },
+          {
+            "product_name": "Starwest Botanicals Organic Curry Powder Spice Blend, 1 Pound Bulk Bag",
+            "price": 14.44,
+            "rating": 4.7,
+            "platform": "Starwest Botanicals",
+            "product_url": "https://example.com/B003AYEHQG",
+            "_asin": "B003AYEHQG"
+          },
+          {
+            "product_name": "Maille Mustard Honey Dijon for Vinaigrettes, Glazed Vegetables, and Chicken Recipes Gourmet Dijon mustard imported from France, made with real Honey 8 oz",
+            "price": 6.97,
+            "rating": 4.7,
+            "platform": "Maille",
+            "product_url": "https://example.com/B09PZVDLXB",
+            "_asin": "B09PZVDLXB"
+          },
+          {
+            "product_name": "Ancient Choice - Acai berry Powder (4 ounce) | USDA Organic Freeze-Dried | Non-GMO | Sourced From Brazil | Gourmet Grade | Acai Bowl Smoothie | Prebiotic | Fiber",
+            "price": 13.95,
+            "rating": 4.7,
+            "platform": "Ancient Choice",
+            "product_url": "https://example.com/B0B23DXR98",
+            "_asin": "B0B23DXR98"
+          },
+          {
+            "product_name": "Organic Chamomile Tea with Lavender made with Pure Egyptian Chamomile & Lavender- 20 Organic Tea Bags Moksha Ayurveda",
+            "price": 9.99,
+            "rating": 4.6,
+            "platform": "Greystone Tea",
+            "product_url": "https://example.com/B0B331MR8N",
+            "_asin": "B0B331MR8N"
+          },
+          {
+            "product_name": "Ancient Choice - Butterfly Pea Flower Powder (4 ounce) | Blue Matcha Tea | Ceremonial (Highest) Grade | Adaptogenic Raw Culinary | Natural Food Coloring | Thai Non-GMO | Vegan",
+            "price": 16.95,
+            "rating": 4.5,
+            "platform": "Ancient Choice",
+            "product_url": "https://example.com/B07YCL8HKZ",
+            "_asin": "B07YCL8HKZ"
+          },
+          {
+            "product_name": "The Spice Way Curry Powder - authentic seasoning, salt free, No preservatives, no fillers 8 oz",
+            "price": 7.99,
+            "rating": 4.5,
+            "platform": "The Spice Way",
+            "product_url": "https://example.com/B09S7KRQN8",
+            "_asin": "B09S7KRQN8"
+          },
+          {
+            "product_name": "SEGA Carolina Reaper Hot Sauce by Fuego Spice - 5 Fl Oz, (3 Pack) - Tangy, Vinegar-Forward Made with Pineapple and Smoked Onion - Dump it on BBQ Chicken Wings or a Taco - Heat Level: 7/10",
+            "price": 24.95,
+            "rating": 4.5,
+            "platform": "Fuego Spice Co.",
+            "product_url": "https://example.com/B0BPP166KF",
+            "_asin": "B0BPP166KF"
+          },
+          {
+            "product_name": "Gustus Vitae - Smoked Prime Cut Seasoning & Rub - Non GMO - Magnetic Tin - Authentic Artisanal Gourmet Spice Blend - Crafted in Small Batches",
+            "price": 8.49,
+            "rating": 4.4,
+            "platform": "Gustus Vitae",
+            "product_url": "https://example.com/B07WCQVR68",
+            "_asin": "B07WCQVR68"
+          },
+          {
+            "product_name": "Ancient Choice - Wild Blueberry Powder (4 ounces) | USDA Organic | Freeze Dried | Non-GMO | Sourced From Pristine Canada | Vegan Superfood | Vegetarian | Smoothie | Baking | Fiber | Prebiotic",
+            "price": 19.95,
+            "rating": 4.4,
+            "platform": "Ancient Choice",
+            "product_url": "https://example.com/B09PDLV8P6",
+            "_asin": "B09PDLV8P6"
+          },
+          {
+            "product_name": "Naturally Colorful Vanilla Frosting by Supernatural - Fruit Punch Red - No Artificial Dyes, Vegan, Organic Ingredients, 12oz",
+            "price": 7.99,
+            "rating": 3.3,
+            "platform": "Supernatural",
+            "product_url": "https://example.com/B0B511FQGN",
+            "_asin": "B0B511FQGN"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Pacific Chai Latte Mix Canister - Spice Chai - 10 oz",
+          "expected_ranking": [
+            "Pacific Chai Latte Mix Canister - Spice Chai - 10 oz"
+          ]
+        },
+        "elapsed_ms": 11419.5
+      },
+      {
+        "record_id": "rec057",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 17,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "chile powder",
+              "Carne Adovada",
+              "sauce"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 17,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 57,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Unpretentious Ancho Chile Powder, 2lb, Mild Flavor, Dried Poblano Peppers",
+            "price": 19.99,
+            "rating": 5.0,
+            "platform": "Unpretentious",
+            "product_url": "https://example.com/B09Z7D56XV",
+            "_asin": "B09Z7D56XV"
+          },
+          {
+            "product_name": "La Choy Soy Sauce, 10 oz",
+            "price": 12.74,
+            "rating": 4.7,
+            "platform": "La Choy",
+            "product_url": "https://example.com/B0005XMYKG",
+            "_asin": "B0005XMYKG"
+          },
+          {
+            "product_name": "Tannenbaum's Botanical Hot Sauce - Cranberry, Orange Peel & Allspice | 8 FL OZ",
+            "price": 13.99,
+            "rating": 4.7,
+            "platform": "TANNENBAUM'S",
+            "product_url": "https://example.com/B0BMF1HBG8",
+            "_asin": "B0BMF1HBG8"
+          },
+          {
+            "product_name": "Yamasa, Shoyu Artisanal Soy Sauce, Non-GMO, 10fl oz",
+            "price": 9.04,
+            "rating": 4.6,
+            "platform": "Yamasa",
+            "product_url": "https://example.com/B08Z1R1RDQ",
+            "_asin": "B08Z1R1RDQ"
+          },
+          {
+            "product_name": "Sanniti Italian Premium Black Truffle Sauce Salsa Tartufata, 17.6 oz (500g)",
+            "price": 29.99,
+            "rating": 4.1,
+            "platform": "Sanniti",
+            "product_url": "https://example.com/B09V9TKBWG",
+            "_asin": "B09V9TKBWG"
+          },
+          {
+            "product_name": "Mirizan Red Sauce with Spicy Hot Chili Flavor 8 fl oz Ready to Eat with American Asian Recipe Vegan Friendly Low in Calories Addictive Heat Flavor Three Chili | Use for Glazing Dip Taco Sauce Wings",
+            "price": 6.0,
+            "rating": 3.8,
+            "platform": "Mirizan",
+            "product_url": "https://example.com/B09QSZ11M2",
+            "_asin": "B09QSZ11M2"
+          },
+          {
+            "product_name": "Lawry's Casero Chili Powder, 2.5 oz (Pack of 12)",
+            "price": 20.88,
+            "rating": 4.9,
+            "platform": "Lawry's",
+            "product_url": "https://example.com/B071RWB2HP",
+            "_asin": "B071RWB2HP"
+          },
+          {
+            "product_name": "Unpretentious Whole Dried Scorpion Peppers, 2oz, Extremely Spicy, Hot Chile Peppers",
+            "price": 14.99,
+            "rating": 4.9,
+            "platform": "Unpretentious",
+            "product_url": "https://example.com/B0B3YY5224",
+            "_asin": "B0B3YY5224"
+          },
+          {
+            "product_name": "Calabrian Crushed Chili Dry Pepper Flakes, Large Shaker, Product of Italy, 250 g (8.81 oz) All Natural, Non-GMO, Product of Italy, TuttoCalabria",
+            "price": 13.99,
+            "rating": 4.7,
+            "platform": "TUTTOCALABRIA",
+            "product_url": "https://example.com/B00GQIBPDQ",
+            "_asin": "B00GQIBPDQ"
+          },
+          {
+            "product_name": "Simply Organic Ancho Chili Powder, Certified Organic | 2.85 oz | Pack of 3",
+            "price": 25.87,
+            "rating": 4.7,
+            "platform": "Simply Organic",
+            "product_url": "https://example.com/B085PQS419",
+            "_asin": "B085PQS419"
+          },
+          {
+            "product_name": "Piment d'Espelette - Red Chili Pepper Powder from France 1.41oz",
+            "price": 14.42,
+            "rating": 4.7,
+            "platform": "Biperduna",
+            "product_url": "https://example.com/B09BT932HK",
+            "_asin": "B09BT932HK"
+          },
+          {
+            "product_name": "Chimayo Chili Powder, 8oz",
+            "price": 12.99,
+            "rating": 4.6,
+            "platform": "Spice and Chili",
+            "product_url": "https://example.com/B073MNYJPT",
+            "_asin": "B073MNYJPT"
+          },
+          {
+            "product_name": "New Mexico Chili Powder 1 LB (16oz) – Natural and Premium. Use For Stews, Soups, Meat Rubs, Salsa, Enchiladas and More. Moderate Heat. By Amazing Chiles & Spices",
+            "price": 14.99,
+            "rating": 4.6,
+            "platform": "Amazing Chiles & Spices",
+            "product_url": "https://example.com/B09RQHNJ19",
+            "_asin": "B09RQHNJ19"
+          },
+          {
+            "product_name": "The Spice Way Cinnamon Ground - (8 oz) a pure powder",
+            "price": 5.99,
+            "rating": 4.5,
+            "platform": "The Spice Way",
+            "product_url": "https://example.com/B08LCJSTYB",
+            "_asin": "B08LCJSTYB"
+          },
+          {
+            "product_name": "HORMEL CHILI Plant Based Chili with Beans, 14 ounce (12-Pack)",
+            "price": 29.09,
+            "rating": 4.5,
+            "platform": "Hormel",
+            "product_url": "https://example.com/B09WVYQ1BS",
+            "_asin": "B09WVYQ1BS"
+          },
+          {
+            "product_name": "Chili Lime Seasoning, 8 oz. Fresh Natural Peppers and Sea Salt with Lime. Tangy Citrus Flavor With Mild Heat, Pairs with Fruit, Veggies, Seafood, or meat. By Amazing Chiles & Spices",
+            "price": 8.99,
+            "rating": 4.4,
+            "platform": "Amazing Chiles & Spices",
+            "product_url": "https://example.com/B0B7W48578",
+            "_asin": "B0B7W48578"
+          },
+          {
+            "product_name": "Chili Powder Seasoning and Dry Rub, Special Blend of Herbs & Spices, Great on Everything! **** BIG 5.5oz JAR **** By: Big G's Food Service",
+            "price": 4.99,
+            "rating": 3.9,
+            "platform": "Big G's",
+            "product_url": "https://example.com/B08R2XDY18",
+            "_asin": "B08R2XDY18"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Chimayo Chili Powder, 8oz",
+          "expected_ranking": [
+            "Chimayo Chili Powder, 8oz"
+          ]
+        },
+        "elapsed_ms": 12019.7
+      },
+      {
+        "record_id": "rec035",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 11,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": false,
+            "intent": "ask",
+            "keywords": [
+              "salad",
+              "tossed salad",
+              "chicken salad"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 11,
+            "sorted_desc": true,
+            "ranking_mode": "llm",
+            "degraded_mode": false
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 47,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Wish-Bone Salad Dressing, Light Thousand Island, 15 oz",
+            "price": 2.32,
+            "rating": 4.7,
+            "platform": "Wish-Bone",
+            "product_url": "https://example.com/B0C1W6WHR4",
+            "_asin": "B0C1W6WHR4",
+            "_candidate_id": "C",
+            "final_score": 0.8966,
+            "axis_contributions": {
+              "price": 0.5,
+              "review": 0.3636,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a dressing for salads, not a salad itself."
+              }
+            ]
+          },
+          {
+            "product_name": "McCormick Perfect Pinch Salad Supreme Seasoning, 8.25 oz",
+            "price": 6.8,
+            "rating": 4.8,
+            "platform": "McCormick",
+            "product_url": "https://example.com/B0C348GDQB",
+            "_asin": "B0C348GDQB",
+            "_candidate_id": "B",
+            "final_score": 0.8623,
+            "axis_contributions": {
+              "price": 0.4293,
+              "review": 0.4,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a seasoning for salads, but not a salad itself."
+              }
+            ]
+          },
+          {
+            "product_name": "La Tourangelle, Toasted Sesame Oil, Great for Cooking, Add to Noodles, Stir-Fry, Vegetables, Vinaigrettes, and Marinades for Authentic Asian Cuisine, 16.9 fl oz",
+            "price": 9.97,
+            "rating": 4.7,
+            "platform": "La Tourangelle",
+            "product_url": "https://example.com/B0C54FNDK2",
+            "_asin": "B0C54FNDK2",
+            "_candidate_id": "G",
+            "final_score": 0.7758,
+            "axis_contributions": {
+              "price": 0.3792,
+              "review": 0.3636,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is an oil that can be used in salads, but not a salad itself."
+              }
+            ]
+          },
+          {
+            "product_name": "Virginia Brand Vidalia Onion Vinegarette Salad Dressing - 2/24 oz. by Sam's Club",
+            "price": 16.99,
+            "rating": 4.8,
+            "platform": "Virginia Brand",
+            "product_url": "https://example.com/B004ROIONU",
+            "_asin": "B004ROIONU",
+            "_candidate_id": "F",
+            "final_score": 0.7014,
+            "axis_contributions": {
+              "price": 0.2684,
+              "review": 0.4,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a salad dressing, not a salad itself."
+              }
+            ]
+          },
+          {
+            "product_name": "Wild Planet Tuna White Bean Salad, 5.6 OZ",
+            "price": 5.49,
+            "rating": 4.2,
+            "platform": "Wild Planet",
+            "product_url": "https://example.com/B0C14GHXLZ",
+            "_asin": "B0C14GHXLZ",
+            "_candidate_id": "A",
+            "final_score": 0.6978,
+            "axis_contributions": {
+              "price": 0.45,
+              "review": 0.1818,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "부합",
+                "reasoning": "This product is a salad and fits the request directly."
+              }
+            ]
+          },
+          {
+            "product_name": "Oregon Farm Fresh Snacks Salad Toppers – All-Natural Salad Topper Seeds and Cranberries – Delicious and Healthy Salad Seeds – Non-Gluten Salad Toppers Seeds – Tasty Salad Ingredients – 22oz",
+            "price": 14.99,
+            "rating": 4.7,
+            "platform": "OREGON FARM FRESH SNACKS",
+            "product_url": "https://example.com/B0B4347GV6",
+            "_asin": "B0B4347GV6",
+            "_candidate_id": "H",
+            "final_score": 0.6966,
+            "axis_contributions": {
+              "price": 0.3,
+              "review": 0.3636,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a salad topper, not a salad itself."
+              }
+            ]
+          },
+          {
+            "product_name": "Garlic & Herb Salt Finisher by Flavor God - Premium All Natural & Healthy Spice & Seasoning Mix Blend for Chicken, Beef, Seafood & Vegetables - Kosher, Low Sodium, Dairy- Free, Vegan & Keto Friendly - Great Flavor Spices and Seasoning Gift",
+            "price": 8.46,
+            "rating": 4.3,
+            "platform": "Flavor God",
+            "product_url": "https://example.com/B0BWDVBN2J",
+            "_asin": "B0BWDVBN2J",
+            "_candidate_id": "J",
+            "final_score": 0.6543,
+            "axis_contributions": {
+              "price": 0.4031,
+              "review": 0.2182,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a seasoning that can be used with salads, but not a salad itself."
+              }
+            ]
+          },
+          {
+            "product_name": "Splenda Sweet Praline Pecans-14 oz Resealable Bag Gluten-Free & Low-Carb - Pecans.com Goldthwaite TX",
+            "price": 19.99,
+            "rating": 4.5,
+            "platform": "Pecans.com",
+            "product_url": "https://example.com/B09GC9CKBC",
+            "_asin": "B09GC9CKBC",
+            "_candidate_id": "K",
+            "final_score": 0.5449,
+            "axis_contributions": {
+              "price": 0.221,
+              "review": 0.2909,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a snack item, not a salad."
+              }
+            ]
+          },
+          {
+            "product_name": "Skinnygirl Fat-Free Salad Dressing, Sugar-Free Balsamic Vinaigrette, 8 Ounce (Pack of 12), 57201591",
+            "price": 27.84,
+            "rating": 4.8,
+            "platform": "Skinnygirl",
+            "product_url": "https://example.com/B08DM5ZLD4",
+            "_asin": "B08DM5ZLD4",
+            "_candidate_id": "I",
+            "final_score": 0.5301,
+            "axis_contributions": {
+              "price": 0.0971,
+              "review": 0.4,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a salad dressing, not a salad itself."
+              }
+            ]
+          },
+          {
+            "product_name": "That's it. Crunchables (Apple + Sea Salt) Plant Based Protein, Gluten-Free Crunchy Snack Mix, (4 Packs x 2.5oz) Perfect for Salad Topper and Yogurt Topper",
+            "price": 14.99,
+            "rating": 4.0,
+            "platform": "That's it.",
+            "product_url": "https://example.com/B09WPXJ8YR",
+            "_asin": "B09WPXJ8YR",
+            "_candidate_id": "D",
+            "final_score": 0.4421,
+            "axis_contributions": {
+              "price": 0.3,
+              "review": 0.1091,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a snack mix that can be used as a salad topper, but not a salad itself."
+              }
+            ]
+          },
+          {
+            "product_name": "Marconi Single Serve Salad Dressing Variety, Approximately 33 of each, EVOO, Balsamic Vinegar, Salad and Sandwich Oil with By The Cup Toothpick Dispenser",
+            "price": 33.99,
+            "rating": 3.7,
+            "platform": "By The Cup",
+            "product_url": "https://example.com/B0B3SCMBW9",
+            "_asin": "B0B3SCMBW9",
+            "_candidate_id": "E",
+            "final_score": 0.033,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.0,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "salad",
+                "match_level": "중립",
+                "reasoning": "This is a variety of salad dressings, not a salad itself."
+              }
+            ]
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Splenda Sweet Praline Pecans-14 oz Resealable Bag Gluten-Free & Low-Carb - Pecans.com Goldthwaite TX",
+          "expected_ranking": [
+            "Splenda Sweet Praline Pecans-14 oz Resealable Bag Gluten-Free & Low-Carb - Pecans.com Goldthwaite TX"
+          ]
+        },
+        "elapsed_ms": 10190.0
+      },
+      {
+        "record_id": "rec196",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 9,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "delicious cereal",
+              "quality cereal",
+              "buttery caramel flavored cereal",
+              "caramel-cinnamon topping"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 9,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 47,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Lucky Charms Gluten Free Cereal with Marshmallows, Kids Breakfast Cereal with Whole Grain Oats, Large Size, 14.9 OZ",
+            "price": 5.99,
+            "rating": 4.8,
+            "platform": "General Mills",
+            "product_url": "https://example.com/B0C2PFX4C3",
+            "_asin": "B0C2PFX4C3"
+          },
+          {
+            "product_name": "International Delight Coffee Creamer, HERSHEY’S Chocolate Caramel, 32 oz.",
+            "price": 4.99,
+            "rating": 4.7,
+            "platform": "International Delight",
+            "product_url": "https://example.com/B000RYBXKA",
+            "_asin": "B000RYBXKA"
+          },
+          {
+            "product_name": "Honey Nut Chex Cereal, Gluten Free Breakfast Cereal, Made with Whole Grain, Family Size, 19.6 OZ",
+            "price": 4.78,
+            "rating": 4.7,
+            "platform": "Chex",
+            "product_url": "https://example.com/B0B5W458VK",
+            "_asin": "B0B5W458VK"
+          },
+          {
+            "product_name": "Premium French Vanilla Syrup and Classic Caramel 750 ml Coffee Syrup Flavoring With Alpha Pantry Gold Pump Coffee Syrup Dispenser",
+            "price": 29.98,
+            "rating": 4.5,
+            "platform": "AlphaPantry",
+            "product_url": "https://example.com/B0C42DC5GW",
+            "_asin": "B0C42DC5GW"
+          },
+          {
+            "product_name": "Startup Candy Fall Favorites 4 Flavor Variety Pack - Spiced Apple Cider, Caramel Apple, Pumpkin Spice, Butterscotch - 8 Oz Bags of Old Fashioned Hard Candy",
+            "price": 35.8,
+            "rating": 4.4,
+            "platform": "Chameleon Colors",
+            "product_url": "https://example.com/B0B8M2FJ5G",
+            "_asin": "B0B8M2FJ5G"
+          },
+          {
+            "product_name": "Mt. Comfort Coffee Sumatra Medium Dark Roast, 12 oz Bag - Flavor Notes of Butterscotch & Chocolate - Roasted Whole Beans",
+            "price": 11.99,
+            "rating": 4.3,
+            "platform": "Mt. Comfort Coffee",
+            "product_url": "https://example.com/B094796QLZ",
+            "_asin": "B094796QLZ"
+          },
+          {
+            "product_name": "Paramount Roasters Ground Coffee Caramel Nut Delight",
+            "price": 10.99,
+            "rating": 4.3,
+            "platform": "Paramount Roasters",
+            "product_url": "https://example.com/B0B1G3JM5M",
+            "_asin": "B0B1G3JM5M"
+          },
+          {
+            "product_name": "Cinnamon Toast Crunch Popcorn Snack, Cinnadust Glaze, 7 oz",
+            "price": 3.56,
+            "rating": 3.9,
+            "platform": "Cinnamon Toast Crunch",
+            "product_url": "https://example.com/B07CX6LG8J",
+            "_asin": "B07CX6LG8J"
+          },
+          {
+            "product_name": "Funtasty Caramel Cubes Candy, Assorted Flavors, Gluten-Free, Individually Wrapped, Jar 24 Ounces (Over 100 Pieces)",
+            "price": 9.99,
+            "rating": 3.6,
+            "platform": "FUNTASTY",
+            "product_url": "https://example.com/B0BX1JSWCZ",
+            "_asin": "B0BX1JSWCZ"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Cinnamon Toast Crunch Popcorn Snack, Cinnadust Glaze, 7 oz",
+          "expected_ranking": [
+            "Cinnamon Toast Crunch Popcorn Snack, Cinnadust Glaze, 7 oz"
+          ]
+        },
+        "elapsed_ms": 11429.1
+      },
+      {
+        "record_id": "rec026",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 14,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "gluten-free",
+              "vegan",
+              "lasagna"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 14,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 58,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "LOVE CORN Salt & Vinegar | Delicious Crunchy Corn Natural Snack | 4oz x6 bags | Non-GMO, Low-Sugar, Gluten-Free, Plant Based, Vegan",
+            "price": 29.99,
+            "rating": 4.4,
+            "platform": "Love Corn",
+            "product_url": "https://example.com/B0BS72L1TD",
+            "_asin": "B0BS72L1TD"
+          },
+          {
+            "product_name": "Jai Ho Certified Organic Gluten Free, Vegan, Non-GMO - Resealable Zip Lock Pouch (Onion Minced)",
+            "price": 14.99,
+            "rating": 4.7,
+            "platform": "Jai Ho",
+            "product_url": "https://example.com/B0B299HVLY",
+            "_asin": "B0B299HVLY"
+          },
+          {
+            "product_name": "Fisher Pecan Halves, 24 Ounces, Unsalted, No Preservatives, Naturally Gluten Free, Non-GMO, Vegan, Paleo, Keto Nuts",
+            "price": 13.64,
+            "rating": 4.6,
+            "platform": "Fisher Nuts",
+            "product_url": "https://example.com/B01N49HPHK",
+            "_asin": "B01N49HPHK"
+          },
+          {
+            "product_name": "Larabar Almond Butter Chocolate Chip, Gluten Free Vegan Bars, 6 ct",
+            "price": 7.49,
+            "rating": 4.5,
+            "platform": "LÄRABAR",
+            "product_url": "https://example.com/B0B5NSJPKY",
+            "_asin": "B0B5NSJPKY"
+          },
+          {
+            "product_name": "Explore Cuisine Organic Edamame Spaghetti - Pack of 6 (8 oz) - Easy-to-Make Gluten Free Pasta - High in Plant Protein & Fiber - Vegan, Keto Friendly, Non- GMO, Kosher - 24 Total Servings",
+            "price": 27.99,
+            "rating": 4.4,
+            "platform": "EXPLORE CUISINE",
+            "product_url": "https://example.com/B0BS53HSW1",
+            "_asin": "B0BS53HSW1"
+          },
+          {
+            "product_name": "Jai Ho Certified Organic Gluten Free, Vegan, Non-GMO - Resealable Zip Lock Pouch (Garlic Powder)",
+            "price": 14.99,
+            "rating": 4.3,
+            "platform": "Jai Ho",
+            "product_url": "https://example.com/B0B1Y2L5RD",
+            "_asin": "B0B1Y2L5RD"
+          },
+          {
+            "product_name": "Fisher Macadamias Chopped Unsalted Culinary One-Cup 4.44 oz, Naturally Gluten Free, No Preservatives, Non-GMO, Keto, Paleo, Vegan Friendly",
+            "price": 7.06,
+            "rating": 4.3,
+            "platform": "Fisher",
+            "product_url": "https://example.com/B0BFK296NG",
+            "_asin": "B0BFK296NG"
+          },
+          {
+            "product_name": "Jovial Whole Grain Brown Rice Lasagna Pasta - Pasta Lasagna, Lasagna Pasta, Whole Grain Pasta, Organic Pasta, Gluten Free, Dairy Free, Brown Rice Pasta, Made in Italy - 9 Oz, 2 Pack",
+            "price": 14.99,
+            "rating": 4.3,
+            "platform": "Jovial",
+            "product_url": "https://example.com/B0BYV2SYSL",
+            "_asin": "B0BYV2SYSL"
+          },
+          {
+            "product_name": "ZENB Plant Based Spaghetti - Made From 100% Yellow Peas, Gluten Free Pasta, Non-GMO & Vegan, 17g of Protein & 11g of Fiber In Every 3 oz Serving, Spaghetti - 8 oz Boxes (Pack of 3)",
+            "price": 19.99,
+            "rating": 4.2,
+            "platform": "ZENB",
+            "product_url": "https://example.com/B0B354JKQQ",
+            "_asin": "B0B354JKQQ"
+          },
+          {
+            "product_name": "Jai Ho Certified Organic Gluten Free, Vegan, Non-GMO - Resealable Zip Lock Pouch (Onion Granules)",
+            "price": 14.99,
+            "rating": 4.1,
+            "platform": "Jai Ho",
+            "product_url": "https://example.com/B0B1Y3QTB8",
+            "_asin": "B0B1Y3QTB8"
+          },
+          {
+            "product_name": "Jai Ho Certified Organic Gluten Free, Vegan, Non-GMO - Resealable Zip Lock Pouch (Garlic Flakes)",
+            "price": 14.99,
+            "rating": 3.8,
+            "platform": "Jai Ho",
+            "product_url": "https://example.com/B0B27PC56L",
+            "_asin": "B0B27PC56L"
+          },
+          {
+            "product_name": "Bare Bones Ready-to-Eat Plant Based Soup, Cheesy\" Broccoli, 10 oz, Pack of 8, Non-GMO, Certified Vegan & Gluten Free, Ready to Eat in 90 Seconds",
+            "price": 50.0,
+            "rating": 3.8,
+            "platform": "Bare Bones",
+            "product_url": "https://example.com/B0BPMSB7CY",
+            "_asin": "B0BPMSB7CY"
+          },
+          {
+            "product_name": "LaetaFood Assorted Fruit Jelly Slices Candy, Old Fashioned, Vegan, Gluten Free, Individually Wrapped (Bulk 5 Pound Box)",
+            "price": 34.99,
+            "rating": 3.5,
+            "platform": "LAETAFOOD",
+            "product_url": "https://example.com/B0CCKV67MR",
+            "_asin": "B0CCKV67MR"
+          },
+          {
+            "product_name": "Old Wisconsin Turkey Sausage Snack Sticks, Naturally Smoked, Ready to Eat, High Protein, Low Carb, Keto, Gluten Free, 28 Ounce Resealable Package",
+            "price": 15.43,
+            "rating": 4.4,
+            "platform": "Old Wisconsin",
+            "product_url": "https://example.com/B08PD948R7",
+            "_asin": "B08PD948R7"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Jovial Whole Grain Brown Rice Lasagna Pasta - Pasta Lasagna, Lasagna Pasta, Whole Grain Pasta, Organic Pasta, Gluten Free, Dairy Free, Brown Rice Pasta, Made in Italy - 9 Oz, 2 Pack",
+          "expected_ranking": [
+            "Jovial Whole Grain Brown Rice Lasagna Pasta - Pasta Lasagna, Lasagna Pasta, Whole Grain Pasta, Organic Pasta, Gluten Free, Dairy Free, Brown Rice Pasta, Made in Italy - 9 Oz, 2 Pack"
+          ]
+        },
+        "elapsed_ms": 12296.5
+      },
+      {
+        "record_id": "rec181",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 10,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "flavored latte coffee",
+              "peppermint mocha",
+              "maple creamer",
+              "maple sweetener"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 10,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 53,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Nestle Coffee mate French Vanilla Coffee Creamer – Triple Churned Coffee Creamer Liquid for Warm, Rich Flavored Coffee – Lactose-Free, Gluten-Free, Non Dairy Creamer for Up to 120 Cups (64 oz)",
+            "price": 7.79,
+            "rating": 4.8,
+            "platform": "Coffee mate",
+            "product_url": "https://example.com/B0BL9Z7FQP",
+            "_asin": "B0BL9Z7FQP"
+          },
+          {
+            "product_name": "Autocrat Coffee Coffee Syrup 32 Oz (Pack of 2)",
+            "price": 21.79,
+            "rating": 4.7,
+            "platform": "Autocrat",
+            "product_url": "https://example.com/B00DQB7VYI",
+            "_asin": "B00DQB7VYI"
+          },
+          {
+            "product_name": "H-E-B Cafe Ole Taste Of The Hill Country Ground Coffee (Vanilla Cinnamon) 12 oz",
+            "price": 14.97,
+            "rating": 4.5,
+            "platform": "HEB",
+            "product_url": "https://example.com/B075FS2ZJL",
+            "_asin": "B075FS2ZJL"
+          },
+          {
+            "product_name": "Premium French Vanilla Syrup and Classic Caramel 750 ml Coffee Syrup Flavoring With Alpha Pantry Gold Pump Coffee Syrup Dispenser",
+            "price": 29.98,
+            "rating": 4.5,
+            "platform": "AlphaPantry",
+            "product_url": "https://example.com/B0C42DC5GW",
+            "_asin": "B0C42DC5GW"
+          },
+          {
+            "product_name": "NOW Foods, Better Stevia, Liquid, Maple, Zero-Calorie Liquid Sweetener, Low Glycemic Impact, Certified Non-GMO, 2-Ounce",
+            "price": 14.73,
+            "rating": 4.4,
+            "platform": "NOW",
+            "product_url": "https://example.com/B091PVN2T4",
+            "_asin": "B091PVN2T4"
+          },
+          {
+            "product_name": "Amazon Brand - Happy Belly French Vanilla Flavored Ground Coffee, Medium Roast, 12 Ounce",
+            "price": 7.56,
+            "rating": 4.3,
+            "platform": "Happy Belly",
+            "product_url": "https://example.com/B0B962YG68",
+            "_asin": "B0B962YG68"
+          },
+          {
+            "product_name": "Instant Mushroom Coffee Mix with a Rich and Intense Café de Olla Flavor without Conservatives or Artificial Flavors | Sweetened with Piloncillo | Made with Organic Coffee | Available in DECAF | Better Focus, Energy and Immune Support | (SWEETENED COFFEE)",
+            "price": 9.99,
+            "rating": 4.3,
+            "platform": "MUUK' SHROOM COFFEE",
+            "product_url": "https://example.com/B0BMB59YG3",
+            "_asin": "B0BMB59YG3"
+          },
+          {
+            "product_name": "Bee10Coffee Beaten Coffee with Honey - 12 Oz - Instant Espresso style Café - Hot or Ice – USDA Organic Ground Coffee – Kosher Wildflower Honey – Caffeine for Morning Boost… (Cubano)",
+            "price": 24.99,
+            "rating": 4.3,
+            "platform": "Bee10Coffee",
+            "product_url": "https://example.com/B0C577VGBN",
+            "_asin": "B0C577VGBN"
+          },
+          {
+            "product_name": "Café Le Rou Coffee Syrup Variety 25.4oz Vanilla, French Vanilla, Caramel, Hazelnut -(Pack of 4) Cafe Coffee Flavoring Syrup for Baristas or Home Coffee Maker and Espresso (Variety, 4-pack)",
+            "price": 33.99,
+            "rating": 4.2,
+            "platform": "Café le Rou",
+            "product_url": "https://example.com/B09QZNPV25",
+            "_asin": "B09QZNPV25"
+          },
+          {
+            "product_name": "SPLENDA Sugar Free Low Calorie Single Serve Coffee Creamer Cups, French Vanilla, 48 Count",
+            "price": 4.69,
+            "rating": 3.8,
+            "platform": "SPLENDA",
+            "product_url": "https://example.com/B08DZ2B4WK",
+            "_asin": "B08DZ2B4WK"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "NOW Foods, Better Stevia, Liquid, Maple, Zero-Calorie Liquid Sweetener, Low Glycemic Impact, Certified Non-GMO, 2-Ounce",
+          "expected_ranking": [
+            "NOW Foods, Better Stevia, Liquid, Maple, Zero-Calorie Liquid Sweetener, Low Glycemic Impact, Certified Non-GMO, 2-Ounce"
+          ]
+        },
+        "elapsed_ms": 13375.0
+      },
+      {
+        "record_id": "rec240",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 9,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": false,
+            "intent": "unclear",
+            "keywords": [],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 9,
+            "sorted_desc": true,
+            "ranking_mode": "llm",
+            "degraded_mode": false
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 60,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Amazon Brand - Happy Belly Cream of Tartar, 5 Ounces",
+            "price": 6.97,
+            "rating": 4.8,
+            "platform": "Happy Belly",
+            "product_url": "https://example.com/B07QY21TW6",
+            "_asin": "B07QY21TW6",
+            "_candidate_id": "G",
+            "final_score": 0.8729,
+            "axis_contributions": {
+              "price": 0.4399,
+              "review": 0.4,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Cream of Tartar",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          },
+          {
+            "product_name": "Amazon Brand - Happy Belly Good Balance Berry Flake Cereal, Strawberry, 11.2 Ounce",
+            "price": 1.98,
+            "rating": 4.6,
+            "platform": "Happy Belly",
+            "product_url": "https://example.com/B08CP6J4VZ",
+            "_asin": "B08CP6J4VZ",
+            "_candidate_id": "H",
+            "final_score": 0.8514,
+            "axis_contributions": {
+              "price": 0.4911,
+              "review": 0.3273,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Berry Flake Cereal",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          },
+          {
+            "product_name": "Modern Products Spike Vege-Sal Magic! -- 4 oz",
+            "price": 6.99,
+            "rating": 4.7,
+            "platform": "Modern Products",
+            "product_url": "https://example.com/B005GTTIVC",
+            "_asin": "B005GTTIVC",
+            "_candidate_id": "D",
+            "final_score": 0.8363,
+            "axis_contributions": {
+              "price": 0.4397,
+              "review": 0.3636,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Vege-Sal",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          },
+          {
+            "product_name": "Amazon Brand - Happy Belly Low Fat Cream of Chicken 10.5 Ounce",
+            "price": 1.11,
+            "rating": 4.5,
+            "platform": "Happy Belly",
+            "product_url": "https://example.com/B07TCMS9NN",
+            "_asin": "B07TCMS9NN",
+            "_candidate_id": "B",
+            "final_score": 0.8239,
+            "axis_contributions": {
+              "price": 0.5,
+              "review": 0.2909,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Happy Belly",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          },
+          {
+            "product_name": "Godiva Chocolatier Assorted Chocolate Gold Ballotin Gift Box, Great for Gifting, Belgian Chocolate, 8 pc.",
+            "price": 26.69,
+            "rating": 4.5,
+            "platform": "Godiva Chocolatier",
+            "product_url": "https://example.com/B08DCFZXLM",
+            "_asin": "B08DCFZXLM",
+            "_candidate_id": "A",
+            "final_score": 0.5618,
+            "axis_contributions": {
+              "price": 0.2379,
+              "review": 0.2909,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Godiva",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          },
+          {
+            "product_name": "Gifted Nut Holiday Gift Tray - Assorted Fresh Gourmet Dry Fruits and Nuts Gift Box - Elegant Drawer Design for Corporate Gifts, Christmas Gifts - Mixed Nuts Sectional Tray - Condolence Care Package",
+            "price": 25.99,
+            "rating": 4.3,
+            "platform": "The Gifted Nut",
+            "product_url": "https://example.com/B09S6W1WTN",
+            "_asin": "B09S6W1WTN",
+            "_candidate_id": "F",
+            "final_score": 0.4962,
+            "axis_contributions": {
+              "price": 0.245,
+              "review": 0.2182,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Nut Gift Tray",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          },
+          {
+            "product_name": "Stone Street Espresso Capsules, Single Serve Pods, Machine Compatible, Wall Street Espresso Blend, Dark Roast, 100% Arabica, 10 Count Box",
+            "price": 6.99,
+            "rating": 3.7,
+            "platform": "STONE STREET COFFEE COMPANY",
+            "product_url": "https://example.com/B09XRHLDN2",
+            "_asin": "B09XRHLDN2",
+            "_candidate_id": "E",
+            "final_score": 0.4727,
+            "axis_contributions": {
+              "price": 0.4397,
+              "review": 0.0,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Espresso Capsules",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          },
+          {
+            "product_name": "Best Coffee Gift Box Set 8 Assorted Coffees +1 French Press Stainless Steel Glass Coffee Maker. Sumatra Timor Brazil Peru Ethiopia Colombia Guatemala All Amazing Coffee From All Over The World (8 Pack Whole Bean Assorted Coffee 2oz + French Press)",
+            "price": 44.99,
+            "rating": 4.5,
+            "platform": "SPLIT OAK COFFEE ROASTERS",
+            "product_url": "https://example.com/B09BP2HZD1",
+            "_asin": "B09BP2HZD1",
+            "_candidate_id": "C",
+            "final_score": 0.3742,
+            "axis_contributions": {
+              "price": 0.0503,
+              "review": 0.2909,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Coffee Gift Box",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          },
+          {
+            "product_name": "The Original Donut Shop Mocha Latte, Single Serve Coffee K-Cup Pod, Flavored Coffee, 60 Count",
+            "price": 49.9,
+            "rating": 4.6,
+            "platform": "The Original Donut Shop",
+            "product_url": "https://example.com/B09TRB6VSS",
+            "_asin": "B09TRB6VSS",
+            "_candidate_id": "I",
+            "final_score": 0.3603,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.3273,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "Mocha Latte",
+                "match_level": "중립",
+                "reasoning": "특별한 선호가 없으므로 중립으로 평가."
+              }
+            ]
+          }
+        ],
+        "expected": {
+          "expected_top_product": "The Original Donut Shop Mocha Latte, Single Serve Coffee K-Cup Pod, Flavored Coffee, 60 Count",
+          "expected_ranking": [
+            "The Original Donut Shop Mocha Latte, Single Serve Coffee K-Cup Pod, Flavored Coffee, 60 Count"
+          ]
+        },
+        "elapsed_ms": 10636.8
+      },
+      {
+        "record_id": "rec142",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 14,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "vegan chocolate",
+              "bold flavor",
+              "sugar-free",
+              "high percentage of cocoa",
+              "mildly bitter taste",
+              "flavored with stevia",
+              "hint of coconut"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 14,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 58,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Unreal Dark Chocolate Coconut Bars | Certified Vegan, Gluten Free, Fair Trade, Non-GMO | No Sugar Alcohols or Soy 1.3 Oz (Pack of 12)",
+            "price": 37.99,
+            "rating": 4.6,
+            "platform": "UNREAL",
+            "product_url": "https://example.com/B07SZX8PLL",
+            "_asin": "B07SZX8PLL"
+          },
+          {
+            "product_name": "Green & Black's Organic Dark Chocolate, 85% Cacao, 3.5 Ounce (Pack of 10)",
+            "price": 55.89,
+            "rating": 4.5,
+            "platform": "Green & Black's",
+            "product_url": "https://example.com/B08224KXTZ",
+            "_asin": "B08224KXTZ"
+          },
+          {
+            "product_name": "Sweetened Coconut Condensed Milk, Dairy & Soy Free, Vegan & Gluten free Kosher | 11.6 Oz (Pack of 4) - by Jamaican Choice",
+            "price": 23.35,
+            "rating": 4.5,
+            "platform": "Jamaican Choice",
+            "product_url": "https://example.com/B08DCL2HG5",
+            "_asin": "B08DCL2HG5"
+          },
+          {
+            "product_name": "Castle Kitchen Natural Hot Chocolate Mix Variety Pack - Dairy-Free, Vegan Complete Mixes - Just Add Water - Pack of 2 (Classic Caramel Dark Chocolate & Marvelous Mint Dark Chocolate) 14 oz Each",
+            "price": 21.99,
+            "rating": 4.5,
+            "platform": "Castle Kitchen",
+            "product_url": "https://example.com/B08S3Q2Z6X",
+            "_asin": "B08S3Q2Z6X"
+          },
+          {
+            "product_name": "Cocoa Powder Unsweetened Organic Vegan for Baking and Smoothie Additive 300g Pantry Line by Sunwarrior",
+            "price": 9.97,
+            "rating": 4.5,
+            "platform": "Sunwarrior",
+            "product_url": "https://example.com/B08YNZKS6H",
+            "_asin": "B08YNZKS6H"
+          },
+          {
+            "product_name": "Vegan Cocoa Hazelnut Spread by ChocZero - Keto Friendly, Sugar Free Dessert and Keto Bread Topping -  Low Carb Chocolate (1 jar, 12 oz)",
+            "price": 8.99,
+            "rating": 4.5,
+            "platform": "ChocZero",
+            "product_url": "https://example.com/B09S2XKR15",
+            "_asin": "B09S2XKR15"
+          },
+          {
+            "product_name": "Larabar Almond Butter Chocolate Chip, Gluten Free Vegan Bars, 6 ct",
+            "price": 7.49,
+            "rating": 4.5,
+            "platform": "LÄRABAR",
+            "product_url": "https://example.com/B0B5NSJPKY",
+            "_asin": "B0B5NSJPKY"
+          },
+          {
+            "product_name": "Nature's Charm Sweetened Condensed Coconut Milk, NEW Squeeze Bottle , Dairy and Soy FREE, Vegan, Lactose FREE, Gluten FREE. Rich Coconut Flavor, Good Soure of Calcum-11.25 Ounce (Pack of 2) Combo With FREE KC Commerce Wooden Spoon (2)",
+            "price": 11.99,
+            "rating": 4.4,
+            "platform": "KC Commerce",
+            "product_url": "https://example.com/B0BWFHL6QD",
+            "_asin": "B0BWFHL6QD"
+          },
+          {
+            "product_name": "Extremely Dark Chocolate Bar by Lily's | Made with Stevia, No Added Sugar, Low-Carb, Keto Friendly | 85% Cocoa | Fair Trade, Gluten-Free & Non-GMO | 2.8 ounce, 4-Pack",
+            "price": 29.4,
+            "rating": 4.3,
+            "platform": "Lily's",
+            "product_url": "https://example.com/B07HLHY9MM",
+            "_asin": "B07HLHY9MM"
+          },
+          {
+            "product_name": "MilkBoy Gourmet Hot Chocolate Mix - Swiss Chocolate Drink for Cold or Hot Cocoa - Kosher, Vegan, and Gluten Free Hot Chocolate Mix Canister With 16 Servings, Rainforest Alliance Certified - 1 lb - 2 Pack",
+            "price": 24.99,
+            "rating": 4.2,
+            "platform": "Milkboy Swiss Chocolates",
+            "product_url": "https://example.com/B0BM9DXLTM",
+            "_asin": "B0BM9DXLTM"
+          },
+          {
+            "product_name": "Willa’s Organic Chocolate Oat Milk, 32 oz, 1 pack - No Oil, Single Origin Cacao, Organic Maple Sugar, Plant-Based, Shelf Stable, Non-GMO, Vegan, & Uses The Whole Oat!",
+            "price": 9.99,
+            "rating": 4.2,
+            "platform": "Willa's",
+            "product_url": "https://example.com/B0CBJGY2JT",
+            "_asin": "B0CBJGY2JT"
+          },
+          {
+            "product_name": "Lakanto Sugar Free Drinking Chocolate - Cold or Hot Cocoa Powder Mix with Shelf Stable Probiotics, Monk Fruit Sweetener, Keto Diet Friendly, Vegan, Dutch Cocoa, Gourmet Taste (10 oz)",
+            "price": 10.79,
+            "rating": 4.1,
+            "platform": "Lakanto",
+            "product_url": "https://example.com/B01G4I8VGQ",
+            "_asin": "B01G4I8VGQ"
+          },
+          {
+            "product_name": "OH! Mai Dark Chocolate Bar 60% Cocoa 3.52 oz - No Sugar Added, Gluten Free Healthy Snack, Made in Spain (Pack of 1)",
+            "price": 21.99,
+            "rating": 4.0,
+            "platform": "OH! Mai",
+            "product_url": "https://example.com/B0C5N5YFSY",
+            "_asin": "B0C5N5YFSY"
+          },
+          {
+            "product_name": "DAIRY-FREE, VEGAN | S’mores Hot Chocolate, Single-Serve Gourmet Lactose-Free Hot Cocoa Pods for Keurig K-cup Brewers, 24 Count Smart Sips Non-Dairy Hot Chocolate Pods",
+            "price": 21.99,
+            "rating": 3.9,
+            "platform": "Smart Sips Coffee",
+            "product_url": "https://example.com/B0B9PSH373",
+            "_asin": "B0B9PSH373"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "OH! Mai Dark Chocolate Bar 60% Cocoa 3.52 oz - No Sugar Added, Gluten Free Healthy Snack, Made in Spain (Pack of 1)",
+          "expected_ranking": [
+            "OH! Mai Dark Chocolate Bar 60% Cocoa 3.52 oz - No Sugar Added, Gluten Free Healthy Snack, Made in Spain (Pack of 1)"
+          ]
+        },
+        "elapsed_ms": 11751.3
+      },
+      {
+        "record_id": "rec022",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 13,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "balsamic vinegar"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 13,
+            "sorted_desc": true,
+            "ranking_mode": "llm",
+            "degraded_mode": false
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 60,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Lucy's Family Owned - Natural Distilled White Vinegar, 1 Gallon (128 oz) - 5% Acidity (White Vinegar, Gallon)",
+            "price": 16.99,
+            "rating": 4.8,
+            "platform": "Lucy's",
+            "product_url": "https://example.com/B0BNW7FYB5",
+            "_asin": "B0BNW7FYB5",
+            "_candidate_id": "B",
+            "final_score": 0.7598,
+            "axis_contributions": {
+              "price": 0.2938,
+              "review": 0.4,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "중립",
+                "reasoning": "This is white vinegar, not balsamic vinegar."
+              }
+            ]
+          },
+          {
+            "product_name": "Virginia Brand Vidalia Onion Vinegarette Salad Dressing - 2/24 oz. by Sam's Club",
+            "price": 16.99,
+            "rating": 4.8,
+            "platform": "Virginia Brand",
+            "product_url": "https://example.com/B004ROIONU",
+            "_asin": "B004ROIONU",
+            "_candidate_id": "J",
+            "final_score": 0.7598,
+            "axis_contributions": {
+              "price": 0.2938,
+              "review": 0.4,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "중립",
+                "reasoning": "This is a salad dressing, not a balsamic vinegar."
+              }
+            ]
+          },
+          {
+            "product_name": "Lawry's Lemon Pepper with Lemon Juice Marinade, 12 fl oz",
+            "price": 6.87,
+            "rating": 4.6,
+            "platform": "Lawry's",
+            "product_url": "https://example.com/B08WB6CDFQ",
+            "_asin": "B08WB6CDFQ",
+            "_candidate_id": "M",
+            "final_score": 0.7327,
+            "axis_contributions": {
+              "price": 0.4,
+              "review": 0.2667,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "중립",
+                "reasoning": "This is a marinade, not a balsamic vinegar."
+              }
+            ]
+          },
+          {
+            "product_name": "Saratoga Olive Oil Company Cranberry Pear White Balsamic Vinegar 375ml (12.7oz)",
+            "price": 27.95,
+            "rating": 4.7,
+            "platform": "Saratoga Olive Oil Co.",
+            "product_url": "https://example.com/B07RRYN48B",
+            "_asin": "B07RRYN48B",
+            "_candidate_id": "D",
+            "final_score": 0.7122,
+            "axis_contributions": {
+              "price": 0.1789,
+              "review": 0.3333,
+              "preference": 0.2
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "강한부합",
+                "reasoning": "This is a cranberry pear white balsamic vinegar, which fits the request."
+              }
+            ]
+          },
+          {
+            "product_name": "52USA Chinese Black Vinegar, 3 Years Mature Aged Black Rice Vinegar, Chinkiang Vinegar, Zhenjiang Vinegar, 16.9 fl. Non-GMO Project Verified Vinegar",
+            "price": 12.99,
+            "rating": 4.6,
+            "platform": "52USA",
+            "product_url": "https://example.com/B08KGT945Y",
+            "_asin": "B08KGT945Y",
+            "_candidate_id": "L",
+            "final_score": 0.6685,
+            "axis_contributions": {
+              "price": 0.3358,
+              "review": 0.2667,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "중립",
+                "reasoning": "This is black rice vinegar, not balsamic vinegar."
+              }
+            ]
+          },
+          {
+            "product_name": "VILLAGE BATCH Balsamic Vinegar Organic With Raw Organic Wildflower Honey Greek Dressing Balsamic Vinegar Dressing (Pack of 2)",
+            "price": 19.99,
+            "rating": 4.5,
+            "platform": "VILLAGE BATCH",
+            "product_url": "https://example.com/B08PYPWWGP",
+            "_asin": "B08PYPWWGP",
+            "_candidate_id": "F",
+            "final_score": 0.6624,
+            "axis_contributions": {
+              "price": 0.2624,
+              "review": 0.2,
+              "preference": 0.2
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "강한부합",
+                "reasoning": "This is a balsamic vinegar dressing, which is relevant to the request."
+              }
+            ]
+          },
+          {
+            "product_name": "Colavita White Balsamic Vinegar, 17 Fl Oz (Pack of 6)",
+            "price": 31.98,
+            "rating": 4.6,
+            "platform": "COLAVITA",
+            "product_url": "https://example.com/B0784VLFVX",
+            "_asin": "B0784VLFVX",
+            "_candidate_id": "C",
+            "final_score": 0.6033,
+            "axis_contributions": {
+              "price": 0.1366,
+              "review": 0.2667,
+              "preference": 0.2
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "강한부합",
+                "reasoning": "This is a white balsamic vinegar, directly matching the request."
+              }
+            ]
+          },
+          {
+            "product_name": "Sanniti Organic Apple Cider Vinegar Unfiltered All Natural with the Mother, 34 Fl Oz (1 Liter)",
+            "price": 11.98,
+            "rating": 4.4,
+            "platform": "Sanniti",
+            "product_url": "https://example.com/B07KR7C3F9",
+            "_asin": "B07KR7C3F9",
+            "_candidate_id": "K",
+            "final_score": 0.5457,
+            "axis_contributions": {
+              "price": 0.3464,
+              "review": 0.1333,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "중립",
+                "reasoning": "This is apple cider vinegar, not balsamic vinegar."
+              }
+            ]
+          },
+          {
+            "product_name": "Big Bianc Rosé Italian Balsamic Vinegar | Blend Of 6 Fruit Juices And Classic White Balsamic Vinegar Made With Mixed Modenese Grapes | All Natural, Non GMO, Product of Italy | 200ml Glass Bottle",
+            "price": 45.0,
+            "rating": 4.7,
+            "platform": "Big Bianc",
+            "product_url": "https://example.com/B0BMJCQQBD",
+            "_asin": "B0BMJCQQBD",
+            "_candidate_id": "H",
+            "final_score": 0.5333,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.3333,
+              "preference": 0.2
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "강한부합",
+                "reasoning": "This is a rosé balsamic vinegar, which fits the request."
+              }
+            ]
+          },
+          {
+            "product_name": "Aleta Organic, Infused Balsamic Vinegar, Traditional Perfect to drizzle as Salad Dressings, Fruits, Vinaigrette, Pasta, Desserts, Cocktails, Glass Bottle, 8.45 oz. (Strawberry)",
+            "price": 19.95,
+            "rating": 4.3,
+            "platform": "Ellora Farms",
+            "product_url": "https://example.com/B09XRGQCPN",
+            "_asin": "B09XRGQCPN",
+            "_candidate_id": "E",
+            "final_score": 0.5295,
+            "axis_contributions": {
+              "price": 0.2628,
+              "review": 0.0667,
+              "preference": 0.2
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "강한부합",
+                "reasoning": "This is an infused balsamic vinegar, aligning well with the request."
+              }
+            ]
+          },
+          {
+            "product_name": "OFLORALE Mediterranean Apple Cider Vinegar with \"The Mother\", Tangy Fruity Flavor of Raw Unfiltered All Natural ACV, Perfect for Salad Dressing and Marinades, 16.9 fl oz",
+            "price": 9.65,
+            "rating": 4.2,
+            "platform": "OFLORALE",
+            "product_url": "https://example.com/B09RY15H7S",
+            "_asin": "B09RY15H7S",
+            "_candidate_id": "A",
+            "final_score": 0.4368,
+            "axis_contributions": {
+              "price": 0.3708,
+              "review": 0.0,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "중립",
+                "reasoning": "This product is apple cider vinegar, not balsamic vinegar."
+              }
+            ]
+          },
+          {
+            "product_name": "Traditional Barrel aged 12 years \"Golden Pineapple White Balsamic\" 100% ALL NATURAL White Italian vinegar 750ml (25oz)",
+            "price": 42.95,
+            "rating": 4.5,
+            "platform": "Chef Jean-Pierre's",
+            "product_url": "https://example.com/B00NADQHOM",
+            "_asin": "B00NADQHOM",
+            "_candidate_id": "I",
+            "final_score": 0.4215,
+            "axis_contributions": {
+              "price": 0.0215,
+              "review": 0.2,
+              "preference": 0.2
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "강한부합",
+                "reasoning": "This is a white balsamic vinegar, directly matching the request."
+              }
+            ]
+          },
+          {
+            "product_name": "Via Farini Black Label Aceto Balsamico Di Modena IGP Aged Artisan Italian Balsamic Vinegar 8.45 Fl Oz",
+            "price": 39.99,
+            "rating": 4.4,
+            "platform": "Via Farini",
+            "product_url": "https://example.com/B08WRS8VQN",
+            "_asin": "B08WRS8VQN",
+            "_candidate_id": "G",
+            "final_score": 0.3859,
+            "axis_contributions": {
+              "price": 0.0526,
+              "review": 0.1333,
+              "preference": 0.2
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "balsamic vinegar",
+                "match_level": "강한부합",
+                "reasoning": "This is an artisan balsamic vinegar, directly matching the request."
+              }
+            ]
+          }
+        ],
+        "expected": {
+          "expected_top_product": "COLAVITA 20 Star Balsamic Vinegar Of Modena, 34 fl oz (Pack of 2) - Aged for 20 Years, Rich and Velvety Texture, Perfect for Dressings, Dips, and Marinades",
+          "expected_ranking": [
+            "COLAVITA 20 Star Balsamic Vinegar Of Modena, 34 fl oz (Pack of 2) - Aged for 20 Years, Rich and Velvety Texture, Perfect for Dressings, Dips, and Marinades"
+          ]
+        },
+        "elapsed_ms": 9956.6
+      },
+      {
+        "record_id": "rec155",
+        "group": "normal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 12,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "buttermilk",
+              "baking",
+              "biscuit recipes",
+              "pancakes",
+              "waffles"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 12,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 55,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Healthier Comforts Organic Buttermilk Powder | USDA Certified Organic Powdered Buttermilk, Kosher, Gluten Free, Non-GMO | Dry Buttermilk Powder for Baking Supplies, Biscuits & Gravy, Mini Pancakes 7oz",
+            "price": 13.99,
+            "rating": 4.5,
+            "platform": "Healthier Comforts",
+            "product_url": "https://example.com/B0B913FCMD",
+            "_asin": "B0B913FCMD"
+          },
+          {
+            "product_name": "Southern Roots Vegan Bakery Buttermilk Pancakes",
+            "price": 14.99,
+            "rating": 4.8,
+            "platform": "Southern Roots Vegan Bakery",
+            "product_url": "https://example.com/B091XQN7GR",
+            "_asin": "B091XQN7GR"
+          },
+          {
+            "product_name": "Augason Farms Buttermilk Pancake Mix 3 lbs 4 oz #10 Can",
+            "price": 10.66,
+            "rating": 4.7,
+            "platform": "Augason Farms",
+            "product_url": "https://example.com/B0BXJMWKPH",
+            "_asin": "B0BXJMWKPH"
+          },
+          {
+            "product_name": "Buttermilk Powder by Hoosier Hill Farm, 2LB (Pack of 1)",
+            "price": 19.99,
+            "rating": 4.6,
+            "platform": "Hoosier Hill Farm",
+            "product_url": "https://example.com/B09JCQ2LH6",
+            "_asin": "B09JCQ2LH6"
+          },
+          {
+            "product_name": "Eggylicious Egg Yolk Powder, Dried Natural Protein Powder, Made from Fresh Eggs, Pasteurized,Smoothies, Non-GMO, No Additives, Used for Baking,1lbs(16oz)",
+            "price": 29.98,
+            "rating": 4.5,
+            "platform": "Eggylicious",
+            "product_url": "https://example.com/B08RH5QGCX",
+            "_asin": "B08RH5QGCX"
+          },
+          {
+            "product_name": "Forager Project Cashewmilk Yogurt, Vanilla Bean, 24-Ounce",
+            "price": 6.69,
+            "rating": 4.7,
+            "platform": "Forager Project",
+            "product_url": "https://example.com/B0779CMM8R",
+            "_asin": "B0779CMM8R"
+          },
+          {
+            "product_name": "Califia Farms - Oat Barista Blend Oat Milk, 32 Oz (Pack of 6), Shelf Stable, Dairy Free, Plant Based, Vegan, Gluten Free, Non GMO, High Calcium, Milk Frother, Creamer, Oatmilk",
+            "price": 25.68,
+            "rating": 4.6,
+            "platform": "Califia Farms",
+            "product_url": "https://example.com/B0C844RNNQ",
+            "_asin": "B0C844RNNQ"
+          },
+          {
+            "product_name": "Forager Project Cashewmilk Yogurt, Vanilla Bean, 5.3-Ounce",
+            "price": 1.61,
+            "rating": 4.5,
+            "platform": "Forager Project",
+            "product_url": "https://example.com/B077RVB56M",
+            "_asin": "B077RVB56M"
+          },
+          {
+            "product_name": "Forager Project Cashewmilk Yogurt, Blueberry, 5.3-Ounce",
+            "price": 2.49,
+            "rating": 4.5,
+            "platform": "Forager Project",
+            "product_url": "https://example.com/B077RVWVF2",
+            "_asin": "B077RVWVF2"
+          },
+          {
+            "product_name": "KIND Nut Butter Filled, Honey Almond Butter, 6Ct",
+            "price": 5.49,
+            "rating": 4.5,
+            "platform": "KIND",
+            "product_url": "https://example.com/B0BMW6185X",
+            "_asin": "B0BMW6185X"
+          },
+          {
+            "product_name": "Kroma OMG Cookie Butter, Dairy & Gluten Free, Vegan, Non GMO Nut Butter Spread, Made with Raw Almond, Coconut Butter, Chocho Plant Protein, Healthy Snack with Omega Fats & Antioxidants",
+            "price": 25.0,
+            "rating": 4.1,
+            "platform": "KROMA.",
+            "product_url": "https://example.com/B09Z9QPNVH",
+            "_asin": "B09Z9QPNVH"
+          },
+          {
+            "product_name": "Octonuts Almond Protein Pancake and Waffle Mix, 12.7 Ounce, Made with California Almonds, 14g Plant Based Protein, Paleo Friendly, Vegan, Grain and Gluten Free",
+            "price": 11.99,
+            "rating": 4.0,
+            "platform": "OCTONUTS",
+            "product_url": "https://example.com/B091RFPDHP",
+            "_asin": "B091RFPDHP"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Buttermilk Powder by Hoosier Hill Farm, 2LB (Pack of 1)",
+          "expected_ranking": [
+            "Buttermilk Powder by Hoosier Hill Farm, 2LB (Pack of 1)"
+          ]
+        },
+        "elapsed_ms": 12436.5
+      },
+      {
+        "record_id": "rec132",
+        "group": "B_no_signal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 12,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "snacks",
+              "dominos"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 12,
+            "sorted_desc": true,
+            "ranking_mode": "llm",
+            "degraded_mode": false
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 58,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Hillshire Snacking Hot Calabrese Salami With Gouda Cheese Small Plates, Single Serve",
+            "price": 3.29,
+            "rating": 4.7,
+            "platform": "Hillshire Farm",
+            "product_url": "https://example.com/B01D3F9MTI",
+            "_asin": "B01D3F9MTI",
+            "_candidate_id": "C",
+            "final_score": 0.9975,
+            "axis_contributions": {
+              "price": 0.5975,
+              "review": 0.3,
+              "preference": 0.1
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "강한부합",
+                "reasoning": "This is also a snack and has a higher review score."
+              }
+            ]
+          },
+          {
+            "product_name": "Hillshire Snacking Small Plates, All Natural Uncured Pepperoni Deli Lunch Meat with Natural White Cheddar Cheese, 2.76 Oz",
+            "price": 3.19,
+            "rating": 4.6,
+            "platform": "Hillshire Farm",
+            "product_url": "https://example.com/B07B8MXZKY",
+            "_asin": "B07B8MXZKY",
+            "_candidate_id": "A",
+            "final_score": 0.9727,
+            "axis_contributions": {
+              "price": 0.6,
+              "review": 0.2727,
+              "preference": 0.1
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "강한부합",
+                "reasoning": "This product is a snack and has a good review score."
+              }
+            ]
+          },
+          {
+            "product_name": "Keebler Grasshopper Cookies, Mint and Fudge, 10 oz Tray",
+            "price": 14.9,
+            "rating": 4.6,
+            "platform": "Fudge Shoppe (Keebler)",
+            "product_url": "https://example.com/B00BV282DS",
+            "_asin": "B00BV282DS",
+            "_candidate_id": "I",
+            "final_score": 0.6496,
+            "axis_contributions": {
+              "price": 0.3109,
+              "review": 0.2727,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "부합",
+                "reasoning": "This is a snack product with a decent review score."
+              }
+            ]
+          },
+          {
+            "product_name": "Pringles Potato Crisps Chips, Snack Stacks, Lunch Snacks, Office and Kids Snacks, Original (36 Cups)",
+            "price": 14.99,
+            "rating": 4.5,
+            "platform": "Pringles",
+            "product_url": "https://example.com/B0C33K8JVR",
+            "_asin": "B0C33K8JVR",
+            "_candidate_id": "D",
+            "final_score": 0.6201,
+            "axis_contributions": {
+              "price": 0.3086,
+              "review": 0.2455,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "부합",
+                "reasoning": "This is a snack product, but the price is higher than others."
+              }
+            ]
+          },
+          {
+            "product_name": "Midi Orange International Snack Box - Gourmet Exotic Treats - Foreign Candy from around the World - Turkish Variety Pack - Unique European Snack Assortment - Premium Care Package - 13 Full-Size Snacks",
+            "price": 14.95,
+            "rating": 4.2,
+            "platform": "International Yummies by Matleas",
+            "product_url": "https://example.com/B0BNZCVDYQ",
+            "_asin": "B0BNZCVDYQ",
+            "_candidate_id": "B",
+            "final_score": 0.5392,
+            "axis_contributions": {
+              "price": 0.3096,
+              "review": 0.1636,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "부합",
+                "reasoning": "This is a snack box with a variety of treats, but it is more expensive."
+              }
+            ]
+          },
+          {
+            "product_name": "Midi International Snack Box (Fairy Tale Themed) | Snacks Variety Pack of International Treats | Foreign Snack Box Offering Unique Tasting Experience | Giftable Mix Care Pack of Turkish Candies | 12 Full-Size Snacks",
+            "price": 14.95,
+            "rating": 4.2,
+            "platform": "Bubsooboo's Wild Snacks",
+            "product_url": "https://example.com/B09TG6WCBC",
+            "_asin": "B09TG6WCBC",
+            "_candidate_id": "E",
+            "final_score": 0.5392,
+            "axis_contributions": {
+              "price": 0.3096,
+              "review": 0.1636,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "부합",
+                "reasoning": "This is a snack box, but it is on the pricier side."
+              }
+            ]
+          },
+          {
+            "product_name": "Kravy pizza Bites, 170g Mouth-watering, Thin, Crispy Pita Chip Crackers, They Make Fantastic Cheese Crackers or Use Them for Dips, Pizza Flavored",
+            "price": 12.99,
+            "rating": 4.0,
+            "platform": "Kravy",
+            "product_url": "https://example.com/B0B75F8YJT",
+            "_asin": "B0B75F8YJT",
+            "_candidate_id": "F",
+            "final_score": 0.5331,
+            "axis_contributions": {
+              "price": 0.358,
+              "review": 0.1091,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "부합",
+                "reasoning": "This is a snack product, but the review score is lower."
+              }
+            ]
+          },
+          {
+            "product_name": "Nutic Jawbreakers Bulk In Fun Rainbow Colors | 1-Inch Giant Jawbreakers Candy Made In USA | Long-Lasting Huge Gobstoppers, 1 Pound",
+            "price": 11.98,
+            "rating": 3.7,
+            "platform": "Nutic",
+            "product_url": "https://example.com/B0BKHBJMB1",
+            "_asin": "B0BKHBJMB1",
+            "_candidate_id": "J",
+            "final_score": 0.4433,
+            "axis_contributions": {
+              "price": 0.383,
+              "review": 0.0273,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "중립",
+                "reasoning": "This is candy, which is a type of snack but may not fit the typical snack profile."
+              }
+            ]
+          },
+          {
+            "product_name": "Town House Pita Crackers Oven Baked Crackers, Lunch Snacks, Party Snacks, Sea Salt (4 Boxes)",
+            "price": 22.36,
+            "rating": 4.5,
+            "platform": "Townhouse",
+            "product_url": "https://example.com/B0BHJ9BKTW",
+            "_asin": "B0BHJ9BKTW",
+            "_candidate_id": "G",
+            "final_score": 0.4052,
+            "axis_contributions": {
+              "price": 0.1267,
+              "review": 0.2455,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "중립",
+                "reasoning": "This is a snack, but it is more of a cracker than a traditional snack."
+              }
+            ]
+          },
+          {
+            "product_name": "Snack Hawaii Ika Roll Dried Cuttlefish Snacks - Tasty Low-Fat Dehydrated Seafood Snack - Great Addition to Trail Mix, Popcorn, Poke, Soup, Salad, Arare Mochi Crunch, Charcuterie Platter - 7 Oz.",
+            "price": 14.99,
+            "rating": 3.6,
+            "platform": "Snack Hawaii",
+            "product_url": "https://example.com/B08MZD2786",
+            "_asin": "B08MZD2786",
+            "_candidate_id": "K",
+            "final_score": 0.3416,
+            "axis_contributions": {
+              "price": 0.3086,
+              "review": 0.0,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "중립",
+                "reasoning": "This is a seafood snack, which is less common."
+              }
+            ]
+          },
+          {
+            "product_name": "Cerez Pazari Baklava Pastry Gift Box Halal Snacks 1.32lbs ℮ Apprx.45-48 pcs | Turkish Dessert Ideal for Fathers Day Gifts",
+            "price": 27.49,
+            "rating": 4.4,
+            "platform": "Çerez Pazarı",
+            "product_url": "https://example.com/B08LNY5V22",
+            "_asin": "B08LNY5V22",
+            "_candidate_id": "H",
+            "final_score": 0.2512,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.2182,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "중립",
+                "reasoning": "This is a dessert snack, which may not align with typical snack expectations."
+              }
+            ]
+          },
+          {
+            "product_name": "Fusion Select Bursting Boba Popping Boba Pearls Fruit Tea Snack Toppings (Strawberry, Blueberry, Pomegranate, 15.8 Ounce (Pack of 3))",
+            "price": 24.99,
+            "rating": 4.1,
+            "platform": "Fusion Select",
+            "product_url": "https://example.com/B0BRDJVPMS",
+            "_asin": "B0BRDJVPMS",
+            "_candidate_id": "L",
+            "final_score": 0.2311,
+            "axis_contributions": {
+              "price": 0.0617,
+              "review": 0.1364,
+              "preference": 0.033
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "snacks",
+                "match_level": "중립",
+                "reasoning": "This is a topping for snacks rather than a standalone snack."
+              }
+            ]
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Dominosteine Dr. Quendt Kirsch Harmonie Dominoes",
+          "expected_ranking": [
+            "Dominosteine Dr. Quendt Kirsch Harmonie Dominoes"
+          ]
+        },
+        "elapsed_ms": 11051.5
+      },
+      {
+        "record_id": "rec129",
+        "group": "A_no_history",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 16,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": false,
+            "intent": "ask",
+            "keywords": [
+              "tasty product",
+              "Mexico",
+              "available in the U.S."
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 16,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 51,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Mexico Lindo Red Habanero Hot Sauce | Real Red Habanero Chili Pepper | 78,200 Scoville Level | Enjoy with Mexican Food, Seafood & Pasta | 5 Fl Oz Bottle (Pack of 1)",
+            "price": 4.39,
+            "rating": 4.6,
+            "platform": "MEXICO LINDO",
+            "product_url": "https://example.com/B08MWYJHBP",
+            "_asin": "B08MWYJHBP"
+          },
+          {
+            "product_name": "25 Mexican Vanilla Beans Whole Grade A Gourmet Vanilla Pods for Homemade Vanilla Extract and Baking from Veracruz, Mexico",
+            "price": 62.99,
+            "rating": 4.6,
+            "platform": "Vanilla Bean Kings",
+            "product_url": "https://example.com/B09PFBF3JP",
+            "_asin": "B09PFBF3JP"
+          },
+          {
+            "product_name": "Gamesa Clasicas Maravillas. Delicious Traditional Mexican Vanilla Cookies. Ideal with Coffee, Tea or Milk. 1 Box (4 packets) 464 Grams.",
+            "price": 13.99,
+            "rating": 5.0,
+            "platform": "Gamesa",
+            "product_url": "https://example.com/B07V7ZZQYT",
+            "_asin": "B07V7ZZQYT"
+          },
+          {
+            "product_name": "D'ELidas Habanero Hot Sauce, Natural Habanero Pepper Hot Sauce, Chombo Picante Sauce #1 in Panama, Non-GMO, Keto Friendly Food Habanero Sauce, 10 Fl Oz (Case of 12)",
+            "price": 101.99,
+            "rating": 4.8,
+            "platform": "D'ELidas",
+            "product_url": "https://example.com/B07K1DTVCM",
+            "_asin": "B07K1DTVCM"
+          },
+          {
+            "product_name": "French Seasoning Gift Set - Tastes of France - Artisanal Spice Blends Six Pack - Non GMO, All Natural, Small Batch - Made By Hand in USA - Gustus Vitae - #498",
+            "price": 36.99,
+            "rating": 4.8,
+            "platform": "Gustus Vitae",
+            "product_url": "https://example.com/B0B7GNSB8Q",
+            "_asin": "B0B7GNSB8Q"
+          },
+          {
+            "product_name": "Ancient Choice - Acai berry Powder (4 ounce) | USDA Organic Freeze-Dried | Non-GMO | Sourced From Brazil | Gourmet Grade | Acai Bowl Smoothie | Prebiotic | Fiber",
+            "price": 13.95,
+            "rating": 4.7,
+            "platform": "Ancient Choice",
+            "product_url": "https://example.com/B0B23DXR98",
+            "_asin": "B0B23DXR98"
+          },
+          {
+            "product_name": "La Tourangelle, Toasted Sesame Oil, Great for Cooking, Add to Noodles, Stir-Fry, Vegetables, Vinaigrettes, and Marinades for Authentic Asian Cuisine, 16.9 fl oz",
+            "price": 9.97,
+            "rating": 4.7,
+            "platform": "La Tourangelle",
+            "product_url": "https://example.com/B0C54FNDK2",
+            "_asin": "B0C54FNDK2"
+          },
+          {
+            "product_name": "Yamasa, Shoyu Artisanal Soy Sauce, Non-GMO, 10fl oz",
+            "price": 9.04,
+            "rating": 4.6,
+            "platform": "Yamasa",
+            "product_url": "https://example.com/B08Z1R1RDQ",
+            "_asin": "B08Z1R1RDQ"
+          },
+          {
+            "product_name": "Jose Ole Chimichanga, Beef & Cheese, 5 Oz",
+            "price": 1.69,
+            "rating": 4.4,
+            "platform": "Jose Ole",
+            "product_url": "https://example.com/B000SKLSK8",
+            "_asin": "B000SKLSK8"
+          },
+          {
+            "product_name": "Alexandra's Pikliz Spicy Pepper Relish | Premium-Gourmet Haitian Cuisine All-Purpose Craft Condiment | Zero Pickles | Delicious Hot Sauce, Dip, Dressing, or Salsa Substitute | Spicy Jalapeno, Chili, Fresno, Serrano Peppers | Pickled & Fermented Superfood Blend | Bold & Flavorful | Clean Label, Gluten-Free, Vegan, and Keto-Friendly | 7.5 oz (Pack of 1)…",
+            "price": 29.99,
+            "rating": 4.3,
+            "platform": "In the Kitchen with Alexandra",
+            "product_url": "https://example.com/B0BYM3MDZW",
+            "_asin": "B0BYM3MDZW"
+          },
+          {
+            "product_name": "Amazon Brand - Happy Belly Soy Sauce, 15 Oz",
+            "price": 5.87,
+            "rating": 4.3,
+            "platform": "Happy Belly",
+            "product_url": "https://example.com/B0C7JV2TM1",
+            "_asin": "B0C7JV2TM1"
+          },
+          {
+            "product_name": "Enchanted Key Gift Company Mexican Candy Variety - 100 Piece Assortment - Mexican Candy Mix - Mexican Candy Gift Box - Dulces Mexicanos Surtidos - Mexican Snack Food Gift Box - Spicy, Sweet & Sour Candy Mix",
+            "price": 25.0,
+            "rating": 4.2,
+            "platform": "Enchanted Key Gift Company",
+            "product_url": "https://example.com/B0BRPTTJ83",
+            "_asin": "B0BRPTTJ83"
+          },
+          {
+            "product_name": "HORMEL Chicken Tamales, Canned Tamales, 15 Oz",
+            "price": 16.7,
+            "rating": 4.1,
+            "platform": "Hormel",
+            "product_url": "https://example.com/B09PZDCXC7",
+            "_asin": "B09PZDCXC7"
+          },
+          {
+            "product_name": "Chili Lime Dried Mango Slices, 1 lb. Bag, Sweet, Tangy, and Spicy, Authentic Mexican Style Dry Fruit, Fresh and Natural",
+            "price": 13.99,
+            "rating": 4.1,
+            "platform": "Amazing Chiles & Spices",
+            "product_url": "https://example.com/B0B1LZ61J5",
+            "_asin": "B0B1LZ61J5"
+          },
+          {
+            "product_name": "Baja Jerky All Natural Beef Sticks - Traditional, Street Taco, & Hot Sauce, Gluten Free, 8g of Protein, Made in the USA - Variety, (Pack of 12)",
+            "price": 11.99,
+            "rating": 4.0,
+            "platform": "BAJA BEEF",
+            "product_url": "https://example.com/B09NL8YSG5",
+            "_asin": "B09NL8YSG5"
+          },
+          {
+            "product_name": "Spicy Agave Margarita Mix by Tabañero | All Natural, Gluten Free, Vegan, Kosher | Made in the USA | 1L Bottle",
+            "price": 12.99,
+            "rating": 3.5,
+            "platform": "Tabanero",
+            "product_url": "https://example.com/B09B7F86B5",
+            "_asin": "B09B7F86B5"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Gamesa Clasicas Maravillas. Delicious Traditional Mexican Vanilla Cookies. Ideal with Coffee, Tea or Milk. 1 Box (4 packets) 464 Grams.",
+          "expected_ranking": [
+            "Gamesa Clasicas Maravillas. Delicious Traditional Mexican Vanilla Cookies. Ideal with Coffee, Tea or Milk. 1 Box (4 packets) 464 Grams."
+          ]
+        },
+        "elapsed_ms": 11704.2
+      },
+      {
+        "record_id": "rec220",
+        "group": "B_no_signal",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 12,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "사탕"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 12,
+            "sorted_desc": true,
+            "ranking_mode": "llm",
+            "degraded_mode": false
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 56,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "Cavendish And Harvey Candy (3 Pack) Fruit Hard Candy Tin 5.3 Ounces Imported German Candy (Sour Cherry Drops)",
+            "price": 19.15,
+            "rating": 4.6,
+            "platform": "Cavendish",
+            "product_url": "https://example.com/B00KSO1C7S",
+            "_asin": "B00KSO1C7S",
+            "_candidate_id": "C",
+            "final_score": 0.8152,
+            "axis_contributions": {
+              "price": 0.3952,
+              "review": 0.32,
+              "preference": 0.1
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "강한부합",
+                "reasoning": "Cavendish And Harvey Candy is a fruit hard candy, which fits the request for candy very well."
+              }
+            ]
+          },
+          {
+            "product_name": "Nerds Candy, Watermelon & Wild Cherry, 1.65 oz Treat-Size Boxes (Pack Of 24)",
+            "price": 35.6,
+            "rating": 4.8,
+            "platform": "Nerds",
+            "product_url": "https://example.com/B0BWK2RGP7",
+            "_asin": "B0BWK2RGP7",
+            "_candidate_id": "I",
+            "final_score": 0.7534,
+            "axis_contributions": {
+              "price": 0.2534,
+              "review": 0.4,
+              "preference": 0.1
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "강한부합",
+                "reasoning": "Nerds Candy is a well-known candy that fits the request perfectly."
+              }
+            ]
+          },
+          {
+            "product_name": "Primrose Deluxe Filled Hard Candy - Classic Christmas Candy in 13 oz Holiday Retail Package - Ideal Gourmet Food Gift - Old Fashion Candy",
+            "price": 8.0,
+            "rating": 4.2,
+            "platform": "PRIMROSE",
+            "product_url": "https://example.com/B0BQXLYFC5",
+            "_asin": "B0BQXLYFC5",
+            "_candidate_id": "A",
+            "final_score": 0.7513,
+            "axis_contributions": {
+              "price": 0.4913,
+              "review": 0.16,
+              "preference": 0.1
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "강한부합",
+                "reasoning": "Primrose Deluxe Filled Hard Candy is a classic candy, aligning well with the request for candy."
+              }
+            ]
+          },
+          {
+            "product_name": "Chuckles Original Jelly Candy, 2 Ounces (Pack of 24)",
+            "price": 25.4,
+            "rating": 4.6,
+            "platform": "Chuckles",
+            "product_url": "https://example.com/B07MM6439D",
+            "_asin": "B07MM6439D",
+            "_candidate_id": "K",
+            "final_score": 0.7273,
+            "axis_contributions": {
+              "price": 0.3413,
+              "review": 0.32,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "Chuckles Original Jelly Candy is a type of candy, fitting the request."
+              }
+            ]
+          },
+          {
+            "product_name": "Candy Shop Dried Crystallized Ginger Slices in Resealable Bag (2 Lbs)",
+            "price": 18.99,
+            "rating": 4.4,
+            "platform": "The Snackery",
+            "product_url": "https://example.com/B08SKQWXHF",
+            "_asin": "B08SKQWXHF",
+            "_candidate_id": "L",
+            "final_score": 0.7026,
+            "axis_contributions": {
+              "price": 0.3966,
+              "review": 0.24,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "Candy Shop Dried Crystallized Ginger Slices are a type of candy, but may not be what most consider traditional candy."
+              }
+            ]
+          },
+          {
+            "product_name": "Cella's Dark Chocolate Covered Cherries – Premium Cherry Cordial Candies – Individually Wrapped with Display Box (72-Count Box - 2.25 Pounds)",
+            "price": 31.3,
+            "rating": 4.5,
+            "platform": "Cella's",
+            "product_url": "https://example.com/B08XL11V2S",
+            "_asin": "B08XL11V2S",
+            "_candidate_id": "J",
+            "final_score": 0.6364,
+            "axis_contributions": {
+              "price": 0.2904,
+              "review": 0.28,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "Cella's Dark Chocolate Covered Cherries are a type of candy, but they are more of a chocolate treat."
+              }
+            ]
+          },
+          {
+            "product_name": "No Sugar Added Dark Chocolate Covered Almonds Candy, 2-Pound Bag",
+            "price": 28.99,
+            "rating": 4.4,
+            "platform": "ILIKE!",
+            "product_url": "https://example.com/B09L2Q4LZ6",
+            "_asin": "B09L2Q4LZ6",
+            "_candidate_id": "B",
+            "final_score": 0.6163,
+            "axis_contributions": {
+              "price": 0.3103,
+              "review": 0.24,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "No Sugar Added Dark Chocolate Covered Almonds are a type of candy, but they are not traditional candy, which may not fully align with the request."
+              }
+            ]
+          },
+          {
+            "product_name": "Vintage Candy Co. Retro Birthday Candy Gift Boxes - Assorted Nostalgia Candies Variety from Past Decades - Perfect Bday Care Package Gifts for Women, Men, Girl, Boy, Student, Client, Employee (29th, Epic)",
+            "price": 43.98,
+            "rating": 4.7,
+            "platform": "Vintage Candy Co.",
+            "product_url": "https://example.com/B0C7NCNVJH",
+            "_asin": "B0C7NCNVJH",
+            "_candidate_id": "E",
+            "final_score": 0.6071,
+            "axis_contributions": {
+              "price": 0.1811,
+              "review": 0.36,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "Similar to [D], this is a gift box of assorted candies, which fits the request but is not a single type of candy."
+              }
+            ]
+          },
+          {
+            "product_name": "Vintage Candy Co. Retro Birthday Candy Gift Boxes - Assorted Nostalgia Candies Variety from Past Decades - Perfect Bday Care Package Gifts for Women, Men, Girl, Boy, Student, Client, Employee (16th, Epic)",
+            "price": 39.99,
+            "rating": 4.6,
+            "platform": "Vintage Candy Co.",
+            "product_url": "https://example.com/B0C6L9SDHY",
+            "_asin": "B0C6L9SDHY",
+            "_candidate_id": "D",
+            "final_score": 0.6015,
+            "axis_contributions": {
+              "price": 0.2155,
+              "review": 0.32,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "Vintage Candy Co. Retro Birthday Candy Gift Boxes contain various candies, making them a good fit, but they are more of a gift set."
+              }
+            ]
+          },
+          {
+            "product_name": "Cachou Lajaunie - Hard Licorice Candies From France, 6 Tins 6x0.25oz",
+            "price": 23.0,
+            "rating": 4.2,
+            "platform": "Lajaunie",
+            "product_url": "https://example.com/B00U1QT2XY",
+            "_asin": "B00U1QT2XY",
+            "_candidate_id": "F",
+            "final_score": 0.588,
+            "axis_contributions": {
+              "price": 0.362,
+              "review": 0.16,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "Cachou Lajaunie Hard Licorice Candies are a type of candy, but licorice may not be preferred by all."
+              }
+            ]
+          },
+          {
+            "product_name": "Scripture Candy, Blueberries & Cream Hard Candy 5.5oz Bag, 25 Pieces",
+            "price": 6.99,
+            "rating": 3.8,
+            "platform": "SCRIPTURE CANDY Reaching The World One Piece At A Time!",
+            "product_url": "https://example.com/B09SGRFDRC",
+            "_asin": "B09SGRFDRC",
+            "_candidate_id": "G",
+            "final_score": 0.566,
+            "axis_contributions": {
+              "price": 0.5,
+              "review": 0.0,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "Scripture Candy is a type of hard candy, fitting the request, but the review score is lower."
+              }
+            ]
+          },
+          {
+            "product_name": "JOLLY RANCHER Hard Candy, Blue Raspberry Flavor, 88 Ounce",
+            "price": 64.99,
+            "rating": 4.5,
+            "platform": "Jolly Rancher",
+            "product_url": "https://example.com/B00UT29C6W",
+            "_asin": "B00UT29C6W",
+            "_candidate_id": "H",
+            "final_score": 0.346,
+            "axis_contributions": {
+              "price": 0.0,
+              "review": 0.28,
+              "preference": 0.066
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "사탕",
+                "match_level": "부합",
+                "reasoning": "JOLLY RANCHER Hard Candy is a popular candy, fitting the request well."
+              }
+            ]
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Morinaga - Hi-Chew Assorted Pack Strawberry, strawberry, green apple and grape Fruit Chews - 20 Invidually Wrapped Pieces",
+          "expected_ranking": [
+            "Morinaga - Hi-Chew Assorted Pack Strawberry, strawberry, green apple and grape Fruit Chews - 20 Invidually Wrapped Pieces"
+          ]
+        },
+        "elapsed_ms": 11038.6
+      },
+      {
+        "record_id": "rec171",
+        "group": "A_no_history",
+        "steps": {
+          "1_prepare_candidates": {
+            "pass": true,
+            "candidate_count": 20,
+            "gold_included": true
+          },
+          "2_filter_results": {
+            "pass": true,
+            "in_count": 20,
+            "out_count": 16,
+            "critical": false
+          },
+          "4_intent_agent": {
+            "pass": true,
+            "intent": "buy",
+            "keywords": [
+              "Curry Noodles",
+              "easy to make",
+              "great taste",
+              "chicken",
+              "fish cake",
+              "bean sprouts",
+              "tofu puffs",
+              "shrimp",
+              "coriander"
+            ],
+            "degraded_mode": false
+          },
+          "5_context_agent": {
+            "pass": true,
+            "preference_context_raw": {
+              "safety_constraints": []
+            }
+          },
+          "3_rank_with_metadata": {
+            "pass": true,
+            "ranked_count": 16,
+            "sorted_desc": true,
+            "ranking_mode": "baseline",
+            "degraded_mode": true
+          },
+          "6_response_agent": {
+            "pass": true,
+            "explanation_len": 48,
+            "had_selected_product": true,
+            "degraded_mode": false
+          }
+        },
+        "crashed": false,
+        "ranked_products": [
+          {
+            "product_name": "immi Variety Pack Ramen, Black Garlic \"Chicken\", Tom Yum \"Shrimp\", Spicy \"Beef\", 100% Plant Based, Keto Friendly, High Protein, Low Carb, Packaged Noodle Meal Kit, Ready to Eat, 6 Pack",
+            "price": 39.0,
+            "rating": 3.1,
+            "platform": "immi",
+            "product_url": "https://example.com/B09KMCZWTP",
+            "_asin": "B09KMCZWTP"
+          },
+          {
+            "product_name": "Grillaholics Herbacious Hen Chicken Seasoning - Insanely Herbal Chicken Dry Rub Blend - 24+ Herbs & Spices - Great on Rotisserie Chicken, Beer Can Chicken, Fried Chicken, Wings, Turkey, Ribs, and Pork",
+            "price": 17.95,
+            "rating": 4.4,
+            "platform": "Grillaholics",
+            "product_url": "https://example.com/B09V1TJNRJ",
+            "_asin": "B09V1TJNRJ"
+          },
+          {
+            "product_name": "S&B, Golden Curry Sauce Mix, Hot, 3.2 oz",
+            "price": 4.96,
+            "rating": 4.8,
+            "platform": "S&B",
+            "product_url": "https://example.com/B0002IZD0C",
+            "_asin": "B0002IZD0C"
+          },
+          {
+            "product_name": "La Tourangelle, Toasted Sesame Oil, Great for Cooking, Add to Noodles, Stir-Fry, Vegetables, Vinaigrettes, and Marinades for Authentic Asian Cuisine, 16.9 fl oz",
+            "price": 9.97,
+            "rating": 4.7,
+            "platform": "La Tourangelle",
+            "product_url": "https://example.com/B0C54FNDK2",
+            "_asin": "B0C54FNDK2"
+          },
+          {
+            "product_name": "Pure Indian Foods Madras Curry, Concentrated Simmer Sauce - Made With Grass-Fed Ghee, Sweetened With Jaggery, Medium Heat, Gluten-Free, Certified Organic 8.5 oz",
+            "price": 14.16,
+            "rating": 4.5,
+            "platform": "PURE INDIAN FOODS",
+            "product_url": "https://example.com/B07GF22SG5",
+            "_asin": "B07GF22SG5"
+          },
+          {
+            "product_name": "Naturtonix Fine White Rice Flour, Great for Gluten Free Baking, Non-GMO, Certified Kosher, Regular Flour Substitute, Unbleached, Makes Noodles, Thickens Sauce or Soup, 5 Pound",
+            "price": 19.95,
+            "rating": 4.5,
+            "platform": "Naturtonix",
+            "product_url": "https://example.com/B0B5G1VX5V",
+            "_asin": "B0B5G1VX5V"
+          },
+          {
+            "product_name": "Otafuku Yakisoba Sauce for Japanese Stir Fry Noodles, Vegan Yakisoba Sauce Authentic Umami Flavor - No Artificial Flavors, Colors or Preservatives (17.6 Oz)",
+            "price": 13.99,
+            "rating": 4.4,
+            "platform": "Otafuku",
+            "product_url": "https://example.com/B00886E9DM",
+            "_asin": "B00886E9DM"
+          },
+          {
+            "product_name": "Prima Taste La Mian, Singapore Premium Noodles, Pack Of 8 (Curry And Laksa Mix)",
+            "price": 29.89,
+            "rating": 4.4,
+            "platform": "Prima Taste",
+            "product_url": "https://example.com/B07F7KN44T",
+            "_asin": "B07F7KN44T"
+          },
+          {
+            "product_name": "Taehwa GOMPYO Seafood Dipping Sauce 11 oz, Korean Dipping Sauce, Gochujang with Vinegar, Garlic Apple Plum Extract, Chojang, Sashimi Sauce",
+            "price": 6.99,
+            "rating": 4.4,
+            "platform": "Gyeongnam Trading Inc.",
+            "product_url": "https://example.com/B0BFB4C5BW",
+            "_asin": "B0BFB4C5BW"
+          },
+          {
+            "product_name": "ONETANG Organic Millet & Brown Rice Ramen Noodle, Gluten-Free Pasta, Whole Grain, Non-GMO, Kosher, Vegan 2.47 Oz (Pack Of 12)",
+            "price": 19.99,
+            "rating": 4.3,
+            "platform": "ONETANG",
+            "product_url": "https://example.com/B09WM9PLKM",
+            "_asin": "B09WM9PLKM"
+          },
+          {
+            "product_name": "[SAPPORO ICHIBAN] Sriracha Yakisoba, Spicy Chow Mein, No. 1 Tasting Japanese Instant Noodles (3.6 Oz/102 g) (24 Packs)",
+            "price": 37.95,
+            "rating": 4.2,
+            "platform": "Sapporo Ichiban",
+            "product_url": "https://example.com/B0BR1SSNCR",
+            "_asin": "B0BR1SSNCR"
+          },
+          {
+            "product_name": "Japanese Teriyaki with Udon Noodles Entree Meal Kit for Two - Authentic Asian Flavor - Japanese Home Cooked Meal Solution [Plant-Based, Flexitarian Friendly]",
+            "price": 9.99,
+            "rating": 4.1,
+            "platform": "Rootworks",
+            "product_url": "https://example.com/B09D41BGKM",
+            "_asin": "B09D41BGKM"
+          },
+          {
+            "product_name": "Annie Chun's - Asian Noodle Starter Kit, Teriyaki Flavor, Non-GMO, Vegan, Delicious, 12.8-oz (4-Pack)",
+            "price": 8.78,
+            "rating": 4.1,
+            "platform": "Annie Chun's",
+            "product_url": "https://example.com/B0BSMPJ6SK",
+            "_asin": "B0BSMPJ6SK"
+          },
+          {
+            "product_name": "Glicks Thin Chow Mein Noodles, 10oz (3 Pack), Thin and Crisp, No Artificial Flavors or Colors, Certified Kosher",
+            "price": 14.89,
+            "rating": 4.0,
+            "platform": "Glicks",
+            "product_url": "https://example.com/B07CZ1JLTC",
+            "_asin": "B07CZ1JLTC"
+          },
+          {
+            "product_name": "KinjaBang Shadow Style Noodles w/KinjaBang Spicy Sauce, 3.5 Ounce (Pack of 6) | Plant-Based | Air Dried | Preservative Free",
+            "price": 23.99,
+            "rating": 4.0,
+            "platform": "KINJABANG",
+            "product_url": "https://example.com/B09TV4QMYT",
+            "_asin": "B09TV4QMYT"
+          },
+          {
+            "product_name": "Sideaway Foods Balsamic Beet Noodles, 9.2 oz, 6 Count, Vegan Microwave Meal, Gluten-Free Noodles, Packaged Meals & Side Dishes, Plant-Based Food",
+            "price": 26.94,
+            "rating": 3.7,
+            "platform": "S!deaway Foods",
+            "product_url": "https://example.com/B0BZXY7JWM",
+            "_asin": "B0BZXY7JWM"
+          }
+        ],
+        "expected": {
+          "expected_top_product": "Prima Taste La Mian, Singapore Premium Noodles, Pack Of 8 (Curry And Laksa Mix)",
+          "expected_ranking": [
+            "Prima Taste La Mian, Singapore Premium Noodles, Pack Of 8 (Curry And Laksa Mix)"
+          ]
+        },
+        "elapsed_ms": 13225.4
+      }
+    ]
+  },
+  "step6_metrics": {
+    "mrr_ndcg": {
+      "mrr": {
+        "n": 19,
+        "nonzero_count": 14,
+        "avg": 0.164,
+        "sample": {
+          "key": "mrr",
+          "score": 0.2,
+          "comment": "rank=5"
+        }
+      },
+      "ndcg_at_3": {
+        "n": 19,
+        "nonzero_count": 2,
+        "avg": 0.079,
+        "sample": {
+          "key": "ndcg_at_3",
+          "score": 0.0,
+          "comment": "expected=['Three Ladies Brand Spring Roll Rice Paper Wrapper (2 Packs) Round, 22cm']"
+        }
+      }
+    },
+    "kendall_tau": {
+      "n": 19,
+      "avg_tau": 0.049,
+      "sample": {
+        "pass": true,
+        "tau": 0.19999999999999998,
+        "p_value": 0.4843127204585538,
+        "n_compared": 10
+      }
+    }
+  },
+  "issues": {
+    "blocking": [],
+    "ignorable_for_now": []
+  }
+}

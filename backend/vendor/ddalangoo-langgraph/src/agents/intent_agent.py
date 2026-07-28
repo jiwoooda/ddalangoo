@@ -8,16 +8,21 @@ import re
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
+from langgraph.errors import NodeError
+from langgraph.runtime import Runtime
+from langgraph.types import Command
 
 from configs.llm_config import get_llm
 from src.state.schema import ShoppingState
+from src.state.node_inputs import IntentAgentInput, IntentAgentUpdate
 from src.prompts.intent_prompt import INTENT_AGENT_PROMPT
 from src.utils.agent_logger import agent_logger
+from src.utils.retry import FailureClass, classify_failure
 
 IntentType = Literal[
     "buy", "reorder", "confirm", "deny", "next", "refine",
     "compare_platforms", "quantity_change", "address_change",
-    "option_select", "ask", "cancel", "unclear", "smalltalk",
+    "option_select", "ask", "cancel", "unclear",
 ]
 
 ConditionType = Literal["최저가", "가성비", "빠른배송", "인기순", "무료배송", "리뷰좋은"]
@@ -137,7 +142,9 @@ _structured_llm = None
 def _get_llm():
     global _llm, _structured_llm
     if _llm is None:
-        _llm = get_llm("intent", temperature=0)
+        # retry_owner="application": 이 노드는 NODE_RETRY_POLICY로 재시도되므로
+        # anthropic/openai SDK 자체 재시도는 꺼서 중첩 재시도를 막는다.
+        _llm = get_llm("intent", temperature=0, retry_owner="application")
         # method="json_schema"(엄격 모드)는 IntentOutput처럼 필드/Optional/enum이
         # 많은 큰 스키마에서 "Schema is too complex" 에러로 API가 거부할 수 있어
         # 기본값(function_calling)을 쓴다. 작은 스키마(SafetySignalUpdate 등)엔
@@ -159,21 +166,6 @@ def _extract_user_input(state: ShoppingState) -> str:
     return ""
 
 
-def _is_cold_start_first_turn(state: ShoppingState) -> bool:
-    """
-    이 대화의 첫 턴(아직 assistant 응답 없음)이고, 이 유저가 구매이력이
-    한 건도 없는 신규유저인지 확인한다. 두 조건 다 맞을 때만 스몰토크
-    온보딩 인사로 우회한다 — 기존 유저가 새 대화를 시작한 경우는 제외.
-    """
-    if len(state.get("messages") or []) > 1:
-        return False
-    user_id = state.get("user_id", "")
-    if not user_id:
-        return False
-    from src.tools import db_client
-    return not db_client.get_purchase_histories(user_id)
-
-
 def _is_ambiguous_reorder(user_input: str, keywords: list[str]) -> bool:
     text = user_input.strip().lower()
     if keywords:
@@ -183,11 +175,61 @@ def _is_ambiguous_reorder(user_input: str, keywords: list[str]) -> bool:
     return has_reorder_signal and has_ambiguous_ref
 
 
-def intent_agent_node(state: ShoppingState) -> dict:
+def _degraded_intent_result(state: IntentAgentInput, failure_class: FailureClass, exc: BaseException) -> dict:
+    """구조화 출력 실패(품질/영구 기술 오류) 시 즉시 반환하는 축소 응답.
+    TRANSIENT_TECHNICAL은 여기로 오지 않는다 — 호출부에서 re-raise해 NODE_RETRY_POLICY가 재시도한다."""
+    return {
+        "intent": "unclear",
+        "keywords": state.get("keywords") or [],
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": state.get("quantity"),
+        "condition": None,
+        "recipe_dish": state.get("recipe_dish"),
+        "recipe_people": state.get("recipe_people"),
+        "target_platforms": [],
+        "override_platform": None,
+        "current_option_value": None,
+        "address_text": None,
+        "needs_clarification": True,
+        "clarification_reason": "응답 파싱 오류",
+        "confidence": 0.0,
+        "immediate_response": "다시 한번 말씀해 주세요.",
+        "last_agent": "intent_agent",
+        "tool_calls": None,
+        "tool_results": None,
+        "degraded_mode": True,
+        "failure_stage": "intent_llm",
+        "degradation_reason": f"{failure_class.value}:{type(exc).__name__}",
+    }
+
+
+def intent_error_handler(state: ShoppingState, error: NodeError) -> Command:
+    """NODE_RETRY_POLICY 소진(TRANSIENT_TECHNICAL) 또는 재시도 대상이 아닌 예외
+    (PERMANENT_TECHNICAL) 모두 여기로 온다. classify_failure로 다시 나눠 로그만
+    구분하고, 사용자에게는 동일한 안전 응답을 준다."""
+    fc = classify_failure(error.error)
+    if fc is FailureClass.TRANSIENT_TECHNICAL:
+        agent_logger.log_retry_exhausted(node="intent_agent", exception_type=type(error.error).__name__)
+    else:
+        agent_logger.log_permanent_technical_error(node="intent_agent", exception_type=type(error.error).__name__)
+    return Command(
+        update=_degraded_intent_result(state, fc, error.error),
+        goto="respond",
+    )
+
+
+def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -> IntentAgentUpdate:
+    # runtime은 그래프 실행 시 LangGraph가 자동 주입한다. evals/run_experiment.py
+    # 등이 이 노드를 그래프 밖에서 직접 호출할 때는 None이 들어오므로 기본값을 둔다.
     user_input = _extract_user_input(state)
     stage = state.get("stage", "idle")
     pending_action = state.get("pending_action")
     pending_type = pending_action.get("type") if isinstance(pending_action, dict) else "null"
+
+    node_attempt = runtime.execution_info.node_attempt if runtime and runtime.execution_info else 1
+    if node_attempt > 1:
+        agent_logger.log_retry_attempt_started(node="intent_agent", node_attempt=node_attempt)
 
     prompt = INTENT_AGENT_PROMPT.format(
         user_input=user_input,
@@ -207,28 +249,12 @@ def intent_agent_node(state: ShoppingState) -> dict:
             messages = [HumanMessage(content=prompt)]
         parsed: IntentOutput = llm.invoke(messages)
     except Exception as e:
-        print(f"[intent_agent] structured output error: {e}")
-        return {
-            "intent": "unclear",
-            "keywords": state.get("keywords") or [],
-            "exclude_keywords": [],
-            "negative_constraints": [],
-            "quantity": state.get("quantity"),
-            "condition": None,
-            "recipe_dish": state.get("recipe_dish"),
-            "recipe_people": state.get("recipe_people"),
-            "target_platforms": [],
-            "override_platform": None,
-            "current_option_value": None,
-            "address_text": None,
-            "needs_clarification": True,
-            "clarification_reason": "응답 파싱 오류",
-            "confidence": 0.0,
-            "immediate_response": "다시 한번 말씀해 주세요.",
-            "last_agent": "intent_agent",
-            "tool_calls": None,
-            "tool_results": None,
-        }
+        fc = classify_failure(e)
+        print(f"[intent_agent] structured output error ({fc.value}): {e}")
+        if fc is FailureClass.TRANSIENT_TECHNICAL:
+            agent_logger.log_transient_failure(node="intent_agent", node_attempt=node_attempt, exception_type=type(e).__name__)
+            raise  # NODE_RETRY_POLICY가 노드 재실행, 소진되면 intent_error_handler로 이동
+        return _degraded_intent_result(state, fc, e)
 
     intent = parsed.intent
 
@@ -242,14 +268,14 @@ def intent_agent_node(state: ShoppingState) -> dict:
         intent = "buy"
 
     quantity = _parse_quantity(parsed.quantity)
-    # quantity_confirm 또는 product_confirm(수량 미입력) 대기 중 수량 답변 → 재파싱 + intent 교정
-    if pending_type in ("quantity_confirm", "product_confirm"):
+    # product_confirm(수량 미입력) 대기 중 수량 답변 → 재파싱 + intent 교정
+    if pending_type == "product_confirm":
         if _looks_like_quantity_reply(user_input):
             direct = _parse_quantity(user_input)
             if direct is not None:
                 quantity = direct
                 # product_confirm 상태에서 수량을 말하는 건 구매 의사 확정으로 해석
-                if pending_type == "product_confirm" and not state.get("quantity"):
+                if not state.get("quantity"):
                     intent = "confirm"
 
     _search_intents = {"buy", "reorder", "refine", "compare_platforms"}
@@ -277,7 +303,7 @@ def intent_agent_node(state: ShoppingState) -> dict:
         confidence = max(confidence, 0.8)
 
     # 수량 답변 감지로 quantity가 교정된 경우 clarification 불필요
-    if quantity and intent == "confirm" and pending_type in ("quantity_confirm", "product_confirm"):
+    if quantity and intent == "confirm" and pending_type == "product_confirm":
         needs_clarification = False
         clarification_reason = None
         confidence = max(confidence, 0.85)
@@ -287,14 +313,6 @@ def intent_agent_node(state: ShoppingState) -> dict:
         needs_clarification = True
         clarification_reason = "어떤 상품을 다시 주문할지 알려주세요."
         immediate_response = "어떤 상품을 다시 주문할까요?"
-
-    # 신규유저(구매이력 0건) 첫 턴 → 쇼핑 라우팅 대신 스몰토크 온보딩 인사로 우회.
-    # keywords 등은 그대로 보존해서, 다음 턴에 이어갈 수 있게 한다.
-    if _is_cold_start_first_turn(state):
-        intent = "smalltalk"
-        needs_clarification = False
-        clarification_reason = None
-        confidence = max(confidence, 0.9)
 
     # recipe 필드는 buy intent일 때만 갱신, 그 외엔 state 값 유지
     recipe_dish = parsed.recipe_dish if intent == "buy" else (parsed.recipe_dish or state.get("recipe_dish"))

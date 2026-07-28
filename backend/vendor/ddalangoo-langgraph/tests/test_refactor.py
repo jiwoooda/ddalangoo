@@ -252,7 +252,7 @@ def test_mock_place_order_clears_cart_and_saves_history():
     assert any(h["order_id"] == order["order_id"] for h in history)
 
 def test_payment_agent_add_to_cart_step():
-    from src.payment.subgraph import payment_agent_node
+    from src.payment.node import payment_agent_node
     from src.tools.mock_tools import mock_clear_cart, mock_get_cart
     uid = "test_payment_user"
     mock_clear_cart(uid)
@@ -276,7 +276,7 @@ def test_payment_agent_add_to_cart_step():
 
 def test_payment_agent_quantity_change_intent():
     """intent=quantity_change도 장바구니 담기를 트리거해야 한다."""
-    from src.payment.subgraph import payment_agent_node
+    from src.payment.node import payment_agent_node
     from src.tools.mock_tools import mock_clear_cart, mock_get_cart
     uid = "test_qty_change_user"
     mock_clear_cart(uid)
@@ -288,7 +288,7 @@ def test_payment_agent_quantity_change_intent():
         selected_product=product,
         quantity=3,
         keywords=["딸기"],
-        pending_action={"type": "quantity_confirm"},
+        pending_action={"type": "product_confirm"},
     )
     result = payment_agent_node(s)
     assert result["stage"] == "cart_shopping"
@@ -297,7 +297,7 @@ def test_payment_agent_quantity_change_intent():
 
 
 def test_payment_agent_full_flow():
-    from src.payment.subgraph import payment_agent_node
+    from src.payment.node import payment_agent_node
     from src.tools.mock_tools import mock_clear_cart, mock_add_to_cart
     uid = "test_full_payment_user"
     mock_clear_cart(uid)

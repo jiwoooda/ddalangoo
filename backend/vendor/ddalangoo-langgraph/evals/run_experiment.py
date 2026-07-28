@@ -159,9 +159,10 @@ def run_intent_experiment(backend: str, model: str | None) -> None:
         with tracing_context(enabled=False):
             _init_usage()
             started = time.perf_counter()
-            # "user_eval"(구매이력 0건)이면 intent_agent의 신규유저 첫턴 감지가
-            # 매 케이스마다 intent를 smalltalk로 덮어써버린다 — 순수 분류
-            # 정확도 테스트이므로 구매이력 있는 user_001을 쓴다.
+            # 신규유저 온보딩 게이트(route_entry, src/graph/router.py)는 그래프
+            # 레벨 조건부 엣지라 intent_agent_node를 직접 호출하는 여기선 애초에
+            # 안 걸린다. 순수 분류 정확도 테스트이므로 실제 서비스에서도
+            # 온보딩을 거쳤을 법한 구매이력 있는 user_001을 쓴다.
             state = get_default_shopping_state("user_001", "eval-session")
             state["messages"] = [{"role": "user", "content": inputs["user_input"]}]
             state["stage"] = inputs.get("stage", "idle")

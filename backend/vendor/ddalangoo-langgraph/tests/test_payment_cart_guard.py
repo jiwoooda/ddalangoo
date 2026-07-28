@@ -3,7 +3,7 @@ cart_shopping 결제 진입 guard 테스트.
 
 selected_product가 비어 있는 상태에서 "0원" 결제 안내가 생성되지 않도록 검증한다.
 """
-from src.payment.subgraph import payment_agent_node
+from src.payment.node import payment_agent_node
 from src.state.schema import get_default_shopping_state
 
 
