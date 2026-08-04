@@ -1071,11 +1071,17 @@ def check_product_price(
     product_url: str,
     storage_state_path: str | None = None,
     user_id: int | str | None = None,
+    *,
+    include_delivery: bool = False,
 ) -> dict:
     """
-    상품 URL로 진입해 현재 가격만 확인하고 종료. 장바구니는 건드리지 않는다.
+    상품 URL로 진입해 현재 가격(및 옵션에 따라 배송정보)만 확인하고 종료.
+    장바구니는 건드리지 않는다.
 
-    Returns: {"current_price": int | None, "error": str | None}
+    include_delivery=True면 검색 결과 후보 보강용으로 배송정보도 함께 추출한다
+    (meta_mcp_client의 kurly 후보 보강에서 사용 — 이미 열린 페이지에서 한 번에 추출).
+
+    Returns: {"current_price": int | None, "delivery_info": str | None, "error": str | None}
     """
     if not storage_state_path:
         storage_state_path = get_kurly_session_path(user_id)
@@ -1112,10 +1118,11 @@ def check_product_price(
         page.wait_for_timeout(2000)
 
         current_price = _extract_current_price(page)
-        return {"current_price": current_price, "error": None}
+        delivery_info = _extract_delivery_info(page) if include_delivery else None
+        return {"current_price": current_price, "delivery_info": delivery_info, "error": None}
     except Exception as e:
         print(f"[webview:price_check] 오류: {e}")
-        return {"current_price": None, "error": str(e)}
+        return {"current_price": None, "delivery_info": None, "error": str(e)}
     finally:
         browser.close()
         playwright.stop()

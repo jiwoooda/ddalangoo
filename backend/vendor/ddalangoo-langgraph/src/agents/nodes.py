@@ -1,83 +1,87 @@
-"""
-공통 Graph 노드: wait_for_input, respond, interrupt_payment.
-"""
+"""공통 Graph 노드: wait_for_input, respond, cancel 등."""
 from src.state.schema import ShoppingState
+from src.state.node_inputs import RespondNodeInput, CancelNodeInput
 from src.utils.agent_logger import agent_logger
 
 
 def wait_for_input_node(state: ShoppingState) -> dict:
     """
     사용자 입력 대기 노드.
-    interrupt_before=["wait_for_input"] 설정으로 이 지점에서 항상 멈춘다.
-    실제 실행 시 이 함수는 거의 실행되지 않는다.
+    interrupt_before=["wait_for_input"]로 이 지점에서 항상 멈춘다.
     """
     return {}
 
 
-def respond_node(state: ShoppingState) -> dict:
-    """
-    사용자에게 보낼 TTS 메시지 생성.
-    ShoppingState 기준의 stage와 pending_action만 사용한다.
-    Payment 내부 세부 상태는 pending_action.message로 받는다.
-    """
+def reset_turn_observability_node(state: ShoppingState) -> dict:
+    """매 턴 시작 시 실패 관측 필드를 초기화한다.
+
+    intent_agent_node 진입부에 끼워 넣지 않고 전용 노드로 분리한 이유: intent_agent는
+    "의도 분류"라는 단일 책임을 유지하고, 나중에 intent_agent를 거치지 않는 새 진입
+    경로가 생기더라도 리셋 누락 위험이 없게 하기 위함(wait_for_input → 이 노드 →
+    intent_agent 순서로 배선, docs/resilience_plan.md Phase 2 참고)."""
+    return {
+        "degraded_mode": False,
+        "degradation_reason": None,
+        "failure_stage": None,
+        "ranking_mode": None,
+        "source_used": None,
+    }
+
+
+def respond_node(state: RespondNodeInput) -> dict:
+    """사용자에게 보낼 메시지 생성."""
     stage = state.get("stage", "idle")
+    intent = state.get("intent")
     immediate = state.get("immediate_response")
     explanation = state.get("explanation")
     pending_action = state.get("pending_action") or {}
 
-    # 1. clarification 우선
-    if state.get("needs_clarification"):
-        msg = immediate or state.get("clarification_reason") or "조금 더 자세히 말씀해 주세요."
+    # idle에서 배송지 confirm/deny — pending_action 클리어 후 단답 응답
+    # (응답 agent가 방금 address_confirm을 세팅한 경우(intent=ask)는 통과시켜 그냥 표시)
+    if pending_action.get("type") == "address_confirm" and stage != "payment_processing":
+        if intent == "confirm":
+            msg = immediate or "네, 알겠어요!"
+            agent_logger.log_respond(msg, stage, pending_action)
+            return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None}
+        elif intent in ("deny", "address_change"):
+            msg = immediate or "그럼 새 배송지를 말씀해 주세요."
+            agent_logger.log_respond(msg, stage, pending_action)
+            return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None}
 
-    # 2. pending_action에 명시 메시지가 있으면 우선 사용
+    if state.get("needs_clarification"):
+        msg = immediate or state.get("clarification_reason") or "다시 한번 말씀해 주세요."
+
     elif pending_action.get("message"):
         msg = pending_action["message"]
 
-    # 3. 상품 확인 단계
     elif stage == "product_confirming":
         msg = explanation or "이 상품으로 주문할까요?"
 
-    # 4. 결제 진행 단계
     elif stage == "payment_processing":
         msg = immediate or "결제를 계속 진행할까요?"
 
-    # 5. 완료/실패
     elif stage == "completed":
         msg = "주문이 완료되었습니다."
 
     elif stage == "failed":
         msg = state.get("error") or "처리 중 문제가 발생했습니다."
 
-    # 6. 기본 응답
     else:
-        msg = immediate or "무엇을 도와드릴까요?"
+        error = state.get("error")
+        _ERROR_MESSAGES = {
+            "no_candidates":        "죄송해요, 해당 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요.",
+            "no_relevant_products": "죄송해요, 맞는 상품이 없어요. 다른 키워드로 말씀해 주세요.",
+            "invalid_keywords":     "상품명을 좀 더 구체적으로 말씀해 주세요.",
+            "no_more_products":     "더 이상 보여드릴 상품이 없어요.",
+        }
+        msg = _ERROR_MESSAGES.get(error, immediate or "무엇을 도와드릴까요?")
 
     agent_logger.log_respond(msg, stage, pending_action)
-    return {
-        "messages": [{"role": "assistant", "content": msg}]
-    }
-
-
-def quantity_check_node(state: ShoppingState) -> dict:
-    """
-    상품 확인 후 수량이 없을 때 호출.
-    pending_action으로 수량 질문을 설정하고 respond로 넘긴다.
-    """
-    keywords = state.get("keywords") or []
-    short_name = keywords[0] if keywords else (state.get("selected_product") or {}).get("product_name", "상품")
-    return {
-        "pending_action": {
-            "type": "quantity_confirm",
-            "message": f"{short_name} 몇 개 사실래요?",
-        }
-    }
+    return {"messages": [{"role": "assistant", "content": msg}]}
 
 
 def ask_what_to_buy_node(state: ShoppingState) -> dict:
-    """
-    장바구니 담은 후 '다른것도 살래' 등 추가 쇼핑 의사 표현 시 호출.
-    cart session(storage_state_path)은 보존하고 새 상품 입력을 기다린다.
-    """
+    """장바구니 후 추가 쇼핑 의사 표현 시 새 상품 입력 대기."""
     return {
         "pending_action": {
             "type": "what_to_buy",
@@ -99,13 +103,8 @@ def ask_what_to_buy_node(state: ShoppingState) -> dict:
     }
 
 
-def cancel_node(state: ShoppingState) -> dict:
-    """
-    모든 stage에서의 cancel 처리.
-    - 장바구니 항목 있으면: 담아둔 것 유지 안내
-    - 없으면: 단순 취소 안내
-    state 완전 리셋 (cart_items·storage_state_path 제외).
-    """
+def cancel_node(state: CancelNodeInput) -> dict:
+    """모든 stage에서의 cancel 처리. state 완전 리셋."""
     cart_items = state.get("cart_items") or []
     if cart_items:
         msg = "알겠어요~ 처음으로 돌아갈게요! 장바구니에 담아둔 건 그대로 있을 거에요 :)"
@@ -129,4 +128,6 @@ def cancel_node(state: ShoppingState) -> dict:
         "current_product_index": 0,
         "quantity": None,
         "reorder_resolution": None,
+        # 취소 시 진행 중이던 결제 플로우도 무효화 — 다음 결제엔 새 키 발급.
+        "payment_idempotency_key": None,
     }

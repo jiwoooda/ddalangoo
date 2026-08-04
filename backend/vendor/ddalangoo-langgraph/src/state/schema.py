@@ -9,9 +9,10 @@ Stage = Literal[
     "idle",
     "searching",
     "product_confirming",
-    "cart_shopping",            # 장바구니 담긴 후 추가 쇼핑 여부 대기
-    "payment_processing",       # 결제 진행 중
-    "payment_password_required", # 결제 비밀번호 입력 대기
+    "cart_shopping",
+    "recipe_planning",
+    "payment_processing",
+    "payment_password_required",
     "completed",
     "failed",
 ]
@@ -43,16 +44,20 @@ Condition = Literal[
 
 PendingActionType = Literal[
     "product_confirm",
+    "product_select",
     "clarification",
     "payment_confirm",
-    "option_select",
     "address_confirm",
+    "address_required",
     "price_change_confirm",
-    "quantity_confirm",
     "continue_shopping",
-    "platform_suggest",        # product_agent가 다른 플랫폼 검색을 제안할 때
-    "payment_method_confirm",  # 총액 + 결제수단 확인 요청
-    "payment_password",        # 비밀번호 입력 요청 (fake)
+    "what_to_buy",
+    "no_more_products",
+    "cart_review",
+    "ingredient_confirm",
+    "payment_method_confirm",
+    "payment_password",
+    "payment_retry_confirm",
 ]
 
 class PendingAction(TypedDict, total=False):
@@ -62,7 +67,7 @@ class PendingAction(TypedDict, total=False):
     expires_at: Optional[str]
 
 # ══════════════════════════════════════════════
-# 1. ShoppingState — Intent + Platform + Product 전용
+# 1. ShoppingState
 # ══════════════════════════════════════════════
 
 class ShoppingState(TypedDict):
@@ -74,6 +79,16 @@ class ShoppingState(TypedDict):
     intent: Optional[Intent]
     last_agent: Optional[str]
     error: Optional[str]
+
+    # ── 실패 관측성(이번 턴 결과 요약) ── attempt_count/fallback_path처럼
+    # 노드·시도 횟수에 종속적인 값은 여기 넣지 않는다 — JSONL 로그와
+    # runtime.execution_info.node_attempt로만 추적한다(docs/resilience_plan.md
+    # Phase 2 참고). 매 턴 시작 시 reset_turn_observability_node가 초기화한다.
+    degraded_mode: bool
+    degradation_reason: Optional[str]
+    failure_stage: Optional[str]  # "intent_llm" | "scoring_llm" | "search" | ...
+    ranking_mode: Optional[str]  # "llm" | "baseline"
+    source_used: Optional[str]  # "remote_mcp" | "local_mcp" | "naver_api" | "kurly_url_fallback"
 
     # ── Intent Agent 출력 ──
     confidence: Optional[float]
@@ -107,27 +122,35 @@ class ShoppingState(TypedDict):
     # ── 확인/대기 액션 ──
     pending_action: Optional[PendingAction]
 
-    # ── 백엔드 DB 연결 결과 (confirm 후 주입) ──
+    # ── 백엔드 결과 ──
     cart: Optional[dict[str, Any]]
     order: Optional[dict[str, Any]]
     payment: Optional[dict[str, Any]]
     checkout_session: Optional[dict[str, Any]]
+    # 결제 플로우 진입 시 1회 생성, 이후 턴에서 재사용 — mock_place_order가
+    # 동일 키+동일 요청 해시면 기존 주문을 반환하도록 중복 생성을 막는다.
+    payment_idempotency_key: Optional[str]
 
     # ── 세션 식별자 ──
     session_id: str
     conversation_id: Optional[int]
     user_id: str
 
-    # ── 브라우저 세션 (장바구니 storageState 유지) ──
+    # ── 브라우저 세션 (mock) ──
     storage_state_path: Optional[str]
     cart_items: list[dict[str, Any]]
 
-    # ── Memory Agent → Platform/Product 전달 context ──
+    # ── 레시피 쇼핑 ──
+    recipe_dish: Optional[str]
+    recipe_people: Optional[int]
+    recipe_items: list[dict[str, Any]]
+    current_recipe_item_index: int
+
+    # ── Memory Agent context ──
     recommendation_context: Optional[dict[str, Any]]
     reorder_resolution: Optional[dict[str, Any]]
 
-    # ── Intent Agent 슬롯 (bridge 없이 payment agent로 전달) ──
-    # spec의 intent_agent_node 반환값에 명시되어 있으나 ShoppingState에 누락된 필드
+    # ── Intent Agent 슬롯 ──
     current_option_value: Optional[str]
     address_text: Optional[str]
     tool_calls: Optional[list[dict[str, Any]]]
@@ -135,76 +158,18 @@ class ShoppingState(TypedDict):
     conversation_summary: Optional[str]
     order_id: Optional[str]
 
-# ══════════════════════════════════════════════
-# 2. PaymentState — Payment Subgraph 전용
-# ══════════════════════════════════════════════
-
-PaymentStage = Literal[
-    "idle",
-    "validate_input",
-    "open_product_page",
-    "option_selecting",
-    "option_confirming",
-    "cart",
-    "address_confirming",
-    "payment_precheck",
-    "payment_password_required",
-    "processing",
-    "success",
-    "failed",
-]
-
-PaymentStatus = Literal[
-    "pending",
-    "pending_user_action",
-    "processing",
-    "success",
-    "failed",
-]
-
-class PaymentState(TypedDict):
-    # ── 식별자 ──
-    user_id: str
-    conversation_id: Optional[int]
-
-    # ── 구매 대상 ──
-    selected_product: dict[str, Any]
-    product_url: str
-    quantity: int
-    selected_platform: Optional[str]
-
-    # ── 옵션 ──
-    available_options: list[dict[str, Any]]
-    current_option_index: int
-    current_option_key: Optional[str]
-    current_option_value: Optional[str]
-    selected_options: dict[str, Any]
-
-    # ── 배송지 ──
-    delivery_address: Optional[dict[str, Any]]
-    address_confirmed: bool
-
-    # ── 결제/브라우저 ──
-    playwright_session: Optional[str]
-    checkout_session_id: Optional[str]
-    order_id: Optional[str]
-
-    payment_stage: PaymentStage
-    payment_status: PaymentStatus
-    payment_step: Optional[str]
-    payment_retry: int
-    payment_error: Optional[str]
-
-    # ── 확인/대기 액션 ──
-    pending_action: Optional[dict[str, Any]]
+    # ── 스몰토크 온보딩 이벤트 타이머 ── 온보딩 1턴째(smalltalk_agent)에
+    # 찍고, 이후 턴마다 경과 시간을 재서 너무 길어지면(_MAX_ONBOARDING_MINUTES)
+    # 강제 종료하는 안전장치용. 온보딩이 끝나면(onboarded_at 기록) 더 이상
+    # 쓰이지 않는다.
+    onboarding_started_at: Optional[str]
 
 # ══════════════════════════════════════════════
-# 3. MemoryState — Memory Agent 전용
+# 2. MemoryState
 # ══════════════════════════════════════════════
 
 class MemoryState(TypedDict):
     user_id: str
-
     user_profile: dict[str, Any]
     purchase_history: list[dict[str, Any]]
     preference_memory: dict[str, Any]
@@ -212,118 +177,25 @@ class MemoryState(TypedDict):
     conversation_summary: Optional[str]
 
 # ══════════════════════════════════════════════
-# 4. RecommendationContext — 추천 검색 Layer 결과
-# ══════════════════════════════════════════════
-
-class RecommendationContext(TypedDict):
-    keyword_results: list[dict[str, Any]]
-    personal_vector_results: list[dict[str, Any]]
-    collective_vector_results: list[dict[str, Any]]
-    merged_context: list[dict[str, Any]]
-    retrieval_mode: Literal[
-        "keyword_only",
-        "keyword_collective",
-        "hybrid_personal_collective",
-    ]
-
-# ══════════════════════════════════════════════
-# 5. Bridge Functions
+# 4. Bridge Functions
 # ══════════════════════════════════════════════
 
 def bridge_memory_to_shopping(memory: MemoryState) -> dict:
-    """
-    Memory 결과를 ShoppingState에 직접 과도하게 주입하지 않는다.
-    Agent 호출 시 context로 넘기는 것을 기본으로 한다.
-    """
-    return {
-        "last_agent": "memory_agent",
-    }
-
-
-def bridge_shopping_to_payment(
-    state: ShoppingState,
-    delivery_address: Optional[dict[str, Any]] = None,
-) -> PaymentState:
-    """
-    ShoppingState에서 결제에 필요한 최소 정보만 PaymentState로 변환한다.
-    옵션/주소/결제 진행 상태는 PaymentState에서만 관리한다.
-    """
-    selected_product = state.get("selected_product") or {}
-    product_url = (
-        state.get("product_url")
-        or selected_product.get("product_url")
-        or selected_product.get("url")
-        or ""
-    )
-
-    return {
-        "user_id": state["user_id"],
-        "conversation_id": state.get("conversation_id"),
-
-        "selected_product": selected_product,
-        "product_url": product_url,
-        "quantity": state.get("quantity") or 1,
-        "selected_platform": state.get("selected_platform"),
-
-        "available_options": [],
-        "current_option_index": 0,
-        "current_option_key": None,
-        "current_option_value": None,
-        "selected_options": {},
-
-        "delivery_address": delivery_address,
-        "address_confirmed": False,
-
-        "playwright_session": None,
-        "checkout_session_id": None,
-        "order_id": None,
-
-        "payment_stage": "validate_input",
-        "payment_status": "pending",
-        "payment_step": None,
-        "payment_retry": 0,
-        "payment_error": None,
-
-        "pending_action": None,
-    }
-
-
-def bridge_payment_to_shopping(payment: PaymentState) -> dict:
-    """
-    PaymentState 결과 중 ShoppingState에 필요한 결과만 반영한다.
-    Payment 내부 세부 상태는 ShoppingState로 역류시키지 않는다.
-    """
-    if payment["payment_status"] == "success":
-        return {
-            "stage": "completed",
-            "error": None,
-            "last_agent": "payment_agent",
-            "pending_action": payment.get("pending_action"),  # 결제 완료 메시지 보존
-        }
-
-    if payment["payment_status"] == "failed":
-        return {
-            "stage": "failed",
-            "error": payment.get("payment_error"),
-            "last_agent": "payment_agent",
-        }
-
-    return {
-        "stage": "payment_processing",
-        "error": payment.get("payment_error"),
-        "last_agent": "payment_agent",
-        "pending_action": payment.get("pending_action"),
-    }
+    return {"last_agent": "memory_agent"}
 
 
 def get_default_shopping_state(user_id: str, session_id: str) -> dict:
-    """테스트/초기화용 기본 ShoppingState 생성."""
     return {
         "messages": [],
         "stage": "idle",
         "intent": None,
         "last_agent": None,
         "error": None,
+        "degraded_mode": False,
+        "degradation_reason": None,
+        "failure_stage": None,
+        "ranking_mode": None,
+        "source_used": None,
         "confidence": None,
         "immediate_response": None,
         "needs_clarification": False,
@@ -349,6 +221,10 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "session_id": session_id,
         "conversation_id": None,
         "user_id": user_id,
+        "recipe_dish": None,
+        "recipe_people": None,
+        "recipe_items": [],
+        "current_recipe_item_index": 0,
         "recommendation_context": None,
         "reorder_resolution": None,
         "storage_state_path": None,
@@ -363,4 +239,6 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "order": None,
         "payment": None,
         "checkout_session": None,
+        "payment_idempotency_key": None,
+        "onboarding_started_at": None,
     }

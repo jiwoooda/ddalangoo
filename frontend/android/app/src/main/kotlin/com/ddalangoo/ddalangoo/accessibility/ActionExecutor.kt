@@ -96,6 +96,7 @@ class ActionExecutor(private val service: AccessibilityService) {
     private fun executeInputText(targetNode: UiNode?, textToInput: String): ActionResult {
         val sourceNode = targetNode?.sourceNode
             ?: return missingNodeResult()
+        val targetNodeTextBefore = targetNode.text.orEmpty()
 
         sourceNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val arguments = Bundle().apply {
@@ -107,14 +108,16 @@ class ActionExecutor(private val service: AccessibilityService) {
                 success = true,
                 method = ActionExecutionMethod.SET_TEXT.value,
                 errorCode = null,
-                message = "Input text into node id=${targetNode.id}"
+                message = "Input text into node id=${targetNode.id} textToInput=$textToInput " +
+                    "targetNodeTextBefore=$targetNodeTextBefore actionSuccess=true"
             )
         } else {
             ActionResult(
                 success = false,
                 method = ActionExecutionMethod.SET_TEXT.value,
                 errorCode = "SET_TEXT_FAILED",
-                message = "Failed to set text into node id=${targetNode.id}"
+                message = "Failed to set text into node id=${targetNode.id} textToInput=$textToInput " +
+                    "targetNodeTextBefore=$targetNodeTextBefore actionSuccess=false"
             )
         }
     }
@@ -136,8 +139,24 @@ class ActionExecutor(private val service: AccessibilityService) {
     }
 
     private fun dispatchTap(targetNode: UiNode): ActionResult {
+        return dispatchTapAt(
+            x = targetNode.centerX,
+            y = targetNode.centerY,
+            message = "Dispatched tap at ${targetNode.centerX},${targetNode.centerY}"
+        )
+    }
+
+    fun executeCoordinateTap(x: Int, y: Int, reason: String): ActionResult {
+        return dispatchTapAt(
+            x = x,
+            y = y,
+            message = "Dispatched coordinate tap reason=$reason at $x,$y"
+        )
+    }
+
+    private fun dispatchTapAt(x: Int, y: Int, message: String): ActionResult {
         val tapPath = Path().apply {
-            moveTo(targetNode.centerX.toFloat(), targetNode.centerY.toFloat())
+            moveTo(x.toFloat(), y.toFloat())
         }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(tapPath, 0L, 80L))
@@ -149,14 +168,14 @@ class ActionExecutor(private val service: AccessibilityService) {
                 success = true,
                 method = ActionExecutionMethod.DISPATCH_GESTURE.value,
                 errorCode = null,
-                message = "Dispatched tap at ${targetNode.centerX},${targetNode.centerY}"
+                message = message
             )
         } else {
             ActionResult(
                 success = false,
                 method = ActionExecutionMethod.DISPATCH_GESTURE.value,
                 errorCode = "GESTURE_DISPATCH_FAILED",
-                message = "Failed to dispatch tap at ${targetNode.centerX},${targetNode.centerY}"
+                message = "Failed to $message"
             )
         }
     }

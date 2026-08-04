@@ -32,7 +32,9 @@ class DdalangooAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var suppressExtractUntilMs: Long = 0L
     private var suppressOrderHistoryGuardUntilMs: Long = 0L
+    private var suppressSearchSubmitUntilMs: Long = 0L
     private var suppressSearchResultDumpUntilMs: Long = 0L
+    private var suppressAddToCartResultUntilMs: Long = 0L
     private val pendingTickReasons = mutableSetOf<String>()
     private val defaultSearchResultDumpLimit = 2
     private val targetSearchResultDumpLimit = 20
@@ -218,6 +220,57 @@ class DdalangooAccessibilityService : AccessibilityService() {
             return
         }
 
+        if (task.currentStep == AutomationContract.Step.WAIT_PRODUCT_DETAIL) {
+            handleWaitProductDetail(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.WAIT_OPTION_OR_CART_RESULT) {
+            if (shouldDelayAddToCartResultAfterClick(task, trigger)) {
+                AutomationLogger.info(
+                    "skip early add-to-cart result classification currentStep=${task.currentStep} trigger=$trigger"
+                )
+                scheduleProcessTick(500L, "waiting_add_to_cart_result_settle")
+                return
+            }
+            handleWaitOptionOrCartResult(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.VERIFY_CART_ADDED) {
+            handleVerifyCartAdded(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.WAIT_OPTION_SELECTED) {
+            handleWaitOptionSelected(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+            return
+        }
+
         if (shouldGuardKurlyOrderHistory(task) && !isKurlyOrderHistoryScreen(filteredNodes)) {
             if (shouldDelayOrderHistoryGuard(task)) {
                 AutomationLogger.info(
@@ -247,6 +300,25 @@ class DdalangooAccessibilityService : AccessibilityService() {
             if (shouldRetry) {
                 scheduleProcessTick(1000L, "waiting_order_history_screen")
             }
+            return
+        }
+
+        if (shouldDelaySearchSubmitAfterInput(task)) {
+            AutomationLogger.info(
+                "skip early search submit currentStep=${task.currentStep} trigger=$trigger"
+            )
+            scheduleProcessTick(700L, "waiting_search_input_settle")
+            return
+        }
+
+        if (verifySearchInputBeforeSubmit(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+        ) {
             return
         }
 
@@ -473,7 +545,10 @@ class DdalangooAccessibilityService : AccessibilityService() {
             RuleReasonCode.PURCHASE_HISTORY_DUMP.value -> scheduleProcessTick(700L, "after_dump")
             RuleReasonCode.SEARCH_ENTRY.value -> scheduleProcessTick(900L, "after_search_entry")
             RuleReasonCode.SEARCH_INPUT_FOCUS_RETRY.value -> scheduleProcessTick(500L, "search_input_focus_retry")
-            RuleReasonCode.SEARCH_INPUT.value -> scheduleProcessTick(700L, "after_search_input")
+            RuleReasonCode.SEARCH_INPUT.value -> {
+                suppressSearchSubmitUntilMs = System.currentTimeMillis() + 700L
+                scheduleProcessTick(700L, "after_search_input")
+            }
             RuleReasonCode.SEARCH_BUTTON.value,
             RuleReasonCode.KEYBOARD_SEARCH.value -> {
                 suppressSearchResultDumpUntilMs = System.currentTimeMillis() + 1400L
@@ -484,9 +559,234 @@ class DdalangooAccessibilityService : AccessibilityService() {
                 scheduleProcessTick(900L, "after_search_result_scroll")
             }
             RuleReasonCode.PRODUCT_CARD.value -> scheduleProcessTick(1200L, "after_product_card")
-            RuleReasonCode.CART_BUTTON.value -> scheduleProcessTick(900L, "after_cart_button")
+            RuleReasonCode.CART_BUTTON.value -> {
+                suppressAddToCartResultUntilMs = System.currentTimeMillis() + 1000L
+                scheduleProcessTick(1000L, "after_cart_button")
+            }
+            RuleReasonCode.OPTION_SELECT.value -> scheduleProcessTick(600L, "after_option_select")
+            RuleReasonCode.OPTION_CONFIRM.value -> scheduleProcessTick(800L, "after_option_confirm")
             RuleReasonCode.OPTION_ADD.value -> scheduleProcessTick(700L, "after_option_add")
         }
+    }
+
+    private fun handleWaitProductDetail(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        if (isProductDetailScreen(filteredNodes, task.targetProductName)) {
+            AutomationLogger.info(
+                "product_detail_ready targetProductName=${task.targetProductName} trigger=$trigger"
+            )
+            AutomationTaskStore.updateCurrentStep(AutomationContract.Step.CLICK_DETAIL_ADD_TO_CART)
+            scheduleProcessTick(200L, "product_detail_ready")
+            return
+        }
+
+        val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger,
+            reasonCode = "product_detail_not_ready",
+            message = "Waiting for Kurly product detail screen"
+        )
+        if (shouldRetry) {
+            scheduleProcessTick(900L, "waiting_product_detail")
+        } else {
+            AutomationTaskStore.stopTask(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                screenType = "product_detail_not_ready",
+                reasonCode = "product_detail_not_ready",
+                message = "Product detail screen was not detected after target click"
+            )
+        }
+    }
+
+    private fun handleWaitOptionOrCartResult(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        when (val resultType = classifyAfterAddToCartClick(filteredNodes, task)) {
+            "cart_added" -> {
+                AutomationTaskStore.markCompleted(
+                    trigger = trigger,
+                    message = "Product added to cart"
+                )
+            }
+            "option_required" -> {
+                AutomationLogger.info("option_required optionName=${task.optionName} trigger=$trigger")
+                AutomationTaskStore.updateCurrentStep(AutomationContract.Step.SELECT_OPTION)
+                scheduleProcessTick(200L, "option_required")
+            }
+            "quantity_required" -> {
+                AutomationLogger.info("quantity_required trigger=$trigger")
+                AutomationTaskStore.updateCurrentStep(AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART)
+                scheduleProcessTick(300L, "quantity_required")
+            }
+            "sold_out",
+            "login_required",
+            "sensitive_screen" -> {
+                AutomationTaskStore.stopTask(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    screenType = resultType,
+                    reasonCode = resultType,
+                    message = "Automation stopped after add-to-cart click: $resultType"
+                )
+            }
+            else -> {
+                val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    reasonCode = "unknown_after_add_click",
+                    message = "Waiting for option sheet or cart-added result"
+                )
+                if (shouldRetry) {
+                    scheduleProcessTick(800L, "waiting_after_add_click")
+                } else {
+                    AutomationTaskStore.stopTask(
+                        packageName = currentPackageName,
+                        currentStep = task.currentStep,
+                        rawNodeCount = rawNodeCount,
+                        filteredNodeCount = filteredNodes.size,
+                        trigger = trigger,
+                        screenType = "unknown_after_add_click",
+                        reasonCode = "unknown_after_add_click",
+                        message = "Could not classify screen after add-to-cart click"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun handleVerifyCartAdded(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        val resultType = classifyAfterAddToCartClick(filteredNodes, task)
+        if (resultType == "cart_added") {
+            AutomationTaskStore.markCompleted(
+                trigger = trigger,
+                message = "Product option added to cart"
+            )
+            return
+        }
+
+        val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger,
+            reasonCode = "cart_added_not_verified",
+            message = "Waiting for cart-added confirmation"
+        )
+        if (shouldRetry) {
+            scheduleProcessTick(800L, "waiting_cart_added")
+        } else {
+            AutomationTaskStore.stopTask(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                screenType = "cart_added_not_verified",
+                reasonCode = "cart_added_not_verified",
+                message = "Cart-added confirmation was not detected"
+            )
+        }
+    }
+
+    private fun handleWaitOptionSelected(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        val selectedQuantity = selectedOptionQuantity(filteredNodes, task.optionName)
+        if (selectedQuantity != null && selectedQuantity > 0) {
+            AutomationLogger.info(
+                "option_selected optionName=${task.optionName} quantity=$selectedQuantity trigger=$trigger"
+            )
+            AutomationTaskStore.updateCurrentStep(AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART)
+            scheduleProcessTick(200L, "option_selected")
+            return
+        }
+
+        if (AutomationTaskStore.tryReserveOptionSelectNoEffectRetry()) {
+            val optionNode = findOptionNameNode(filteredNodes, task.optionName)
+            if (optionNode != null) {
+                val safeTapX = (optionNode.boundsLeft + 120).coerceAtMost(optionNode.boundsRight - 24)
+                val safeTapY = optionNode.centerY
+                val actionResult = actionExecutor.executeCoordinateTap(
+                    x = safeTapX,
+                    y = safeTapY,
+                    reason = "option_text_safe_area"
+                )
+                AutomationLogger.info(
+                    "option_text_safe_area_retry optionName=${task.optionName} " +
+                        "tap=$safeTapX,$safeTapY success=${actionResult.success} " +
+                        "observedQuantity=${selectedQuantity ?: 0}"
+                )
+                AutomationTaskStore.recordAction(
+                    actionPlan = ActionPlan(
+                        actionType = AutomationActionType.CLICK.value,
+                        targetNodeId = optionNode.id,
+                        textToInput = null,
+                        reasonCode = "option_text_safe_area",
+                        confidence = 0.5
+                    ),
+                    actionResult = actionResult,
+                    selectedNode = optionNode
+                )
+                scheduleProcessTick(700L, "after_option_text_safe_area_retry")
+                return
+            }
+        }
+
+        AutomationTaskStore.recordWaitingForRetry(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger,
+            reasonCode = "option_increase_click_no_effect",
+            message = "Option increase click did not change quantity"
+        )
+        AutomationTaskStore.stopTask(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger,
+            screenType = "possible_overlay_occlusion",
+            reasonCode = "possible_overlay_occlusion",
+            message = "Option node exists, but quantity did not change after click. Floating overlay may be intercepting touch.",
+            failedAction = "click_increase_button",
+            expectedState = "option quantity changes from 0 to 1",
+            observedState = "option quantity still ${selectedQuantity ?: 0}"
+        )
     }
 
     private fun scheduleProcessTick(delayMs: Long, reason: String) {
@@ -522,6 +822,128 @@ class DdalangooAccessibilityService : AccessibilityService() {
     private fun shouldDelaySearchResultDumpAfterSubmit(task: AutomationTask): Boolean {
         return task.currentStep == AutomationContract.Step.DUMP_SEARCH_RESULTS &&
             System.currentTimeMillis() < suppressSearchResultDumpUntilMs
+    }
+
+    private fun shouldDelaySearchSubmitAfterInput(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.SEARCH_SUBMIT &&
+            System.currentTimeMillis() < suppressSearchSubmitUntilMs
+    }
+
+    private fun verifySearchInputBeforeSubmit(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (task.currentStep != AutomationContract.Step.SEARCH_SUBMIT) return false
+
+        val expectedSearchKeyword = task.searchKeyword.ifBlank { task.targetProductName }.trim()
+        if (expectedSearchKeyword.isBlank()) return false
+
+        val searchInputNode = findCurrentSearchInputNode(filteredNodes)
+        val actualSearchText = searchInputNode?.text
+            ?.takeIf { text -> text.isNotBlank() }
+            ?: searchInputNode?.contentDescription.orEmpty()
+        val trimmedActualSearchText = actualSearchText.trim()
+        val expectedNormalized = normalizeSearchTarget(expectedSearchKeyword)
+        val actualNormalized = normalizeSearchTarget(trimmedActualSearchText)
+
+        AutomationLogger.info(
+            "verify_search_input_before_submit expected=$expectedSearchKeyword " +
+                "actual=$trimmedActualSearchText nodeId=${searchInputNode?.id ?: -1} trigger=$trigger"
+        )
+
+        val keywordMatches = searchInputNode != null &&
+            actualNormalized.isNotBlank() &&
+            (actualNormalized == expectedNormalized || actualNormalized.contains(expectedNormalized))
+        if (keywordMatches) {
+            return false
+        }
+
+        val blockedReasonCode = if (searchInputNode == null) {
+            "search_submit_blocked_input_not_found"
+        } else {
+            "search_submit_blocked_keyword_mismatch"
+        }
+        val blockedMessage = if (searchInputNode == null) {
+            "Search input node was not found before submit"
+        } else {
+            "Search submit blocked because input text does not match expected keyword"
+        }
+        if (AutomationTaskStore.tryReserveSearchInputTextRetry()) {
+            val expectedState = "search input text contains $expectedSearchKeyword"
+            val observedState = if (searchInputNode == null) {
+            "search input node not found"
+        } else {
+            "search input text is $trimmedActualSearchText"
+        }
+            AutomationTaskStore.recordWaitingForRetry(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                reasonCode = blockedReasonCode,
+                message = blockedMessage
+            )
+            AutomationTaskStore.recordSearchInputTextMismatch(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                reasonCode = blockedReasonCode,
+                message = blockedMessage,
+                expectedState = expectedState,
+                observedState = observedState
+            )
+            AutomationTaskStore.updateCurrentStep(AutomationContract.Step.SEARCH_INPUT)
+            scheduleProcessTick(300L, "retry_search_input_text")
+        } else {
+            val finalReasonCode = "search_input_text_not_applied"
+            AutomationTaskStore.stopTask(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                screenType = finalReasonCode,
+                reasonCode = finalReasonCode,
+                message = "Search input text did not match expected keyword after retries",
+                failedAction = "verify_search_input_before_submit",
+                expectedState = "search input text contains $expectedSearchKeyword",
+                observedState = if (searchInputNode == null) {
+                    "search input node not found"
+                } else {
+                    "search input text is $trimmedActualSearchText"
+                }
+            )
+        }
+        return true
+    }
+
+    private fun shouldDelayAddToCartResultAfterClick(task: AutomationTask, trigger: String): Boolean {
+        return task.currentStep == AutomationContract.Step.WAIT_OPTION_OR_CART_RESULT &&
+            System.currentTimeMillis() < suppressAddToCartResultUntilMs
+    }
+
+    private fun findCurrentSearchInputNode(filteredNodes: List<UiNode>): UiNode? {
+        return filteredNodes
+            .filter { node -> node.enabled }
+            .filter { node -> node.editable || node.role == "input" || isEditText(node) }
+            .maxByOrNull { node ->
+                var score = 0.0
+                if (node.editable) score += 0.55
+                if (node.role == "input") score += 0.25
+                if (isEditText(node)) score += 0.25
+                if (node.boundsTop in 0..420) score += 0.15
+                score
+            }
+    }
+
+    private fun isEditText(node: UiNode): Boolean {
+        return node.className.orEmpty().contains("EditText", ignoreCase = true)
     }
 
     private fun isKurlySearchResultsScreenReady(filteredNodes: List<UiNode>): Boolean {
@@ -729,6 +1151,83 @@ class DdalangooAccessibilityService : AccessibilityService() {
                 "상품명으로 검색"
             )
         )
+    }
+
+    private fun isProductDetailScreen(filteredNodes: List<UiNode>, targetProductName: String): Boolean {
+        val hasTargetSignal = containsTargetProductSignal(filteredNodes, targetProductName)
+        val hasPriceText = filteredNodes.any { node ->
+            Regex("""\d{1,3}(,\d{3})*원""").containsMatchIn(node.primaryText())
+        }
+        val hasAddToCartAction = containsAnyText(filteredNodes, listOf("담기", "장바구니 담기"))
+        val hasDetailSignal = containsAnyText(
+            filteredNodes,
+            listOf("상품설명", "상품 설명", "상세정보", "상세 정보", "후기", "문의", "배송")
+        )
+        return hasTargetSignal && hasPriceText && (hasAddToCartAction || hasDetailSignal)
+    }
+
+    private fun classifyAfterAddToCartClick(
+        filteredNodes: List<UiNode>,
+        task: AutomationTask
+    ): String {
+        if (containsAnyText(filteredNodes, sensitiveKeywords())) return "sensitive_screen"
+        if (containsAnyText(filteredNodes, listOf("로그인이 필요", "로그인 후", "로그인해주세요"))) {
+            return "login_required"
+        }
+        if (containsAnyText(filteredNodes, listOf("품절", "일시품절", "재입고", "판매 종료"))) {
+            return "sold_out"
+        }
+        if (containsAnyText(filteredNodes, listOf("장바구니에 담겼습니다", "담겼습니다", "장바구니 보기"))) {
+            return "cart_added"
+        }
+        val normalizedOptionName = normalizeSearchTarget(task.optionName)
+        val hasRequestedOption = normalizedOptionName.isNotBlank() &&
+            filteredNodes.any { node -> normalizeSearchTarget(node.searchableText()).contains(normalizedOptionName) }
+        if (hasRequestedOption || containsAnyText(filteredNodes, listOf("옵션", "옵션 선택", "상품 선택"))) {
+            return "option_required"
+        }
+        if (containsAnyText(filteredNodes, listOf("수량", "수량 선택", "개수"))) {
+            return "quantity_required"
+        }
+        return "unknown_after_add_click"
+    }
+
+    private fun selectedOptionQuantity(filteredNodes: List<UiNode>, optionName: String): Int? {
+        val optionNode = findOptionNameNode(filteredNodes, optionName)
+            ?: return null
+
+        return filteredNodes
+            .filter { node -> node.viewIdResourceName.orEmpty().endsWith("numberView") }
+            .filter { node -> kotlin.math.abs(node.centerY - optionNode.centerY) <= 180 }
+            .mapNotNull { node -> node.primaryText().trim().toIntOrNull() }
+            .maxOrNull()
+    }
+
+    private fun findOptionNameNode(filteredNodes: List<UiNode>, optionName: String): UiNode? {
+        val normalizedOptionName = normalizeSearchTarget(optionName)
+        if (normalizedOptionName.isBlank()) return null
+
+        return filteredNodes
+            .filter { node -> node.primaryText().isNotBlank() || node.contentDescription.orEmpty().isNotBlank() }
+            .filter { node -> normalizeSearchTarget(node.searchableText()).contains(normalizedOptionName) }
+            .minByOrNull { node -> node.centerY }
+    }
+
+    private fun containsTargetProductSignal(filteredNodes: List<UiNode>, targetProductName: String): Boolean {
+        val normalizedTarget = normalizeSearchTarget(targetProductName)
+        if (normalizedTarget.isBlank()) return false
+        val combinedText = filteredNodes.joinToString(" ") { node -> normalizeSearchTarget(node.searchableText()) }
+        if (combinedText.contains(normalizedTarget)) return true
+
+        val targetTokens = normalizedTarget
+            .split(" ")
+            .filter { token -> token.length >= 2 }
+            .distinct()
+        if (targetTokens.isEmpty()) return false
+
+        val matchedTokenCount = targetTokens.count { token -> combinedText.contains(token) }
+        val requiredTokenCount = maxOf(2, (targetTokens.size * 2 + 2) / 3)
+        return matchedTokenCount >= requiredTokenCount
     }
 
     private fun containsAnyText(filteredNodes: List<UiNode>, keywords: List<String>): Boolean {

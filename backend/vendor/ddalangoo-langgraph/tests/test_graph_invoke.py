@@ -84,10 +84,7 @@ def make_product_response(
 # ══════════════════════════════════════════════
 
 def create_test_graph():
-    return build_graph(
-        checkpointer=MemorySaver(),
-        store=InMemoryStore(),
-    )
+    return build_graph(checkpointer=MemorySaver())
 
 
 def make_config(thread_id: str = "test_thread") -> dict:

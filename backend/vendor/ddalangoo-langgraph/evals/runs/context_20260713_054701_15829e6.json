@@ -1,0 +1,1911 @@
+{
+  "agent": "context",
+  "timestamp": "2026-07-13T05:47:01.297991+00:00",
+  "git_commit": "15829e6",
+  "backend": "api",
+  "model": "default",
+  "case_count": 10,
+  "aggregate": {
+    "cold_start_pass": {
+      "mean": 1.0,
+      "n": 3
+    },
+    "conciseness": {
+      "mean": 1.0,
+      "n": 7
+    },
+    "cost_usd": {
+      "mean": 0.0018,
+      "n": 10
+    },
+    "coverage": {
+      "mean": 0.2619,
+      "n": 7
+    },
+    "faithfulness": {
+      "mean": 0.2619,
+      "n": 7
+    },
+    "input_tokens": {
+      "mean": 1934.5,
+      "n": 10
+    },
+    "keyword_history_count": {
+      "mean": 1.0,
+      "n": 7
+    },
+    "keyword_history_products": {
+      "mean": 1.0,
+      "n": 7
+    },
+    "latency_ms": {
+      "mean": 1958.5948,
+      "n": 10
+    },
+    "output_tokens": {
+      "mean": 53.5,
+      "n": 10
+    },
+    "preferred_brands": {
+      "mean": 0.875,
+      "n": 4
+    },
+    "preferred_platform": {
+      "mean": 1.0,
+      "n": 4
+    },
+    "price_range": {
+      "mean": 1.0,
+      "n": 4
+    },
+    "repurchase_patterns": {
+      "mean": 1.0,
+      "n": 4
+    },
+    "ttft_ms": {
+      "mean": 1958.5948,
+      "n": 10
+    }
+  },
+  "cases": [
+    {
+      "case_id": "rich_history",
+      "input": {
+        "scenario": "rich_history",
+        "user_id": "1",
+        "keywords": [
+          "달걀"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "preferred_brands": [
+          {
+            "brand": "컬리",
+            "count": 8
+          },
+          {
+            "brand": "BerryFarm",
+            "count": 2
+          },
+          {
+            "brand": "스위트마켓",
+            "count": 1
+          },
+          {
+            "brand": "프레시지",
+            "count": 1
+          },
+          {
+            "brand": "하림",
+            "count": 1
+          }
+        ],
+        "price_range": {
+          "avg": 6819,
+          "min": 2490,
+          "max": 18000
+        },
+        "repurchase_patterns": [
+          "[조인] 동물복지 백색 유정 초란 10구"
+        ],
+        "preferred_platform": "kurly",
+        "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+        "keyword_history": [
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-05-24T23:18:22"
+          },
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-05-24T22:18:50"
+          },
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-05-24T22:11:03"
+          },
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": "신선함 좋음",
+            "purchased_at": "2026-05-01T09:00:00"
+          },
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-04-05T09:00:00"
+          }
+        ],
+        "keyword_summary": "",
+        "keyword_additions": [],
+        "exclude_additions": [],
+        "soft_preferences": [],
+        "safety_constraints": [],
+        "overridden_exclusions": [],
+        "preference_context": {
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 8
+            },
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            },
+            {
+              "brand": "스위트마켓",
+              "count": 1
+            },
+            {
+              "brand": "프레시지",
+              "count": 1
+            },
+            {
+              "brand": "하림",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 6819,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+          "keyword_history": [
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-05-24T23:18:22"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-05-24T22:18:50"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-05-24T22:11:03"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": "신선함 좋음",
+              "purchased_at": "2026-05-01T09:00:00"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-04-05T09:00:00"
+            }
+          ],
+          "keyword_summary": "",
+          "_cache_hit": false,
+          "keyword_additions": [],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        },
+        "purchase_count": 21,
+        "keyword_history_count": 5,
+        "latency_ms": 9865.082900039852,
+        "ttft_ms": 9865.082900039852,
+        "input_tokens": 3065,
+        "output_tokens": 192,
+        "cost_usd": 0.00322
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": 1.0,
+          "comment": "found=['컬리', 'BerryFarm'], missing=[]"
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": 1.0,
+          "comment": "actual='kurly', expected='kurly'"
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": 1.0,
+          "comment": "actual={'avg': 6819, 'min': 2490, 'max': 18000}, expected={'min': 2490, 'max': 18000, 'avg': 6819}"
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": 1.0,
+          "comment": "found=['[조인] 동물복지 백색 유정 초란 10구'], missing=[]"
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": 1.0,
+          "comment": "actual=5, min=5"
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": 1.0,
+          "comment": "found=['[조인] 동물복지 백색 유정 초란 10구'], missing=[]"
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": 0.333,
+          "comment": "1/3 포함: ['컬리']"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": 0.333,
+          "comment": "fallback keyword: 1/3"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": null
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": 1.0,
+          "comment": "2 sentences"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 9865.082900039852,
+          "comment": "9865.1ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 9865.082900039852,
+          "comment": "9865.1ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 3065.0,
+          "comment": "3065 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 192.0,
+          "comment": "192 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.00322,
+          "comment": "$0.003220"
+        }
+      }
+    },
+    {
+      "case_id": "rich_history",
+      "input": {
+        "scenario": "rich_history",
+        "user_id": "1",
+        "keywords": [
+          "두부"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "preferred_brands": [
+          {
+            "brand": "컬리",
+            "count": 8
+          },
+          {
+            "brand": "BerryFarm",
+            "count": 2
+          },
+          {
+            "brand": "스위트마켓",
+            "count": 1
+          },
+          {
+            "brand": "프레시지",
+            "count": 1
+          },
+          {
+            "brand": "하림",
+            "count": 1
+          }
+        ],
+        "price_range": {
+          "avg": 6819,
+          "min": 2490,
+          "max": 18000
+        },
+        "repurchase_patterns": [
+          "[조인] 동물복지 백색 유정 초란 10구"
+        ],
+        "preferred_platform": "kurly",
+        "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+        "keyword_history": [
+          {
+            "product_name": "프레시지 고기 듬뿍 순두부찌개 밀키트 2인",
+            "brand": "프레시지",
+            "price": 6900,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-05-08T11:30:00"
+          },
+          {
+            "product_name": "풀무원 국산콩 두부 (부침) 300g",
+            "brand": "풀무원",
+            "price": 2490,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-04-28T10:30:00"
+          }
+        ],
+        "keyword_summary": "",
+        "keyword_additions": [],
+        "exclude_additions": [],
+        "soft_preferences": [],
+        "safety_constraints": [],
+        "overridden_exclusions": [],
+        "preference_context": {
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 8
+            },
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            },
+            {
+              "brand": "스위트마켓",
+              "count": 1
+            },
+            {
+              "brand": "프레시지",
+              "count": 1
+            },
+            {
+              "brand": "하림",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 6819,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+          "keyword_history": [
+            {
+              "product_name": "프레시지 고기 듬뿍 순두부찌개 밀키트 2인",
+              "brand": "프레시지",
+              "price": 6900,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-05-08T11:30:00"
+            },
+            {
+              "product_name": "풀무원 국산콩 두부 (부침) 300g",
+              "brand": "풀무원",
+              "price": 2490,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-04-28T10:30:00"
+            }
+          ],
+          "keyword_summary": "",
+          "_cache_hit": true,
+          "keyword_additions": [],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        },
+        "purchase_count": 21,
+        "keyword_history_count": 2,
+        "latency_ms": 971.8804999720305,
+        "ttft_ms": 971.8804999720305,
+        "input_tokens": 2717,
+        "output_tokens": 11,
+        "cost_usd": 0.0022175999999999997
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": 0.5,
+          "comment": "found=['컬리'], missing=['풀무원']"
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": 1.0,
+          "comment": "actual='kurly', expected='kurly'"
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": 1.0,
+          "comment": "actual={'avg': 6819, 'min': 2490, 'max': 18000}, expected={'min': 2490, 'max': 18000, 'avg': 6819}"
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": 1.0,
+          "comment": "found=['[조인] 동물복지 백색 유정 초란 10구'], missing=[]"
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": 1.0,
+          "comment": "actual=2, min=1"
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": 1.0,
+          "comment": "found=['풀무원 국산콩 두부 (부침) 300g'], missing=[]"
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": 0.333,
+          "comment": "1/3 포함: ['컬리']"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": 0.333,
+          "comment": "fallback keyword: 1/3"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": null
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": 1.0,
+          "comment": "2 sentences"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 971.8804999720305,
+          "comment": "971.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 971.8804999720305,
+          "comment": "971.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2717.0,
+          "comment": "2717 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 11.0,
+          "comment": "11 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0022175999999999997,
+          "comment": "$0.002218"
+        }
+      }
+    },
+    {
+      "case_id": "rich_history",
+      "input": {
+        "scenario": "rich_history",
+        "user_id": "1",
+        "keywords": [
+          "딸기"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "preferred_brands": [
+          {
+            "brand": "컬리",
+            "count": 8
+          },
+          {
+            "brand": "BerryFarm",
+            "count": 2
+          },
+          {
+            "brand": "스위트마켓",
+            "count": 1
+          },
+          {
+            "brand": "프레시지",
+            "count": 1
+          },
+          {
+            "brand": "하림",
+            "count": 1
+          }
+        ],
+        "price_range": {
+          "avg": 6819,
+          "min": 2490,
+          "max": 18000
+        },
+        "repurchase_patterns": [
+          "[조인] 동물복지 백색 유정 초란 10구"
+        ],
+        "preferred_platform": "kurly",
+        "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+        "keyword_history": [
+          {
+            "product_name": "설향 딸기 500g",
+            "brand": "설향",
+            "price": 9900,
+            "platform": "naver",
+            "satisfaction": null,
+            "memo": "맛있게 먹음",
+            "purchased_at": "2026-04-10T10:00:00"
+          }
+        ],
+        "keyword_summary": "",
+        "keyword_additions": [
+          "딸기"
+        ],
+        "exclude_additions": [],
+        "soft_preferences": [],
+        "safety_constraints": [],
+        "overridden_exclusions": [],
+        "preference_context": {
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 8
+            },
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            },
+            {
+              "brand": "스위트마켓",
+              "count": 1
+            },
+            {
+              "brand": "프레시지",
+              "count": 1
+            },
+            {
+              "brand": "하림",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 6819,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+          "keyword_history": [
+            {
+              "product_name": "설향 딸기 500g",
+              "brand": "설향",
+              "price": 9900,
+              "platform": "naver",
+              "satisfaction": null,
+              "memo": "맛있게 먹음",
+              "purchased_at": "2026-04-10T10:00:00"
+            }
+          ],
+          "keyword_summary": "",
+          "_cache_hit": true,
+          "keyword_additions": [
+            "딸기"
+          ],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        },
+        "purchase_count": 21,
+        "keyword_history_count": 1,
+        "latency_ms": 2294.9054000200704,
+        "ttft_ms": 2294.9054000200704,
+        "input_tokens": 2689,
+        "output_tokens": 113,
+        "cost_usd": 0.0026032000000000004
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": 1.0,
+          "comment": "found=['컬리', 'BerryFarm'], missing=[]"
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": 1.0,
+          "comment": "actual='kurly', expected='kurly'"
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": 1.0,
+          "comment": "actual={'avg': 6819, 'min': 2490, 'max': 18000}, expected={'min': 2490, 'max': 18000, 'avg': 6819}"
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": 1.0,
+          "comment": "found=['[조인] 동물복지 백색 유정 초란 10구'], missing=[]"
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": 1.0,
+          "comment": "actual=1, min=1"
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": 1.0,
+          "comment": "found=['설향 딸기 500g'], missing=[]"
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": 0.5,
+          "comment": "1/2 포함: ['BerryFarm']"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": 0.5,
+          "comment": "fallback keyword: 1/2"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": null
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": 1.0,
+          "comment": "2 sentences"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2294.9054000200704,
+          "comment": "2294.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2294.9054000200704,
+          "comment": "2294.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2689.0,
+          "comment": "2689 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 113.0,
+          "comment": "113 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0026032000000000004,
+          "comment": "$0.002603"
+        }
+      }
+    },
+    {
+      "case_id": "rich_history",
+      "input": {
+        "scenario": "rich_history",
+        "user_id": "1",
+        "keywords": [
+          "참기름"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "preferred_brands": [
+          {
+            "brand": "컬리",
+            "count": 8
+          },
+          {
+            "brand": "BerryFarm",
+            "count": 2
+          },
+          {
+            "brand": "스위트마켓",
+            "count": 1
+          },
+          {
+            "brand": "프레시지",
+            "count": 1
+          },
+          {
+            "brand": "하림",
+            "count": 1
+          }
+        ],
+        "price_range": {
+          "avg": 6819,
+          "min": 2490,
+          "max": 18000
+        },
+        "repurchase_patterns": [
+          "[조인] 동물복지 백색 유정 초란 10구"
+        ],
+        "preferred_platform": "kurly",
+        "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+        "keyword_history": [
+          {
+            "product_name": "국산 참기름 300ml",
+            "brand": "CJ",
+            "price": 8000,
+            "platform": "naver",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-04-20T10:00:00"
+          }
+        ],
+        "keyword_summary": "",
+        "keyword_additions": [
+          "참기름"
+        ],
+        "exclude_additions": [],
+        "soft_preferences": [],
+        "safety_constraints": [],
+        "overridden_exclusions": [],
+        "preference_context": {
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 8
+            },
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            },
+            {
+              "brand": "스위트마켓",
+              "count": 1
+            },
+            {
+              "brand": "프레시지",
+              "count": 1
+            },
+            {
+              "brand": "하림",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 6819,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+          "keyword_history": [
+            {
+              "product_name": "국산 참기름 300ml",
+              "brand": "CJ",
+              "price": 8000,
+              "platform": "naver",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-04-20T10:00:00"
+            }
+          ],
+          "keyword_summary": "",
+          "_cache_hit": true,
+          "keyword_additions": [
+            "참기름"
+          ],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        },
+        "purchase_count": 21,
+        "keyword_history_count": 1,
+        "latency_ms": 1348.9556000567973,
+        "ttft_ms": 1348.9556000567973,
+        "input_tokens": 2676,
+        "output_tokens": 57,
+        "cost_usd": 0.0023688000000000003
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": 1.0,
+          "comment": "found=['컬리'], missing=[]"
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": 1.0,
+          "comment": "actual='kurly', expected='kurly'"
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": 1.0,
+          "comment": "actual={'avg': 6819, 'min': 2490, 'max': 18000}, expected={'min': 2490, 'max': 18000, 'avg': 6819}"
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": 1.0,
+          "comment": "found=['[조인] 동물복지 백색 유정 초란 10구'], missing=[]"
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": 1.0,
+          "comment": "actual=1, min=1"
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": 1.0,
+          "comment": "found=['국산 참기름 300ml'], missing=[]"
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": 0.0,
+          "comment": "0/3 포함: []"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": 0.0,
+          "comment": "fallback keyword: 0/3"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": null
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": 1.0,
+          "comment": "2 sentences"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1348.9556000567973,
+          "comment": "1349.0ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1348.9556000567973,
+          "comment": "1349.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2676.0,
+          "comment": "2676 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 57.0,
+          "comment": "57 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0023688000000000003,
+          "comment": "$0.002369"
+        }
+      }
+    },
+    {
+      "case_id": "cold_start",
+      "input": {
+        "scenario": "cold_start",
+        "user_id": "user_test",
+        "keywords": [
+          "사과"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "safety_constraints": [],
+        "summary": "",
+        "preference_context": {
+          "safety_constraints": []
+        },
+        "purchase_count": 0,
+        "keyword_history_count": 0,
+        "latency_ms": 0.031400006264448166,
+        "ttft_ms": 0.031400006264448166,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": null
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": null
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": null
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": null
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": null
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": null
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": null,
+          "comment": "cold-start N/A"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": null,
+          "comment": "cold-start N/A"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": 1.0
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": null
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 0.031400006264448166,
+          "comment": "0.0ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 0.031400006264448166,
+          "comment": "0.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 0.0,
+          "comment": "0 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 0.0,
+          "comment": "0 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0,
+          "comment": "$0.000000"
+        }
+      }
+    },
+    {
+      "case_id": "cold_start",
+      "input": {
+        "scenario": "cold_start",
+        "user_id": "new_user",
+        "keywords": [
+          "우유"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "safety_constraints": [],
+        "summary": "",
+        "preference_context": {
+          "safety_constraints": []
+        },
+        "purchase_count": 0,
+        "keyword_history_count": 0,
+        "latency_ms": 0.01279998105019331,
+        "ttft_ms": 0.01279998105019331,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": null
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": null
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": null
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": null
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": null
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": null
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": null,
+          "comment": "cold-start N/A"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": null,
+          "comment": "cold-start N/A"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": 1.0
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": null
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 0.01279998105019331,
+          "comment": "0.0ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 0.01279998105019331,
+          "comment": "0.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 0.0,
+          "comment": "0 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 0.0,
+          "comment": "0 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0,
+          "comment": "$0.000000"
+        }
+      }
+    },
+    {
+      "case_id": "cold_start",
+      "input": {
+        "scenario": "cold_start",
+        "user_id": "user_test",
+        "keywords": [],
+        "intent": "buy"
+      },
+      "outputs": {
+        "safety_constraints": [],
+        "summary": "",
+        "preference_context": {
+          "safety_constraints": []
+        },
+        "purchase_count": 0,
+        "keyword_history_count": 0,
+        "latency_ms": 0.00909995287656784,
+        "ttft_ms": 0.00909995287656784,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": null
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": null
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": null
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": null
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": null
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": null
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": null,
+          "comment": "cold-start N/A"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": null,
+          "comment": "cold-start N/A"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": 1.0
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": null
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 0.00909995287656784,
+          "comment": "0.0ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 0.00909995287656784,
+          "comment": "0.0ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 0.0,
+          "comment": "0 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 0.0,
+          "comment": "0 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0,
+          "comment": "$0.000000"
+        }
+      }
+    },
+    {
+      "case_id": "keyword_match",
+      "input": {
+        "scenario": "keyword_match",
+        "user_id": "1",
+        "keywords": [
+          "달걀"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "preferred_brands": [
+          {
+            "brand": "컬리",
+            "count": 8
+          },
+          {
+            "brand": "BerryFarm",
+            "count": 2
+          },
+          {
+            "brand": "스위트마켓",
+            "count": 1
+          },
+          {
+            "brand": "프레시지",
+            "count": 1
+          },
+          {
+            "brand": "하림",
+            "count": 1
+          }
+        ],
+        "price_range": {
+          "avg": 6819,
+          "min": 2490,
+          "max": 18000
+        },
+        "repurchase_patterns": [
+          "[조인] 동물복지 백색 유정 초란 10구"
+        ],
+        "preferred_platform": "kurly",
+        "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+        "keyword_history": [
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-05-24T23:18:22"
+          },
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-05-24T22:18:50"
+          },
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-05-24T22:11:03"
+          },
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": "신선함 좋음",
+            "purchased_at": "2026-05-01T09:00:00"
+          },
+          {
+            "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+            "brand": "컬리",
+            "price": 4608,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-04-05T09:00:00"
+          }
+        ],
+        "keyword_summary": "",
+        "keyword_additions": [],
+        "exclude_additions": [],
+        "soft_preferences": [],
+        "safety_constraints": [],
+        "overridden_exclusions": [],
+        "preference_context": {
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 8
+            },
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            },
+            {
+              "brand": "스위트마켓",
+              "count": 1
+            },
+            {
+              "brand": "프레시지",
+              "count": 1
+            },
+            {
+              "brand": "하림",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 6819,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+          "keyword_history": [
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-05-24T23:18:22"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-05-24T22:18:50"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-05-24T22:11:03"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": "신선함 좋음",
+              "purchased_at": "2026-05-01T09:00:00"
+            },
+            {
+              "product_name": "[조인] 동물복지 백색 유정 초란 10구",
+              "brand": "컬리",
+              "price": 4608,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-04-05T09:00:00"
+            }
+          ],
+          "keyword_summary": "",
+          "_cache_hit": true,
+          "keyword_additions": [],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        },
+        "purchase_count": 21,
+        "keyword_history_count": 5,
+        "latency_ms": 1204.9167000222951,
+        "ttft_ms": 1204.9167000222951,
+        "input_tokens": 2792,
+        "output_tokens": 11,
+        "cost_usd": 0.0022776
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": null
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": null
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": null
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": null
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": 1.0,
+          "comment": "actual=5, min=5"
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": 1.0,
+          "comment": "found=['[조인] 동물복지 백색 유정 초란 10구'], missing=[]"
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": 0.667,
+          "comment": "2/3 포함: ['동물복지', '컬리']"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": 0.667,
+          "comment": "fallback keyword: 2/3"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": null
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": 1.0,
+          "comment": "2 sentences"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1204.9167000222951,
+          "comment": "1204.9ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1204.9167000222951,
+          "comment": "1204.9ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2792.0,
+          "comment": "2792 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 11.0,
+          "comment": "11 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0022776,
+          "comment": "$0.002278"
+        }
+      }
+    },
+    {
+      "case_id": "keyword_match",
+      "input": {
+        "scenario": "keyword_match",
+        "user_id": "1",
+        "keywords": [
+          "두부"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "preferred_brands": [
+          {
+            "brand": "컬리",
+            "count": 8
+          },
+          {
+            "brand": "BerryFarm",
+            "count": 2
+          },
+          {
+            "brand": "스위트마켓",
+            "count": 1
+          },
+          {
+            "brand": "프레시지",
+            "count": 1
+          },
+          {
+            "brand": "하림",
+            "count": 1
+          }
+        ],
+        "price_range": {
+          "avg": 6819,
+          "min": 2490,
+          "max": 18000
+        },
+        "repurchase_patterns": [
+          "[조인] 동물복지 백색 유정 초란 10구"
+        ],
+        "preferred_platform": "kurly",
+        "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+        "keyword_history": [
+          {
+            "product_name": "프레시지 고기 듬뿍 순두부찌개 밀키트 2인",
+            "brand": "프레시지",
+            "price": 6900,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-05-08T11:30:00"
+          },
+          {
+            "product_name": "풀무원 국산콩 두부 (부침) 300g",
+            "brand": "풀무원",
+            "price": 2490,
+            "platform": "kurly",
+            "satisfaction": null,
+            "memo": null,
+            "purchased_at": "2026-04-28T10:30:00"
+          }
+        ],
+        "keyword_summary": "",
+        "keyword_additions": [],
+        "exclude_additions": [],
+        "soft_preferences": [],
+        "safety_constraints": [],
+        "overridden_exclusions": [],
+        "preference_context": {
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 8
+            },
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            },
+            {
+              "brand": "스위트마켓",
+              "count": 1
+            },
+            {
+              "brand": "프레시지",
+              "count": 1
+            },
+            {
+              "brand": "하림",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 6819,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+          "keyword_history": [
+            {
+              "product_name": "프레시지 고기 듬뿍 순두부찌개 밀키트 2인",
+              "brand": "프레시지",
+              "price": 6900,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-05-08T11:30:00"
+            },
+            {
+              "product_name": "풀무원 국산콩 두부 (부침) 300g",
+              "brand": "풀무원",
+              "price": 2490,
+              "platform": "kurly",
+              "satisfaction": null,
+              "memo": null,
+              "purchased_at": "2026-04-28T10:30:00"
+            }
+          ],
+          "keyword_summary": "",
+          "_cache_hit": true,
+          "keyword_additions": [],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        },
+        "purchase_count": 21,
+        "keyword_history_count": 2,
+        "latency_ms": 1072.532600024715,
+        "ttft_ms": 1072.532600024715,
+        "input_tokens": 2717,
+        "output_tokens": 11,
+        "cost_usd": 0.0022175999999999997
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": null
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": null
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": null
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": null
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": 1.0,
+          "comment": "actual=2, min=1"
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": 1.0,
+          "comment": "found=['풀무원 국산콩 두부 (부침) 300g'], missing=[]"
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": 0.0,
+          "comment": "0/3 포함: []"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": 0.0,
+          "comment": "fallback keyword: 0/3"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": null
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": 1.0,
+          "comment": "2 sentences"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 1072.532600024715,
+          "comment": "1072.5ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 1072.532600024715,
+          "comment": "1072.5ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2717.0,
+          "comment": "2717 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 11.0,
+          "comment": "11 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0022175999999999997,
+          "comment": "$0.002218"
+        }
+      }
+    },
+    {
+      "case_id": "keyword_match",
+      "input": {
+        "scenario": "keyword_match",
+        "user_id": "1",
+        "keywords": [
+          "딸기"
+        ],
+        "intent": "buy"
+      },
+      "outputs": {
+        "preferred_brands": [
+          {
+            "brand": "컬리",
+            "count": 8
+          },
+          {
+            "brand": "BerryFarm",
+            "count": 2
+          },
+          {
+            "brand": "스위트마켓",
+            "count": 1
+          },
+          {
+            "brand": "프레시지",
+            "count": 1
+          },
+          {
+            "brand": "하림",
+            "count": 1
+          }
+        ],
+        "price_range": {
+          "avg": 6819,
+          "min": 2490,
+          "max": 18000
+        },
+        "repurchase_patterns": [
+          "[조인] 동물복지 백색 유정 초란 10구"
+        ],
+        "preferred_platform": "kurly",
+        "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+        "keyword_history": [
+          {
+            "product_name": "설향 딸기 500g",
+            "brand": "설향",
+            "price": 9900,
+            "platform": "naver",
+            "satisfaction": null,
+            "memo": "맛있게 먹음",
+            "purchased_at": "2026-04-10T10:00:00"
+          }
+        ],
+        "keyword_summary": "",
+        "keyword_additions": [
+          "딸기"
+        ],
+        "exclude_additions": [],
+        "soft_preferences": [],
+        "safety_constraints": [],
+        "overridden_exclusions": [],
+        "preference_context": {
+          "preferred_brands": [
+            {
+              "brand": "컬리",
+              "count": 8
+            },
+            {
+              "brand": "BerryFarm",
+              "count": 2
+            },
+            {
+              "brand": "스위트마켓",
+              "count": 1
+            },
+            {
+              "brand": "프레시지",
+              "count": 1
+            },
+            {
+              "brand": "하림",
+              "count": 1
+            }
+          ],
+          "price_range": {
+            "avg": 6819,
+            "min": 2490,
+            "max": 18000
+          },
+          "repurchase_patterns": [
+            "[조인] 동물복지 백색 유정 초란 10구"
+          ],
+          "preferred_platform": "kurly",
+          "summary": "# 사용자 선호도 요약\n\n이 사용자는 **컬리, BerryFarm, 스위트마켓** 같은 프리미엄 식품 브랜드를 선호하며, 평균 6,800원대의 중상 가격대 상품을 구매합니다. 특히 동물복지 유정란처럼 **품질과 윤리성을 중시하는 식품**을 반복 구매하는 패턴을 보이므로, 유사한 프리미엄 식재료나 건강식품 추천이 효과적입니다.",
+          "keyword_history": [
+            {
+              "product_name": "설향 딸기 500g",
+              "brand": "설향",
+              "price": 9900,
+              "platform": "naver",
+              "satisfaction": null,
+              "memo": "맛있게 먹음",
+              "purchased_at": "2026-04-10T10:00:00"
+            }
+          ],
+          "keyword_summary": "",
+          "_cache_hit": true,
+          "keyword_additions": [
+            "딸기"
+          ],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        },
+        "purchase_count": 21,
+        "keyword_history_count": 1,
+        "latency_ms": 2827.6209000032395,
+        "ttft_ms": 2827.6209000032395,
+        "input_tokens": 2689,
+        "output_tokens": 140,
+        "cost_usd": 0.0027112000000000004
+      },
+      "scores": {
+        "preferred_brands": {
+          "key": "preferred_brands",
+          "score": null
+        },
+        "preferred_platform": {
+          "key": "preferred_platform",
+          "score": null
+        },
+        "price_range": {
+          "key": "price_range",
+          "score": null
+        },
+        "repurchase_patterns": {
+          "key": "repurchase_patterns",
+          "score": null
+        },
+        "keyword_history_count": {
+          "key": "keyword_history_count",
+          "score": 1.0,
+          "comment": "actual=1, min=1"
+        },
+        "keyword_history_products": {
+          "key": "keyword_history_products",
+          "score": 1.0,
+          "comment": "found=['설향 딸기 500g'], missing=[]"
+        },
+        "coverage": {
+          "key": "coverage",
+          "score": 0.0,
+          "comment": "0/2 포함: []"
+        },
+        "faithfulness": {
+          "key": "faithfulness",
+          "score": 0.0,
+          "comment": "fallback keyword: 0/2"
+        },
+        "cold_start_pass": {
+          "key": "cold_start_pass",
+          "score": null
+        },
+        "conciseness": {
+          "key": "conciseness",
+          "score": 1.0,
+          "comment": "2 sentences"
+        },
+        "latency_ms": {
+          "key": "latency_ms",
+          "score": 2827.6209000032395,
+          "comment": "2827.6ms"
+        },
+        "ttft_ms": {
+          "key": "ttft_ms",
+          "score": 2827.6209000032395,
+          "comment": "2827.6ms"
+        },
+        "input_tokens": {
+          "key": "input_tokens",
+          "score": 2689.0,
+          "comment": "2689 tokens"
+        },
+        "output_tokens": {
+          "key": "output_tokens",
+          "score": 140.0,
+          "comment": "140 tokens"
+        },
+        "cost_usd": {
+          "key": "cost_usd",
+          "score": 0.0027112000000000004,
+          "comment": "$0.002711"
+        }
+      }
+    }
+  ]
+}

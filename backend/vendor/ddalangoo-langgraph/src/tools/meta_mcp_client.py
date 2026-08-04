@@ -6,10 +6,15 @@ Node.js meta-mcp/dist/server.js를 subprocess로 실행해 search_products 호�
 """
 import json
 import os
+import socket
 import subprocess
+import time
 from typing import Any
+from urllib.error import URLError
 from urllib.parse import quote, urlencode, urljoin
 from urllib.request import Request, urlopen
+
+from src.utils.agent_logger import agent_logger
 
 META_MCP_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "meta-mcp")
@@ -32,9 +37,37 @@ NAVER_API_SORT_MAP = {
     "recent": "date",
 }
 
-KURLY_SHOP_KEYWORDS = ("컬리", "마켓컬리", "kurly", "컬리n마트", "컬리 n마트")
+KURLY_SHOP_KEYWORDS = ("컬리", "마켓컬리", "kurly", "컬리n마트", "컬리 n마트", "컬리N마트")
 KURLY_BASE_URL = "https://www.kurly.com"
 META_MCP_SERVER_URL_ENV = "META_MCP_SERVER_URL"
+
+
+def _is_transient_network_error(exc: BaseException) -> bool:
+    """연결/타임아웃 계열만 재시도 대상. HTTP 4xx 등 URLError 서브클래스(HTTPError)의
+    영구적 실패는 URLError로도 잡히므로, reason 속성으로 소켓 타임아웃류만 좁힌다."""
+    if isinstance(exc, (socket.timeout, TimeoutError, ConnectionError)):
+        return True
+    if isinstance(exc, URLError):
+        reason = getattr(exc, "reason", None)
+        return isinstance(reason, (socket.timeout, TimeoutError, OSError))
+    return False
+
+
+def _retry_network_call(fn, *args, max_attempts: int = 3, initial_interval: float = 0.3, backoff_factor: float = 2.0, **kwargs):
+    """Tool-level 재시도: 연결/타임아웃 오류만 최대 3회 짧게 재시도하고,
+    그 외(4xx 등)는 즉시 다시 던져 호출부가 다음 폴백 단계로 넘어가게 한다."""
+    interval = initial_interval
+    last_exc: BaseException | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            last_exc = e
+            if not _is_transient_network_error(e) or attempt >= max_attempts:
+                raise
+            time.sleep(interval)
+            interval *= backoff_factor
+    raise last_exc  # pragma: no cover
 
 
 def _env_true(name: str) -> bool:
@@ -109,13 +142,24 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
     """Node MCP가 없는 배포 환경에서도 네이버 쇼핑 검색을 수행한다."""
     if _kurly_mvp_mode() and "kurly" in (params.get("platforms") or []):
         print("[meta_mcp_client] naver fallback skipped: kurly mvp mode")
+        agent_logger.log_source_fallback(from_source="naver_api", to_source="kurly_url_fallback", reason="kurly_mvp_mode")
         return _call_kurly_search_url_fallback(params)
 
     client_id = os.getenv("NAVER_CLIENT_ID")
     client_secret = os.getenv("NAVER_CLIENT_SECRET")
     if not client_id or not client_secret:
+        # 여기는 kurly_mvp_mode(의도된 브라우저 구매 모드)가 아니라 "네이버 API를
+        # 시도했는데 자격증명이 없어서 못 함" 케이스다. 이전에는 가격 0원짜리
+        # placeholder 상품을 검색 결과인 척 반환해서, 브라우저 자동화가 돌지
+        # 않는(USE_REAL_BROWSER=false) 일반 모드에서도 그 가짜 데이터가 랭킹·
+        # 설명 생성·mock 결제까지 그대로 흘러가는 문제가 있었다. 빈 리스트를
+        # 반환해 search_products()가 진짜 실패로 처리되게 하고, product_agent의
+        # 기존 no_candidates Graceful Degradation 경로로 자연스럽게 넘어가게 한다.
         print("[meta_mcp_client] naver fallback disabled: missing credentials")
-        return _call_kurly_search_url_fallback(params)
+        agent_logger.log_graceful_degradation(
+            node="meta_mcp_client", reason="naver_credentials_missing", stage="search"
+        )
+        return []
 
     products: list[dict[str, Any]] = []
     platforms = [p for p in params.get("platforms", []) if p in ("naver", "kurly")]
@@ -136,8 +180,10 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
             },
         )
         try:
-            with urlopen(request, timeout=10) as response:
-                data = json.loads(response.read().decode("utf-8"))
+            def _fetch():
+                with urlopen(request, timeout=10) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            data = _retry_network_call(_fetch)
         except Exception as e:
             print(f"[meta_mcp_client] naver fallback failed platform={platform}: {e}")
             continue
@@ -162,6 +208,8 @@ def _call_naver_search_api(params: dict[str, Any]) -> list[dict[str, Any]]:
                 "url": product_url,
                 "source_url": raw_url,
                 "shop_name": item.get("mallName"),
+                # 네이버 쇼핑 API 원본 응답에 실제로 포함된 필드 — mock 아님
+                "brand": item.get("brand") or item.get("maker") or None,
             })
 
     if params.get("sort") == "price_low":
@@ -190,6 +238,11 @@ def _normalize_product_execution_urls(
     for product in products:
         normalized_product = dict(product)
         platform = str(normalized_product.get("platform") or "").lower()
+        shop_name = str(
+            normalized_product.get("shop_name")
+            or normalized_product.get("mall_name")
+            or ""
+        ).strip().lower()
         raw_url = (
             normalized_product.get("url")
             or normalized_product.get("product_url")
@@ -197,7 +250,14 @@ def _normalize_product_execution_urls(
             or ""
         )
 
-        if platform == "kurly" and raw_url and not _is_kurly_url(raw_url):
+        if (
+            platform in {"naver", "kurly"}
+            and ("컬리" in shop_name or "kurly" in shop_name)
+        ):
+            normalized_product["platform"] = "kurlynmart"
+            platform = "kurlynmart"
+
+        if platform in {"kurly", "kurlynmart"} and raw_url and not _is_kurly_url(raw_url):
             search_query = query or str(normalized_product.get("name") or "").strip()
             execution_url = _kurly_search_url(search_query)
             normalized_product.setdefault("source_url", raw_url)
@@ -262,8 +322,10 @@ def _call_remote_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
             f"platforms={params.get('platforms')}",
             f"query={params.get('query')}",
         )
-        with urlopen(endpoint, timeout=20) as response:
-            body = response.read().decode("utf-8")
+        def _fetch():
+            with urlopen(endpoint, timeout=20) as response:
+                return response.read().decode("utf-8")
+        body = _retry_network_call(_fetch)
         products = _parse_sse_search_result(body, query=str(params.get("query") or ""))
         print(f"[meta_mcp_client] remote sse products={len(products)}")
         return products
@@ -284,6 +346,7 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
     sdk_dir = os.path.join(META_MCP_DIR, "node_modules", "@modelcontextprotocol", "sdk")
     if not os.path.isdir(sdk_dir):
         print("[meta_mcp_client] meta-mcp dependencies missing; using naver fallback")
+        agent_logger.log_source_fallback(from_source="local_mcp", to_source="naver_api", reason="dependencies_missing")
         return _call_naver_search_api(params)
 
     messages = "\n".join([
@@ -388,6 +451,7 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
     except Exception as e:
         print(f"[meta_mcp_client] error: {e}")
 
+    agent_logger.log_source_fallback(from_source="local_mcp", to_source="naver_api", reason="subprocess_failed_or_empty")
     return _call_naver_search_api(params)
 
 
@@ -409,9 +473,53 @@ def _normalize(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "execution_url": p.get("execution_url") or p.get("product_url") or p.get("url", ""),
             "source_url": p.get("source_url"),
             "is_sold_out": False,
+            "brand": p.get("brand"),
+            # 실제 영양성분 API 연동 전까지는 값 없음 — mock 모드처럼 채워넣지 않음
+            # (mcp 모드에서 nutrition_info가 비어있으면 tier1 필터가 이 사실 자체를 반영해야 함)
+            "nutrition_info": p.get("nutrition_info"),
             "raw": p,
         })
     return result
+
+
+_KURLY_WEBVIEW_ENRICH_LIMIT = 3
+
+
+def _enrich_kurly_delivery(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    실제 kurly.com 상품 URL이 확보된 후보 중 상위 몇 개만 webview로 열어
+    진짜 배송정보를 채운다. 후보마다 브라우저를 새로 띄우는 비용이 커서
+    개수를 제한한다 (지연시간 vs 정확도 트레이드오프).
+    """
+    try:
+        from src.tools.webview_tool import check_product_price
+    except ImportError as e:
+        print(f"[meta_mcp_client] webview_tool 사용 불가, 배송정보 보강 스킵: {e}")
+        return products
+
+    enriched_count = 0
+    for product in products:
+        if enriched_count >= _KURLY_WEBVIEW_ENRICH_LIMIT:
+            break
+        if str(product.get("platform") or "") not in ("kurly", "kurlynmart"):
+            continue
+        url = product.get("product_url") or product.get("execution_url") or ""
+        if not _is_kurly_url(url):
+            continue
+        try:
+            result = check_product_price(url, include_delivery=True)
+        except Exception as e:
+            print(f"[meta_mcp_client] kurly webview 배송정보 보강 실패 url={url}: {e}")
+            enriched_count += 1
+            continue
+        delivery_info = result.get("delivery_info")
+        if delivery_info:
+            product["delivery"] = delivery_info
+            product["delivery_fee"] = 0 if any(k in delivery_info for k in ("로켓", "무료", "새벽")) else product.get("delivery_fee")
+        if result.get("current_price"):
+            product["price"] = result["current_price"]
+        enriched_count += 1
+    return products
 
 
 def search_products(
@@ -434,8 +542,12 @@ def search_products(
     if budget_max is not None:
         params["max_price"] = budget_max
 
-    remote_results = _call_remote_meta_mcp(params)
-    if remote_results:
-        return remote_results
+    results = _call_remote_meta_mcp(params)
+    if not results:
+        agent_logger.log_source_fallback(from_source="remote_mcp", to_source="local_mcp", reason="empty_or_failed")
+        results = _call_meta_mcp(params)
 
-    return _call_meta_mcp(params)
+    if "kurly" in valid_platforms and results:
+        results = _enrich_kurly_delivery(results)
+
+    return results

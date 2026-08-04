@@ -1,0 +1,285 @@
+"""
+Response Agent Node.
+
+역할: 랭킹된 상품 → 노인 친화 자연어 설명 생성 / 상품 QA 답변.
+(기존 product_agent Phase 2 분리)
+"""
+import json
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
+
+from configs.llm_config import get_llm
+from src.state.schema import ShoppingState
+from src.state.node_inputs import ResponseAgentInput, ResponseAgentUpdate
+from src.prompts.response_prompt import RESPONSE_EXPLAIN_PROMPT, RESPONSE_QA_PROMPT
+from src.utils.agent_logger import agent_logger
+from src.utils.retry import classify_failure, retry_call
+
+_llm: BaseChatModel | None = None
+
+# 어르신 친화 검증 — 이 단어가 나오면 Reflection 실패로 재생성
+_ELDERLY_FORBIDDEN = ["플랫폼", "최저가", "가성비", "혜택", "할인율", "할인가", "프로모션"]
+_MAX_SENTENCE_LEN = 35
+
+# 상품 설명 끝에 LLM이 붙이는 CTA 문구 — pending_msg와 중복되므로 제거 대상
+_CTA_ENDINGS = ("주문할까요?", "어떠세요?", "구매할까요?", "사드릴까요?", "주문해드릴까요?")
+
+_ADDRESS_KEYWORDS = ("배송지", "주소", "배달지", "받는 곳", "배달 주소")
+
+
+def _get_llm() -> BaseChatModel:
+    global _llm
+    if _llm is None:
+        # retry_owner="application": 이 모델을 쓰는 호출부가 모두 retry_call()로
+        # 감싸므로 SDK 자체 재시도는 꺼서 중첩 재시도를 막는다.
+        _llm = get_llm("response", temperature=0, max_tokens=300, retry_owner="application")
+    return _llm
+
+
+def _reflect_elderly(text: str) -> tuple[bool, str]:
+    """Reflection: 어르신 친화 출력 검증. (True, "") = 통과."""
+    sentences = [s.strip() for s in text.split(".") if s.strip()]
+    if len(sentences) > 3:
+        return False, f"문장 수 과다({len(sentences)}개)"
+    for s in sentences:
+        if len(s) > _MAX_SENTENCE_LEN:
+            return False, f"긴 문장({len(s)}자): {s[:20]}..."
+    found = [w for w in _ELDERLY_FORBIDDEN if w in text]
+    if found:
+        return False, f"어려운 단어 포함: {', '.join(found)}"
+    return True, ""
+
+
+def _simplify_with_haiku(explanation: str, reason: str) -> str:
+    """Reflection 실패 시 context 모델(Haiku)로 재생성(Recovery: 품질 재생성).
+    LangSmith 자동 추적."""
+    try:
+        llm = get_llm("context", temperature=0, max_tokens=150, retry_owner="application")
+        content = (
+            f"다음 쇼핑 안내 문장을 70대 어르신이 이해하기 쉽게 고쳐주세요.\n"
+            f"문제점: {reason}\n"
+            f"원문: {explanation}\n\n"
+            f"규칙: 2문장 이내 / 한 문장 15자 이내 / 쉬운 단어만 / 존댓말(~이에요, ~할까요?) / 텍스트만 반환"
+        )
+        result = retry_call(llm.invoke, [HumanMessage(content=content)])
+        return result.content.strip()
+    except Exception as e:
+        agent_logger.log(f"[response_agent] Haiku 재생성 실패({classify_failure(e).value}): {e} → 원문 유지")
+        return explanation
+
+
+def _format_preference(preference_context: dict) -> str:
+    if not preference_context or not preference_context.get("summary"):
+        return "선호 정보 없음 (구매이력 부족)"
+    lines = [preference_context["summary"]]
+    keyword_summary = preference_context.get("keyword_summary") or ""
+    if keyword_summary:
+        lines.append(f"키워드 관련 선호: {keyword_summary}")
+    return "\n".join(lines)
+
+
+def _fallback_explanation(product: dict) -> str:
+    """LLM 실패 또는 빈 설명 시 상품 필드로 최소 문장 생성."""
+    name = product.get("name") or "상품"
+    price = product.get("price")
+    platform = product.get("platform") or ""
+    price_str = f"{price:,}원" if isinstance(price, (int, float)) else (str(price) if price else "")
+    parts = [name]
+    if price_str:
+        parts.append(f"{price_str}이에요.")
+    if platform:
+        parts.append(f"{platform}에서 판매 중이에요.")
+    return " ".join(parts)
+
+
+def _extract_user_question(state: ShoppingState) -> str | None:
+    for msg in reversed(state.get("messages") or []):
+        if isinstance(msg, dict):
+            if msg.get("role") == "user":
+                return msg.get("content")
+        else:
+            role = getattr(msg, "type", None) or getattr(msg, "role", None)
+            if role == "human":
+                return getattr(msg, "content", None)
+    return None
+
+
+# ── 순수 텍스트 생성 — 상태 전이(pending_action/stage)를 모른다 ──────────
+
+_QA_FALLBACK_ANSWER = "죄송해요, 지금은 답변드리기 어려워요. 잠시 후 다시 물어봐 주세요."
+
+
+def _generate_qa_answer(product: dict, question: str) -> tuple[str, bool, str, bool, bool]:
+    """상품 정보를 근거로 사용자 질문에 답변. (answer, reflection_passed, reason, haiku_fallback, degraded)."""
+    try:
+        answer = retry_call(
+            _get_llm().invoke, [HumanMessage(content=RESPONSE_QA_PROMPT.format(
+                product_json=json.dumps(product, ensure_ascii=False),
+                question=question,
+            ))]
+        ).content.strip()
+    except Exception as e:
+        agent_logger.log(f"[response_agent] QA 답변 생성 오류({classify_failure(e).value}): {e} → fallback")
+        answer = ""
+
+    if not answer:
+        agent_logger.log_graceful_degradation(node="response_agent", reason="qa_llm_failed", stage="response_llm")
+        return _QA_FALLBACK_ANSWER, True, "", False, True
+
+    ok, reason = _reflect_elderly(answer)
+    haiku_fallback = False
+    if not ok:
+        agent_logger.log(f"[response_agent] Reflection 실패: {reason} → Haiku 재생성")
+        agent_logger.log_quality_regeneration(node="response_agent", reason=reason)
+        answer = _simplify_with_haiku(answer, reason)
+        haiku_fallback = True
+    return answer, ok, reason, haiku_fallback, False
+
+
+def _generate_explanation(
+    product: dict,
+    keywords: list[str],
+    condition: str | None,
+    preference_context: dict,
+) -> tuple[str, bool, str, bool, bool]:
+    """상품 설명 생성. (explanation, reflection_passed, reason, haiku_fallback, degraded)."""
+    try:
+        explanation = retry_call(
+            _get_llm().invoke, [HumanMessage(content=RESPONSE_EXPLAIN_PROMPT.format(
+                product_json=json.dumps(product, ensure_ascii=False),
+                keywords=json.dumps(keywords, ensure_ascii=False),
+                condition=condition or "없음",
+                preference_context=_format_preference(preference_context),
+            ))]
+        ).content.strip()
+    except Exception as e:
+        agent_logger.log(f"[response_agent] 설명 생성 오류({classify_failure(e).value}): {e} → fallback")
+        explanation = ""
+
+    degraded = False
+    if not explanation:
+        explanation = _fallback_explanation(product)
+        degraded = True
+        agent_logger.log(f"[response_agent] fallback 설명: {explanation}")
+        agent_logger.log_graceful_degradation(node="response_agent", reason="explain_llm_failed", stage="response_llm")
+
+    ok, reason = _reflect_elderly(explanation)
+    haiku_fallback = False
+    if not ok:
+        agent_logger.log(f"[response_agent] Reflection 실패: {reason} → Haiku 재생성")
+        agent_logger.log_quality_regeneration(node="response_agent", reason=reason)
+        explanation = _simplify_with_haiku(explanation, reason)
+        haiku_fallback = True
+
+    return explanation, ok, reason, haiku_fallback, degraded
+
+
+# ── 상태 전이 — "구매 확인으로 넘어갈지"는 여기만 안다 ────────────────────
+
+def _build_confirm_pending_action(explanation: str, quantity) -> dict:
+    """설명 + 구매 확인 문구를 product_confirm pending_action으로 조합."""
+    explanation_clean = explanation
+    for cta in _CTA_ENDINGS:
+        if explanation_clean.endswith(cta):
+            explanation_clean = explanation_clean[: -len(cta)].rstrip(" .·\n")
+            break
+
+    pending_msg = "주문할까요?" if quantity else "주문을 원하시면 수량을 말씀해 주세요."
+    return {"type": "product_confirm", "message": f"{explanation_clean}\n{pending_msg}"}
+
+
+# ── 배송지 조회 — 상품 설명과 무관한 별도 책임, QA 분기 안에서 지름길로만 탐 ──
+
+def _is_address_question(question: str) -> bool:
+    return any(k in question for k in _ADDRESS_KEYWORDS)
+
+
+def _answer_address_question(state: ShoppingState) -> dict:
+    """배송지 조회 질문 — 상품 없어도 바로 답변."""
+    from src.tools.mock_tools import mock_get_default_address
+    user_id = state.get("user_id", "")
+    addr = mock_get_default_address(user_id)
+    if addr:
+        addr_text = " ".join(filter(None, [
+            addr.get("address_line1"), addr.get("address_line2")
+        ]))
+        msg = f"등록된 배송지는 {addr_text}이에요."
+    else:
+        msg = "등록된 배송지가 없어요. 배송지를 알려주시면 저장해 드릴게요."
+    return {
+        "explanation": msg,
+        "pending_action": {"type": "address_confirm", "message": msg},
+        "stage": state.get("stage", "idle"),
+        "last_agent": "response_agent",
+        "error": None,
+    }
+
+
+def response_agent_node(state: ResponseAgentInput) -> ResponseAgentUpdate:
+    intent = state.get("intent")
+    keywords = state.get("keywords") or []
+    condition = state.get("condition")
+    recommendation_context = state.get("recommendation_context") or {}
+    preference_context = recommendation_context.get("preference_context") or {}
+    recommended_products = state.get("recommended_products") or []
+    current_idx = state.get("current_product_index") or 0
+
+    # ── QA ──
+    if intent == "ask":
+        target = state.get("selected_product") or (
+            recommended_products[current_idx] if recommended_products else None
+        )
+        user_question = _extract_user_question(state)
+
+        if user_question and _is_address_question(user_question):
+            return _answer_address_question(state)
+
+        if not target or not user_question:
+            return {
+                "stage": state.get("stage", "idle"),
+                "needs_clarification": True,
+                "pending_action": {
+                    "type": "clarification",
+                    "message": "어떤 상품에 대해 물어보시는 건지 먼저 알려주세요.",
+                    "payload": {},
+                },
+                "last_agent": "response_agent",
+                "error": None,
+            }
+
+        answer, ok, reason, haiku_fallback, degraded = _generate_qa_answer(target, user_question)
+        agent_logger.log(f"[response_agent] QA 답변: {answer}")
+        return {
+            "explanation": answer,
+            "reflection_passed": ok,
+            "haiku_fallback": haiku_fallback,
+            "reflection_reason": reason,
+            "stage": "product_confirming",
+            "last_agent": "response_agent",
+            "error": None,
+            "degraded_mode": degraded,
+            "failure_stage": "response_llm" if degraded else None,
+        }
+
+    # ── 설명 생성 ──
+    product = state.get("selected_product")
+    if not product:
+        return {"stage": "idle", "error": "no_product", "last_agent": "response_agent"}
+
+    explanation, ok, reason, haiku_fallback, degraded = _generate_explanation(
+        product, keywords, condition, preference_context,
+    )
+    agent_logger.log(f"[response_agent] 설명: {explanation}")
+
+    return {
+        "explanation": explanation,
+        "reflection_passed": ok,
+        "haiku_fallback": haiku_fallback,
+        "reflection_reason": reason,
+        "pending_action": _build_confirm_pending_action(explanation, state.get("quantity")),
+        "stage": "product_confirming",
+        "last_agent": "response_agent",
+        "error": None,
+        "degraded_mode": degraded,
+        "failure_stage": "response_llm" if degraded else None,
+    }

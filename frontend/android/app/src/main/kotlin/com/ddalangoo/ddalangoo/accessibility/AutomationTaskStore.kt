@@ -32,7 +32,10 @@ data class AutomationRuntimeStatus(
     val lastMessage: String? = null,
     val aiFallbackSuggested: Boolean = false,
     val fallbackType: String? = null,
-    val fallbackReasonCode: String? = null
+    val fallbackReasonCode: String? = null,
+    val failedAction: String? = null,
+    val expectedState: String? = null,
+    val observedState: String? = null
 )
 
 object AutomationTaskStore {
@@ -43,10 +46,14 @@ object AutomationTaskStore {
     private var recoveryCount = 0
     private var searchInputFocusRetryCount = 0
     private var searchSubmitRetryCount = 0
+    private var searchInputTextRetryCount = 0
+    private var optionSelectNoEffectRetryCount = 0
     private const val MAX_RETRY_COUNT_PER_STEP = 5
     private const val MAX_RECOVERY_COUNT = 2
     private const val MAX_SEARCH_INPUT_FOCUS_RETRY_COUNT = 2
     private const val MAX_SEARCH_SUBMIT_RETRY_COUNT = 2
+    private const val MAX_SEARCH_INPUT_TEXT_RETRY_COUNT = 2
+    private const val MAX_OPTION_SELECT_NO_EFFECT_RETRY_COUNT = 1
 
     @Synchronized
     fun setTask(task: AutomationTask) {
@@ -56,6 +63,8 @@ object AutomationTaskStore {
         recoveryCount = 0
         searchInputFocusRetryCount = 0
         searchSubmitRetryCount = 0
+        searchInputTextRetryCount = 0
+        optionSelectNoEffectRetryCount = 0
         runtimeStatus = runtimeStatus.copy(
             lastPackageName = task.packageName,
             lastStep = task.currentStep,
@@ -73,7 +82,10 @@ object AutomationTaskStore {
             lastMessage = "Task is waiting for accessibility events",
             aiFallbackSuggested = false,
             fallbackType = null,
-            fallbackReasonCode = null
+            fallbackReasonCode = null,
+            failedAction = null,
+            expectedState = null,
+            observedState = null
         )
         if (
             task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
@@ -104,6 +116,8 @@ object AutomationTaskStore {
         recoveryCount = 0
         searchInputFocusRetryCount = 0
         searchSubmitRetryCount = 0
+        searchInputTextRetryCount = 0
+        optionSelectNoEffectRetryCount = 0
         runtimeStatus = runtimeStatus.copy(
             lastStep = null,
             lastScreenType = null,
@@ -120,7 +134,10 @@ object AutomationTaskStore {
             lastMessage = "Task cleared",
             aiFallbackSuggested = false,
             fallbackType = null,
-            fallbackReasonCode = null
+            fallbackReasonCode = null,
+            failedAction = null,
+            expectedState = null,
+            observedState = null
         )
     }
 
@@ -133,10 +150,18 @@ object AutomationTaskStore {
         trigger: String,
         screenType: String,
         reasonCode: String,
-        message: String
+        message: String,
+        failedAction: String? = null,
+        expectedState: String? = null,
+        observedState: String? = null
     ) {
         val shouldSuggestFallback = reasonCode == "search_submit_not_effective" ||
-            reasonCode == "target_product_not_found"
+            reasonCode == "search_input_text_not_applied" ||
+            reasonCode == "target_product_not_found" ||
+            reasonCode == "possible_overlay_occlusion" ||
+            reasonCode == "no_state_change_after_action" ||
+            reasonCode == "option_increase_click_no_effect" ||
+            reasonCode == "unknown_after_add_click"
         AutomationLogger.warn(
             "task stopped taskId=${currentTask?.taskId.orEmpty()} reason=$reasonCode " +
                 "screenType=$screenType trigger=$trigger message=$message"
@@ -147,6 +172,8 @@ object AutomationTaskStore {
         recoveryCount = 0
         searchInputFocusRetryCount = 0
         searchSubmitRetryCount = 0
+        searchInputTextRetryCount = 0
+        optionSelectNoEffectRetryCount = 0
         runtimeStatus = runtimeStatus.copy(
             lastPackageName = packageName,
             lastStep = currentStep,
@@ -165,9 +192,22 @@ object AutomationTaskStore {
             lastErrorCode = reasonCode.uppercase(),
             lastMessage = message,
             aiFallbackSuggested = shouldSuggestFallback,
-            fallbackType = if (shouldSuggestFallback) "ui_tree_or_vlm" else null,
-            fallbackReasonCode = if (shouldSuggestFallback) reasonCode else null
+            fallbackType = if (shouldSuggestFallback) fallbackTypeFor(reasonCode) else null,
+            fallbackReasonCode = if (shouldSuggestFallback) reasonCode else null,
+            failedAction = failedAction,
+            expectedState = expectedState,
+            observedState = observedState
         )
+    }
+
+    private fun fallbackTypeFor(reasonCode: String): String {
+        return when (reasonCode) {
+            "possible_overlay_occlusion",
+            "no_state_change_after_action",
+            "option_increase_click_no_effect",
+            "unknown_after_add_click" -> "vlm"
+            else -> "ui_tree_or_vlm"
+        }
     }
 
     @Synchronized
@@ -183,6 +223,9 @@ object AutomationTaskStore {
         if (nextStep == AutomationContract.Step.OPEN_SEARCH || nextStep == AutomationContract.Step.SEARCH_INPUT) {
             searchSubmitRetryCount = 0
         }
+        if (nextStep == AutomationContract.Step.OPEN_SEARCH) {
+            searchInputTextRetryCount = 0
+        }
         runtimeStatus = runtimeStatus.copy(
             lastStep = nextStep,
             currentRetryCount = retryCountsByStep[nextStep] ?: 0
@@ -197,6 +240,8 @@ object AutomationTaskStore {
         retryCountsByStep.clear()
         searchInputFocusRetryCount = 0
         searchSubmitRetryCount = 0
+        searchInputTextRetryCount = 0
+        optionSelectNoEffectRetryCount = 0
         runtimeStatus = runtimeStatus.copy(
             lastStep = AutomationContract.Step.COMPLETED,
             lastTrigger = trigger,
@@ -212,7 +257,10 @@ object AutomationTaskStore {
             lastMessage = message,
             aiFallbackSuggested = false,
             fallbackType = null,
-            fallbackReasonCode = null
+            fallbackReasonCode = null,
+            failedAction = null,
+            expectedState = null,
+            observedState = null
         )
         AutomationLogger.info("task completed taskId=${task.taskId} trigger=$trigger message=$message")
     }
@@ -314,10 +362,10 @@ object AutomationTaskStore {
             RuleReasonCode.SEARCH_RESULT_DUMP.value -> AutomationContract.Step.SCROLL_SEARCH_RESULTS
             RuleReasonCode.SEARCH_RESULT_SCROLL.value -> AutomationContract.Step.DUMP_SEARCH_RESULTS
             RuleReasonCode.SEARCH_RESULT_FINISH.value -> AutomationContract.Step.COMPLETED
-            RuleReasonCode.PRODUCT_CARD.value -> AutomationContract.Step.ADD_TO_CART
-            RuleReasonCode.CART_BUTTON.value -> {
-                if (task.optionName.isBlank()) AutomationContract.Step.COMPLETED else AutomationContract.Step.SELECT_OPTION
-            }
+            RuleReasonCode.PRODUCT_CARD.value -> AutomationContract.Step.WAIT_PRODUCT_DETAIL
+            RuleReasonCode.CART_BUTTON.value -> AutomationContract.Step.WAIT_OPTION_OR_CART_RESULT
+            RuleReasonCode.OPTION_SELECT.value -> AutomationContract.Step.WAIT_OPTION_SELECTED
+            RuleReasonCode.OPTION_CONFIRM.value -> AutomationContract.Step.VERIFY_CART_ADDED
             RuleReasonCode.OPTION_ADD.value -> AutomationContract.Step.COMPLETED
             RuleReasonCode.MY_COUPANG.value -> AutomationContract.Step.OPEN_ORDER_HISTORY
             RuleReasonCode.MY_KURLY.value -> AutomationContract.Step.OPEN_ORDER_HISTORY
@@ -340,6 +388,9 @@ object AutomationTaskStore {
         }
         if (nextStep == AutomationContract.Step.OPEN_SEARCH || nextStep == AutomationContract.Step.SEARCH_INPUT) {
             searchSubmitRetryCount = 0
+        }
+        if (nextStep == AutomationContract.Step.OPEN_SEARCH) {
+            searchInputTextRetryCount = 0
         }
         runtimeStatus = runtimeStatus.copy(
             lastStep = nextStep,
@@ -441,6 +492,47 @@ object AutomationTaskStore {
     }
 
     @Synchronized
+    fun recordSearchInputTextMismatch(
+        packageName: String?,
+        currentStep: String,
+        rawNodeCount: Int,
+        filteredNodeCount: Int,
+        trigger: String,
+        reasonCode: String,
+        message: String,
+        expectedState: String,
+        observedState: String
+    ) {
+        runtimeStatus = runtimeStatus.copy(
+            lastPackageName = packageName,
+            lastStep = currentStep,
+            lastTrigger = trigger,
+            currentRetryCount = retryCountsByStep[currentStep] ?: 0,
+            currentRecoveryCount = recoveryCount,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodeCount,
+            lastActionType = null,
+            lastReasonCode = reasonCode,
+            lastTargetNodeId = null,
+            lastSelectedNodeText = null,
+            lastActionSuccess = false,
+            lastActionMethod = null,
+            lastErrorCode = reasonCode.uppercase(),
+            lastMessage = message,
+            aiFallbackSuggested = false,
+            fallbackType = null,
+            fallbackReasonCode = null,
+            failedAction = "verify_search_input_before_submit",
+            expectedState = expectedState,
+            observedState = observedState
+        )
+        AutomationLogger.info(
+            "search_input_text_mismatch step=$currentStep reason=$reasonCode trigger=$trigger " +
+                "message=$message expectedState=$expectedState observedState=$observedState"
+        )
+    }
+
+    @Synchronized
     fun recordAction(
         actionPlan: ActionPlan,
         actionResult: ActionResult,
@@ -498,6 +590,30 @@ object AutomationTaskStore {
     }
 
     @Synchronized
+    fun tryReserveSearchInputTextRetry(): Boolean {
+        if (searchInputTextRetryCount >= MAX_SEARCH_INPUT_TEXT_RETRY_COUNT) {
+            AutomationLogger.warn("search_input_text_retry limit exceeded count=$searchInputTextRetryCount")
+            return false
+        }
+        searchInputTextRetryCount += 1
+        AutomationLogger.info("search_input_text_retry reserved count=$searchInputTextRetryCount")
+        return true
+    }
+
+    @Synchronized
+    fun tryReserveOptionSelectNoEffectRetry(): Boolean {
+        if (optionSelectNoEffectRetryCount >= MAX_OPTION_SELECT_NO_EFFECT_RETRY_COUNT) {
+            AutomationLogger.warn(
+                "option_select_no_effect_retry limit exceeded count=$optionSelectNoEffectRetryCount"
+            )
+            return false
+        }
+        optionSelectNoEffectRetryCount += 1
+        AutomationLogger.info("option_select_no_effect_retry reserved count=$optionSelectNoEffectRetryCount")
+        return true
+    }
+
+    @Synchronized
     fun statusMap(): Map<String, Any?> {
         val task = currentTask
         val status = runtimeStatus
@@ -532,9 +648,14 @@ object AutomationTaskStore {
             "lastMessage" to status.lastMessage,
             "searchInputFocusRetryCount" to searchInputFocusRetryCount,
             "searchSubmitRetryCount" to searchSubmitRetryCount,
+            "searchInputTextRetryCount" to searchInputTextRetryCount,
+            "optionSelectNoEffectRetryCount" to optionSelectNoEffectRetryCount,
             "aiFallbackSuggested" to status.aiFallbackSuggested,
             "fallbackType" to status.fallbackType,
             "fallbackReasonCode" to status.fallbackReasonCode,
+            "failedAction" to status.failedAction,
+            "expectedState" to status.expectedState,
+            "observedState" to status.observedState,
             "latestPurchaseHistoryCount" to PurchaseHistoryExtractionStore.latestExtractionResult().size,
             "accumulatedPurchaseHistoryCount" to PurchaseHistoryExtractionStore.accumulatedCandidates().size
         ) + SearchInspectionStore.statusMap()

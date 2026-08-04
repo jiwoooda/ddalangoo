@@ -1,0 +1,34 @@
+{
+  "total_records": 255,
+  "expected_total_records": 255,
+  "group_counts": {
+    "normal": 242,
+    "C_no_smalltalk": 1,
+    "A_no_history": 6,
+    "B_no_signal": 6
+  },
+  "total_smalltalk": 827,
+  "candidate_pool_width": 100,
+  "leakage_rescan": {
+    "note": "query hits are expected and not a real leak: `query` is the original Amazon-C4 user search text, whose entire job is to describe the desired product, so it naturally names category/brand words that overlap with gold_product. smalltalk hits are the ones that matter - Stage 3/4 specifically targeted keeping identity out of generated text.",
+    "query_hit_count": 185,
+    "smalltalk_hit_count": 0,
+    "note2": "Full per-record hit list omitted from this Drive backup copy for brevity; see the canonical final_dataset_report.json in the repo / HF Hub for the complete 'hits' array."
+  },
+  "gold_in_candidates_check": {
+    "offender_count": 0,
+    "offenders": []
+  },
+  "gold_hypothetical_top_20": {
+    "note": "candidates deliberately never contains gold_product (same exclusion Stage 2 used), so checking gold-in-stored-candidates is trivially always 0%. This instead measures the rank gold_product WOULD have gotten in the same query-similarity ranking had it been allowed to compete - a meaningful retriever-quality diagnostic, not something reflected in the stored candidates field.",
+    "count": 114,
+    "total": 255,
+    "rate": 0.4471
+  },
+  "get_eval_candidates_gold_replaced_at_20": {
+    "note": "Different metric from gold_hypothetical_top_k above - do not conflate the two. This measures get_eval_candidates(ensure_gold=True)'s actual behavior against the *stored* 100-wide candidates field, where gold_product is always absent by construction (see gold_in_candidates_check). So gold_replaced is always true here, for every record, at any k - this number is expected to be 1.0 and is reported for transparency, not as a retriever-quality signal (use gold_hypothetical_top_k for that).",
+    "count": 255,
+    "total": 255,
+    "rate": 1.0
+  }
+}

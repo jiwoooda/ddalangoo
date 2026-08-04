@@ -1,0 +1,67 @@
+{
+  "dataset": "final_dataset_with_conflicts.jsonl",
+  "total_records": 909,
+  "domain_composition": {
+    "food": 255,
+    "household": 654
+  },
+  "conflict_case_injection": {
+    "purpose": "Deliberately conflicting signals (current_intent_override vs. an existing explicit_exclusion) to validate a downstream Priority Resolver's override behavior (stated priority order: Safety > Intent > Exclusion > Preference). Only the intent_over_exclusion case is covered in this pass; Safety > Intent stretch-goal cases were explicitly excluded per user decision.",
+    "additive_guarantee": "The current_intent_override signal is always additive - the original explicit_exclusion signal it conflicts with is never removed or modified. Records without an injected conflict keep conflict_signals: [] and meta.has_conflict: false.",
+    "conflict_records": 197,
+    "conflict_rate_overall": 0.2167,
+    "conflict_by_domain": {
+      "food": {
+        "selected": 55,
+        "eligible": 153,
+        "domain_total": 255
+      },
+      "household": {
+        "selected": 142,
+        "eligible": 142,
+        "domain_total": 654
+      }
+    },
+    "selection_method": "Stratified by domain, seed=42. household had only 142/654 (21.7%) eligible records (>=1 explicit_exclusion signal) vs food's 153/255 (60%) - too few to hit a 20-30% overall rate while holding the exact 255:654 domain ratio. Per explicit user decision, the domain ratio was preserved strictly and the total count reduced instead: household uses all 142 eligible records, food is sampled to match the same ratio (round(142 * 255/654) = 55).",
+    "expected_priority_winner_distribution": {
+      "current_intent": 197
+    },
+    "attribute_distribution": {
+      "brand": 11,
+      "dietary_feature": 186
+    },
+    "query_rewrite": {
+      "model": "gpt-4o-mini",
+      "calls_attempted": 197,
+      "failures": 0,
+      "retries": 0,
+      "note": "One GPT call per record, not batched. Merges the original Amazon-C4 query with a deterministic (code-generated, English) override-intent sentence into one natural request. query_original preserves the pre-conflict text; query holds the merged version for conflict records."
+    },
+    "manual_review": "20-sample seeded review (seed=42) included in conflict_injection_report.json's manual_review_samples - all inspected merges read as natural, consistently English single requests with no leftover Korean text (see fix history below)."
+  },
+  "stage4_validation_pass_rate_comparison": {
+    "food": {
+      "model": "claude-sonnet-4-6",
+      "total_validated": 837,
+      "passed": 827,
+      "pass_rate": 0.9881
+    },
+    "household": {
+      "model": "gpt-4o-mini",
+      "total_validated": 1315,
+      "passed": 1314,
+      "pass_rate": 0.9992
+    },
+    "delta": 0.0111,
+    "drift_note": "No significant regression - household (GPT-4o-mini) pass rate is actually slightly higher than food (Claude Sonnet). Both well above any reasonable drift threshold."
+  },
+  "limitations": [
+    "Domain-specific smalltalk generation model differs: food's 837 signals were phrased by Claude Sonnet (claude-sonnet-4-6), household's 1315 signals were phrased by GPT-4o-mini, due to Anthropic API key/billing issues discovered mid-project. Stage 4 validation logic (leakage check, blind reclassification) is model-agnostic and was applied identically to both; pass rates are comparable (food 98.81% vs household 99.92%) and show no meaningful quality drift from the model switch.",
+    "Conflict-case query merging (conflict/query_rewrite.py) also uses GPT-4o-mini for the same reason.",
+    "Only intent_over_exclusion conflict cases are present in this version; Safety > Intent conflict cases were scoped out.",
+    "conflicts_with_signal_id in conflict signals references the original signal's Stage 2-assigned ID, which uses each domain's own pre-merge numbering (food: 0-indexed matching merged record_id directly; household: offset by +255 from merged record_id, since household's own Stage 2 run numbered independently before the merge appended it after food). This is expected, not a data error - the signal ID still correctly identifies the original signal within that record's own signal set."
+  ],
+  "fix_history": [
+    "Initial override-intent template (signal_builder.py build_override_intent_text) was authored in Korean, which produced mixed-language merged queries when GPT's rewrite step inconsistently translated it (sometimes translated to English, sometimes left as literal Korean text appended to the English Amazon-C4 query, e.g. an early rec013 sample). Fixed by rewriting all three template branches (brand / dietary_feature / fallback) in English, consistent with the pipeline-wide convention that `query` is always English throughout. The query_rewrite.py system prompt was also hardened with an explicit language-matching rule. The 5 stale pre-fix checkpoint entries were cleared and regenerated before the full run."
+  ]
+}

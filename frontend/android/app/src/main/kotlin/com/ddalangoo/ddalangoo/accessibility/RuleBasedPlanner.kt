@@ -31,6 +31,8 @@ enum class RuleReasonCode(val value: String) {
     SEARCH_RESULT_FINISH("search_result_finish"),
     PRODUCT_CARD("product_card"),
     CART_BUTTON("cart_button"),
+    OPTION_SELECT("option_select"),
+    OPTION_CONFIRM("option_confirm"),
     OPTION_ADD("option_add"),
     MY_COUPANG("my_coupang"),
     MY_KURLY("my_kurly"),
@@ -61,6 +63,10 @@ class RuleBasedPlanner {
     private val searchInputKeywords = listOf("검색", "검색어", "무엇을 찾고 계신가요", "상품을 검색")
     private val searchInputExcludedKeywords = listOf("최근 검색어", "추천 검색어", "급상승 검색어", "최근 검색어 편집")
     private val cartKeywords = listOf("장바구니 담기", "장바구니", "담기", "카트에 담기")
+    private val unsafePurchaseKeywords = listOf("구매하기", "바로구매", "바로 구매", "결제하기", "주문하기", "주문")
+    private val cartAddedKeywords = listOf("장바구니에 담겼습니다", "담겼습니다", "장바구니 보기")
+    private val confirmOptionKeywords = listOf("장바구니 담기", "담기", "확인", "선택완료", "선택 완료")
+    private val unavailableOptionKeywords = listOf("품절", "재입고", "선택불가", "선택 불가", "일시품절")
     private val popupDismissKeywords = listOf("닫기", "확인", "취소", "나중에 하기", "오늘 하루 보지 않기", "건너뛰기")
     private val myCoupangKeywords = listOf("마이쿠팡")
     private val myKurlyKeywords = listOf("마이컬리", "마이 컬리", "MY컬리", "MY 컬리")
@@ -110,8 +116,10 @@ class RuleBasedPlanner {
             AutomationContract.Step.SCROLL_SEARCH_RESULTS -> planSearchResultsScroll(filteredNodes)
             AutomationContract.Step.FINISH_SEARCH_RESULTS -> planSearchResultsFinish()
             AutomationContract.Step.SELECT_PRODUCT -> planProductCard(filteredNodes, task)
+            AutomationContract.Step.CLICK_DETAIL_ADD_TO_CART -> planCartButton(filteredNodes)
             AutomationContract.Step.ADD_TO_CART -> planCartButton(filteredNodes)
-            AutomationContract.Step.SELECT_OPTION -> planOptionAddButton(filteredNodes, task)
+            AutomationContract.Step.SELECT_OPTION -> planOptionSelect(filteredNodes, task)
+            AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART -> planOptionConfirmButton(filteredNodes)
             AutomationContract.Step.COMPLETED -> noTarget(AutomationContract.Step.TASK_COMPLETED_REASON)
             else -> planSearchInput(filteredNodes, task)
         }
@@ -293,41 +301,59 @@ class RuleBasedPlanner {
     private fun planCartButton(filteredNodes: List<UiNode>): ActionPlan {
         val cartButtonNode = filteredNodes
             .filter { node -> containsAny(node, cartKeywords) }
+            .filterNot { node -> containsAny(node, unsafePurchaseKeywords) }
+            .filterNot { node -> containsAny(node, cartAddedKeywords) }
             .maxByOrNull { node -> if (node.clickable || node.role == "button") 0.9 else 0.65 }
 
         return cartButtonNode?.let { clickPlan(it, RuleReasonCode.CART_BUTTON, 0.88) }
             ?: fallbackScroll(filteredNodes, RuleReasonCode.CART_BUTTON.value)
     }
 
-    private fun planOptionAddButton(filteredNodes: List<UiNode>, task: AutomationTask): ActionPlan {
+    private fun planOptionSelect(filteredNodes: List<UiNode>, task: AutomationTask): ActionPlan {
         val normalizedOptionName = normalizeOptionName(task.optionName)
         if (normalizedOptionName.isBlank()) {
-            return planCartButton(filteredNodes)
+            return noTarget(RuleReasonCode.OPTION_SELECT.value)
         }
 
         val optionNode = filteredNodes
             .filter { node -> node.primaryText().isNotBlank() || node.contentDescription.orEmpty().isNotBlank() }
+            .filterNot { node -> containsAny(node, unavailableOptionKeywords) }
             .map { node -> node to optionScore(normalizedOptionName, normalizeOptionName(node.searchableText())) }
             .filter { (_, score) -> score >= 0.55 }
             .maxByOrNull { (_, score) -> score }
             ?.first
 
         if (optionNode == null) {
-            return noTarget(RuleReasonCode.OPTION_ADD.value)
+            return noTarget(RuleReasonCode.OPTION_SELECT.value)
         }
 
-        if ((optionNode.clickable || optionNode.role == "button") && containsAny(optionNode, cartKeywords)) {
-            return clickPlan(optionNode, RuleReasonCode.OPTION_ADD, 0.86)
-        }
-
-        val optionAddButtonNode = filteredNodes
-            .filter { node -> containsAny(node, cartKeywords) }
+        val increaseButtonNode = filteredNodes
+            .filter { node -> node.enabled }
+            .filter { node -> node.viewIdResourceName.orEmpty().endsWith("increaseButton") }
+            .filter { node -> kotlin.math.abs(node.centerY - optionNode.centerY) <= 170 }
             .minByOrNull { node ->
-                kotlin.math.abs(node.centerY - optionNode.centerY) + kotlin.math.abs(node.centerX - optionNode.centerX) / 5
+                kotlin.math.abs(node.centerY - optionNode.centerY) + kotlin.math.abs(node.centerX - optionNode.centerX) / 6
             }
 
-        return optionAddButtonNode?.let { clickPlan(it, RuleReasonCode.OPTION_ADD, 0.82) }
-            ?: clickPlan(optionNode, RuleReasonCode.OPTION_ADD, 0.7)
+        return increaseButtonNode?.let { clickPlan(it, RuleReasonCode.OPTION_SELECT, 0.88) }
+            ?: clickPlan(optionNode, RuleReasonCode.OPTION_SELECT, 0.64)
+    }
+
+    private fun planOptionConfirmButton(filteredNodes: List<UiNode>): ActionPlan {
+        val confirmNode = filteredNodes
+            .filter { node -> containsAny(node, confirmOptionKeywords) }
+            .filterNot { node -> containsAny(node, unsafePurchaseKeywords) }
+            .filterNot { node -> containsAny(node, cartAddedKeywords) }
+            .maxByOrNull { node ->
+                var score = 0.0
+                if (node.clickable || node.role == "button") score += 0.45
+                if (containsAny(node, cartKeywords)) score += 0.35
+                if (containsAny(node, listOf("확인", "선택완료", "선택 완료"))) score += 0.2
+                score
+            }
+
+        return confirmNode?.let { clickPlan(it, RuleReasonCode.OPTION_CONFIRM, 0.84) }
+            ?: noTarget(RuleReasonCode.OPTION_CONFIRM.value)
     }
 
     private fun fallbackScroll(filteredNodes: List<UiNode>, reasonCode: String): ActionPlan {

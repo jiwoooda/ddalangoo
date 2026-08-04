@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.purchase_history import PurchaseHistoryListResponse, PurchaseHistoryDetailResponse
+from app.schemas.purchase_history import (
+    AccessibilityPurchaseHistoryImportRequest,
+    AccessibilityPurchaseHistoryImportResponse,
+    PurchaseHistoryListResponse,
+    PurchaseHistoryDetailResponse,
+)
 from app.services import purchase_history_service
 from typing import Optional
 
@@ -21,3 +26,19 @@ async def get_user_histories(
 @router.get("/purchase-histories/{purchaseHistoryId}", response_model=PurchaseHistoryDetailResponse)
 async def get_history(purchaseHistoryId: int, db: AsyncSession = Depends(get_db)):
     return await purchase_history_service.get_history_db(db, purchaseHistoryId)
+
+
+@router.post(
+    "/users/{userId}/purchase-histories/accessibility-import",
+    response_model=AccessibilityPurchaseHistoryImportResponse,
+)
+async def import_accessibility_histories(
+    userId: int,
+    request: AccessibilityPurchaseHistoryImportRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await purchase_history_service.create_histories_from_accessibility_db(
+        db,
+        user_id=userId,
+        items=request.items,
+    )
