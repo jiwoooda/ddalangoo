@@ -1,0 +1,38 @@
+import 'package:flutter/widgets.dart';
+
+import '../features/auth/screens/login_screen.dart';
+import '../features/auth/screens/register_screen.dart';
+import '../features/cart/screens/cart_screen.dart';
+import '../features/onboarding/screens/onboarding_screen.dart';
+import '../features/home/screens/home_screen.dart';
+import '../features/platform_check/screens/platform_check_screen.dart';
+import '../features/shopping/screens/purchase_history_loading_screen.dart';
+import '../features/shopping/screens/shopping_flow_screen.dart';
+import '../features/shopping/screens/smalltalk_screen.dart';
+import '../features/shopping/screens/splash_screen.dart';
+
+abstract final class AppRoutes {
+  static const splash = '/';
+  static const onboarding = '/onboarding';
+  static const login = '/login';
+  static const register = '/register';
+  static const home = '/home';
+  static const cart = '/cart';
+  static const smallTalk = '/smalltalk';
+  static const platformCheck = '/platform-check';
+  static const purchaseHistoryLoading = '/purchase-history-loading';
+  static const flowEntry = '/flow-entry';
+
+  static final map = <String, WidgetBuilder>{
+    splash: (_) => const SplashScreen(),
+    onboarding: (_) => const OnboardingScreen(),
+    login: (_) => const LoginScreen(),
+    register: (_) => const RegisterScreen(),
+    home: (_) => const HomeScreen(),
+    cart: (_) => const CartScreen(),
+    smallTalk: (_) => const SmallTalkScreen(),
+    platformCheck: (_) => const PlatformCheckScreen(),
+    purchaseHistoryLoading: (_) => const PurchaseHistoryLoadingScreen(),
+    flowEntry: (_) => const ShoppingFlowScreen(),
+  };
+}

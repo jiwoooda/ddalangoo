@@ -1,0 +1,34 @@
+name: ddalangoo_v3
+description: "Ddalangoo frontend v3."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  dio: ^5.7.0
+  flutter_dotenv: ^5.2.1
+  shared_preferences: ^2.3.3
+  record: ^6.2.0
+  audioplayers: ^6.6.0
+  path_provider: ^2.1.5
+  crypto: ^3.0.7
+  webview_flutter: ^4.13.1
+  flutter_secure_storage: ^9.2.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - .env
+    - assets/images/
+    - assets/mock_productimages/
