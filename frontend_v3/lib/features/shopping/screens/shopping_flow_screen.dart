@@ -270,11 +270,17 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     if (userId == null) {
       return;
     }
+    final shouldStartFreshConversation = _shouldStartFreshConversation(
+      nextMessage: trimmed,
+    );
+    final conversationId = shouldStartFreshConversation
+        ? null
+        : _response?.conversationId;
 
     setState(() {
       _isSubmitting = true;
       _inlineError = null;
-      if (_response == null) {
+      if (conversationId == null) {
         _viewStage = ShoppingFlowViewStage.searchingProduct;
       }
     });
@@ -283,7 +289,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       final response = await _service.submitMessage(
         userId: userId,
         message: trimmed,
-        conversationId: _response?.conversationId,
+        conversationId: conversationId,
         redactMessageForLogs: redactMessageForLogs,
       );
       if (!mounted) {
@@ -524,6 +530,44 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     }
   }
 
+  bool _shouldStartFreshConversation({required String nextMessage}) {
+    final response = _response;
+    if (response == null) {
+      return true;
+    }
+
+    final stage = response.stage.trim().toLowerCase();
+    final assistantMessage = response.assistantMessage.trim();
+    final hasFlowProgress =
+        response.recommendations.isNotEmpty ||
+        response.selectedProduct != null ||
+        response.pendingConfirmation != null ||
+        response.availableOptions != null ||
+        response.deliveryAddress != null ||
+        response.cart != null ||
+        response.order != null ||
+        response.payment != null ||
+        response.uiCommand != null ||
+        response.asyncStatus != null;
+
+    if (hasFlowProgress) {
+      return false;
+    }
+
+    final isRetryPrompt =
+        assistantMessage.contains('다시 한번 말씀해 주세요') ||
+        assistantMessage.contains('다시 말씀');
+    final isEarlyStage =
+        _viewStage == ShoppingFlowViewStage.askProduct ||
+        _viewStage == ShoppingFlowViewStage.error;
+    final isExampleMessage = _service
+        .quickRepliesFor(ShoppingFlowViewStage.askProduct)
+        .contains(nextMessage);
+
+    return isEarlyStage &&
+        (stage == 'idle' || isRetryPrompt || isExampleMessage);
+  }
+
   Future<void> _stopRecordingAndSubmit() async {
     if (!_isRecording) {
       return;
@@ -613,23 +657,13 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       preset: LayoutPreset.conversation,
       child: Column(
         children: [
-          Row(
-            children: [
-              _RoundIconButton(
-                icon: Icons.arrow_back_ios_new_rounded,
-                onPressed: () => Navigator.of(context).maybePop(),
-              ),
-              const Spacer(),
-              if (_response?.conversationId != null)
-                _ConversationBadge(label: '대화 ${_response!.conversationId}'),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
+          _buildHeader(),
+          const SizedBox(height: AppSpacing.sm),
           ShoppingProgressStepper(
             currentStep: currentStep,
             completedSteps: completedSteps,
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.md),
           DialogueBubble(
             contentKey: ValueKey(
               '${_response?.conversationId ?? 0}-${_response?.stage}-${_assistantText ?? _viewStage.name}',
@@ -664,6 +698,15 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           _buildBottomArea(),
         ],
       ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Row(
+      children: [
+        const Spacer(),
+        EndConversationButton(compact: true, onPressed: _handleExit),
+      ],
     );
   }
 
@@ -793,7 +836,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
 
   Widget _buildBottomArea() {
     if (_isInitializing) {
-      return EndConversationButton(onPressed: _handleExit);
+      return const SizedBox.shrink();
     }
 
     switch (_viewStage) {
@@ -832,8 +875,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
               enabled: !_isSubmitting,
               onSubmitted: () => _submitMessage(_composerController.text),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            EndConversationButton(onPressed: _handleExit),
           ],
         );
       case ShoppingFlowViewStage.searchingProduct:
@@ -851,8 +892,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
               ),
               characterAssetPath: 'assets/images/ddalangoo_cheerful.png',
             ),
-            const SizedBox(height: AppSpacing.lg),
-            EndConversationButton(onPressed: _handleExit),
           ],
         );
       case ShoppingFlowViewStage.productSelection:
@@ -860,7 +899,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           response: _response,
           isSubmitting: _isSubmitting,
           onActionSelected: _confirmAction,
-          onExitPressed: _handleExit,
         );
       case ShoppingFlowViewStage.quantitySelection:
       case ShoppingFlowViewStage.cartCompleted:
@@ -904,13 +942,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
               enabled: !_isSubmitting,
               onSubmitted: () => _submitMessage(_composerController.text),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            EndConversationButton(
-              onPressed: _handleExit,
-              variant: _viewStage == ShoppingFlowViewStage.cartCompleted
-                  ? EndConversationButtonVariant.dark
-                  : EndConversationButtonVariant.light,
-            ),
           ],
         );
       case ShoppingFlowViewStage.paymentPassword:
@@ -926,8 +957,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
               label: _isSubmitting ? '확인 중...' : '비밀번호 확인',
               onPressed: _isSubmitting || _pinInput.isEmpty ? null : _submitPin,
             ),
-            const SizedBox(height: AppSpacing.lg),
-            EndConversationButton(onPressed: _handleExit),
           ],
         );
       case ShoppingFlowViewStage.completed:
@@ -942,71 +971,9 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                 ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
               },
             ),
-            const SizedBox(height: AppSpacing.lg),
-            EndConversationButton(
-              onPressed: () {
-                Navigator.of(
-                  context,
-                ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
-              },
-              label: '홈으로 닫기',
-            ),
           ],
         );
     }
-  }
-}
-
-class _RoundIconButton extends StatelessWidget {
-  const _RoundIconButton({required this.icon, required this.onPressed});
-
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onPressed,
-      borderRadius: BorderRadius.circular(AppRadii.pill),
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceMuted,
-          borderRadius: BorderRadius.circular(AppRadii.pill),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Icon(icon, size: 18, color: AppColors.textPrimary),
-      ),
-    );
-  }
-}
-
-class _ConversationBadge extends StatelessWidget {
-  const _ConversationBadge({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.secondaryPink,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Text(
-        label,
-        style: AppTextStyles.caption.copyWith(
-          color: AppColors.primaryPinkDark,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
   }
 }
 
@@ -1050,19 +1017,49 @@ class _EmptyStatePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Image.asset(assetPath, height: 230, fit: BoxFit.contain),
-        const SizedBox(height: AppSpacing.lg),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(caption, textAlign: TextAlign.center, style: AppTextStyles.body2),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 420.0;
+        final compact = availableHeight < 300;
+        final imageHeight = (availableHeight * 0.56)
+            .clamp(108.0, 230.0)
+            .toDouble();
+        final titleSpacing = compact ? AppSpacing.md : AppSpacing.lg;
+        final captionSpacing = compact ? AppSpacing.xs : AppSpacing.sm;
+
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: availableHeight),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  assetPath,
+                  height: imageHeight,
+                  fit: BoxFit.contain,
+                ),
+                SizedBox(height: titleSpacing),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.body1.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: captionSpacing),
+                Text(
+                  caption,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.body2,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1634,13 +1631,11 @@ class _ProductActionArea extends StatelessWidget {
     required this.response,
     required this.isSubmitting,
     required this.onActionSelected,
-    required this.onExitPressed,
   });
 
   final AgentResponse? response;
   final bool isSubmitting;
   final Future<void> Function(String action) onActionSelected;
-  final Future<void> Function() onExitPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1690,11 +1685,6 @@ class _ProductActionArea extends StatelessWidget {
             onPressed: isSubmitting ? null : () => onActionSelected('reject'),
             child: const Text('다른 상품 보기'),
           ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        EndConversationButton(
-          variant: EndConversationButtonVariant.dark,
-          onPressed: () => onExitPressed(),
         ),
       ],
     );

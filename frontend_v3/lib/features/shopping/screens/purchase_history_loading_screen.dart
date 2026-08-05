@@ -425,6 +425,15 @@ class _PurchaseHistoryLoadingScreenState
         content: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: EndConversationButton(
+                compact: true,
+                label: '대화 종료',
+                onPressed: _handleCompleted,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
             _TopPill(
               icon: Icons.history_rounded,
               label: _isAccessibilityConnected ? '접근성 연결됨' : '구매 이력 불러오기',
@@ -514,8 +523,9 @@ class _PurchaseHistoryLoadingScreenState
                 label: '불러오는 중...',
                 icon: Icons.hourglass_top_rounded,
               )
-            : EndConversationButton(
+            : PrimaryButton(
                 label: '홈으로 돌아가기',
+                icon: Icons.home_rounded,
                 onPressed: _handleCompleted,
               ),
       ),

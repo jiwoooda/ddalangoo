@@ -893,6 +893,20 @@ class _ShoppingWebviewScreenState extends State<ShoppingWebviewScreen> {
         backgroundColor: AppColors.background,
         surfaceTintColor: Colors.transparent,
         title: Text(_title(), style: AppTextStyles.body1),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.screenHorizontal),
+            child: Center(
+              child: EndConversationButton(
+                compact: true,
+                label: _isInterrupting ? '중단 중...' : '중단하기',
+                onPressed: _isSubmitting || _isInterrupting
+                    ? () {}
+                    : _interruptWebviewProgress,
+              ),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -982,12 +996,6 @@ class _ShoppingWebviewScreenState extends State<ShoppingWebviewScreen> {
             label: _isSubmitting ? '처리 중...' : _completeButtonLabel(),
             onPressed: _isSubmitting ? null : _handleCompletePressed,
           ),
-          const SizedBox(height: AppSpacing.md),
-          EndConversationButton(
-            label: '중단하기',
-            variant: EndConversationButtonVariant.dark,
-            onPressed: _isSubmitting ? () {} : () => _submitResult('cancelled'),
-          ),
         ],
       );
     }
@@ -1016,14 +1024,6 @@ class _ShoppingWebviewScreenState extends State<ShoppingWebviewScreen> {
         PrimaryButton(
           label: _isSubmitting ? '처리 중...' : '자동으로 진행 중이에요',
           onPressed: null,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        EndConversationButton(
-          label: _isInterrupting ? '중단 중...' : '중단하기',
-          variant: EndConversationButtonVariant.dark,
-          onPressed: _isSubmitting || _isInterrupting
-              ? () {}
-              : _interruptWebviewProgress,
         ),
       ],
     );

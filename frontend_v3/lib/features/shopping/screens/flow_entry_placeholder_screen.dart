@@ -34,6 +34,19 @@ class FlowEntryPlaceholderScreen extends StatelessWidget {
       preset: LayoutPreset.conversation,
       child: Column(
         children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: EndConversationButton(
+              compact: true,
+              variant: EndConversationButtonVariant.dark,
+              onPressed: () {
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
+              },
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
           const ShoppingProgressStepper(
             currentStep: ShoppingProgressStep.productCheck,
           ),
@@ -74,15 +87,6 @@ class FlowEntryPlaceholderScreen extends StatelessWidget {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('다음 상품 요청 단계는 이어서 구현할 예정이에요.')),
               );
-            },
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          EndConversationButton(
-            variant: EndConversationButtonVariant.dark,
-            onPressed: () {
-              Navigator.of(
-                context,
-              ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
             },
           ),
         ],

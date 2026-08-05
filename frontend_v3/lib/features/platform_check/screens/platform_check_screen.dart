@@ -11,6 +11,7 @@ import '../../../core/services/accessibility_automation_service.dart';
 import '../../../shared/layout/app_layout.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/widgets/bottom_status_banner.dart';
+import '../../../shared/widgets/end_conversation_button.dart';
 import '../services/platform_check_service.dart';
 
 class PlatformCheckScreen extends StatefulWidget {
@@ -273,6 +274,14 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
                     lastDetectedPlatformLabel: _lastDetectedPlatformLabel,
                     isScanning: _isScanning,
                   ),
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: EndConversationButton(
+                      compact: true,
+                      onPressed: _handleClosePressed,
+                    ),
+                  ),
                   Align(
                     alignment: Alignment.bottomCenter,
                     child: SlideTransition(
@@ -288,13 +297,10 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
                         padding: const EdgeInsets.fromLTRB(
                           AppSpacing.md,
                           AppSpacing.md,
-                          AppSpacing.sm,
+                          AppSpacing.md,
                           AppSpacing.md,
                         ),
                         avatarSize: 56,
-                        trailing: _PlatformCheckCloseButton(
-                          onPressed: _handleClosePressed,
-                        ),
                       ),
                     ),
                   ),
@@ -676,53 +682,6 @@ class _StatusRow extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PlatformCheckCloseButton extends StatelessWidget {
-  const _PlatformCheckCloseButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: '대화 종료',
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.primaryPinkDark,
-                ),
-                child: const Icon(
-                  Icons.close_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                '대화 종료',
-                style: AppTextStyles.caption.copyWith(
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

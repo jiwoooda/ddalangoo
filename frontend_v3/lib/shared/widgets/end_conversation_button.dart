@@ -13,11 +13,13 @@ class EndConversationButton extends StatelessWidget {
     required this.onPressed,
     this.label = '대화 종료',
     this.variant = EndConversationButtonVariant.light,
+    this.compact = false,
   });
 
   final VoidCallback onPressed;
   final String label;
   final EndConversationButtonVariant variant;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -27,6 +29,18 @@ class EndConversationButton extends StatelessWidget {
     final textColor = isDark
         ? AppColors.primaryPinkDark
         : AppColors.textPrimary;
+    final minimumSize = compact ? const Size(108, 44) : const Size(132, 52);
+    final padding = compact
+        ? const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.xs,
+          )
+        : const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.sm,
+          );
+    final textStyle = (compact ? AppTextStyles.caption : AppTextStyles.body2)
+        .copyWith(color: textColor, fontWeight: FontWeight.w800);
 
     return Semantics(
       button: true,
@@ -37,22 +51,19 @@ class EndConversationButton extends StatelessWidget {
           backgroundColor: backgroundColor,
           foregroundColor: textColor,
           side: BorderSide(color: borderColor),
-          minimumSize: const Size(132, 52),
+          minimumSize: minimumSize,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.pill),
           ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.sm,
-          ),
+          padding: padding,
+          tapTargetSize: compact
+              ? MaterialTapTargetSize.shrinkWrap
+              : MaterialTapTargetSize.padded,
+          visualDensity: compact
+              ? const VisualDensity(horizontal: -1, vertical: -1)
+              : VisualDensity.standard,
         ),
-        child: Text(
-          label,
-          style: AppTextStyles.body2.copyWith(
-            color: textColor,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
+        child: Text(label, style: textStyle),
       ),
     );
   }

@@ -20,7 +20,7 @@ class ShoppingProgressStepper extends StatelessWidget {
   static const _labels = <ShoppingProgressStep, String>{
     ShoppingProgressStep.productCheck: '상품 확인',
     ShoppingProgressStep.productSelection: '상품 고르기',
-    ShoppingProgressStep.addToCart: '장바구니\n담기',
+    ShoppingProgressStep.addToCart: '장바구니 담기',
     ShoppingProgressStep.payment: '결제하기',
   };
 
@@ -82,16 +82,23 @@ class ShoppingProgressStepper extends StatelessWidget {
                     : null,
               ),
               const SizedBox(height: AppSpacing.xs),
-              Text(
-                _labels[step]!,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.25,
-                  fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
-                  color: isCompleted || isCurrent
-                      ? AppColors.textStrong
-                      : AppColors.textMuted,
+              SizedBox(
+                height: 16,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _labels[step]!,
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.1,
+                      fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
+                      color: isCompleted || isCurrent
+                          ? AppColors.textStrong
+                          : AppColors.textMuted,
+                    ),
+                  ),
                 ),
               ),
             ],

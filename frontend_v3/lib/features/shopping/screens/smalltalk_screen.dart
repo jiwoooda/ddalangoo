@@ -223,11 +223,15 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
       preset: LayoutPreset.conversation,
       child: Column(
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _BackButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-            ),
+          Row(
+            children: [
+              _BackButton(onPressed: () => Navigator.of(context).maybePop()),
+              const Spacer(),
+              EndConversationButton(
+                compact: true,
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ],
           ),
           const SizedBox(height: AppSpacing.lg),
           Expanded(
@@ -308,10 +312,6 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
                       ? VoiceInputState.inactive
                       : VoiceInputState.active),
             onPressed: _toggleRecording,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          EndConversationButton(
-            onPressed: () => Navigator.of(context).maybePop(),
           ),
         ],
       ),
