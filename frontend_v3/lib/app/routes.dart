@@ -10,6 +10,7 @@ import '../features/shopping/screens/purchase_history_loading_screen.dart';
 import '../features/shopping/screens/shopping_flow_screen.dart';
 import '../features/shopping/screens/smalltalk_screen.dart';
 import '../features/shopping/screens/splash_screen.dart';
+import '../features/shopping/services/mock_shopping_flow_service.dart';
 
 abstract final class AppRoutes {
   static const splash = '/';
@@ -22,6 +23,7 @@ abstract final class AppRoutes {
   static const platformCheck = '/platform-check';
   static const purchaseHistoryLoading = '/purchase-history-loading';
   static const flowEntry = '/flow-entry';
+  static const flowEntryMock = '/flow-entry-mock';
 
   static final map = <String, WidgetBuilder>{
     splash: (_) => const SplashScreen(),
@@ -34,5 +36,7 @@ abstract final class AppRoutes {
     platformCheck: (_) => const PlatformCheckScreen(),
     purchaseHistoryLoading: (_) => const PurchaseHistoryLoadingScreen(),
     flowEntry: (_) => const ShoppingFlowScreen(),
+    flowEntryMock: (_) =>
+        ShoppingFlowScreen(service: MockShoppingFlowService()),
   };
 }
