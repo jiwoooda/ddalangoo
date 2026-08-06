@@ -24,17 +24,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   static const _pages = [
     _OnboardingPageData(
       title: '전화하듯 말만 하면 돼요',
-      assetPath: 'assets/images/ddalangoo_calling.png',
+      assetPath: 'assets/images/character/full/ddalangoo_calling.png',
       bubbleText: '딸기 사줘',
     ),
     _OnboardingPageData(
       title: '복잡한 결제도 걱정 마세요',
-      assetPath: 'assets/images/ddalangoo_cheerful.png',
+      assetPath: 'assets/images/character/full/ddalangoo_cheerful.png',
       trailingTags: ['주문 완료', '결제 승인'],
     ),
     _OnboardingPageData(
       title: '이제 딸랑구와 함께\n편하게 쇼핑해보세요',
-      assetPath: 'assets/images/ddalangoo_happy.png',
+      assetPath: 'assets/images/character/full/ddalangoo_happy.png',
     ),
   ];
 

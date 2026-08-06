@@ -85,23 +85,53 @@ class _SpeechChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-        border: Border.all(color: AppColors.secondaryPink),
-      ),
-      child: Text(
-        label,
-        style: AppTextStyles.body1.copyWith(
-          fontWeight: FontWeight.w700,
-          color: AppColors.primaryPinkDark,
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            border: Border.all(color: AppColors.secondaryPink),
+            boxShadow: const [
+              BoxShadow(
+                color: AppColors.shadow,
+                blurRadius: 14,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: AppTextStyles.body1.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.primaryPinkDark,
+            ),
+          ),
         ),
-      ),
+        Positioned(
+          left: 34,
+          bottom: -7,
+          child: Transform.rotate(
+            angle: 0.7853981633974483,
+            child: Container(
+              width: 15,
+              height: 15,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  right: BorderSide(color: AppColors.secondaryPink),
+                  bottom: BorderSide(color: AppColors.secondaryPink),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

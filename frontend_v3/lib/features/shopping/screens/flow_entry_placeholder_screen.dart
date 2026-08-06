@@ -64,7 +64,7 @@ class FlowEntryPlaceholderScreen extends StatelessWidget {
           Expanded(
             child: Center(
               child: Image.asset(
-                'assets/images/ddalangoo_cheerful.png',
+                'assets/images/character/full/ddalangoo_cheerful.png',
                 height: 260,
                 fit: BoxFit.contain,
               ),

@@ -251,7 +251,7 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
                 Expanded(
                   child: Center(
                     child: Image.asset(
-                      'assets/images/ddalangoo_cheerful.png',
+                      'assets/images/character/full/ddalangoo_smalltalk.png',
                       height: 280,
                       fit: BoxFit.contain,
                     ),

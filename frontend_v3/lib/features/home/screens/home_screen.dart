@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/routes.dart';
@@ -8,7 +9,6 @@ import '../../../app/theme/app_text_styles.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
 import '../../../data/repositories/cart_repository.dart';
-import '../../../shared/layout/bottom_cta_layout.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
@@ -91,92 +91,223 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return ScreenFrame(
       preset: LayoutPreset.standard,
-      child: BottomCtaLayout(
-        content: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceMuted,
-                    borderRadius: BorderRadius.circular(AppRadii.pill),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: const Icon(
-                    Icons.home_rounded,
-                    color: AppColors.textMuted,
-                  ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Column(
+            children: [
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, contentConstraints) {
+                    final compact = contentConstraints.maxHeight < 820;
+                    final imageHeight = compact ? 188.0 : 252.0;
+                    final sectionGap = compact ? AppSpacing.md : AppSpacing.xl;
+                    final headerGap = compact ? AppSpacing.sm : AppSpacing.lg;
+                    final shortcutAspectRatio = compact ? 1.02 : 0.94;
+                    final useSingleColumnShortcuts =
+                        contentConstraints.maxWidth < 320;
+
+                    Widget buildShortcutCard({
+                      required IconData icon,
+                      required String title,
+                      required String subtitle,
+                      required VoidCallback onTap,
+                    }) {
+                      return AspectRatio(
+                        aspectRatio: shortcutAspectRatio,
+                        child: _ShortcutCard(
+                          icon: icon,
+                          title: title,
+                          subtitle: subtitle,
+                          onTap: onTap,
+                        ),
+                      );
+                    }
+
+                    return CustomScrollView(
+                      physics: const ClampingScrollPhysics(),
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Spacer(),
+                                  TextButton(
+                                    onPressed: _logout,
+                                    child: Text(
+                                      '로그아웃',
+                                      style: AppTextStyles.body2.copyWith(
+                                        color: AppColors.primaryPinkDark,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: headerGap),
+                              DialogueBubble(
+                                text: _greetingText,
+                                highlightedWords: _userName == null
+                                    ? ['딸랑구']
+                                    : [_userName!],
+                                style: AppTextStyles.title2.copyWith(
+                                  fontSize: compact ? 22 : 25,
+                                  height: 1.32,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                                emphasizedStyle: AppTextStyles.title2.copyWith(
+                                  fontSize: compact ? 22 : 25,
+                                  height: 1.32,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.primaryPinkDark,
+                                ),
+                              ),
+                              SizedBox(height: sectionGap),
+                              Center(
+                                child: Image.asset(
+                                  'assets/images/character/top/ddalangoo_greeting.png',
+                                  height: imageHeight,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          fillOverscroll: true,
+                          child: Align(
+                            alignment: Alignment.bottomLeft,
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                top: sectionGap,
+                                bottom: compact ? AppSpacing.sm : AppSpacing.md,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: const BoxDecoration(
+                                          color: AppColors.primaryPink,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: AppSpacing.xs),
+                                      Text(
+                                        '바로가기',
+                                        style: AppTextStyles.title2.copyWith(
+                                          color: AppColors.primaryPinkDark,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: AppSpacing.md),
+                                  if (useSingleColumnShortcuts)
+                                    Column(
+                                      children: [
+                                        buildShortcutCard(
+                                          icon: Icons.shopping_cart_outlined,
+                                          title: '장바구니 보기',
+                                          subtitle: _isLoading
+                                              ? '불러오는 중...'
+                                              : '$_cartCount개 담겨 있어요',
+                                          onTap: () => Navigator.of(
+                                            context,
+                                          ).pushNamed(AppRoutes.cart),
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        buildShortcutCard(
+                                          icon: Icons.receipt_long_outlined,
+                                          title: '지난 주문 내역',
+                                          subtitle: '구매 이력을 다시 불러와요',
+                                          onTap: () {
+                                            Navigator.of(
+                                              context,
+                                            ).pushReplacementNamed(
+                                              AppRoutes.purchaseHistoryLoading,
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    )
+                                  else
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: buildShortcutCard(
+                                            icon: Icons.shopping_cart_outlined,
+                                            title: '장바구니 보기',
+                                            subtitle: _isLoading
+                                                ? '불러오는 중...'
+                                                : '$_cartCount개 담겨 있어요',
+                                            onTap: () => Navigator.of(
+                                              context,
+                                            ).pushNamed(AppRoutes.cart),
+                                          ),
+                                        ),
+                                        const SizedBox(width: AppSpacing.md),
+                                        Expanded(
+                                          child: buildShortcutCard(
+                                            icon: Icons.receipt_long_outlined,
+                                            title: '지난 주문 내역',
+                                            subtitle: '구매 이력을 다시 불러와요',
+                                            onTap: () {
+                                              Navigator.of(
+                                                context,
+                                              ).pushReplacementNamed(
+                                                AppRoutes
+                                                    .purchaseHistoryLoading,
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                const Spacer(),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              PrimaryButton(
+                label: '딸랑구야 도와줘!',
+                icon: Icons.phone_in_talk_rounded,
+                onPressed: () {
+                  Navigator.of(context).pushNamed(AppRoutes.flowEntry);
+                },
+              ),
+              if (kDebugMode) ...[
+                const SizedBox(height: AppSpacing.sm),
                 TextButton(
-                  onPressed: _logout,
+                  onPressed: () {
+                    Navigator.of(context).pushNamed(AppRoutes.flowEntryMock);
+                  },
                   child: Text(
-                    '로그아웃',
+                    'mock-data 흐름 보기',
                     style: AppTextStyles.body2.copyWith(
                       color: AppColors.primaryPinkDark,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            DialogueBubble(
-              text: _greetingText,
-              highlightedWords: _userName == null ? ['딸랑구'] : [_userName!],
-              style: AppTextStyles.body1,
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            Center(
-              child: Image.asset(
-                'assets/images/ddalangoo_happy.png',
-                height: 240,
-                fit: BoxFit.contain,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            const Text('바로가기', style: AppTextStyles.title2),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: [
-                Expanded(
-                  child: _ShortcutCard(
-                    icon: Icons.shopping_cart_outlined,
-                    title: '장바구니 보기',
-                    subtitle: _isLoading ? '불러오는 중...' : '$_cartCount개 담겨 있어요',
-                    backgroundColor: AppColors.secondaryPink,
-                    onTap: () =>
-                        Navigator.of(context).pushNamed(AppRoutes.cart),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: _ShortcutCard(
-                    icon: Icons.receipt_long_outlined,
-                    title: '지난 주문 내역',
-                    subtitle: '구매 이력을 다시 불러와요',
-                    backgroundColor: const Color(0xFFFFF0C7),
-                    onTap: () {
-                      Navigator.of(
-                        context,
-                      ).pushReplacementNamed(AppRoutes.purchaseHistoryLoading);
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        cta: PrimaryButton(
-          label: '딸랑구야 도와줘!',
-          icon: Icons.phone_in_talk_rounded,
-          onPressed: () {
-            Navigator.of(context).pushNamed(AppRoutes.flowEntry);
-          },
-        ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -187,14 +318,12 @@ class _ShortcutCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.backgroundColor,
     this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
-  final Color backgroundColor;
   final VoidCallback? onTap;
 
   @override
@@ -207,23 +336,39 @@ class _ShortcutCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
-            color: backgroundColor,
+            color: Colors.white,
             borderRadius: BorderRadius.circular(AppRadii.lg),
             border: Border.all(color: AppColors.border),
+            boxShadow: const [
+              BoxShadow(
+                color: AppColors.shadow,
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: AppColors.textStrong, size: 28),
-              const SizedBox(height: AppSpacing.lg),
+              Icon(icon, color: AppColors.primaryPinkDark, size: 28),
+              const SizedBox(height: AppSpacing.xl),
               Text(
                 title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: AppTextStyles.body1.copyWith(
+                  color: AppColors.primaryPinkDark,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: AppSpacing.xs),
-              Text(subtitle, style: AppTextStyles.caption),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.caption,
+              ),
+              const Spacer(),
             ],
           ),
         ),

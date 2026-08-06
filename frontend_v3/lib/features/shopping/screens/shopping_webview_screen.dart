@@ -943,7 +943,8 @@ class _ShoppingWebviewScreenState extends State<ShoppingWebviewScreen> {
               ),
               child: BottomStatusBanner(
                 message: _statusText,
-                characterAssetPath: 'assets/images/ddalangoo_cheerful.png',
+                characterAssetPath:
+                    'assets/images/character/top/ddalangoo_top.png',
               ),
             ),
             const SizedBox(height: AppSpacing.md),

@@ -18,13 +18,13 @@ class SplashLogoBlock extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Image.asset(
-          'assets/images/ddalangoo_top.png',
+          'assets/images/character/top/ddalangoo_top.png',
           height: characterHeight,
           fit: BoxFit.contain,
         ),
         const SizedBox(height: 10),
         Image.asset(
-          'assets/images/ddalangoo_logo_text.png',
+          'assets/images/textlogo/ddalangoo_logo_text.png',
           height: logoHeight,
           fit: BoxFit.contain,
         ),

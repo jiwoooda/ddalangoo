@@ -227,7 +227,7 @@ class _EmptyPanel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset(
-              'assets/images/ddalangoo_curious.png',
+              'assets/images/character/full/ddalangoo_curious.png',
               height: 180,
               fit: BoxFit.contain,
             ),

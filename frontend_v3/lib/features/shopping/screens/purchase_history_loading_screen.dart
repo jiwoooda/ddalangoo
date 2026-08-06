@@ -673,7 +673,7 @@ class _LoadingPlaceholderState extends State<_LoadingPlaceholder> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Image.asset(
-                'assets/images/ddalangoo_curious.png',
+                'assets/images/character/full/ddalangoo_searching.png',
                 height: 132,
                 fit: BoxFit.contain,
               ),

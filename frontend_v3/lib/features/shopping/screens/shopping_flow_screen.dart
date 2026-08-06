@@ -22,19 +22,18 @@ import 'shopping_webview_screen.dart';
 import '../services/shopping_flow_service.dart';
 
 class ShoppingFlowScreen extends StatefulWidget {
-  const ShoppingFlowScreen({super.key, this.userName});
+  const ShoppingFlowScreen({super.key, this.userName, this.service});
 
   final String? userName;
+  final ShoppingFlowService? service;
 
   @override
   State<ShoppingFlowScreen> createState() => _ShoppingFlowScreenState();
 }
 
 class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
-  final ShoppingFlowService _service = ShoppingFlowService();
+  late final ShoppingFlowService _service;
   final VoiceService _voiceService = VoiceService.instance;
-  final TextEditingController _composerController = TextEditingController();
-  final FocusNode _composerFocusNode = FocusNode();
 
   Timer? _pollTimer;
   bool _isInitializing = true;
@@ -57,6 +56,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? ShoppingFlowService();
     _resolvedUserName = widget.userName?.trim();
     unawaited(_bootstrapVoice());
     unawaited(_bootstrap());
@@ -69,8 +69,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     if (_isRecording) {
       unawaited(_voiceService.cancelRecording());
     }
-    _composerController.dispose();
-    _composerFocusNode.dispose();
     super.dispose();
   }
 
@@ -258,7 +256,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
 
   Future<void> _submitMessage(
     String message, {
-    bool clearComposer = true,
     bool redactMessageForLogs = false,
   }) async {
     final trimmed = message.trim();
@@ -294,9 +291,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       );
       if (!mounted) {
         return;
-      }
-      if (clearComposer) {
-        _composerController.clear();
       }
       _applyResponse(response);
     } catch (error) {
@@ -393,11 +387,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     if (_pinInput.isEmpty) {
       return;
     }
-    await _submitMessage(
-      _pinInput,
-      clearComposer: false,
-      redactMessageForLogs: true,
-    );
+    await _submitMessage(_pinInput, redactMessageForLogs: true);
   }
 
   bool get _supportsVoiceInput {
@@ -525,7 +515,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       }
       setState(() {
         _isRecording = false;
-        _inlineError = '마이크를 시작하지 못했어요. 입력창으로도 계속 진행할 수 있어요.';
+        _inlineError = '마이크를 시작하지 못했어요. 잠시 후 다시 시도해주세요.';
       });
     }
   }
@@ -586,22 +576,18 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       }
       if (trimmed.isEmpty) {
         setState(() {
-          _inlineError = '잘 듣지 못했어요. 한 번 더 말씀하시거나 입력창에 적어주세요.';
+          _inlineError = '잘 듣지 못했어요. 한 번 더 말씀해주세요.';
         });
         return;
       }
 
-      _composerController.text = trimmed;
-      _composerController.selection = TextSelection.fromPosition(
-        TextPosition(offset: _composerController.text.length),
-      );
       await _submitMessage(trimmed);
     } catch (_) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _inlineError = '음성 인식 중 문제가 생겼어요. 입력창으로도 계속 진행할 수 있어요.';
+        _inlineError = '음성 인식 중 문제가 생겼어요. 한 번 더 말씀해주세요.';
       });
     }
   }
@@ -634,18 +620,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       return message;
     }
     return null;
-  }
-
-  String get _composerHintText {
-    return switch (_viewStage) {
-      ShoppingFlowViewStage.askProduct => '예: 토마토 사고 싶어',
-      ShoppingFlowViewStage.quantitySelection => '예: 2개',
-      ShoppingFlowViewStage.cartCompleted => '예: 결제할래요',
-      ShoppingFlowViewStage.addressConfirmation => '예: 네, 맞아요',
-      ShoppingFlowViewStage.paymentConfirmation => '예: 네, 진행해줘',
-      ShoppingFlowViewStage.error => '다시 요청을 입력해주세요',
-      _ => '메시지를 입력해주세요',
-    };
   }
 
   @override
@@ -687,15 +661,14 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
               duration: const Duration(milliseconds: 260),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
-              child: _buildStageContent(),
+              child: KeyedSubtree(
+                key: ValueKey<String>(
+                  '${_viewStage.name}:${_isInitializing ? 'init' : 'ready'}',
+                ),
+                child: _buildStageScene(),
+              ),
             ),
           ),
-          const SizedBox(height: AppSpacing.lg),
-          if (_inlineError != null) ...[
-            _InlineErrorBanner(message: _inlineError!),
-            const SizedBox(height: AppSpacing.md),
-          ],
-          _buildBottomArea(),
         ],
       ),
     );
@@ -710,11 +683,42 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     );
   }
 
+  Widget _wrapStagePanel(Widget child) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final minHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 0.0;
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStageScene() {
+    return Column(
+      children: [
+        Expanded(child: _buildStageContent()),
+        const SizedBox(height: AppSpacing.lg),
+        if (_inlineError != null) ...[
+          _InlineErrorBanner(message: _inlineError!),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        _buildBottomArea(),
+      ],
+    );
+  }
+
   Widget _buildStageContent() {
     if (_isInitializing) {
       return const _EmptyStatePanel(
         key: ValueKey('initializing'),
-        assetPath: 'assets/images/ddalangoo_curious.png',
+        assetPath: 'assets/images/character/full/ddalangoo_curious.png',
         title: '쇼핑 화면을 준비하고 있어요.',
         caption: '사용자 정보와 기본 설정을 불러오는 중이에요.',
       );
@@ -738,22 +742,24 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       case ShoppingFlowViewStage.askProduct:
         return _EmptyStatePanel(
           key: const ValueKey('ask-product'),
-          assetPath: 'assets/images/ddalangoo_cheerful.png',
+          assetPath: 'assets/images/character/full/ddalangoo_standing.png',
           title: '예시 문장을 눌러 바로 시작할 수도 있어요.',
-          caption: '말풍선과 입력창은 같은 백엔드 대화에 연결됩니다.',
+          caption: '예시 문장과 음성 요청은 같은 쇼핑 대화로 이어집니다.',
         );
       case ShoppingFlowViewStage.searchingProduct:
-        return _StatusPanel(
-          key: const ValueKey('searching-product'),
-          title: _service.statusTitleFor(_viewStage),
-          message: _service.statusMessageFor(
-            _viewStage,
-            response: _response,
-            product: selectedProduct,
+        return _wrapStagePanel(
+          _StatusPanel(
+            key: const ValueKey('searching-product'),
+            title: _service.statusTitleFor(_viewStage),
+            message: _service.statusMessageFor(
+              _viewStage,
+              response: _response,
+              product: selectedProduct,
+            ),
+            progress: _service.progressValueFor(_viewStage),
+            assetPath: 'assets/images/character/full/ddalangoo_curious.png',
+            helperText: '추천 상품과 이유를 정리해서 보여드릴게요.',
           ),
-          progress: _service.progressValueFor(_viewStage),
-          assetPath: 'assets/images/ddalangoo_curious.png',
-          helperText: '추천 상품과 이유를 정리해서 보여드릴게요.',
         );
       case ShoppingFlowViewStage.productSelection:
         return _ProductSelectionPanel(
@@ -765,71 +771,85 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
               : _service.secondaryRecommendations(_response!),
         );
       case ShoppingFlowViewStage.quantitySelection:
-        return _QuantitySelectionPanel(
-          key: const ValueKey('quantity-selection'),
-          service: _service,
-          product: selectedProduct,
+        return _wrapStagePanel(
+          _QuantitySelectionPanel(
+            key: const ValueKey('quantity-selection'),
+            service: _service,
+            product: selectedProduct,
+          ),
         );
       case ShoppingFlowViewStage.cartProcessing:
-        return _StatusPanel(
-          key: const ValueKey('cart-processing'),
-          title: _service.statusTitleFor(_viewStage),
-          message: _service.statusMessageFor(
-            _viewStage,
-            response: _response,
+        return _wrapStagePanel(
+          _StatusPanel(
+            key: const ValueKey('cart-processing'),
+            title: _service.statusTitleFor(_viewStage),
+            message: _service.statusMessageFor(
+              _viewStage,
+              response: _response,
+              product: selectedProduct,
+              quantity: cartItems.firstOrNull?.quantity,
+            ),
+            progress: _service.progressValueFor(_viewStage),
             product: selectedProduct,
-            quantity: cartItems.firstOrNull?.quantity,
+            service: _service,
+            helperText: '옵션과 수량을 확인한 뒤 주문서에 반영하고 있어요.',
           ),
-          progress: _service.progressValueFor(_viewStage),
-          product: selectedProduct,
-          service: _service,
-          helperText: '옵션과 수량을 확인한 뒤 주문서에 반영하고 있어요.',
         );
       case ShoppingFlowViewStage.cartCompleted:
-        return _CartSummaryPanel(
-          key: const ValueKey('cart-completed'),
-          service: _service,
-          userName: _resolvedUserName,
-          items: cartItems,
+        return _wrapStagePanel(
+          _CartSummaryPanel(
+            key: const ValueKey('cart-completed'),
+            service: _service,
+            userName: _resolvedUserName,
+            items: cartItems,
+          ),
         );
       case ShoppingFlowViewStage.addressConfirmation:
-        return _AddressPanel(
-          key: const ValueKey('address-confirmation'),
-          address: address,
+        return _wrapStagePanel(
+          _AddressPanel(
+            key: const ValueKey('address-confirmation'),
+            address: address,
+          ),
         );
       case ShoppingFlowViewStage.paymentConfirmation:
-        return _PaymentSummaryPanel(
-          key: const ValueKey('payment-confirmation'),
-          service: _service,
-          items: cartItems,
-          address: address,
+        return _wrapStagePanel(
+          _PaymentSummaryPanel(
+            key: const ValueKey('payment-confirmation'),
+            service: _service,
+            items: cartItems,
+            address: address,
+          ),
         );
       case ShoppingFlowViewStage.paymentPassword:
-        return _PasswordEntryPanel(
-          key: const ValueKey('payment-password'),
-          pinInput: _pinInput,
+        return _wrapStagePanel(
+          _PasswordEntryPanel(
+            key: const ValueKey('payment-password'),
+            pinInput: _pinInput,
+          ),
         );
       case ShoppingFlowViewStage.paymentProcessing:
-        return _StatusPanel(
-          key: const ValueKey('payment-processing'),
-          title: _service.statusTitleFor(_viewStage),
-          message: _service.statusMessageFor(
-            _viewStage,
-            response: _response,
-            product: selectedProduct,
+        return _wrapStagePanel(
+          _StatusPanel(
+            key: const ValueKey('payment-processing'),
+            title: _service.statusTitleFor(_viewStage),
+            message: _service.statusMessageFor(
+              _viewStage,
+              response: _response,
+              product: selectedProduct,
+            ),
+            progress: _service.progressValueFor(_viewStage),
+            assetPath: 'assets/images/character/full/ddalangoo_calling.png',
+            helperText: '결제 자동화가 진행되는 동안 이 화면에서 상태를 이어서 보여드릴게요.',
           ),
-          progress: _service.progressValueFor(_viewStage),
-          assetPath: 'assets/images/ddalangoo_calling.png',
-          helperText: '결제 자동화가 진행되는 동안 이 화면에서 상태를 이어서 보여드릴게요.',
         );
       case ShoppingFlowViewStage.completed:
         return const _CompletionPanel(key: ValueKey('completed'));
       case ShoppingFlowViewStage.error:
         return _EmptyStatePanel(
           key: const ValueKey('error'),
-          assetPath: 'assets/images/ddalangoo_curious.png',
+          assetPath: 'assets/images/character/full/ddalangoo_curious.png',
           title: '조금만 다시 말씀해주시면 이어서 도와드릴게요.',
-          caption: '상품명, 수량, 결제 의사처럼 짧은 문장으로 다시 입력해보세요.',
+          caption: '상품명, 수량, 결제 의사처럼 짧게 다시 말씀해주세요.',
         );
     }
   }
@@ -844,8 +864,8 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
         return Column(
           children: [
             Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
+              spacing: AppSpacing.xs,
+              runSpacing: AppSpacing.xs,
               alignment: WrapAlignment.center,
               children: _service
                   .quickRepliesFor(_viewStage)
@@ -857,7 +877,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                   })
                   .toList(growable: false),
             ),
-            const SizedBox(height: AppSpacing.xl),
+            const SizedBox(height: AppSpacing.lg),
             VoiceInputButton(
               label: _voiceButtonLabel,
               state: _isInitializing
@@ -866,14 +886,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                   ? VoiceInputState.listening
                   : VoiceInputState.active,
               onPressed: _toggleVoiceInput,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            _ComposerBar(
-              controller: _composerController,
-              focusNode: _composerFocusNode,
-              hintText: _composerHintText,
-              enabled: !_isSubmitting,
-              onSubmitted: () => _submitMessage(_composerController.text),
             ),
           ],
         );
@@ -890,7 +902,8 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                     ? null
                     : _service.extractSelectedProduct(_response!),
               ),
-              characterAssetPath: 'assets/images/ddalangoo_cheerful.png',
+              characterAssetPath:
+                  'assets/images/character/top/ddalangoo_top.png',
             ),
           ],
         );
@@ -910,8 +923,8 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           children: [
             if (replies.isNotEmpty)
               Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
+                spacing: AppSpacing.xs,
+                runSpacing: AppSpacing.xs,
                 alignment: WrapAlignment.center,
                 children: replies
                     .map((reply) {
@@ -924,7 +937,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                     })
                     .toList(growable: false),
               ),
-            if (replies.isNotEmpty) const SizedBox(height: AppSpacing.lg),
+            if (replies.isNotEmpty) const SizedBox(height: AppSpacing.md),
             VoiceInputButton(
               label: _voiceButtonLabel,
               state: !_supportsVoiceInput
@@ -933,14 +946,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                   ? VoiceInputState.listening
                   : VoiceInputState.active,
               onPressed: _toggleVoiceInput,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            _ComposerBar(
-              controller: _composerController,
-              focusNode: _composerFocusNode,
-              hintText: _composerHintText,
-              enabled: !_isSubmitting,
-              onSubmitted: () => _submitMessage(_composerController.text),
             ),
           ],
         );
@@ -1153,7 +1158,7 @@ class _ProductSelectionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     if (primaryProduct == null) {
       return const _EmptyStatePanel(
-        assetPath: 'assets/images/ddalangoo_curious.png',
+        assetPath: 'assets/images/character/full/ddalangoo_curious.png',
         title: '추천 상품을 정리하는 중이에요.',
         caption: '잠시 후 다시 한 번 확인해주세요.',
       );
@@ -1206,7 +1211,7 @@ class _QuantitySelectionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     if (product == null) {
       return const _EmptyStatePanel(
-        assetPath: 'assets/images/ddalangoo_curious.png',
+        assetPath: 'assets/images/character/full/ddalangoo_curious.png',
         title: '수량을 정하기 전에 상품을 다시 확인하고 있어요.',
         caption: '잠시만 기다리면 이어서 선택할 수 있어요.',
       );
@@ -1321,28 +1326,25 @@ class _CartSummaryPanel extends StatelessWidget {
             userName == null || userName!.trim().isEmpty
                 ? '장바구니'
                 : '${userName!.trim()} 님의 장바구니',
-            style: AppTextStyles.title2.copyWith(fontSize: 25),
+            style: AppTextStyles.title2.copyWith(fontSize: 23),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            '장바구니에 담았어요. 더 구매하시겠어요, 아니면 결제할까요?',
+            '지금 담긴 상품과 금액을 확인해보세요.',
             style: AppTextStyles.body2.copyWith(height: 1.45),
           ),
           const SizedBox(height: AppSpacing.lg),
           if (items.isEmpty)
             const Text('담긴 상품을 아직 확인하는 중이에요.', style: AppTextStyles.body2)
           else
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 260),
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: items.length,
-                separatorBuilder: (_, _) =>
+            Column(
+              children: [
+                for (var index = 0; index < items.length; index++) ...[
+                  _CartItemTile(item: items[index], service: service),
+                  if (index != items.length - 1)
                     const SizedBox(height: AppSpacing.md),
-                itemBuilder: (context, index) {
-                  return _CartItemTile(item: items[index], service: service);
-                },
-              ),
+                ],
+              ],
             ),
           const SizedBox(height: AppSpacing.lg),
           Container(
@@ -1385,7 +1387,7 @@ class _AddressPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     if (address == null) {
       return const _EmptyStatePanel(
-        assetPath: 'assets/images/ddalangoo_curious.png',
+        assetPath: 'assets/images/character/full/ddalangoo_curious.png',
         title: '배송지 정보를 확인하고 있어요.',
         caption: '기본 배송지가 연결되면 바로 보여드릴게요.',
       );
@@ -1521,21 +1523,29 @@ class _PasswordEntryPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.cardPadding),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.cardPadding,
+        vertical: AppSpacing.md,
+      ),
       decoration: BoxDecoration(
         color: AppColors.surfaceMuted,
         borderRadius: BorderRadius.circular(AppRadii.xl),
         border: Border.all(color: AppColors.border),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '비밀번호를 입력해주세요',
-            style: AppTextStyles.title2.copyWith(color: AppColors.textStrong),
+            '6자리 비밀번호',
+            style: AppTextStyles.body2.copyWith(
+              color: AppColors.textMuted,
+              fontWeight: FontWeight.w700,
+            ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.sm),
           Row(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(6, (index) {
               final isFilled = index < pinInput.length;
@@ -1554,7 +1564,7 @@ class _PasswordEntryPanel extends StatelessWidget {
               );
             }),
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.sm),
           Text(
             pinInput.isEmpty
                 ? '숫자를 눌러 입력을 시작해주세요.'
@@ -1576,41 +1586,13 @@ class _CompletionPanel extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 124,
-                height: 124,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.secondaryPink,
-                ),
-              ),
-              const Icon(
-                Icons.check_rounded,
-                size: 72,
-                color: AppColors.primaryPinkDark,
-              ),
-              const Positioned(
-                top: 16,
-                right: 20,
-                child: Icon(
-                  Icons.auto_awesome_rounded,
-                  size: 22,
-                  color: AppColors.primaryPinkDark,
-                ),
-              ),
-              const Positioned(
-                bottom: 18,
-                left: 18,
-                child: Icon(
-                  Icons.auto_awesome_rounded,
-                  size: 18,
-                  color: AppColors.primaryPinkDark,
-                ),
-              ),
-            ],
+          SizedBox(
+            width: 168,
+            height: 168,
+            child: Image.asset(
+              'assets/images/character/full/ddalangoo_happy.png',
+              fit: BoxFit.contain,
+            ),
           ),
           const SizedBox(height: AppSpacing.xl),
           Text('쇼핑 완료!', style: AppTextStyles.display),
@@ -1691,72 +1673,6 @@ class _ProductActionArea extends StatelessWidget {
   }
 }
 
-class _ComposerBar extends StatelessWidget {
-  const _ComposerBar({
-    required this.controller,
-    required this.focusNode,
-    required this.hintText,
-    required this.enabled,
-    required this.onSubmitted,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final String hintText;
-  final bool enabled;
-  final VoidCallback onSubmitted;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.keyboard_alt_rounded, color: AppColors.textMuted),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              enabled: enabled,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => onSubmitted(),
-              decoration: InputDecoration(
-                hintText: hintText,
-                border: InputBorder.none,
-                hintStyle: AppTextStyles.body2,
-              ),
-              style: AppTextStyles.body1.copyWith(color: AppColors.textStrong),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          InkWell(
-            onTap: enabled ? onSubmitted : null,
-            borderRadius: BorderRadius.circular(AppRadii.pill),
-            child: Container(
-              width: 42,
-              height: 42,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.primaryPink,
-              ),
-              child: const Icon(
-                Icons.arrow_upward_rounded,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _QuickReplyChip extends StatelessWidget {
   const _QuickReplyChip({required this.label, this.onTap});
 
@@ -1773,8 +1689,8 @@ class _QuickReplyChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadii.pill),
         child: Container(
           padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.sm,
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xs,
           ),
           decoration: BoxDecoration(
             color: isEnabled ? AppColors.surface : AppColors.surfaceMuted,
@@ -1783,7 +1699,7 @@ class _QuickReplyChip extends StatelessWidget {
           ),
           child: Text(
             label,
-            style: AppTextStyles.body2.copyWith(
+            style: AppTextStyles.caption.copyWith(
               color: isEnabled ? AppColors.textPrimary : AppColors.textMuted,
               fontWeight: FontWeight.w700,
             ),
@@ -2050,6 +1966,8 @@ class _CartItemTile extends StatelessWidget {
               children: [
                 Text(
                   item.product.title,
+                  maxLines: compact ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.body2.copyWith(
                     color: AppColors.textStrong,
                     fontWeight: FontWeight.w700,
@@ -2078,6 +1996,7 @@ class _CartItemTile extends StatelessWidget {
               const SizedBox(height: AppSpacing.xs),
               Text(
                 item.displayTotalPrice,
+                textAlign: TextAlign.right,
                 style: AppTextStyles.caption.copyWith(
                   color: AppColors.primaryPinkDark,
                   fontWeight: FontWeight.w700,
@@ -2128,11 +2047,36 @@ class _PlatformPill extends StatelessWidget {
     this.backgroundColor = AppColors.secondaryPink,
   });
 
+  static const Map<String, String> _bannerAssetsByLabel = <String, String>{
+    '컬리': 'assets/images/platform/banner/kurly_banner.png',
+    '네이버': 'assets/images/platform/banner/naver_banner.png',
+    '지마켓': 'assets/images/platform/banner/gmarket_banner.png',
+    '쿠팡': 'assets/images/platform/banner/coupang_banner.png',
+    '현대홈쇼핑': 'assets/images/platform/banner/hyundaihomeshopping_banner.png',
+  };
+
   final String label;
   final Color backgroundColor;
 
   @override
   Widget build(BuildContext context) {
+    final trimmedLabel = label.trim();
+    final bannerAssetPath = _bannerAssetsByLabel[trimmedLabel];
+    if (bannerAssetPath != null) {
+      return SizedBox(
+        height: 24,
+        child: Image.asset(
+          bannerAssetPath,
+          fit: BoxFit.contain,
+          errorBuilder: (_, _, _) => _buildTextFallback(),
+        ),
+      );
+    }
+
+    return _buildTextFallback();
+  }
+
+  Widget _buildTextFallback() {
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm,

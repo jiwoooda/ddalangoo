@@ -38,8 +38,8 @@ class ShoppingProgressStepper extends StatelessWidget {
               completedSteps.contains(connectorStep) ||
               connectorIndex < currentStep.index;
           return Expanded(
-            child: Align(
-              alignment: const Alignment(0, -0.35),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10),
               child: Container(
                 height: 3,
                 margin: const EdgeInsets.symmetric(horizontal: 6),
@@ -94,7 +94,9 @@ class ShoppingProgressStepper extends StatelessWidget {
                       fontSize: 13,
                       height: 1.1,
                       fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
-                      color: isCompleted || isCurrent
+                      color: isCurrent
+                          ? AppColors.primaryPinkDark
+                          : isCompleted
                           ? AppColors.textStrong
                           : AppColors.textMuted,
                     ),

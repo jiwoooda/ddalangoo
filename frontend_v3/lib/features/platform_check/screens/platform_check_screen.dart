@@ -37,31 +37,31 @@ class PlatformCheckScreen extends StatefulWidget {
       id: 'naver',
       name: '네이버',
       packageName: 'com.nhn.android.search',
-      assetPath: 'assets/images/naver.png',
+      assetPath: 'assets/images/platform/logo/naver.png',
     ),
     PlatformPreviewApp(
       id: 'coupang',
       name: '쿠팡',
       packageName: 'com.coupang.mobile',
-      assetPath: 'assets/images/coupang.png',
+      assetPath: 'assets/images/platform/logo/coupang.png',
     ),
     PlatformPreviewApp(
       id: 'kurly',
       name: '컬리',
       packageName: 'com.dbs.kurly.m2',
-      assetPath: 'assets/images/kurly.png',
+      assetPath: 'assets/images/platform/logo/kurly.png',
     ),
     PlatformPreviewApp(
       id: 'gmarket',
       name: '지마켓',
       packageName: 'com.ebay.kr.gmarket',
-      assetPath: 'assets/images/gmarket.png',
+      assetPath: 'assets/images/platform/logo/gmarket.png',
     ),
     PlatformPreviewApp(
       id: 'hyundaihomeshopping',
       name: '현대홈쇼핑',
       packageName: 'com.hmallapp',
-      assetPath: 'assets/images/hyundaihomeshopping.png',
+      assetPath: 'assets/images/platform/logo/hyundaihomeshopping.png',
     ),
   ];
 
@@ -287,7 +287,8 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
                     child: SlideTransition(
                       position: _bannerOffset,
                       child: BottomStatusBanner(
-                        characterAssetPath: 'assets/images/ddalangoo_top.png',
+                        characterAssetPath:
+                            'assets/images/character/top/ddalangoo_top.png',
                         message: '$_resolvedUserName님이 사용중인 쇼핑 플랫폼을\n확인하고 있어요!',
                         messageStyle: AppTextStyles.body1.copyWith(
                           color: AppColors.textStrong,
@@ -458,17 +459,32 @@ class _MockSearchCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '$userName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요',
-            style: AppTextStyles.title2.copyWith(fontSize: 22),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$userName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요',
+                  style: AppTextStyles.title2.copyWith(fontSize: 22),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  statusHint,
+                  style: AppTextStyles.body2.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            statusHint,
-            style: AppTextStyles.body2.copyWith(color: AppColors.textSecondary),
+          const SizedBox(width: AppSpacing.md),
+          Image.asset(
+            'assets/images/character/full/ddalangoo_searching.png',
+            height: 84,
+            fit: BoxFit.contain,
           ),
         ],
       ),
