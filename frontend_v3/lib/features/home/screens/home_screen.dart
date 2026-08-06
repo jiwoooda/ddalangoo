@@ -35,6 +35,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadHomeData() async {
     try {
+      final cachedUserName = await LocalStorage.getUserName();
+      if (mounted && cachedUserName != null && cachedUserName.trim().isNotEmpty) {
+        setState(() {
+          _userName = cachedUserName.trim();
+        });
+      }
+
       final userId = await LocalStorage.getUserId();
       if (userId == null) {
         return;
@@ -57,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _logout() async {
-    await LocalStorage.clearUserId();
+    await LocalStorage.clearSession();
     if (!mounted) {
       return;
     }
@@ -117,30 +124,65 @@ class _HomeScreenState extends State<HomeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   if (kDebugMode)
-                                    TextButton(
-                                      onPressed: () {
-                                        Navigator.of(
-                                          context,
-                                        ).pushNamed(AppRoutes.flowEntryMock);
-                                      },
-                                      style: TextButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: AppSpacing.xs,
-                                          vertical: AppSpacing.xxs,
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.of(
+                                              context,
+                                            ).pushNamedAndRemoveUntil(
+                                              AppRoutes.splashMock,
+                                              (route) => false,
+                                            );
+                                          },
+                                          style: TextButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: AppSpacing.xs,
+                                              vertical: AppSpacing.xxs,
+                                            ),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                          ),
+                                          child: Text(
+                                            'mock 첫 흐름 보기',
+                                            style: AppTextStyles.caption
+                                                .copyWith(
+                                                  color: _temporaryDebugColor,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                          ),
                                         ),
-                                        minimumSize: Size.zero,
-                                        tapTargetSize:
-                                            MaterialTapTargetSize.shrinkWrap,
-                                      ),
-                                      child: Text(
-                                        'mock-data 흐름 보기',
-                                        style: AppTextStyles.caption.copyWith(
-                                          color: _temporaryDebugColor,
-                                          fontWeight: FontWeight.w800,
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.of(
+                                              context,
+                                            ).pushNamed(AppRoutes.flowEntryMock);
+                                          },
+                                          style: TextButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: AppSpacing.xs,
+                                              vertical: AppSpacing.xxs,
+                                            ),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                          ),
+                                          child: Text(
+                                            'mock 쇼핑 흐름 보기',
+                                            style: AppTextStyles.caption
+                                                .copyWith(
+                                                  color: _temporaryDebugColor,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                          ),
                                         ),
-                                      ),
+                                      ],
                                     ),
                                   const Spacer(),
                                   TextButton(
@@ -193,7 +235,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Padding(
                               padding: EdgeInsets.only(
                                 top: sectionGap,
-                                bottom: compact ? AppSpacing.sm : AppSpacing.md,
+                                bottom: compact ? AppSpacing.lg : AppSpacing.xl,
                               ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -286,6 +328,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
+              Text(
+                '딸랑구를 불러보세요!',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.body2.copyWith(
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
               PrimaryButton(
                 label: '딸랑구야 도와줘!',
                 icon: Icons.phone_in_talk_rounded,

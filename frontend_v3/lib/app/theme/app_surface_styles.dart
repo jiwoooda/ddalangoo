@@ -6,9 +6,12 @@ abstract final class AppSurfaceStyles {
   static const double thinOutlineWidth = 1.25;
   static const double emphasisOutlineWidth = 3.0;
   static const double pinPadOutlineWidth = 2.2;
+  static const double buttonElevation = 6.0;
+  static const double compactButtonElevation = 4.0;
 
   static const Color standardOutlineColor = AppColors.border;
   static const Color emphasisOutlineColor = AppColors.textStrong;
+  static const Color buttonShadowColor = Color(0x22000000);
 
   static const List<BoxShadow> raisedShadow = [
     BoxShadow(color: Color(0x0A000000), blurRadius: 4, offset: Offset(0, 2)),

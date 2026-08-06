@@ -14,7 +14,9 @@ import '../features/shopping/services/mock_shopping_flow_service.dart';
 
 abstract final class AppRoutes {
   static const splash = '/';
+  static const splashMock = '/splash-mock';
   static const onboarding = '/onboarding';
+  static const onboardingMock = '/onboarding-mock';
   static const login = '/login';
   static const register = '/register';
   static const home = '/home';
@@ -27,7 +29,9 @@ abstract final class AppRoutes {
 
   static final map = <String, WidgetBuilder>{
     splash: (_) => const SplashScreen(),
+    splashMock: (_) => const SplashScreen(useMockFlow: true),
     onboarding: (_) => const OnboardingScreen(),
+    onboardingMock: (_) => const OnboardingScreen(useMockFlow: true),
     login: (_) => const LoginScreen(),
     register: (_) => const RegisterScreen(),
     home: (_) => const HomeScreen(),

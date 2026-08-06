@@ -78,6 +78,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         gender: _selectedGender,
       );
       await LocalStorage.saveUserId(user.userId);
+      await LocalStorage.saveUserName(user.name);
       if (!mounted) {
         return;
       }

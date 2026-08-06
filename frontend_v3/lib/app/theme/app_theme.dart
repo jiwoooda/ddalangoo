@@ -34,10 +34,20 @@ abstract final class AppTheme {
           backgroundColor: AppColors.primaryPink,
           foregroundColor: Colors.white,
           minimumSize: const Size.fromHeight(AppSizes.buttonHeight),
+          elevation: AppSurfaceStyles.buttonElevation,
+          shadowColor: AppSurfaceStyles.buttonShadowColor,
+          surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.md),
           ),
           textStyle: AppTextStyles.button,
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          elevation: AppSurfaceStyles.buttonElevation,
+          shadowColor: AppSurfaceStyles.buttonShadowColor,
+          surfaceTintColor: Colors.transparent,
         ),
       ),
       cardTheme: CardThemeData(

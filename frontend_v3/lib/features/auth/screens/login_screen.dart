@@ -72,6 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
         phoneNumber: normalizedPhone,
       );
       await LocalStorage.saveUserId(user.userId);
+      await LocalStorage.saveUserName(user.name);
       if (!mounted) {
         return;
       }
@@ -96,72 +97,101 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return ScreenFrame(
       preset: LayoutPreset.standard,
-      alignment: Alignment.center,
-      scrollable: true,
+      alignment: Alignment.topCenter,
+      scrollable: false,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/images/character/top/ddalangoo_greeting_top.png',
-              height: 220,
-              fit: BoxFit.contain,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('다시 오신 걸 환영해요!', style: AppTextStyles.title1),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              '이름과 전화번호로 로그인할 수 있어요.',
-              textAlign: TextAlign.center,
-              style: AppTextStyles.body2,
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            _AuthField(
-              controller: _nameController,
-              hintText: '이름',
-              textInputAction: TextInputAction.next,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            _AuthField(
-              controller: _phoneController,
-              hintText: '전화번호',
-              keyboardType: TextInputType.phone,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _handleLogin(),
-            ),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: AppTextStyles.body2.copyWith(
-                  color: AppColors.primaryPinkDark,
-                  fontWeight: FontWeight.w700,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.lg),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Image.asset(
+                              'assets/images/character/top/ddalangoo_greeting_top.png',
+                              height: 220,
+                              fit: BoxFit.contain,
+                            ),
+                            const SizedBox(height: AppSpacing.lg),
+                            Text('다시 오신 걸 환영해요!', style: AppTextStyles.title1),
+                            const SizedBox(height: AppSpacing.sm),
+                            Text(
+                              '이름과 전화번호로 로그인할 수 있어요.',
+                              textAlign: TextAlign.center,
+                              style: AppTextStyles.body2,
+                            ),
+                            const SizedBox(height: AppSpacing.xl),
+                            _AuthField(
+                              controller: _nameController,
+                              hintText: '이름',
+                              textInputAction: TextInputAction.next,
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            _AuthField(
+                              controller: _phoneController,
+                              hintText: '전화번호',
+                              keyboardType: TextInputType.phone,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _handleLogin(),
+                            ),
+                            if (_errorMessage != null) ...[
+                              const SizedBox(height: AppSpacing.md),
+                              Text(
+                                _errorMessage!,
+                                textAlign: TextAlign.center,
+                                style: AppTextStyles.body2.copyWith(
+                                  color: AppColors.primaryPinkDark,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: AppSpacing.xl),
+                            PrimaryButton(
+                              label: _isLoading ? '로그인 중...' : '로그인',
+                              onPressed: _isLoading ? null : _handleLogin,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '처음이시라면?',
+                              style: AppTextStyles.body2.copyWith(
+                                color: AppColors.textMuted,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            SecondaryButton(
+                              label: '회원가입',
+                              onPressed: _isLoading
+                                  ? null
+                                  : () => Navigator.of(
+                                      context,
+                                    ).pushNamed(AppRoutes.register),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
-            const SizedBox(height: AppSpacing.xl),
-            PrimaryButton(
-              label: _isLoading ? '로그인 중...' : '로그인',
-              onPressed: _isLoading ? null : _handleLogin,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              '처음이시라면?',
-              style: AppTextStyles.body2.copyWith(
-                color: AppColors.textMuted,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            SecondaryButton(
-              label: '회원가입하러 가기',
-              onPressed: _isLoading
-                  ? null
-                  : () => Navigator.of(context).pushNamed(AppRoutes.register),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );

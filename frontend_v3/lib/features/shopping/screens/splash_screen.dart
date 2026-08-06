@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/routes.dart';
-import '../../../core/storage/local_storage.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
@@ -11,7 +10,9 @@ import '../widgets/splash_logo_block.dart';
 import '../widgets/splash_message_block.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  const SplashScreen({super.key, this.useMockFlow = false});
+
+  final bool useMockFlow;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -38,13 +39,9 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _scheduleNavigation() async {
     await Future<void>.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    final isLoggedIn = await LocalStorage.isLoggedIn();
-    if (!mounted) {
-      return;
-    }
-    Navigator.of(
-      context,
-    ).pushReplacementNamed(isLoggedIn ? AppRoutes.home : AppRoutes.onboarding);
+    Navigator.of(context).pushReplacementNamed(
+      widget.useMockFlow ? AppRoutes.onboardingMock : AppRoutes.onboarding,
+    );
   }
 
   @override
