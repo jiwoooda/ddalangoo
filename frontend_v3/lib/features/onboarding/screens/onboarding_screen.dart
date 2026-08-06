@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/routes.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../shopping/screens/smalltalk_screen.dart';
 import '../../../shared/layout/bottom_cta_layout.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';

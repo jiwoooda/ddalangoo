@@ -21,12 +21,14 @@ class PurchaseHistoryLoadingScreen extends StatefulWidget {
   const PurchaseHistoryLoadingScreen({
     super.key,
     this.userName,
+    this.useMockFlow = false,
     this.onCompleted,
     this.nextRouteName = AppRoutes.home,
     this.postLoadDelay = const Duration(milliseconds: 1500),
   });
 
   final String? userName;
+  final bool useMockFlow;
   final VoidCallback? onCompleted;
   final String nextRouteName;
   final Duration postLoadDelay;
@@ -63,7 +65,11 @@ class _PurchaseHistoryLoadingScreenState
   @override
   void initState() {
     super.initState();
-    unawaited(_runLoadFlow());
+    if (widget.useMockFlow) {
+      unawaited(_runMockLoadFlow());
+    } else {
+      unawaited(_runLoadFlow());
+    }
   }
 
   @override
@@ -126,6 +132,48 @@ class _PurchaseHistoryLoadingScreenState
         _progressLabel = '다시 확인 필요';
       });
     }
+  }
+
+  Future<void> _runMockLoadFlow() async {
+    setState(() {
+      _resolvedUserNameValue = widget.userName?.trim();
+      _isAccessibilityConnected = true;
+      _statusMessage = '지난 주문 내역을 불러오고 있어요.';
+      _helperMessage = '최근 구매한 상품을 정리해서 보여드릴게요.';
+      _progressLabel = '불러오는 중';
+      _isLoading = true;
+    });
+
+    await Future<void>.delayed(const Duration(milliseconds: 850));
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+      _progressLabel = '3개 항목 준비 완료';
+      _statusMessage = '저장된 구매 이력을 불러왔어요.';
+      _helperMessage = '이전 주문 내역을 홈 화면에서 다시 확인할 수 있어요.';
+      _previewItems = [
+        _buildPreview(
+          productName: '대추방울토마토 750g',
+          subtitle: '컬리 8,900원',
+          caption: '최근 주문',
+        ),
+        _buildPreview(
+          productName: '국내산 삼겹살 1kg',
+          subtitle: '쿠팡 27,900원',
+          caption: '다시 구매 가능',
+        ),
+        _buildPreview(
+          productName: '유기농 찰토마토 900g',
+          subtitle: '네이버 12,900원',
+          caption: '자주 본 상품',
+        ),
+      ];
+    });
+
+    _scheduleCompletion();
   }
 
   void _startAutomationPolling({required int userId}) {

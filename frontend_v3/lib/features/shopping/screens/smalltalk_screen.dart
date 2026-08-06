@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../app/routes.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../core/storage/local_storage.dart';
@@ -13,14 +15,18 @@ import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
-import '../../../shared/widgets/primary_button.dart';
 import '../../../shared/widgets/voice_input_button.dart';
 import '../../platform_check/screens/platform_check_screen.dart';
 
 class SmallTalkScreen extends StatefulWidget {
-  const SmallTalkScreen({super.key, this.messages = _defaultMessages});
+  const SmallTalkScreen({
+    super.key,
+    this.messages = _defaultMessages,
+    this.useMockFlow = false,
+  });
 
   final List<SmallTalkMessage> messages;
+  final bool useMockFlow;
 
   static const _defaultMessages = <SmallTalkMessage>[
     SmallTalkMessage(
@@ -37,8 +43,6 @@ class SmallTalkScreen extends StatefulWidget {
 class _SmallTalkScreenState extends State<SmallTalkScreen> {
   final VoiceService _voiceService = VoiceService.instance;
   final UserRepository _userRepository = UserRepository();
-  final TextEditingController _nameController = TextEditingController();
-  final FocusNode _nameFocusNode = FocusNode();
 
   int _currentIndex = 0;
   bool _isRecording = false;
@@ -49,6 +53,11 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
   String? _transcriptPreview;
 
   bool get _isLastMessage => _currentIndex == widget.messages.length - 1;
+  VoiceInputState get _voiceInputState => _isRecording
+      ? VoiceInputState.listening
+      : (_isSubmitting || _isSpeaking
+            ? VoiceInputState.inactive
+            : VoiceInputState.active);
 
   @override
   void initState() {
@@ -62,8 +71,6 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
     if (_isRecording) {
       unawaited(_voiceService.cancelRecording());
     }
-    _nameController.dispose();
-    _nameFocusNode.dispose();
     super.dispose();
   }
 
@@ -141,7 +148,7 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
       }
       setState(() {
         _isRecording = false;
-        _errorMessage = '마이크를 시작하지 못했어요. 입력창으로 이름을 적어주세요.';
+        _errorMessage = '마이크를 시작하지 못했어요. 다시 한 번 말씀해주세요.';
       });
     }
   }
@@ -160,15 +167,11 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
       }
       if (trimmed.isEmpty) {
         setState(() {
-          _errorMessage = '이름을 잘 듣지 못했어요. 한 번 더 말씀하시거나 입력창에 적어주세요.';
+          _errorMessage = '이름을 잘 듣지 못했어요. 한 번 더 말씀해주세요.';
         });
         return;
       }
 
-      _nameController.text = trimmed;
-      _nameController.selection = TextSelection.fromPosition(
-        TextPosition(offset: _nameController.text.length),
-      );
       setState(() => _transcriptPreview = trimmed);
       await _submitName(trimmed);
     } catch (_) {
@@ -176,17 +179,63 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
         return;
       }
       setState(() {
-        _errorMessage = '음성 인식 중 문제가 생겼어요. 입력창으로 이름을 적어주세요.';
+        _errorMessage = '음성 인식 중 문제가 생겼어요. 다시 한 번 말씀해주세요.';
       });
     }
   }
 
-  Future<void> _submitTypedName() async {
-    await _submitName(_nameController.text.trim());
+  String _normalizeSubmittedName(String rawName) {
+    var normalized = rawName.trim();
+    if (normalized.isEmpty) {
+      return normalized;
+    }
+
+    normalized = normalized.replaceAll(RegExp(r'[\"“”‘’]'), '');
+    normalized = normalized.replaceAll(RegExp(r'[.!?,]'), '').trim();
+
+    final patterns = <RegExp>[
+      RegExp(r'^(?:제|저|내)\s*이름은\s*(.+)$'),
+      RegExp(r'^이름은\s*(.+)$'),
+      RegExp(r'^(?:저는|나는|전)\s*(.+)$'),
+    ];
+
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(normalized);
+      if (match != null) {
+        normalized = match.group(1)?.trim() ?? normalized;
+        break;
+      }
+    }
+
+    normalized = normalized.replaceFirst(
+      RegExp(r'(?:입니다|이에요|예요)$'),
+      '',
+    );
+
+    if (rawName.contains('나는') ||
+        rawName.contains('저는') ||
+        rawName.contains('이름은')) {
+      normalized = normalized.replaceFirst(RegExp(r'(?:이야|야)$'), '');
+    }
+
+    return normalized.trim();
+  }
+
+  Future<void> _submitExampleReply(String utterance) async {
+    if (_isSubmitting || _isRecording || _isSpeaking) {
+      return;
+    }
+
+    setState(() {
+      _errorMessage = null;
+      _transcriptPreview = utterance;
+    });
+
+    await _submitName(utterance);
   }
 
   Future<void> _submitName(String rawName) async {
-    final name = rawName.trim();
+    final name = _normalizeSubmittedName(rawName);
     if (name.isEmpty || _isSubmitting) {
       return;
     }
@@ -197,8 +246,14 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
     });
 
     try {
-      final user = await _userRepository.createUser(name: name);
-      await LocalStorage.saveUserId(user.userId);
+      if (widget.useMockFlow) {
+        await LocalStorage.clearUserId();
+        await LocalStorage.saveUserName(name);
+      } else {
+        final user = await _userRepository.createUser(name: name);
+        await LocalStorage.saveUserId(user.userId);
+        await LocalStorage.saveUserName(user.name);
+      }
 
       if (!mounted) {
         return;
@@ -214,12 +269,16 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
           setState(() => _isSpeaking = false);
         }
       }
+
       if (!mounted) {
         return;
       }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
-          builder: (_) => PlatformCheckScreen(userName: name),
+          builder: (_) => PlatformCheckScreen(
+            userName: name,
+            useMockFlow: widget.useMockFlow,
+          ),
         ),
       );
     } catch (error) {
@@ -239,97 +298,144 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
   @override
   Widget build(BuildContext context) {
     final currentMessage = widget.messages[_currentIndex];
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
     return ScreenFrame(
       preset: LayoutPreset.conversation,
-      child: Column(
-        children: [
-          Row(
-            children: [
-              _BackButton(onPressed: () => Navigator.of(context).maybePop()),
-              const Spacer(),
-              EndConversationButton(
-                compact: true,
-                onPressed: () => Navigator.of(context).maybePop(),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Expanded(
-            child: Column(
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 820;
+            final characterHeight = _isLastMessage
+                ? (compact ? 280.0 : 330.0)
+                : (compact ? 360.0 : 420.0);
+            final bubbleMinHeight = compact ? 150.0 : 172.0;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Align(
+                  alignment: Alignment.topRight,
+                  child: EndConversationButton(
+                    compact: true,
+                    onPressed: () {
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                        AppRoutes.home,
+                        (route) => false,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
                 DialogueBubble(
                   contentKey: ValueKey('message-$_currentIndex'),
                   animateTextChanges: true,
                   text: currentMessage.text,
                   highlightedWords: currentMessage.highlightWords,
+                  minHeight: bubbleMinHeight,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: AppSpacing.lg,
+                    vertical: compact ? AppSpacing.lg : AppSpacing.xl,
+                  ),
                   style: AppTextStyles.title2.copyWith(
                     color: AppColors.textStrong,
                     height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xxl),
-                Expanded(
-                  child: Center(
-                    child: Image.asset(
-                      'assets/images/character/full/ddalangoo_smalltalk.png',
-                      height: 280,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (_isLastMessage) ...[
-            if (_transcriptPreview != null &&
-                _transcriptPreview!.isNotEmpty) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(AppRadii.lg),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Text(
-                  '음성 인식: ${_transcriptPreview!}',
-                  style: AppTextStyles.body2.copyWith(
-                    color: AppColors.textPrimary,
+                    fontSize: compact ? 24 : 26,
                     fontWeight: FontWeight.w700,
                   ),
+                  emphasizedStyle: AppTextStyles.title2.copyWith(
+                    color: AppColors.primaryPinkDark,
+                    height: 1.35,
+                    fontSize: compact ? 24 : 26,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-            _NameComposer(
-              controller: _nameController,
-              focusNode: _nameFocusNode,
-              enabled: !_isSubmitting && !_isRecording,
-              onSubmitted: _submitTypedName,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            PrimaryButton(
-              label: _isSubmitting ? '확인 중...' : '이 이름으로 시작하기',
-              onPressed: _isSubmitting || _isRecording
-                  ? null
-                  : _submitTypedName,
-            ),
-            const SizedBox(height: AppSpacing.md),
-          ],
-          if (_errorMessage != null) ...[
-            _ErrorText(message: _errorMessage!),
-            const SizedBox(height: AppSpacing.md),
-          ],
-          VoiceInputButton(
-            state: _isRecording
-                ? VoiceInputState.listening
-                : (_isSubmitting || _isSpeaking
-                      ? VoiceInputState.inactive
-                      : VoiceInputState.active),
-            onPressed: _toggleRecording,
-          ),
-        ],
+                const SizedBox(height: AppSpacing.lg),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, bodyConstraints) {
+                      return SingleChildScrollView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        physics: const ClampingScrollPhysics(),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: bodyConstraints.maxHeight,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: _isLastMessage
+                                ? MainAxisAlignment.start
+                                : MainAxisAlignment.end,
+                            children: [
+                              Center(
+                                child: Image.asset(
+                                  'assets/images/character/full/ddalangoo_smalltalk.png',
+                                  height: characterHeight,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                              if (_isLastMessage) ...[
+                                const SizedBox(height: AppSpacing.lg),
+                                Text(
+                                  '성함을 말씀하시거나 아래에 적어주세요.',
+                                  textAlign: TextAlign.center,
+                                  style: AppTextStyles.body2.copyWith(
+                                    color: AppColors.textMuted,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (_transcriptPreview != null &&
+                                    _transcriptPreview!.isNotEmpty) ...[
+                                  const SizedBox(height: AppSpacing.sm),
+                                  Text(
+                                    '듣고 있는 이름: ${_transcriptPreview!}',
+                                    textAlign: TextAlign.center,
+                                    style: AppTextStyles.caption.copyWith(
+                                      color: AppColors.primaryPinkDark,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: AppSpacing.md),
+                                _NameComposer(
+                                  controller: _nameController,
+                                  focusNode: _nameFocusNode,
+                                  enabled: !_isSubmitting && !_isRecording,
+                                  onSubmitted: _submitTypedName,
+                                ),
+                                const SizedBox(height: AppSpacing.md),
+                                PrimaryButton(
+                                  label: _isSubmitting
+                                      ? '확인 중...'
+                                      : '이 이름으로 시작하기',
+                                  onPressed: _isSubmitting || _isRecording
+                                      ? null
+                                      : _submitTypedName,
+                                ),
+                                const SizedBox(height: AppSpacing.md),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (_errorMessage != null) ...[
+                  _ErrorText(message: _errorMessage!),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                _SmallTalkVoicePanel(
+                  state: _voiceInputState,
+                  onPressed: _toggleRecording,
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -345,28 +451,34 @@ class SmallTalkMessage {
   final List<String> highlightWords;
 }
 
-class _BackButton extends StatelessWidget {
-  const _BackButton({required this.onPressed});
+class _SmallTalkVoicePanel extends StatelessWidget {
+  const _SmallTalkVoicePanel({required this.state, required this.onPressed});
 
+  final VoiceInputState state;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onPressed,
-      borderRadius: BorderRadius.circular(AppRadii.pill),
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceMuted,
-          borderRadius: BorderRadius.circular(AppRadii.pill),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: const Icon(
-          Icons.arrow_back_ios_new_rounded,
-          size: 18,
-          color: AppColors.textPrimary,
+    final backgroundColor = state == VoiceInputState.inactive
+        ? const Color(0xFFF7F7FA)
+        : AppColors.pastelPinkSoft;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      width: double.infinity,
+      height: 126,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      decoration: AppSurfaceStyles.elevatedCard(
+        radius: AppRadii.xl,
+        color: backgroundColor,
+      ),
+      child: Center(
+        child: VoiceInputButton(
+          state: state,
+          onPressed: onPressed,
+          diameter: 72,
+          iconSize: 34,
+          labelSpacing: 6,
         ),
       ),
     );

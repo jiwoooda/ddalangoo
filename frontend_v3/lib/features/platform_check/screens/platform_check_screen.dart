@@ -12,12 +12,14 @@ import '../../../shared/layout/app_layout.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/widgets/bottom_status_banner.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
+import '../../shopping/screens/purchase_history_loading_screen.dart';
 import '../services/platform_check_service.dart';
 
 class PlatformCheckScreen extends StatefulWidget {
   const PlatformCheckScreen({
     super.key,
     this.userName,
+    this.useMockFlow = false,
     this.onClosePressed,
     this.onCompleted,
     this.autoCompleteAfter = const Duration(milliseconds: 2200),
@@ -26,6 +28,7 @@ class PlatformCheckScreen extends StatefulWidget {
   });
 
   final String? userName;
+  final bool useMockFlow;
   final VoidCallback? onClosePressed;
   final VoidCallback? onCompleted;
   final Duration? autoCompleteAfter;
@@ -105,8 +108,12 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     super.initState();
     _startedAt = DateTime.now();
     _controller.forward();
-    unawaited(_loadPlatformCheckData());
-    _startStatusPolling();
+    if (widget.useMockFlow) {
+      unawaited(_runMockFlow());
+    } else {
+      unawaited(_loadPlatformCheckData());
+      _startStatusPolling();
+    }
   }
 
   @override
@@ -141,7 +148,55 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
       return;
     }
 
+    if (widget.userName?.trim().isNotEmpty == true || widget.useMockFlow) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => PurchaseHistoryLoadingScreen(
+            userName: _resolvedUserName,
+            useMockFlow: widget.useMockFlow,
+            nextRouteName: widget.nextRouteName,
+          ),
+        ),
+      );
+      return;
+    }
+
     Navigator.of(context).pushReplacementNamed(widget.nextRouteName);
+  }
+
+  Future<void> _runMockFlow() async {
+    await Future<void>.delayed(const Duration(milliseconds: 450));
+    if (!mounted) {
+      return;
+    }
+
+    final resolvedPlatforms = widget.supportedPlatforms
+        .map(
+          (platform) => platform.copyWith(
+            isInstalled: const {
+              'naver',
+              'coupang',
+              'kurly',
+            }.contains(platform.id),
+          ),
+        )
+        .toList(growable: false);
+
+    final installedCount = resolvedPlatforms
+        .where((platform) => platform.isInstalled)
+        .length;
+
+    setState(() {
+      _resolvedUserNameValue = widget.userName?.trim();
+      _platforms = resolvedPlatforms;
+      _isAccessibilityConnected = true;
+      _automationLastMessage = '사용 가능한 쇼핑 앱을 정리했어요.';
+      _lastDetectedPlatformLabel = '네이버';
+      _isScanning = false;
+      _statusHint = '$installedCount개의 쇼핑 앱을 확인했어요.';
+    });
+
+    _scheduleCompletionWithMinimumDisplay();
   }
 
   Future<void> _loadPlatformCheckData() async {

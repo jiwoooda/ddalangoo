@@ -36,7 +36,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadHomeData() async {
     try {
       final cachedUserName = await LocalStorage.getUserName();
-      if (mounted && cachedUserName != null && cachedUserName.trim().isNotEmpty) {
+      if (mounted &&
+          cachedUserName != null &&
+          cachedUserName.trim().isNotEmpty) {
         setState(() {
           _userName = cachedUserName.trim();
         });
@@ -160,9 +162,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                         TextButton(
                                           onPressed: () {
-                                            Navigator.of(
-                                              context,
-                                            ).pushNamed(AppRoutes.flowEntryMock);
+                                            Navigator.of(context).pushNamed(
+                                              AppRoutes.flowEntryMock,
+                                            );
                                           },
                                           style: TextButton.styleFrom(
                                             padding: const EdgeInsets.symmetric(
