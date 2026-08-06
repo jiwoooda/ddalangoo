@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'app_radii.dart';
 import 'app_sizes.dart';
+import 'app_surface_styles.dart';
 import 'app_text_styles.dart';
 
 abstract final class AppTheme {
@@ -45,7 +46,10 @@ abstract final class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadii.lg),
-          side: const BorderSide(color: AppColors.border),
+          side: const BorderSide(
+            color: AppSurfaceStyles.standardOutlineColor,
+            width: AppSurfaceStyles.thinOutlineWidth,
+          ),
         ),
       ),
     );

@@ -29,11 +29,11 @@ class EndConversationButton extends StatelessWidget {
     final textColor = isDark
         ? AppColors.primaryPinkDark
         : AppColors.textPrimary;
-    final minimumSize = compact ? const Size(108, 44) : const Size(132, 52);
+    final minimumSize = compact ? const Size(100, 42) : const Size(132, 52);
     final padding = compact
         ? const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.xs,
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xxs,
           )
         : const EdgeInsets.symmetric(
             horizontal: AppSpacing.lg,

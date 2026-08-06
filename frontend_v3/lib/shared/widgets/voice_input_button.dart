@@ -9,14 +9,22 @@ enum VoiceInputState { inactive, active, listening }
 class VoiceInputButton extends StatefulWidget {
   const VoiceInputButton({
     super.key,
-    required this.label,
     required this.state,
     required this.onPressed,
+    this.activeLabel = '말씀해주세요',
+    this.inactiveLabel = '딸랑구가 말하고 있어요',
+    this.diameter = 104,
+    this.iconSize = 44,
+    this.labelSpacing = AppSpacing.md,
   });
 
-  final String label;
   final VoiceInputState state;
   final VoidCallback onPressed;
+  final String activeLabel;
+  final String inactiveLabel;
+  final double diameter;
+  final double iconSize;
+  final double labelSpacing;
 
   @override
   State<VoiceInputButton> createState() => _VoiceInputButtonState();
@@ -62,6 +70,7 @@ class _VoiceInputButtonState extends State<VoiceInputButton>
   @override
   Widget build(BuildContext context) {
     final isInactive = widget.state == VoiceInputState.inactive;
+    final isInteractive = !isInactive;
     final baseColor = isInactive
         ? AppColors.surfaceMuted
         : AppColors.primaryPink;
@@ -69,6 +78,9 @@ class _VoiceInputButtonState extends State<VoiceInputButton>
     final labelColor = isInactive
         ? AppColors.textMuted
         : AppColors.primaryPinkDark;
+    final resolvedLabel = isInactive
+        ? widget.inactiveLabel
+        : widget.activeLabel;
 
     return AnimatedBuilder(
       animation: _pulseController,
@@ -80,7 +92,9 @@ class _VoiceInputButtonState extends State<VoiceInputButton>
             : 1.0;
         final glowAlpha = widget.state == VoiceInputState.listening
             ? 0.30
-            : 0.20;
+            : widget.state == VoiceInputState.active
+            ? 0.20
+            : 0.0;
 
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -88,33 +102,33 @@ class _VoiceInputButtonState extends State<VoiceInputButton>
             Transform.scale(
               scale: scale,
               child: GestureDetector(
-                onTap: widget.onPressed,
+                onTap: isInteractive ? widget.onPressed : null,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 220),
-                  width: 104,
-                  height: 104,
+                  width: widget.diameter,
+                  height: widget.diameter,
                   decoration: BoxDecoration(
                     color: baseColor,
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
                         color: baseColor.withValues(alpha: glowAlpha),
-                        blurRadius: 26,
+                        blurRadius: widget.diameter * 0.25,
                         offset: const Offset(0, 12),
                       ),
                     ],
                   ),
                   child: Icon(
                     Icons.mic_rounded,
-                    size: 44,
+                    size: widget.iconSize,
                     color: foregroundColor,
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
+            SizedBox(height: widget.labelSpacing),
             Text(
-              widget.label,
+              resolvedLabel,
               style: AppTextStyles.body2.copyWith(
                 fontWeight: FontWeight.w700,
                 color: labelColor,

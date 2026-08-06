@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_radii.dart';
 import '../../app/theme/app_spacing.dart';
+import '../../app/theme/app_surface_styles.dart';
 import '../../app/theme/app_text_styles.dart';
 
 class DialogueSegment {
@@ -26,9 +27,12 @@ class DialogueBubble extends StatelessWidget {
     this.emphasizedStyle,
     this.contentKey,
     this.animateTextChanges = false,
-    this.backgroundColor = AppColors.surface,
-    this.borderColor = AppColors.border,
+    this.backgroundColor = Colors.white,
+    this.borderColor,
     this.padding = const EdgeInsets.all(AppSpacing.lg),
+    this.minHeight,
+    this.scrollableContent = false,
+    this.contentAlignment = Alignment.topLeft,
   }) : assert(
          text != null || segments != null,
          'Either text or segments must be provided.',
@@ -44,35 +48,23 @@ class DialogueBubble extends StatelessWidget {
   final Key? contentKey;
   final bool animateTextChanges;
   final Color backgroundColor;
-  final Color borderColor;
+  final Color? borderColor;
   final EdgeInsets padding;
+  final double? minHeight;
+  final bool scrollableContent;
+  final Alignment contentAlignment;
 
   @override
   Widget build(BuildContext context) {
-    final body = _BubbleContainer(
-      tail: tail,
-      backgroundColor: backgroundColor,
-      borderColor: borderColor,
-      padding: padding,
-      child: animateTextChanges
-          ? AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) {
-                return FadeTransition(opacity: animation, child: child);
-              },
-              child: _DialogueText(
-                key: contentKey,
-                text: text,
-                highlightedWords: highlightedWords,
-                segments: segments,
-                textAlign: textAlign,
-                style: style,
-                emphasizedStyle: emphasizedStyle,
-              ),
-            )
-          : _DialogueText(
+    final content = animateTextChanges
+        ? AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            child: _DialogueText(
               key: contentKey,
               text: text,
               highlightedWords: highlightedWords,
@@ -81,9 +73,31 @@ class DialogueBubble extends StatelessWidget {
               style: style,
               emphasizedStyle: emphasizedStyle,
             ),
-    );
+          )
+        : _DialogueText(
+            key: contentKey,
+            text: text,
+            highlightedWords: highlightedWords,
+            segments: segments,
+            textAlign: textAlign,
+            style: style,
+            emphasizedStyle: emphasizedStyle,
+          );
 
-    return body;
+    return _BubbleContainer(
+      tail: tail,
+      backgroundColor: backgroundColor,
+      padding: padding,
+      minHeight: minHeight,
+      contentAlignment: contentAlignment,
+      child: scrollableContent
+          ? SingleChildScrollView(
+              primary: false,
+              physics: const ClampingScrollPhysics(),
+              child: content,
+            )
+          : content,
+    );
   }
 }
 
@@ -197,15 +211,17 @@ class _BubbleContainer extends StatelessWidget {
     required this.child,
     required this.tail,
     required this.backgroundColor,
-    required this.borderColor,
     required this.padding,
+    required this.minHeight,
+    required this.contentAlignment,
   });
 
   final Widget child;
   final DialogueBubbleTail tail;
   final Color backgroundColor;
-  final Color borderColor;
   final EdgeInsets padding;
+  final double? minHeight;
+  final Alignment contentAlignment;
 
   @override
   Widget build(BuildContext context) {
@@ -214,20 +230,14 @@ class _BubbleContainer extends StatelessWidget {
       children: [
         Container(
           width: double.infinity,
+          constraints: BoxConstraints(minHeight: minHeight ?? 0),
           padding: padding,
-          decoration: BoxDecoration(
+          decoration: AppSurfaceStyles.floatingCard(
+            radius: AppRadii.xl,
             color: backgroundColor,
-            borderRadius: BorderRadius.circular(AppRadii.xl),
-            border: Border.all(color: borderColor),
-            boxShadow: const [
-              BoxShadow(
-                color: AppColors.shadow,
-                blurRadius: 18,
-                offset: Offset(0, 10),
-              ),
-            ],
+            boxShadow: AppSurfaceStyles.bubbleShadow,
           ),
-          child: child,
+          child: Align(alignment: contentAlignment, child: child),
         ),
         if (tail != DialogueBubbleTail.none)
           Positioned(
@@ -241,10 +251,7 @@ class _BubbleContainer extends StatelessWidget {
                 height: 16,
                 decoration: BoxDecoration(
                   color: backgroundColor,
-                  border: Border(
-                    right: BorderSide(color: borderColor),
-                    bottom: BorderSide(color: borderColor),
-                  ),
+                  boxShadow: AppSurfaceStyles.bubbleShadow,
                 ),
               ),
             ),

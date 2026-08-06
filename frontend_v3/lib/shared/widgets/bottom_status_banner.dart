@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_radii.dart';
 import '../../app/theme/app_spacing.dart';
+import '../../app/theme/app_surface_styles.dart';
 import '../../app/theme/app_text_styles.dart';
 
 class BottomStatusBanner extends StatelessWidget {
@@ -29,18 +30,7 @@ class BottomStatusBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: padding,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 18,
-            offset: Offset(0, -4),
-          ),
-        ],
-      ),
+      decoration: AppSurfaceStyles.elevatedCard(radius: AppRadii.xl),
       child: Row(
         children: [
           if (characterAssetPath != null)
@@ -51,7 +41,9 @@ class BottomStatusBanner extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.surface,
-                border: Border.all(color: AppColors.border),
+                border: Border.all(
+                  color: AppSurfaceStyles.standardOutlineColor,
+                ),
               ),
               clipBehavior: Clip.antiAlias,
               child: Image.asset(characterAssetPath!, fit: BoxFit.cover),

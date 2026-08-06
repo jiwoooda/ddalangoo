@@ -71,7 +71,7 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
     try {
       await _voiceService.init();
     } catch (_) {}
-    await _speakCurrentMessage();
+    _scheduleCurrentMessageSpeech();
   }
 
   Future<void> _speakCurrentMessage() async {
@@ -98,8 +98,17 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
         return;
       }
       setState(() => _currentIndex = widget.messages.length - 1);
-      await _speakCurrentMessage();
+      _scheduleCurrentMessageSpeech();
     }
+  }
+
+  void _scheduleCurrentMessageSpeech() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      unawaited(_speakCurrentMessage());
+    });
   }
 
   Future<void> _toggleRecording() async {
@@ -109,7 +118,7 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
 
     if (!_isLastMessage) {
       setState(() => _currentIndex = widget.messages.length - 1);
-      await _speakCurrentMessage();
+      _scheduleCurrentMessageSpeech();
       return;
     }
 
@@ -195,7 +204,19 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
         return;
       }
 
-      unawaited(_voiceService.speak('$name님 반가워요. 어떤 쇼핑 앱을 쓰시는지 확인할게요.'));
+      setState(() => _isSpeaking = true);
+      try {
+        await _voiceService.speak('$name님 반가워요. 어떤 쇼핑 앱을 쓰시는지 확인할게요.');
+      } catch (_) {
+        // Voice playback is best-effort.
+      } finally {
+        if (mounted) {
+          setState(() => _isSpeaking = false);
+        }
+      }
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
           builder: (_) => PlatformCheckScreen(userName: name),
@@ -301,14 +322,9 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
             const SizedBox(height: AppSpacing.md),
           ],
           VoiceInputButton(
-            label: _isRecording
-                ? '말씀을 다 하셨으면 다시 눌러주세요'
-                : _isLastMessage
-                ? (_isSpeaking ? '질문을 듣고 있어요' : '이름을 말씀해주세요')
-                : '말씀해주세요',
             state: _isRecording
                 ? VoiceInputState.listening
-                : (_isSubmitting
+                : (_isSubmitting || _isSpeaking
                       ? VoiceInputState.inactive
                       : VoiceInputState.active),
             onPressed: _toggleRecording,

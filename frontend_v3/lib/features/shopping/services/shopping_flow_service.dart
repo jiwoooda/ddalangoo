@@ -4,7 +4,9 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/models/agent_model.dart';
+import '../../../data/models/cart_model.dart';
 import '../../../data/repositories/agent_repository.dart';
+import '../../../data/repositories/cart_repository.dart';
 import '../../../shared/widgets/shopping_progress_stepper.dart';
 import '../models/shopping_flow_models.dart';
 
@@ -22,11 +24,14 @@ class ShoppingFlowService {
   ShoppingFlowService({
     AgentRepository? agentRepository,
     UserRepository? userRepository,
+    CartRepository? cartRepository,
   }) : _agentRepository = agentRepository ?? AgentRepository(),
-       _userRepository = userRepository ?? UserRepository();
+       _userRepository = userRepository ?? UserRepository(),
+       _cartRepository = cartRepository ?? CartRepository();
 
   final AgentRepository _agentRepository;
   final UserRepository _userRepository;
+  final CartRepository _cartRepository;
 
   Future<int> resolveUserId() async {
     final overriddenUserId = _resolveDevUserIdOverride();
@@ -132,6 +137,66 @@ class ShoppingFlowService {
 
   Future<void> cancelConversation(int conversationId) {
     return _agentRepository.cancelConversation(conversationId);
+  }
+
+  Future<List<ShoppingCartItemViewData>> fetchUserCartItems({
+    required int userId,
+    int? conversationId,
+  }) async {
+    final cart = await _cartRepository.getUserCart(userId);
+    return cart.items
+        .map((item) => _cartItemFromResponse(item, cartId: cart.cartId))
+        .toList(growable: false);
+  }
+
+  Future<List<ShoppingCartItemViewData>> updateCartItemQuantity({
+    required int userId,
+    int? conversationId,
+    required ShoppingCartItemViewData item,
+    required int quantity,
+  }) async {
+    final cartId = item.cartId;
+    final cartItemId = item.cartItemId;
+    final productId = item.product.productId;
+
+    if (cartId == null || cartItemId == null || productId == null) {
+      throw StateError('장바구니 수량 조절에 필요한 상품 정보가 부족합니다.');
+    }
+
+    final safeQuantity = quantity < 0 ? 0 : quantity;
+    if (safeQuantity == item.quantity) {
+      return fetchUserCartItems(userId: userId, conversationId: conversationId);
+    }
+
+    if (safeQuantity <= 0) {
+      await _cartRepository.deleteCartItem(
+        cartId: cartId,
+        cartItemId: cartItemId,
+      );
+      return fetchUserCartItems(userId: userId, conversationId: conversationId);
+    }
+
+    if (safeQuantity > item.quantity) {
+      await _cartRepository.addCartItem(
+        cartId: cartId,
+        productId: productId,
+        productOptionId: item.product.productOptionId,
+        quantity: safeQuantity - item.quantity,
+      );
+    } else {
+      await _cartRepository.deleteCartItem(
+        cartId: cartId,
+        cartItemId: cartItemId,
+      );
+      await _cartRepository.addCartItem(
+        cartId: cartId,
+        productId: productId,
+        productOptionId: item.product.productOptionId,
+        quantity: safeQuantity,
+      );
+    }
+
+    return fetchUserCartItems(userId: userId, conversationId: conversationId);
   }
 
   Future<AgentResponse> sendWebviewResult({
@@ -548,6 +613,7 @@ class ShoppingFlowService {
   ) {
     return ShoppingProductViewData(
       recommendationItemId: item.recommendationItemId,
+      productId: item.productId,
       title: item.productName,
       brand: item.brand,
       optionText: item.optionText,
@@ -583,15 +649,23 @@ class ShoppingFlowService {
     }
 
     final items = _listOfMap(cart['items']);
+    final cartId = _intOf(cart['cartId']) ?? _intOf(cart['cart_id']);
     if (items.isEmpty) {
       final lastCartItem = _mapOf(cart['lastCartItem']);
       if (lastCartItem == null) {
         return const <ShoppingCartItemViewData>[];
       }
-      return [_cartItemFromMap(lastCartItem)];
+      return [
+        _cartItemFromMap(<String, dynamic>{'cartId': cartId, ...lastCartItem}),
+      ];
     }
 
-    return items.map(_cartItemFromMap).toList(growable: false);
+    return items
+        .map(
+          (item) =>
+              _cartItemFromMap(<String, dynamic>{'cartId': cartId, ...item}),
+        )
+        .toList(growable: false);
   }
 
   ShoppingAddressViewData? extractAddress(
@@ -749,6 +823,14 @@ class ShoppingFlowService {
       recommendationItemId:
           _intOf(raw['recommendationItemId']) ??
           _intOf(raw['recommendation_item_id']),
+      productId:
+          _intOf(raw['productId']) ??
+          _intOf(raw['product_id']) ??
+          _intOf(rawSource['product_id']),
+      productOptionId:
+          _intOf(raw['productOptionId']) ??
+          _intOf(raw['product_option_id']) ??
+          _intOf(rawSource['product_option_id']),
       title:
           _stringOf(raw['productName']) ??
           _stringOf(raw['product_name']) ??
@@ -791,7 +873,12 @@ class ShoppingFlowService {
     final quantity = _intOf(raw['quantity']) ?? 1;
 
     return ShoppingCartItemViewData(
+      cartId: _intOf(raw['cartId']) ?? _intOf(raw['cart_id']),
+      cartItemId: _intOf(raw['cartItemId']) ?? _intOf(raw['cart_item_id']),
       product: ShoppingProductViewData(
+        productId: _intOf(raw['productId']) ?? _intOf(raw['product_id']),
+        productOptionId:
+            _intOf(raw['productOptionId']) ?? _intOf(raw['product_option_id']),
         title:
             _stringOf(raw['productName']) ??
             _stringOf(raw['product_name']) ??
@@ -809,6 +896,25 @@ class ShoppingFlowService {
           _intOf(raw['totalPrice']) ??
           _intOf(raw['total_price']) ??
           (price == null ? null : price * quantity),
+    );
+  }
+
+  ShoppingCartItemViewData _cartItemFromResponse(
+    CartItemResponse item, {
+    required int? cartId,
+  }) {
+    return ShoppingCartItemViewData(
+      cartId: cartId,
+      cartItemId: item.cartItemId,
+      product: ShoppingProductViewData(
+        productId: item.productId,
+        productOptionId: item.productOptionId,
+        title: item.productName,
+        optionText: item.optionText,
+        price: item.unitPrice,
+      ),
+      quantity: item.quantity,
+      totalPrice: item.totalPrice,
     );
   }
 

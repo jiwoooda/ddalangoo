@@ -81,7 +81,6 @@ class FlowEntryPlaceholderScreen extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xl),
           VoiceInputButton(
-            label: '말씀해주세요',
             state: VoiceInputState.active,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(

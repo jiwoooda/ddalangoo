@@ -10,6 +10,7 @@ import '../../../data/repositories/agent_repository.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/primary_button.dart';
+import '../../../shared/widgets/secondary_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -103,12 +104,12 @@ class _LoginScreenState extends State<LoginScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset(
-              'assets/images/character/full/ddalangoo_happy.png',
+              'assets/images/character/top/ddalangoo_greeting_top.png',
               height: 220,
               fit: BoxFit.contain,
             ),
             const SizedBox(height: AppSpacing.lg),
-            Text('다시 오신 걸 환영해요', style: AppTextStyles.title1),
+            Text('다시 오신 걸 환영해요!', style: AppTextStyles.title1),
             const SizedBox(height: AppSpacing.sm),
             Text(
               '이름과 전화번호로 로그인할 수 있어요.',
@@ -146,17 +147,19 @@ class _LoginScreenState extends State<LoginScreen> {
               onPressed: _isLoading ? null : _handleLogin,
             ),
             const SizedBox(height: AppSpacing.md),
-            TextButton(
+            Text(
+              '처음이시라면?',
+              style: AppTextStyles.body2.copyWith(
+                color: AppColors.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            SecondaryButton(
+              label: '회원가입하러 가기',
               onPressed: _isLoading
                   ? null
                   : () => Navigator.of(context).pushNamed(AppRoutes.register),
-              child: Text(
-                '처음이신가요? 회원가입',
-                style: AppTextStyles.body2.copyWith(
-                  color: AppColors.primaryPinkDark,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
             ),
           ],
         ),
