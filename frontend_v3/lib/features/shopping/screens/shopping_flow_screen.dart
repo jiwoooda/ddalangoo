@@ -742,7 +742,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       case ShoppingFlowViewStage.askProduct:
         return _EmptyStatePanel(
           key: const ValueKey('ask-product'),
-          assetPath: 'assets/images/character/full/ddalangoo_standing.png',
+          assetPath: 'assets/images/character/top/ddalangoo_standing_top.png',
           title: '예시 문장을 눌러 바로 시작할 수도 있어요.',
           caption: '예시 문장과 음성 요청은 같은 쇼핑 대화로 이어집니다.',
         );
@@ -903,7 +903,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                     : _service.extractSelectedProduct(_response!),
               ),
               characterAssetPath:
-                  'assets/images/character/top/ddalangoo_top.png',
+                  'assets/images/character/top/ddalangoo_greeting_top.png',
             ),
           ],
         );

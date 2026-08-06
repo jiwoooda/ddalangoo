@@ -110,7 +110,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset(
-              'assets/images/character/full/ddalangoo_cheerful.png',
+              'assets/images/character/top/ddalangoo_register_top.png',
               height: 220,
               fit: BoxFit.contain,
             ),

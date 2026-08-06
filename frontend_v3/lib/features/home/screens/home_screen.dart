@@ -167,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               SizedBox(height: sectionGap),
                               Center(
                                 child: Image.asset(
-                                  'assets/images/character/top/ddalangoo_greeting.png',
+                                  'assets/images/character/top/ddalangoo_greeting_top.png',
                                   height: imageHeight,
                                   fit: BoxFit.contain,
                                 ),

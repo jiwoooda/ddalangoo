@@ -288,7 +288,7 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
                       position: _bannerOffset,
                       child: BottomStatusBanner(
                         characterAssetPath:
-                            'assets/images/character/top/ddalangoo_top.png',
+                            'assets/images/character/top/ddalangoo_greeting_top.png',
                         message: '$_resolvedUserName님이 사용중인 쇼핑 플랫폼을\n확인하고 있어요!',
                         messageStyle: AppTextStyles.body1.copyWith(
                           color: AppColors.textStrong,
