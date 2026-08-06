@@ -27,7 +27,7 @@ class DialogueBubble extends StatelessWidget {
     this.contentKey,
     this.animateTextChanges = false,
     this.backgroundColor = AppColors.surface,
-    this.borderColor = AppColors.border,
+    this.borderColor,
     this.padding = const EdgeInsets.all(AppSpacing.lg),
   }) : assert(
          text != null || segments != null,
@@ -44,15 +44,17 @@ class DialogueBubble extends StatelessWidget {
   final Key? contentKey;
   final bool animateTextChanges;
   final Color backgroundColor;
-  final Color borderColor;
+  final Color? borderColor;
   final EdgeInsets padding;
 
   @override
   Widget build(BuildContext context) {
+    final resolvedBorderColor =
+        borderColor ?? Theme.of(context).colorScheme.outline;
     final body = _BubbleContainer(
       tail: tail,
       backgroundColor: backgroundColor,
-      borderColor: borderColor,
+      borderColor: resolvedBorderColor,
       padding: padding,
       child: animateTextChanges
           ? AnimatedSwitcher(

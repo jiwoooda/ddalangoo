@@ -1630,6 +1630,8 @@ class _ProductActionArea extends StatelessWidget {
         .where((action) => action.trim().isNotEmpty)
         .toList(growable: false);
     final orderBlockReason = payload['orderBlockReason']?.toString();
+    final showAddToCart = actions.contains('add_to_cart');
+    final showReject = actions.contains('reject');
 
     return Column(
       children: [
@@ -1647,27 +1649,60 @@ class _ProductActionArea extends StatelessWidget {
           ),
         if (actions.contains('order_now'))
           const SizedBox(height: AppSpacing.sm),
-        if (actions.contains('add_to_cart'))
-          SizedBox(
-            width: double.infinity,
-            height: AppSpacing.buttonHeight,
-            child: OutlinedButton(
-              onPressed: isSubmitting
-                  ? null
-                  : () => onActionSelected('add_to_cart'),
-              child: const Text('장바구니에 담기'),
+        if (showAddToCart && showReject)
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: AppSpacing.buttonHeight,
+                  child: OutlinedButton(
+                    onPressed: isSubmitting
+                        ? null
+                        : () => onActionSelected('add_to_cart'),
+                    child: const Text('장바구니에 담기'),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: SizedBox(
+                  height: AppSpacing.buttonHeight,
+                  child: OutlinedButton(
+                    onPressed: isSubmitting
+                        ? null
+                        : () => onActionSelected('reject'),
+                    child: const Text('다른 상품 보기'),
+                  ),
+                ),
+              ),
+            ],
+          )
+        else ...[
+          if (showAddToCart)
+            SizedBox(
+              width: double.infinity,
+              height: AppSpacing.buttonHeight,
+              child: OutlinedButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () => onActionSelected('add_to_cart'),
+                child: const Text('장바구니에 담기'),
+              ),
             ),
-          ),
-        if (actions.contains('add_to_cart'))
-          const SizedBox(height: AppSpacing.sm),
-        SizedBox(
-          width: double.infinity,
-          height: AppSpacing.buttonHeight,
-          child: OutlinedButton(
-            onPressed: isSubmitting ? null : () => onActionSelected('reject'),
-            child: const Text('다른 상품 보기'),
-          ),
-        ),
+          if (showAddToCart && showReject)
+            const SizedBox(height: AppSpacing.sm),
+          if (showReject)
+            SizedBox(
+              width: double.infinity,
+              height: AppSpacing.buttonHeight,
+              child: OutlinedButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () => onActionSelected('reject'),
+                child: const Text('다른 상품 보기'),
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -1721,13 +1756,14 @@ class _ProductRecommendationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final borderColor = Theme.of(context).colorScheme.outline;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1824,13 +1860,14 @@ class _SecondaryRecommendationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final borderColor = Theme.of(context).colorScheme.outline;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: borderColor),
       ),
       child: Row(
         children: [
