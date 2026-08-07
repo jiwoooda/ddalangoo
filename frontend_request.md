@@ -562,3 +562,116 @@ repository/service 정책:
 1. 백엔드가 상품 확정 + 수량 미지정을 `1개 기본값`으로 처리하고
 2. 장바구니 전용 수량 수정 API를 제공하고
 3. 프론트는 그 정책을 그대로 보여주는 역할만 하게 만드는 것이 가장 안정적이다.
+
+---
+
+# Backend/Native Handoff: 플랫폼 확인 화면 진행 상태 값
+
+작성일: 2026-08-07
+
+## 목적
+
+플랫폼 확인 화면에서:
+
+- 상단 카드 = 딸랑구 안내 문구
+- 하단 배너 = 접근성/자동화 진행 상황
+
+처럼 역할을 분리하고 싶다.
+
+프론트는 현재 mock-data로는 진행 상황을 흉내 내고 있다. 하지만 실제 기기에서는 Android accessibility/native 쪽이 아래 상태 값을 내려줘야 더 정확한 진행 로그를 보여줄 수 있다.
+
+## 지금 프론트에서 이미 가능한 것
+
+- 확인된 쇼핑 앱 수
+- 마지막으로 감지한 앱 패키지명
+- 접근성 서비스 연결 여부
+
+즉, 현재도 아래 정도는 표시 가능하다.
+
+- `쇼핑 앱 후보 5개 중 3개 확인`
+- `마지막으로 네이버 앱 확인`
+- `접근성 서비스 연결됨`
+
+하지만 아래 값은 아직 직접 알 수 없다.
+
+- 휴대폰 전체 설치 앱 수
+- 지금까지 전체 앱 몇 개를 스캔했는지
+- 쇼핑 앱 탐색의 현재 단계
+
+## 백엔드/네이티브에서 추가로 내려주면 좋은 값
+
+권장 전달 경로:
+
+- `getAutomationStatus()` 응답에 추가
+
+권장 필드:
+
+```json
+{
+  "serviceConnected": true,
+  "lastMessage": "앱을 살펴보고 있어요.",
+  "lastPackageName": "com.nhn.android.search",
+  "totalInstalledAppCount": 34,
+  "scannedAppCount": 12,
+  "detectedShoppingAppCount": 1,
+  "currentPhase": "inspecting_apps"
+}
+```
+
+## 필드 설명
+
+- `totalInstalledAppCount: int`
+  - 기기에 설치된 전체 앱 수
+  - 예: `34`
+- `scannedAppCount: int`
+  - 현재까지 실제로 살펴본 앱 수
+  - 예: `12`
+- `detectedShoppingAppCount: int`
+  - 현재까지 쇼핑 앱으로 분류된 앱 수
+  - 예: `1`
+- `currentPhase: string`
+  - 현재 단계
+  - 예:
+    - `loading_apps`
+    - `inspecting_apps`
+    - `matching_shopping_apps`
+    - `completed`
+- `lastPackageName: string`
+  - 가장 최근에 확인한 앱 package name
+- `lastMessage: string`
+  - 네이티브/자동화 쪽에서 전달하고 싶은 보조 진행 문구
+
+## 프론트에서 이 값으로 만들고 싶은 UX
+
+예시 문구:
+
+- `김영희님의 폰에 깔린 앱이 총 34개예요.`
+- `앱을 하나씩 살펴보고 있어요.`
+- `34개 앱 중 12개를 살펴봤어요.`
+- `34개 앱 중 3개의 쇼핑 앱이 확인되었어요.`
+- `마지막으로 네이버 앱을 확인했어요.`
+
+즉, "딸랑구가 말하는 배너"가 아니라 "실시간 진행 로그 카드"처럼 쓰고 싶다.
+
+## 프론트 fallback 정책
+
+위 값이 없더라도 화면은 동작해야 한다.
+
+fallback 우선순위:
+
+1. `totalInstalledAppCount`, `scannedAppCount`, `detectedShoppingAppCount`가 있으면 진행 로그 중심으로 표시
+2. 없으면 현재처럼 `지원하는 쇼핑 앱 후보 수 / 확인된 쇼핑 앱 수 / 마지막 감지 앱` 기준으로 표시
+3. 그것도 없으면 정적 안내 문구로 fallback
+
+## 구현 요청 요약
+
+네이티브 또는 백엔드에서 `getAutomationStatus()`에 아래 값들을 추가해주면 좋다.
+
+- `totalInstalledAppCount`
+- `scannedAppCount`
+- `detectedShoppingAppCount`
+- `currentPhase`
+- `lastPackageName`
+- `lastMessage`
+
+이 값들이 있으면 프론트는 플랫폼 확인 화면의 하단 배너를 더 정확한 진행 상태 카드로 바꿔서 보여줄 수 있다.

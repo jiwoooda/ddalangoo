@@ -207,10 +207,7 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
       }
     }
 
-    normalized = normalized.replaceFirst(
-      RegExp(r'(?:입니다|이에요|예요)$'),
-      '',
-    );
+    normalized = normalized.replaceFirst(RegExp(r'(?:입니다|이에요|예요)$'), '');
 
     if (rawName.contains('나는') ||
         rawName.contains('저는') ||
@@ -298,144 +295,137 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
   @override
   Widget build(BuildContext context) {
     final currentMessage = widget.messages[_currentIndex];
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final canTapExampleReplies =
+        !_isSubmitting && !_isSpeaking && !_isRecording;
 
     return ScreenFrame(
       preset: LayoutPreset.conversation,
-      child: AnimatedPadding(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        padding: EdgeInsets.only(bottom: bottomInset),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxHeight < 820;
-            final characterHeight = _isLastMessage
-                ? (compact ? 280.0 : 330.0)
-                : (compact ? 360.0 : 420.0);
-            final bubbleMinHeight = compact ? 150.0 : 172.0;
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxHeight < 820;
+          final characterHeight = _isLastMessage
+              ? (compact ? 280.0 : 330.0)
+              : (compact ? 360.0 : 420.0);
+          final bubbleMinHeight = compact ? 150.0 : 172.0;
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Align(
-                  alignment: Alignment.topRight,
-                  child: EndConversationButton(
-                    compact: true,
-                    onPressed: () {
-                      Navigator.of(context).pushNamedAndRemoveUntil(
-                        AppRoutes.home,
-                        (route) => false,
-                      );
-                    },
-                  ),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: EndConversationButton(
+                  compact: true,
+                  onPressed: () {
+                    Navigator.of(
+                      context,
+                    ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
+                  },
                 ),
-                const SizedBox(height: AppSpacing.md),
-                DialogueBubble(
-                  contentKey: ValueKey('message-$_currentIndex'),
-                  animateTextChanges: true,
-                  text: currentMessage.text,
-                  highlightedWords: currentMessage.highlightWords,
-                  minHeight: bubbleMinHeight,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: compact ? AppSpacing.lg : AppSpacing.xl,
-                  ),
-                  style: AppTextStyles.title2.copyWith(
-                    color: AppColors.textStrong,
-                    height: 1.35,
-                    fontSize: compact ? 24 : 26,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  emphasizedStyle: AppTextStyles.title2.copyWith(
-                    color: AppColors.primaryPinkDark,
-                    height: 1.35,
-                    fontSize: compact ? 24 : 26,
-                    fontWeight: FontWeight.w800,
-                  ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              DialogueBubble(
+                contentKey: ValueKey('message-$_currentIndex'),
+                animateTextChanges: true,
+                text: currentMessage.text,
+                highlightedWords: currentMessage.highlightWords,
+                minHeight: bubbleMinHeight,
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg,
+                  vertical: compact ? AppSpacing.lg : AppSpacing.xl,
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, bodyConstraints) {
-                      return SingleChildScrollView(
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        physics: const ClampingScrollPhysics(),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            minHeight: bodyConstraints.maxHeight,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: _isLastMessage
-                                ? MainAxisAlignment.start
-                                : MainAxisAlignment.end,
-                            children: [
-                              Center(
-                                child: Image.asset(
-                                  'assets/images/character/full/ddalangoo_smalltalk.png',
-                                  height: characterHeight,
-                                  fit: BoxFit.contain,
+                style: AppTextStyles.title2.copyWith(
+                  color: AppColors.textStrong,
+                  height: 1.35,
+                  fontSize: compact ? 24 : 26,
+                  fontWeight: FontWeight.w700,
+                ),
+                emphasizedStyle: AppTextStyles.title2.copyWith(
+                  color: AppColors.primaryPinkDark,
+                  height: 1.35,
+                  fontSize: compact ? 24 : 26,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, bodyConstraints) {
+                    return SingleChildScrollView(
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      physics: const ClampingScrollPhysics(),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: bodyConstraints.maxHeight,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: _isLastMessage
+                              ? MainAxisAlignment.start
+                              : MainAxisAlignment.end,
+                          children: [
+                            Center(
+                              child: Image.asset(
+                                'assets/images/character/full/ddalangoo_smalltalk.png',
+                                height: characterHeight,
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            if (_isLastMessage) ...[
+                              const SizedBox(height: AppSpacing.lg),
+                              Text(
+                                '성함을 말씀해주세요.',
+                                textAlign: TextAlign.center,
+                                style: AppTextStyles.body2.copyWith(
+                                  color: AppColors.textMuted,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              if (_isLastMessage) ...[
-                                const SizedBox(height: AppSpacing.lg),
+                              if (_transcriptPreview != null &&
+                                  _transcriptPreview!.isNotEmpty) ...[
+                                const SizedBox(height: AppSpacing.sm),
                                 Text(
-                                  '성함을 말씀하시거나 아래에 적어주세요.',
+                                  '듣고 있는 이름: ${_transcriptPreview!}',
                                   textAlign: TextAlign.center,
-                                  style: AppTextStyles.body2.copyWith(
-                                    color: AppColors.textMuted,
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: AppColors.primaryPinkDark,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                                if (_transcriptPreview != null &&
-                                    _transcriptPreview!.isNotEmpty) ...[
-                                  const SizedBox(height: AppSpacing.sm),
-                                  Text(
-                                    '듣고 있는 이름: ${_transcriptPreview!}',
-                                    textAlign: TextAlign.center,
-                                    style: AppTextStyles.caption.copyWith(
-                                      color: AppColors.primaryPinkDark,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(height: AppSpacing.md),
-                                _NameComposer(
-                                  controller: _nameController,
-                                  focusNode: _nameFocusNode,
-                                  enabled: !_isSubmitting && !_isRecording,
-                                  onSubmitted: _submitTypedName,
-                                ),
-                                const SizedBox(height: AppSpacing.md),
-                                PrimaryButton(
-                                  label: _isSubmitting
-                                      ? '확인 중...'
-                                      : '이 이름으로 시작하기',
-                                  onPressed: _isSubmitting || _isRecording
-                                      ? null
-                                      : _submitTypedName,
-                                ),
-                                const SizedBox(height: AppSpacing.md),
                               ],
+                              const SizedBox(height: AppSpacing.md),
                             ],
-                          ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
-                if (_errorMessage != null) ...[
-                  _ErrorText(message: _errorMessage!),
-                  const SizedBox(height: AppSpacing.md),
-                ],
-                _SmallTalkVoicePanel(
-                  state: _voiceInputState,
-                  onPressed: _toggleRecording,
-                ),
+              ),
+              if (_errorMessage != null) ...[
+                _ErrorText(message: _errorMessage!),
+                const SizedBox(height: AppSpacing.md),
               ],
-            );
-          },
-        ),
+              _SmallTalkVoicePanel(
+                state: _voiceInputState,
+                onPressed: _toggleRecording,
+                leadingReply: _SmallTalkExampleReply(
+                  label: '내 이름은\n딸랑구',
+                  textAlign: TextAlign.right,
+                  onTap: canTapExampleReplies
+                      ? () => _submitExampleReply('내 이름은 딸랑구')
+                      : null,
+                ),
+                trailingReply: _SmallTalkExampleReply(
+                  label: '나는\n딸랑구야',
+                  textAlign: TextAlign.left,
+                  onTap: canTapExampleReplies
+                      ? () => _submitExampleReply('나는 딸랑구야')
+                      : null,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -452,10 +442,17 @@ class SmallTalkMessage {
 }
 
 class _SmallTalkVoicePanel extends StatelessWidget {
-  const _SmallTalkVoicePanel({required this.state, required this.onPressed});
+  const _SmallTalkVoicePanel({
+    required this.state,
+    required this.onPressed,
+    this.leadingReply,
+    this.trailingReply,
+  });
 
   final VoiceInputState state;
   final VoidCallback onPressed;
+  final Widget? leadingReply;
+  final Widget? trailingReply;
 
   @override
   Widget build(BuildContext context) {
@@ -472,78 +469,74 @@ class _SmallTalkVoicePanel extends StatelessWidget {
         radius: AppRadii.xl,
         color: backgroundColor,
       ),
-      child: Center(
-        child: VoiceInputButton(
-          state: state,
-          onPressed: onPressed,
-          diameter: 72,
-          iconSize: 34,
-          labelSpacing: 6,
-        ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: leadingReply ?? const SizedBox.shrink(),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Center(
+            child: VoiceInputButton(
+              state: state,
+              onPressed: onPressed,
+              diameter: 72,
+              iconSize: 34,
+              labelSpacing: 6,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: trailingReply ?? const SizedBox.shrink(),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _NameComposer extends StatelessWidget {
-  const _NameComposer({
-    required this.controller,
-    required this.focusNode,
-    required this.enabled,
-    required this.onSubmitted,
+class _SmallTalkExampleReply extends StatelessWidget {
+  const _SmallTalkExampleReply({
+    required this.label,
+    required this.textAlign,
+    this.onTap,
   });
 
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final bool enabled;
-  final VoidCallback onSubmitted;
+  final String label;
+  final TextAlign textAlign;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.edit_rounded, color: AppColors.textMuted),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              enabled: enabled,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => onSubmitted(),
-              decoration: InputDecoration(
-                hintText: '이름을 입력해주세요',
-                border: InputBorder.none,
-                hintStyle: AppTextStyles.body2,
-              ),
-              style: AppTextStyles.body1.copyWith(color: AppColors.textStrong),
+    final isEnabled = onTap != null;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.xs,
+            vertical: AppSpacing.xxs,
+          ),
+          child: Text(
+            '"$label"',
+            textAlign: textAlign,
+            maxLines: 2,
+            style: AppTextStyles.caption.copyWith(
+              color: isEnabled
+                  ? AppColors.primaryPinkDark
+                  : AppColors.primaryPinkDark.withValues(alpha: 0.45),
+              fontWeight: FontWeight.w400,
+              height: 1.35,
             ),
           ),
-          const SizedBox(width: AppSpacing.sm),
-          InkWell(
-            onTap: enabled ? onSubmitted : null,
-            borderRadius: BorderRadius.circular(AppRadii.pill),
-            child: Container(
-              width: 42,
-              height: 42,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.primaryPink,
-              ),
-              child: const Icon(
-                Icons.arrow_forward_rounded,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
