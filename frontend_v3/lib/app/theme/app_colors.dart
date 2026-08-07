@@ -9,6 +9,8 @@ abstract final class AppColors {
   static const primaryPink = Color(0xFFFF5C93);
   static const primaryPinkDark = Color(0xFFE83D7A);
   static const secondaryPink = Color(0xFFFFD6E5);
+  static const pastelPinkSoft = Color(0xFFFFF3F8);
+  static const midLayerRose = Color(0xFFA48792);
 
   static const textStrong = Color(0xFF222222);
   static const textPrimary = Color(0xFF333333);

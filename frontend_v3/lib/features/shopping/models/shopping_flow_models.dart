@@ -16,6 +16,8 @@ enum ShoppingFlowViewStage {
 class ShoppingProductViewData {
   const ShoppingProductViewData({
     this.recommendationItemId,
+    this.productId,
+    this.productOptionId,
     required this.title,
     this.brand,
     this.optionText,
@@ -31,6 +33,8 @@ class ShoppingProductViewData {
   });
 
   final int? recommendationItemId;
+  final int? productId;
+  final int? productOptionId;
   final String title;
   final String? brand;
   final String? optionText;
@@ -65,14 +69,21 @@ class ShoppingProductViewData {
 
 class ShoppingCartItemViewData {
   const ShoppingCartItemViewData({
+    this.cartId,
+    this.cartItemId,
     required this.product,
     required this.quantity,
     this.totalPrice,
   });
 
+  final int? cartId;
+  final int? cartItemId;
   final ShoppingProductViewData product;
   final int quantity;
   final int? totalPrice;
+
+  bool get canAdjustQuantity =>
+      cartId != null && cartItemId != null && product.productId != null;
 
   String get displayTotalPrice {
     final effectivePrice =
@@ -84,6 +95,22 @@ class ShoppingCartItemViewData {
       return product.displayPrice;
     }
     return '${formatPrice(effectivePrice)}원';
+  }
+
+  ShoppingCartItemViewData copyWith({
+    int? cartId,
+    int? cartItemId,
+    ShoppingProductViewData? product,
+    int? quantity,
+    int? totalPrice,
+  }) {
+    return ShoppingCartItemViewData(
+      cartId: cartId ?? this.cartId,
+      cartItemId: cartItemId ?? this.cartItemId,
+      product: product ?? this.product,
+      quantity: quantity ?? this.quantity,
+      totalPrice: totalPrice ?? this.totalPrice,
+    );
   }
 }
 

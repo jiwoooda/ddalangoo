@@ -11,11 +11,13 @@ class ShoppingProgressStepper extends StatelessWidget {
     required this.currentStep,
     this.completedSteps = const <ShoppingProgressStep>{},
     this.showCompletedCheck = true,
+    this.compact = false,
   });
 
   final ShoppingProgressStep currentStep;
   final Set<ShoppingProgressStep> completedSteps;
   final bool showCompletedCheck;
+  final bool compact;
 
   static const _labels = <ShoppingProgressStep, String>{
     ShoppingProgressStep.productCheck: '상품 확인',
@@ -24,9 +26,27 @@ class ShoppingProgressStepper extends StatelessWidget {
     ShoppingProgressStep.payment: '결제하기',
   };
 
+  static const _compactLabels = <ShoppingProgressStep, String>{
+    ShoppingProgressStep.productCheck: '상품 확인',
+    ShoppingProgressStep.productSelection: '상품 선택',
+    ShoppingProgressStep.addToCart: '장바구니',
+    ShoppingProgressStep.payment: '결제',
+  };
+
   @override
   Widget build(BuildContext context) {
     final steps = ShoppingProgressStep.values;
+    final connectorTopPadding = compact ? 8.0 : 10.0;
+    final connectorHorizontalMargin = compact ? 2.0 : 6.0;
+    final stepWidth = compact ? 56.0 : 76.0;
+    final indicatorSize = compact ? 20.0 : 22.0;
+    final indicatorBorderWidth = compact ? 2.5 : 3.0;
+    final completedIndicatorBorderWidth = compact ? 1.75 : 2.0;
+    final labelSpacing = compact ? AppSpacing.xxs : AppSpacing.xs;
+    final labelHeight = compact ? 15.0 : 16.0;
+    final labelFontSize = compact ? 11.0 : 13.0;
+    final checkIconSize = compact ? 12.0 : 14.0;
+    final labels = compact ? _compactLabels : _labels;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -39,10 +59,12 @@ class ShoppingProgressStepper extends StatelessWidget {
               connectorIndex < currentStep.index;
           return Expanded(
             child: Padding(
-              padding: const EdgeInsets.only(top: 10),
+              padding: EdgeInsets.only(top: connectorTopPadding),
               child: Container(
                 height: 3,
-                margin: const EdgeInsets.symmetric(horizontal: 6),
+                margin: EdgeInsets.symmetric(
+                  horizontal: connectorHorizontalMargin,
+                ),
                 decoration: BoxDecoration(
                   color: isActiveConnector
                       ? AppColors.primaryPink.withValues(alpha: 0.78)
@@ -60,13 +82,13 @@ class ShoppingProgressStepper extends StatelessWidget {
             completedSteps.contains(step) || step.index < currentStep.index;
 
         return SizedBox(
-          width: 76,
+          width: stepWidth,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 22,
-                height: 22,
+                width: indicatorSize,
+                height: indicatorSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: isCompleted ? AppColors.primaryPink : Colors.white,
@@ -74,24 +96,30 @@ class ShoppingProgressStepper extends StatelessWidget {
                     color: isCompleted || isCurrent
                         ? AppColors.primaryPink
                         : AppColors.border,
-                    width: isCurrent ? 3 : 2,
+                    width: isCurrent
+                        ? indicatorBorderWidth
+                        : completedIndicatorBorderWidth,
                   ),
                 ),
                 child: isCompleted && showCompletedCheck
-                    ? const Icon(Icons.check, size: 14, color: Colors.white)
+                    ? Icon(
+                        Icons.check,
+                        size: checkIconSize,
+                        color: Colors.white,
+                      )
                     : null,
               ),
-              const SizedBox(height: AppSpacing.xs),
+              SizedBox(height: labelSpacing),
               SizedBox(
-                height: 16,
+                height: labelHeight,
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
-                    _labels[step]!,
+                    labels[step]!,
                     maxLines: 1,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: labelFontSize,
                       height: 1.1,
                       fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
                       color: isCurrent

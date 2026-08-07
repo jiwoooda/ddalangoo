@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/routes.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../shopping/screens/smalltalk_screen.dart';
 import '../../../shared/layout/bottom_cta_layout.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
@@ -10,7 +11,9 @@ import '../widgets/onboarding_indicator.dart';
 import '../widgets/onboarding_page_card.dart';
 
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({super.key});
+  const OnboardingScreen({super.key, this.useMockFlow = false});
+
+  final bool useMockFlow;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -46,6 +49,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _handleStartPressed() {
+    if (widget.useMockFlow) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => const SmallTalkScreen(useMockFlow: true),
+        ),
+      );
+      return;
+    }
+
     Navigator.of(context).pushReplacementNamed(AppRoutes.smallTalk);
   }
 

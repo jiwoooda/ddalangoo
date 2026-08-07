@@ -7,6 +7,7 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_text_styles.dart';
+import '../../../core/services/voice_service.dart';
 import '../../../data/models/accessibility_purchase_history_model.dart';
 import '../../../data/models/purchase_history_model.dart';
 import '../../../shared/layout/bottom_cta_layout.dart';
@@ -21,12 +22,14 @@ class PurchaseHistoryLoadingScreen extends StatefulWidget {
   const PurchaseHistoryLoadingScreen({
     super.key,
     this.userName,
+    this.useMockFlow = false,
     this.onCompleted,
     this.nextRouteName = AppRoutes.home,
     this.postLoadDelay = const Duration(milliseconds: 1500),
   });
 
   final String? userName;
+  final bool useMockFlow;
   final VoidCallback? onCompleted;
   final String nextRouteName;
   final Duration postLoadDelay;
@@ -40,6 +43,7 @@ class _PurchaseHistoryLoadingScreenState
     extends State<PurchaseHistoryLoadingScreen> {
   final PurchaseHistoryLoadingService _service =
       PurchaseHistoryLoadingService();
+  final VoiceService _voiceService = VoiceService.instance;
 
   Timer? _statusPollTimer;
   Timer? _completionTimer;
@@ -51,6 +55,8 @@ class _PurchaseHistoryLoadingScreenState
   bool _isLoading = true;
   bool _hasCompletedFlow = false;
   bool _isAccessibilityConnected = false;
+  Future<void> _speechQueue = Future<void>.value();
+  String? _lastSpokenMessage;
 
   List<PurchaseHistoryPreviewItem> _previewItems =
       const <PurchaseHistoryPreviewItem>[];
@@ -63,13 +69,19 @@ class _PurchaseHistoryLoadingScreenState
   @override
   void initState() {
     super.initState();
-    unawaited(_runLoadFlow());
+    unawaited(_voiceService.init());
+    if (widget.useMockFlow) {
+      unawaited(_runMockLoadFlow());
+    } else {
+      unawaited(_runLoadFlow());
+    }
   }
 
   @override
   void dispose() {
     _statusPollTimer?.cancel();
     _completionTimer?.cancel();
+    unawaited(_voiceService.stopSpeaking());
     super.dispose();
   }
 
@@ -99,6 +111,7 @@ class _PurchaseHistoryLoadingScreenState
             ? '자동 추출 준비 중'
             : '저장된 이력 확인 중';
       });
+      unawaited(_speakMessage(_statusMessage));
 
       if (automationPlan.canAutomate && serviceConnected) {
         await _service.prepareForExtraction();
@@ -126,6 +139,50 @@ class _PurchaseHistoryLoadingScreenState
         _progressLabel = '다시 확인 필요';
       });
     }
+  }
+
+  Future<void> _runMockLoadFlow() async {
+    setState(() {
+      _resolvedUserNameValue = widget.userName?.trim();
+      _isAccessibilityConnected = true;
+      _statusMessage = '지난 주문 내역을 불러오고 있어요.';
+      _helperMessage = '최근 구매한 상품을 정리해서 보여드릴게요.';
+      _progressLabel = '불러오는 중';
+      _isLoading = true;
+    });
+    await _speakMessage('지난 주문 내역을 불러오고 있어요.');
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+      _progressLabel = '3개 항목 준비 완료';
+      _statusMessage = '저장된 구매 이력을 불러왔어요.';
+      _helperMessage = '이전 주문 내역을 홈 화면에서 다시 확인할 수 있어요.';
+      _previewItems = [
+        _buildPreview(
+          productName: '대추방울토마토 750g',
+          subtitle: '컬리 8,900원',
+          caption: '최근 주문',
+        ),
+        _buildPreview(
+          productName: '국내산 삼겹살 1kg',
+          subtitle: '쿠팡 27,900원',
+          caption: '다시 구매 가능',
+        ),
+        _buildPreview(
+          productName: '유기농 찰토마토 900g',
+          subtitle: '네이버 12,900원',
+          caption: '자주 본 상품',
+        ),
+      ];
+    });
+    await _speakMessage('저장된 구매 이력을 불러왔어요. 홈 화면에서 다시 확인할 수 있어요.');
+
+    _scheduleCompletion();
   }
 
   void _startAutomationPolling({required int userId}) {
@@ -203,6 +260,7 @@ class _PurchaseHistoryLoadingScreenState
               '${importResponse.skippedCount}개 항목은 저장 조건이 맞지 않아 건너뛰었어요.';
         }
       });
+      unawaited(_speakMessage(_statusMessage));
     } catch (error) {
       if (!mounted) {
         return;
@@ -213,6 +271,7 @@ class _PurchaseHistoryLoadingScreenState
         _statusMessage = '저장된 구매 이력을 불러왔어요.';
         _helperMessage = '자동 저장 중 일부 문제가 있어 기존 이력만 먼저 보여드릴게요.';
       });
+      unawaited(_speakMessage(_statusMessage));
       await _loadStoredHistoriesAndFinish(
         userId: userId,
         scheduleAfterFetch: false,
@@ -241,6 +300,7 @@ class _PurchaseHistoryLoadingScreenState
           ? '아직 저장된 구매 이력이 없어요.'
           : '저장된 구매 이력을 불러왔어요.';
     });
+    unawaited(_speakMessage(_statusMessage));
 
     if (scheduleAfterFetch) {
       _scheduleCompletion();
@@ -253,6 +313,11 @@ class _PurchaseHistoryLoadingScreenState
   }
 
   void _handleCompleted() {
+    unawaited(_completeAfterSpeech());
+  }
+
+  Future<void> _completeAfterSpeech() async {
+    await _waitForSpeechQueue();
     if (!mounted) {
       return;
     }
@@ -297,6 +362,37 @@ class _PurchaseHistoryLoadingScreenState
         .toList(growable: false);
   }
 
+  Future<void> _speakMessage(String? message, {bool dedupe = true}) {
+    final normalized = message?.trim() ?? '';
+    if (normalized.isEmpty) {
+      return _speechQueue;
+    }
+    if (dedupe && normalized == _lastSpokenMessage) {
+      return _speechQueue;
+    }
+
+    _lastSpokenMessage = normalized;
+    _speechQueue = _speechQueue.then((_) async {
+      if (!mounted) {
+        return;
+      }
+      try {
+        await _voiceService.speak(normalized);
+      } catch (_) {
+        // TTS playback is best-effort.
+      }
+    });
+    return _speechQueue;
+  }
+
+  Future<void> _waitForSpeechQueue() async {
+    try {
+      await _speechQueue;
+    } catch (_) {
+      // Ignore speech failures during navigation gating.
+    }
+  }
+
   PurchaseHistoryPreviewItem _buildPreview({
     required String productName,
     required String subtitle,
@@ -308,7 +404,6 @@ class _PurchaseHistoryLoadingScreenState
       subtitle: subtitle,
       caption: caption,
       assetPath: asset.assetPath,
-      backgroundColor: asset.backgroundColor,
     );
   }
 
@@ -318,47 +413,38 @@ class _PurchaseHistoryLoadingScreenState
       const _PreviewAsset(
         keywords: ['딸기', 'strawberry'],
         assetPath: 'assets/mock_productimages/strawberry.jpg',
-        backgroundColor: Color(0xFFFFE5EE),
       ),
       const _PreviewAsset(
         keywords: ['바나나', 'banana'],
         assetPath: 'assets/mock_productimages/banana.png',
-        backgroundColor: Color(0xFFFFF2CC),
       ),
       const _PreviewAsset(
         keywords: ['계란', '달걀', 'egg'],
         assetPath: 'assets/mock_productimages/eggs.png',
-        backgroundColor: Color(0xFFF4F0D8),
       ),
       const _PreviewAsset(
         keywords: ['수박', 'watermelon'],
         assetPath: 'assets/mock_productimages/watermelon.png',
-        backgroundColor: Color(0xFFEAF7EB),
       ),
       const _PreviewAsset(
         keywords: ['콩국수', '면', '국수'],
         assetPath: 'assets/mock_productimages/beannoodle.png',
-        backgroundColor: Color(0xFFEFF4FF),
       ),
       const _PreviewAsset(
         keywords: ['고구마', '말랭이'],
         assetPath: 'assets/mock_productimages/sweetpotato.png',
-        backgroundColor: Color(0xFFFFECE3),
       ),
       const _PreviewAsset(
         keywords: ['한라봉', '감귤', 'orange'],
         assetPath: 'assets/mock_productimages/hallabong.png',
-        backgroundColor: Color(0xFFFFF3D9),
       ),
       const _PreviewAsset(
         keywords: ['토레타', '음료', 'drink'],
         assetPath: 'assets/mock_productimages/toreta.png',
-        backgroundColor: Color(0xFFE5F8F5),
       ),
       const _PreviewAsset(
         keywords: ['시루콧토', '타올', '화장솜'],
         assetPath: 'assets/mock_productimages/sirukotto.png',
-        backgroundColor: Color(0xFFEAEFFF),
       ),
     ];
 
@@ -511,7 +597,6 @@ class _PurchaseHistoryLoadingScreenState
                           subtitle: preview.subtitle,
                           caption: preview.caption,
                           assetPath: preview.assetPath,
-                          backgroundColor: preview.backgroundColor,
                         );
                       },
                     ),
@@ -539,26 +624,19 @@ class PurchaseHistoryPreviewItem {
     required this.subtitle,
     required this.caption,
     required this.assetPath,
-    required this.backgroundColor,
   });
 
   final String title;
   final String subtitle;
   final String caption;
   final String assetPath;
-  final Color backgroundColor;
 }
 
 class _PreviewAsset {
-  const _PreviewAsset({
-    required this.keywords,
-    required this.assetPath,
-    required this.backgroundColor,
-  });
+  const _PreviewAsset({required this.keywords, required this.assetPath});
 
   final List<String> keywords;
   final String assetPath;
-  final Color backgroundColor;
 }
 
 class _TopPill extends StatelessWidget {

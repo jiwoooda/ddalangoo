@@ -12,4 +12,30 @@ class CartRepository {
       Map<String, dynamic>.from(response.data as Map),
     );
   }
+
+  Future<CartItemResponse> addCartItem({
+    required int cartId,
+    required int productId,
+    int? productOptionId,
+    int quantity = 1,
+  }) async {
+    final response = await _dio.post(
+      '/api/carts/$cartId/items',
+      data: <String, dynamic>{
+        'productId': productId,
+        'productOptionId': productOptionId,
+        'quantity': quantity,
+      },
+    );
+    return CartItemResponse.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<void> deleteCartItem({
+    required int cartId,
+    required int cartItemId,
+  }) async {
+    await _dio.delete('/api/carts/$cartId/items/$cartItemId');
+  }
 }

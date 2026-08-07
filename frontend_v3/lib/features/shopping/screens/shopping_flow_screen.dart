@@ -6,6 +6,7 @@ import '../../../app/routes.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../data/models/agent_model.dart';
@@ -13,13 +14,18 @@ import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/bottom_status_banner.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
-import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/primary_button.dart';
 import '../../../shared/widgets/shopping_progress_stepper.dart';
 import '../../../shared/widgets/voice_input_button.dart';
 import '../models/shopping_flow_models.dart';
 import 'shopping_webview_screen.dart';
 import '../services/shopping_flow_service.dart';
+
+const int _pinPadCrossAxisCount = 3;
+const int _pinPadRowCount = 4;
+const double _pinPadChildAspectRatio = 1.45;
+const double _dialogueSectionHeight = 148.0;
+const double _overlayControlBarHeight = 132.0;
 
 class ShoppingFlowScreen extends StatefulWidget {
   const ShoppingFlowScreen({super.key, this.userName, this.service});
@@ -39,9 +45,11 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   bool _isInitializing = true;
   bool _isSubmitting = false;
   bool _isRefreshingConversation = false;
+  bool _isRefreshingCart = false;
   bool _isWebviewOpen = false;
   bool _isRecording = false;
   bool _isSpeaking = false;
+  bool _isUpdatingCartQuantity = false;
   int? _userId;
   String? _resolvedUserName;
   AgentResponse? _response;
@@ -51,6 +59,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   String _pinInput = '';
   String? _lastWebviewCommandKey;
   String? _lastSpokenPromptKey;
+  List<ShoppingCartItemViewData>? _cartItemsOverride;
   final Set<String> _completedWebviewCommandKeys = <String>{};
 
   @override
@@ -104,7 +113,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
         _fallbackAddress = fallbackAddress;
         _isInitializing = false;
       });
-      unawaited(_speakPromptIfNeeded(force: true));
+      _schedulePromptSpeechAfterFrame(force: true);
     } catch (error) {
       if (!mounted) {
         return;
@@ -135,9 +144,187 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     });
   }
 
+  List<ShoppingCartItemViewData> get _effectiveCartItems {
+    final override = _cartItemsOverride;
+    if (override != null) {
+      return override;
+    }
+
+    final response = _response;
+    if (response == null) {
+      return const <ShoppingCartItemViewData>[];
+    }
+    return _service.extractCartItems(response);
+  }
+
+  bool _shouldShowLiveCart(ShoppingFlowViewStage stage) {
+    switch (stage) {
+      case ShoppingFlowViewStage.cartCompleted:
+      case ShoppingFlowViewStage.addressConfirmation:
+      case ShoppingFlowViewStage.paymentConfirmation:
+      case ShoppingFlowViewStage.paymentPassword:
+      case ShoppingFlowViewStage.paymentProcessing:
+      case ShoppingFlowViewStage.completed:
+        return true;
+      case ShoppingFlowViewStage.askProduct:
+      case ShoppingFlowViewStage.searchingProduct:
+      case ShoppingFlowViewStage.productSelection:
+      case ShoppingFlowViewStage.quantitySelection:
+      case ShoppingFlowViewStage.cartProcessing:
+      case ShoppingFlowViewStage.error:
+        return false;
+    }
+  }
+
+  Future<void> _refreshLiveCartItems({int? conversationId}) async {
+    final userId = _userId;
+    if (userId == null || _isRefreshingCart) {
+      return;
+    }
+
+    _isRefreshingCart = true;
+    try {
+      final items = await _service.fetchUserCartItems(
+        userId: userId,
+        conversationId: conversationId ?? _response?.conversationId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _cartItemsOverride = items;
+      });
+    } catch (_) {
+      // Live cart sync is best-effort.
+    } finally {
+      _isRefreshingCart = false;
+    }
+  }
+
+  Future<void> _changeCartItemQuantity(
+    ShoppingCartItemViewData item,
+    int nextQuantity,
+  ) async {
+    final userId = _userId;
+    final conversationId = _response?.conversationId;
+    if (userId == null ||
+        conversationId == null ||
+        _isSubmitting ||
+        _isUpdatingCartQuantity) {
+      return;
+    }
+
+    setState(() {
+      _isUpdatingCartQuantity = true;
+      _inlineError = null;
+    });
+
+    try {
+      final items = await _service.updateCartItemQuantity(
+        userId: userId,
+        conversationId: conversationId,
+        item: item,
+        quantity: nextQuantity,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _cartItemsOverride = items;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _inlineError = '장바구니 수량을 바꾸지 못했어요. 다시 시도해주세요.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingCartQuantity = false;
+        });
+      }
+    }
+  }
+
+  bool _containsExplicitQuantity(String message) {
+    final normalized = message.replaceAll(' ', '');
+    if (RegExp(r'\d+\s*(개|근|팩|박스|봉|송이|상자)?').hasMatch(normalized)) {
+      return true;
+    }
+
+    const exactQuantityWords = <String>{
+      '하나',
+      '둘',
+      '셋',
+      '넷',
+      '다섯',
+      '한개',
+      '두개',
+      '세개',
+      '네개',
+      '다섯개',
+    };
+    if (exactQuantityWords.contains(normalized)) {
+      return true;
+    }
+
+    final wordPatterns = <RegExp>[
+      RegExp(r'(한|하나)\s*(개|근|팩|박스|봉|송이|상자)'),
+      RegExp(r'(두|둘)\s*(개|근|팩|박스|봉|송이|상자)'),
+      RegExp(r'(세|셋)\s*(개|근|팩|박스|봉|송이|상자)'),
+      RegExp(r'(네|넷)\s*(개|근|팩|박스|봉|송이|상자)'),
+      RegExp(r'다섯\s*(개|근|팩|박스|봉|송이|상자)'),
+    ];
+    return wordPatterns.any((pattern) => pattern.hasMatch(message));
+  }
+
+  bool _shouldAutoDefaultQuantityForMessage(String message) {
+    if (_viewStage != ShoppingFlowViewStage.productSelection) {
+      return false;
+    }
+
+    final normalized = message.trim().toLowerCase();
+    if (normalized.isEmpty || _containsExplicitQuantity(normalized)) {
+      return false;
+    }
+
+    return normalized.contains('담') ||
+        normalized.contains('주문') ||
+        normalized.contains('이걸로') ||
+        normalized.contains('좋아') ||
+        normalized.contains('괜찮') ||
+        normalized == '응' ||
+        normalized == '네';
+  }
+
+  Future<AgentResponse> _resolveAutoDefaultQuantityResponse(
+    AgentResponse response, {
+    required bool shouldAutoDefaultQuantity,
+  }) async {
+    final userId = _userId;
+    if (!shouldAutoDefaultQuantity ||
+        userId == null ||
+        _service.inferViewStage(response) !=
+            ShoppingFlowViewStage.quantitySelection) {
+      return response;
+    }
+
+    return _service.submitMessage(
+      userId: userId,
+      message: '1개',
+      conversationId: response.conversationId,
+    );
+  }
+
   void _applyResponse(AgentResponse response) {
     final nextStage = _service.inferViewStage(response);
+    final previousConversationId = _response?.conversationId;
     setState(() {
+      if (previousConversationId != response.conversationId) {
+        _cartItemsOverride = null;
+      }
       _response = response;
       _viewStage = nextStage;
       _inlineError = null;
@@ -146,8 +333,10 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       }
     });
     _syncPolling();
-    _handlePendingWebviewTask();
-    unawaited(_speakPromptIfNeeded());
+    _schedulePromptSpeechAfterFrame(handlePendingWebviewAfter: true);
+    if (_shouldShowLiveCart(nextStage)) {
+      unawaited(_refreshLiveCartItems(conversationId: response.conversationId));
+    }
 
     if (_fallbackAddress == null &&
         (nextStage == ShoppingFlowViewStage.addressConfirmation ||
@@ -267,6 +456,9 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     if (userId == null) {
       return;
     }
+    final shouldAutoDefaultQuantity = _shouldAutoDefaultQuantityForMessage(
+      trimmed,
+    );
     final shouldStartFreshConversation = _shouldStartFreshConversation(
       nextMessage: trimmed,
     );
@@ -283,11 +475,15 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     });
 
     try {
-      final response = await _service.submitMessage(
+      var response = await _service.submitMessage(
         userId: userId,
         message: trimmed,
         conversationId: conversationId,
         redactMessageForLogs: redactMessageForLogs,
+      );
+      response = await _resolveAutoDefaultQuantityResponse(
+        response,
+        shouldAutoDefaultQuantity: shouldAutoDefaultQuantity,
       );
       if (!mounted) {
         return;
@@ -321,9 +517,14 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     });
 
     try {
-      final nextResponse = await _service.confirmProductAction(
+      var nextResponse = await _service.confirmProductAction(
         response: response,
         action: action,
+      );
+      nextResponse = await _resolveAutoDefaultQuantityResponse(
+        nextResponse,
+        shouldAutoDefaultQuantity:
+            action == 'add_to_cart' || action == 'order_now',
       );
       if (!mounted) {
         return;
@@ -365,6 +566,59 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
   }
 
+  Future<void> _confirmExit() async {
+    final shouldExit = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadii.xl),
+          ),
+          title: Text(
+            '대화를 종료할까요?',
+            style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w800),
+          ),
+          content: Text(
+            '지금 진행 중인 쇼핑 흐름이 중단되고 홈 화면으로 돌아가요.',
+            style: AppTextStyles.body2,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(
+                '계속하기',
+                style: AppTextStyles.caption.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primaryPink,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(
+                '종료하기',
+                style: AppTextStyles.caption.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldExit == true && mounted) {
+      await _handleExit();
+    }
+  }
+
   void _appendPinDigit(String digit) {
     if (_pinInput.length >= 6) {
       return;
@@ -393,6 +647,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   bool get _supportsVoiceInput {
     switch (_viewStage) {
       case ShoppingFlowViewStage.askProduct:
+      case ShoppingFlowViewStage.productSelection:
       case ShoppingFlowViewStage.quantitySelection:
       case ShoppingFlowViewStage.cartCompleted:
       case ShoppingFlowViewStage.addressConfirmation:
@@ -400,7 +655,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       case ShoppingFlowViewStage.error:
         return true;
       case ShoppingFlowViewStage.searchingProduct:
-      case ShoppingFlowViewStage.productSelection:
       case ShoppingFlowViewStage.cartProcessing:
       case ShoppingFlowViewStage.paymentPassword:
       case ShoppingFlowViewStage.paymentProcessing:
@@ -409,23 +663,57 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     }
   }
 
-  String get _voiceButtonLabel {
-    if (_isRecording) {
-      return '듣고 있어요. 다시 누르면 전송';
+  bool get _usesOverlayBottomSection {
+    switch (_viewStage) {
+      case ShoppingFlowViewStage.askProduct:
+      case ShoppingFlowViewStage.searchingProduct:
+      case ShoppingFlowViewStage.productSelection:
+      case ShoppingFlowViewStage.quantitySelection:
+      case ShoppingFlowViewStage.cartProcessing:
+      case ShoppingFlowViewStage.cartCompleted:
+      case ShoppingFlowViewStage.addressConfirmation:
+      case ShoppingFlowViewStage.paymentConfirmation:
+      case ShoppingFlowViewStage.paymentProcessing:
+      case ShoppingFlowViewStage.error:
+        return true;
+      case ShoppingFlowViewStage.paymentPassword:
+      case ShoppingFlowViewStage.completed:
+        return false;
     }
-    if (_isSpeaking) {
-      return '딸랑구가 안내 중이에요';
-    }
+  }
 
+  double get _overlayBottomInset {
     return switch (_viewStage) {
-      ShoppingFlowViewStage.askProduct => '눌러서 쇼핑 요청하기',
-      ShoppingFlowViewStage.quantitySelection => '수량 말씀하기',
-      ShoppingFlowViewStage.cartCompleted => '다음 단계 말씀하기',
-      ShoppingFlowViewStage.addressConfirmation => '배송지 답변하기',
-      ShoppingFlowViewStage.paymentConfirmation => '결제 의사 말씀하기',
-      ShoppingFlowViewStage.error => '다시 말씀하기',
-      _ => '눌러서 말하기',
+      ShoppingFlowViewStage.askProduct ||
+      ShoppingFlowViewStage.productSelection ||
+      ShoppingFlowViewStage.searchingProduct ||
+      ShoppingFlowViewStage.quantitySelection ||
+      ShoppingFlowViewStage.cartProcessing ||
+      ShoppingFlowViewStage.cartCompleted ||
+      ShoppingFlowViewStage.addressConfirmation ||
+      ShoppingFlowViewStage.paymentConfirmation ||
+      ShoppingFlowViewStage.paymentProcessing ||
+      ShoppingFlowViewStage.error => _overlayControlBarHeight + AppSpacing.sm,
+      _ => 0,
     };
+  }
+
+  bool get _isAwaitingUserInput =>
+      _supportsVoiceInput &&
+      !_isInitializing &&
+      !_isSubmitting &&
+      !_isUpdatingCartQuantity &&
+      !_isSpeaking;
+
+  bool get _canTapReplyChip => _isAwaitingUserInput && !_isRecording;
+
+  VoiceInputState get _voiceInputState {
+    if (_isRecording) {
+      return VoiceInputState.listening;
+    }
+    return _isAwaitingUserInput
+        ? VoiceInputState.active
+        : VoiceInputState.inactive;
   }
 
   String? get _spokenPromptText {
@@ -488,13 +776,29 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     }
   }
 
+  void _schedulePromptSpeechAfterFrame({
+    bool force = false,
+    bool handlePendingWebviewAfter = false,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        return;
+      }
+      await _speakPromptIfNeeded(force: force);
+      if (!mounted || !handlePendingWebviewAfter) {
+        return;
+      }
+      _handlePendingWebviewTask();
+    });
+  }
+
   Future<void> _toggleVoiceInput() async {
-    if (!_supportsVoiceInput || _isInitializing || _isSubmitting) {
+    if (_isRecording) {
+      await _stopRecordingAndSubmit();
       return;
     }
 
-    if (_isRecording) {
-      await _stopRecordingAndSubmit();
+    if (!_isAwaitingUserInput) {
       return;
     }
 
@@ -630,55 +934,77 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     return ScreenFrame(
       preset: LayoutPreset.conversation,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildHeader(),
-          const SizedBox(height: AppSpacing.sm),
-          ShoppingProgressStepper(
+          _buildHeader(
             currentStep: currentStep,
             completedSteps: completedSteps,
           ),
           const SizedBox(height: AppSpacing.md),
-          DialogueBubble(
-            contentKey: ValueKey(
-              '${_response?.conversationId ?? 0}-${_response?.stage}-${_assistantText ?? _viewStage.name}',
-            ),
-            animateTextChanges: true,
-            text: _assistantText,
-            segments: _assistantText == null ? _fallbackPromptSegments : null,
-            style: AppTextStyles.title2.copyWith(
-              color: AppColors.textStrong,
-              height: 1.32,
-            ),
-            emphasizedStyle: AppTextStyles.title2.copyWith(
-              color: AppColors.primaryPinkDark,
-              fontWeight: FontWeight.w800,
-              height: 1.32,
-            ),
-          ),
+          _buildDialogueSection(),
           const SizedBox(height: AppSpacing.lg),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              child: KeyedSubtree(
-                key: ValueKey<String>(
-                  '${_viewStage.name}:${_isInitializing ? 'init' : 'ready'}',
-                ),
-                child: _buildStageScene(),
-              ),
-            ),
-          ),
+          Expanded(child: _buildConversationViewport()),
         ],
       ),
     );
   }
 
-  Widget _buildHeader() {
-    return Row(
+  Widget _buildConversationViewport() {
+    final stageBody = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: KeyedSubtree(
+        key: ValueKey<String>(
+          '${_viewStage.name}:${_isInitializing ? 'init' : 'ready'}',
+        ),
+        child: _buildStageContent(),
+      ),
+    );
+
+    if (_usesOverlayBottomSection) {
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: _overlayBottomInset),
+              child: stageBody,
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: _buildBottomSection(),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Spacer(),
-        EndConversationButton(compact: true, onPressed: _handleExit),
+        Expanded(child: stageBody),
+        const SizedBox(height: AppSpacing.lg),
+        _buildBottomSection(),
+      ],
+    );
+  }
+
+  Widget _buildHeader({
+    required ShoppingProgressStep currentStep,
+    required Set<ShoppingProgressStep> completedSteps,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: ShoppingProgressStepper(
+            currentStep: currentStep,
+            completedSteps: completedSteps,
+            compact: true,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        _ExitIconButton(onPressed: _confirmExit),
       ],
     );
   }
@@ -689,28 +1015,218 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
         final minHeight = constraints.maxHeight.isFinite
             ? constraints.maxHeight
             : 0.0;
-        return SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: minHeight),
-            child: child,
+        return Scrollbar(
+          thumbVisibility: true,
+          radius: const Radius.circular(999),
+          thickness: 4,
+          child: SingleChildScrollView(
+            primary: true,
+            physics: const ClampingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minHeight),
+              child: child,
+            ),
           ),
         );
       },
     );
   }
 
-  Widget _buildStageScene() {
+  Widget _buildDialogueSection() {
+    return SizedBox(
+      height: _dialogueSectionHeight,
+      child: DialogueBubble(
+        contentKey: ValueKey(
+          '${_response?.conversationId ?? 0}-${_response?.stage}-${_assistantText ?? _viewStage.name}',
+        ),
+        animateTextChanges: true,
+        borderColor: AppSurfaceStyles.emphasisOutlineColor,
+        minHeight: _dialogueSectionHeight - 8,
+        scrollableContent: true,
+        contentAlignment: Alignment.topLeft,
+        text: _assistantText,
+        segments: _assistantText == null ? _fallbackPromptSegments : null,
+        style: AppTextStyles.title2.copyWith(
+          color: AppColors.textStrong,
+          height: 1.32,
+        ),
+        emphasizedStyle: AppTextStyles.title2.copyWith(
+          color: AppColors.primaryPinkDark,
+          fontWeight: FontWeight.w800,
+          height: 1.32,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomSection() {
+    if (_isInitializing) {
+      return const SizedBox.shrink();
+    }
+
+    if (_usesOverlayBottomSection) {
+      return _buildOverlayBottomSection();
+    }
+
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(child: _buildStageContent()),
-        const SizedBox(height: AppSpacing.lg),
         if (_inlineError != null) ...[
           _InlineErrorBanner(message: _inlineError!),
           const SizedBox(height: AppSpacing.md),
         ],
         _buildBottomArea(),
       ],
+    );
+  }
+
+  Widget _buildOverlayBottomSection() {
+    final replyOptions = _buildOverlayReplyOptions();
+    final splitIndex = (replyOptions.length / 2).ceil();
+    final overlayBackgroundColor = _voiceInputState == VoiceInputState.inactive
+        ? const Color(0xFFF7F7FA)
+        : AppColors.pastelPinkSoft;
+    final leadingReplyContent = _buildOverlayReplyColumn(
+      replyOptions.take(splitIndex).toList(growable: false),
+      crossAxisAlignment: CrossAxisAlignment.end,
+      textAlign: TextAlign.right,
+    );
+    final trailingReplyContent = _buildOverlayReplyColumn(
+      replyOptions.skip(splitIndex).toList(growable: false),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      textAlign: TextAlign.left,
+    );
+
+    return Padding(
+      padding: EdgeInsets.zero,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_inlineError != null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+              child: _InlineErrorBanner(message: _inlineError!),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          _OverlayControlBar(
+            backgroundColor: overlayBackgroundColor,
+            leadingReplyContent: leadingReplyContent,
+            trailingReplyContent: trailingReplyContent,
+            voiceButton: VoiceInputButton(
+              state: _voiceInputState,
+              onPressed: _toggleVoiceInput,
+              diameter: 62,
+              iconSize: 28,
+              labelSpacing: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<_OverlayReplyOption> _buildOverlayReplyOptions() {
+    switch (_viewStage) {
+      case ShoppingFlowViewStage.askProduct:
+        return _service
+            .quickRepliesFor(_viewStage)
+            .map(
+              (reply) => _OverlayReplyOption(
+                label: reply,
+                onTap: _canTapReplyChip ? () => _submitMessage(reply) : null,
+              ),
+            )
+            .toList(growable: false);
+      case ShoppingFlowViewStage.productSelection:
+        final pending = _response?.pendingConfirmation;
+        final payload = pending is Map && pending['payload'] is Map
+            ? Map<String, dynamic>.from(pending['payload'] as Map)
+            : const <String, dynamic>{};
+        final actions =
+            (payload['actions'] as List<dynamic>? ?? const <dynamic>[])
+                .map((action) => action.toString())
+                .where((action) => action.trim().isNotEmpty)
+                .toList(growable: false);
+
+        return <_OverlayReplyOption>[
+          if (actions.contains('order_now'))
+            _OverlayReplyOption(
+              label: '이 상품으로 주문하기',
+              onTap: _canTapReplyChip
+                  ? () => unawaited(_confirmAction('order_now'))
+                  : null,
+            ),
+          if (actions.contains('add_to_cart'))
+            _OverlayReplyOption(
+              label: '장바구니에 담기',
+              onTap: _canTapReplyChip
+                  ? () => unawaited(_confirmAction('add_to_cart'))
+                  : null,
+            ),
+          if (actions.contains('reject'))
+            _OverlayReplyOption(
+              label: '다른 상품 보기',
+              onTap: _canTapReplyChip
+                  ? () => unawaited(_confirmAction('reject'))
+                  : null,
+            ),
+        ];
+      case ShoppingFlowViewStage.cartCompleted:
+        final replies = _effectiveCartItems.isEmpty
+            ? const ['더 구매할래요']
+            : _service.quickRepliesFor(_viewStage);
+        return replies
+            .map(
+              (reply) => _OverlayReplyOption(
+                label: reply,
+                onTap: _canTapReplyChip ? () => _submitMessage(reply) : null,
+              ),
+            )
+            .toList(growable: false);
+      case ShoppingFlowViewStage.quantitySelection:
+      case ShoppingFlowViewStage.addressConfirmation:
+      case ShoppingFlowViewStage.paymentConfirmation:
+      case ShoppingFlowViewStage.error:
+        return _service
+            .quickRepliesFor(_viewStage)
+            .map(
+              (reply) => _OverlayReplyOption(
+                label: reply,
+                onTap: _canTapReplyChip ? () => _submitMessage(reply) : null,
+              ),
+            )
+            .toList(growable: false);
+      case ShoppingFlowViewStage.searchingProduct:
+      case ShoppingFlowViewStage.cartProcessing:
+      case ShoppingFlowViewStage.paymentProcessing:
+      case ShoppingFlowViewStage.paymentPassword:
+      case ShoppingFlowViewStage.completed:
+        return const <_OverlayReplyOption>[];
+    }
+  }
+
+  Widget? _buildOverlayReplyColumn(
+    List<_OverlayReplyOption> options, {
+    required CrossAxisAlignment crossAxisAlignment,
+    required TextAlign textAlign,
+  }) {
+    if (options.isEmpty) {
+      return null;
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: crossAxisAlignment,
+      children: options
+          .map(
+            (option) => _QuickReplyChip(
+              label: option.label,
+              onTap: option.onTap,
+              textAlign: textAlign,
+            ),
+          )
+          .toList(growable: false),
     );
   }
 
@@ -727,9 +1243,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     final selectedProduct = _response == null
         ? null
         : _service.extractSelectedProduct(_response!);
-    final cartItems = _response == null
-        ? const <ShoppingCartItemViewData>[]
-        : _service.extractCartItems(_response!);
+    final cartItems = _effectiveCartItems;
     final address = _response == null
         ? _fallbackAddress
         : _service.extractAddress(
@@ -802,6 +1316,8 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
             service: _service,
             userName: _resolvedUserName,
             items: cartItems,
+            isUpdatingQuantity: _isUpdatingCartQuantity,
+            onQuantityChanged: _changeCartItemQuantity,
           ),
         );
       case ShoppingFlowViewStage.addressConfirmation:
@@ -822,9 +1338,11 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
         );
       case ShoppingFlowViewStage.paymentPassword:
         return _wrapStagePanel(
-          _PasswordEntryPanel(
-            key: const ValueKey('payment-password'),
+          _PasswordStagePanel(
             pinInput: _pinInput,
+            enabled: !_isSubmitting,
+            onDigitPressed: _appendPinDigit,
+            onBackspacePressed: _removePinDigit,
           ),
         );
       case ShoppingFlowViewStage.paymentProcessing:
@@ -872,19 +1390,16 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                   .map((reply) {
                     return _QuickReplyChip(
                       label: reply,
-                      onTap: _isSubmitting ? null : () => _submitMessage(reply),
+                      onTap: _canTapReplyChip
+                          ? () => _submitMessage(reply)
+                          : null,
                     );
                   })
                   .toList(growable: false),
             ),
             const SizedBox(height: AppSpacing.lg),
             VoiceInputButton(
-              label: _voiceButtonLabel,
-              state: _isInitializing
-                  ? VoiceInputState.inactive
-                  : _isRecording
-                  ? VoiceInputState.listening
-                  : VoiceInputState.active,
+              state: _voiceInputState,
               onPressed: _toggleVoiceInput,
             ),
           ],
@@ -905,16 +1420,58 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
               characterAssetPath:
                   'assets/images/character/top/ddalangoo_greeting_top.png',
             ),
+            const SizedBox(height: AppSpacing.md),
+            VoiceInputButton(
+              state: _voiceInputState,
+              onPressed: _toggleVoiceInput,
+            ),
           ],
         );
       case ShoppingFlowViewStage.productSelection:
-        return _ProductActionArea(
-          response: _response,
-          isSubmitting: _isSubmitting,
-          onActionSelected: _confirmAction,
+        return Column(
+          children: [
+            _ProductActionArea(
+              response: _response,
+              canTapReplies: _canTapReplyChip,
+              onActionSelected: _confirmAction,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            VoiceInputButton(
+              state: _voiceInputState,
+              onPressed: _toggleVoiceInput,
+            ),
+          ],
+        );
+      case ShoppingFlowViewStage.cartCompleted:
+        final replies = _effectiveCartItems.isEmpty
+            ? const ['더 구매할래요']
+            : _service.quickRepliesFor(_viewStage);
+        return Column(
+          children: [
+            if (replies.isNotEmpty)
+              Wrap(
+                spacing: AppSpacing.xs,
+                runSpacing: AppSpacing.xs,
+                alignment: WrapAlignment.center,
+                children: replies
+                    .map((reply) {
+                      return _QuickReplyChip(
+                        label: reply,
+                        onTap: _canTapReplyChip
+                            ? () => _submitMessage(reply)
+                            : null,
+                      );
+                    })
+                    .toList(growable: false),
+              ),
+            if (replies.isNotEmpty) const SizedBox(height: AppSpacing.md),
+            VoiceInputButton(
+              state: _voiceInputState,
+              onPressed: _toggleVoiceInput,
+            ),
+          ],
         );
       case ShoppingFlowViewStage.quantitySelection:
-      case ShoppingFlowViewStage.cartCompleted:
       case ShoppingFlowViewStage.addressConfirmation:
       case ShoppingFlowViewStage.paymentConfirmation:
       case ShoppingFlowViewStage.error:
@@ -930,21 +1487,16 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                     .map((reply) {
                       return _QuickReplyChip(
                         label: reply,
-                        onTap: _isSubmitting
-                            ? null
-                            : () => _submitMessage(reply),
+                        onTap: _canTapReplyChip
+                            ? () => _submitMessage(reply)
+                            : null,
                       );
                     })
                     .toList(growable: false),
               ),
             if (replies.isNotEmpty) const SizedBox(height: AppSpacing.md),
             VoiceInputButton(
-              label: _voiceButtonLabel,
-              state: !_supportsVoiceInput
-                  ? VoiceInputState.inactive
-                  : _isRecording
-                  ? VoiceInputState.listening
-                  : VoiceInputState.active,
+              state: _voiceInputState,
               onPressed: _toggleVoiceInput,
             ),
           ],
@@ -952,12 +1504,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       case ShoppingFlowViewStage.paymentPassword:
         return Column(
           children: [
-            _PinPad(
-              enabled: !_isSubmitting,
-              onDigitPressed: _appendPinDigit,
-              onBackspacePressed: _removePinDigit,
-            ),
-            const SizedBox(height: AppSpacing.lg),
             PrimaryButton(
               label: _isSubmitting ? '확인 중...' : '비밀번호 확인',
               onPressed: _isSubmitting || _pinInput.isEmpty ? null : _submitPin,
@@ -979,6 +1525,44 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           ],
         );
     }
+  }
+}
+
+class _ExitIconButton extends StatelessWidget {
+  const _ExitIconButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '대화 종료',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+          child: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(AppRadii.pill),
+              border: Border.all(
+                color: AppSurfaceStyles.standardOutlineColor,
+                width: AppSurfaceStyles.thinOutlineWidth,
+              ),
+            ),
+            child: const Icon(
+              Icons.pause_rounded,
+              color: AppColors.textPrimary,
+              size: 20,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1034,33 +1618,39 @@ class _EmptyStatePanel extends StatelessWidget {
         final titleSpacing = compact ? AppSpacing.md : AppSpacing.lg;
         final captionSpacing = compact ? AppSpacing.xs : AppSpacing.sm;
 
-        return SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: availableHeight),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Image.asset(
-                  assetPath,
-                  height: imageHeight,
-                  fit: BoxFit.contain,
-                ),
-                SizedBox(height: titleSpacing),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: AppTextStyles.body1.copyWith(
-                    fontWeight: FontWeight.w800,
+        return Scrollbar(
+          thumbVisibility: true,
+          radius: const Radius.circular(999),
+          thickness: 4,
+          child: SingleChildScrollView(
+            primary: true,
+            physics: const ClampingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: availableHeight),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Image.asset(
+                    assetPath,
+                    height: imageHeight,
+                    fit: BoxFit.contain,
                   ),
-                ),
-                SizedBox(height: captionSpacing),
-                Text(
-                  caption,
-                  textAlign: TextAlign.center,
-                  style: AppTextStyles.body2,
-                ),
-              ],
+                  SizedBox(height: titleSpacing),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.body1.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: captionSpacing),
+                  Text(
+                    caption,
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.body2,
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -1094,10 +1684,9 @@ class _StatusPanel extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
+      decoration: AppSurfaceStyles.emphasizedPanel(
+        radius: AppRadii.xl,
+        boxShadow: AppSurfaceStyles.raisedShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1164,35 +1753,37 @@ class _ProductSelectionPanel extends StatelessWidget {
       );
     }
 
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          _ProductRecommendationCard(
-            product: primaryProduct!,
-            service: service,
-          ),
-          if (secondaryProducts.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.lg),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '다른 후보',
-                style: AppTextStyles.body1.copyWith(
-                  fontWeight: FontWeight.w800,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final canStretchCard =
+            constraints.maxHeight.isFinite && constraints.maxHeight >= 420;
+
+        if (canStretchCard) {
+          return Column(
+            children: [
+              Expanded(
+                child: _HeroProductPanel(
+                  product: primaryProduct!,
+                  service: service,
                 ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            for (final recommendation in secondaryProducts) ...[
-              _SecondaryRecommendationTile(
-                product: service.productFromRecommendation(recommendation),
-                service: service,
-              ),
-              const SizedBox(height: AppSpacing.sm),
             ],
-          ],
-        ],
-      ),
+          );
+        }
+
+        return Scrollbar(
+          thumbVisibility: true,
+          radius: const Radius.circular(999),
+          thickness: 4,
+          child: SingleChildScrollView(
+            primary: true,
+            child: _HeroProductPanel(
+              product: primaryProduct!,
+              service: service,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1217,76 +1808,117 @@ class _QuantitySelectionPanel extends StatelessWidget {
       );
     }
 
-    final previewAsset = service.assetForProductName(product!.title);
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: previewAsset.backgroundColor,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: _ProductArtwork(
-              product: product!,
-              service: service,
-              height: 320,
-              fit: BoxFit.cover,
+    return _HeroProductPanel(product: product!, service: service);
+  }
+}
+
+class _HeroProductPanel extends StatelessWidget {
+  const _HeroProductPanel({required this.product, required this.service});
+
+  final ShoppingProductViewData product;
+  final ShoppingFlowService service;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final panelHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : constraints.minHeight > 0
+            ? constraints.minHeight
+            : 420.0;
+
+        return SizedBox(
+          width: double.infinity,
+          height: panelHeight,
+          child: Container(
+            decoration: AppSurfaceStyles.floatingCard(
+              radius: AppRadii.xl,
+              boxShadow: AppSurfaceStyles.featuredProductShadow,
             ),
-          ),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.02),
-                    Colors.white.withValues(alpha: 0.18),
-                    Colors.white.withValues(alpha: 0.94),
-                  ],
-                  stops: const [0, 0.52, 1],
-                ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadii.xl),
+              child: Stack(
+                children: [
+                  const Positioned.fill(child: ColoredBox(color: Colors.white)),
+                  Positioned.fill(
+                    child: _ProductArtwork(
+                      product: product,
+                      service: service,
+                      height: panelHeight,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.92),
+                            Colors.white.withValues(alpha: 0.56),
+                            Colors.white.withValues(alpha: 0.16),
+                            Colors.white.withValues(alpha: 0.52),
+                            Colors.white.withValues(alpha: 0.88),
+                          ],
+                          stops: const [0, 0.24, 0.55, 0.8, 1],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          product.title,
+                          style: AppTextStyles.title2.copyWith(
+                            fontSize: 26,
+                            color: AppColors.textStrong,
+                          ),
+                        ),
+                        if (product.detailLine.isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            product.detailLine,
+                            style: AppTextStyles.body1.copyWith(
+                              fontSize: 19,
+                              height: 1.35,
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(
+                          product.displayPrice,
+                          style: AppTextStyles.title1.copyWith(
+                            color: AppColors.textStrong,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        Align(
+                          alignment: Alignment.bottomLeft,
+                          child: _PlatformPill(
+                            label: service.platformLabel(product.platform),
+                            backgroundColor: Colors.white.withValues(
+                              alpha: 0.94,
+                            ),
+                            bannerHeight: 29,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.cardPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                _PlatformPill(
-                  label: service.platformLabel(product!.platform),
-                  backgroundColor: Colors.white.withValues(alpha: 0.92),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  product!.title,
-                  style: AppTextStyles.title2.copyWith(
-                    fontSize: 26,
-                    color: AppColors.textStrong,
-                  ),
-                ),
-                if (product!.detailLine.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(product!.detailLine, style: AppTextStyles.body2),
-                ],
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  product!.displayPrice,
-                  style: AppTextStyles.title1.copyWith(
-                    color: AppColors.textStrong,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1297,11 +1929,16 @@ class _CartSummaryPanel extends StatelessWidget {
     required this.service,
     required this.userName,
     required this.items,
+    required this.isUpdatingQuantity,
+    required this.onQuantityChanged,
   });
 
   final ShoppingFlowService service;
   final String? userName;
   final List<ShoppingCartItemViewData> items;
+  final bool isUpdatingQuantity;
+  final Future<void> Function(ShoppingCartItemViewData item, int quantity)
+  onQuantityChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1314,10 +1951,9 @@ class _CartSummaryPanel extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
+      decoration: AppSurfaceStyles.emphasizedPanel(
+        radius: AppRadii.xl,
+        boxShadow: AppSurfaceStyles.raisedShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1340,7 +1976,25 @@ class _CartSummaryPanel extends StatelessWidget {
             Column(
               children: [
                 for (var index = 0; index < items.length; index++) ...[
-                  _CartItemTile(item: items[index], service: service),
+                  _CartItemTile(
+                    item: items[index],
+                    service: service,
+                    isUpdatingQuantity: isUpdatingQuantity,
+                    onDecrease:
+                        items[index].canAdjustQuantity && !isUpdatingQuantity
+                        ? () => onQuantityChanged(
+                            items[index],
+                            items[index].quantity - 1,
+                          )
+                        : null,
+                    onIncrease:
+                        items[index].canAdjustQuantity && !isUpdatingQuantity
+                        ? () => onQuantityChanged(
+                            items[index],
+                            items[index].quantity + 1,
+                          )
+                        : null,
+                  ),
                   if (index != items.length - 1)
                     const SizedBox(height: AppSpacing.md),
                 ],
@@ -1396,10 +2050,10 @@ class _AddressPanel extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: BoxDecoration(
+      decoration: AppSurfaceStyles.emphasizedPanel(
+        radius: AppRadii.xl,
         color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
+        boxShadow: AppSurfaceStyles.raisedShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1430,6 +2084,68 @@ class _AddressPanel extends StatelessWidget {
   }
 }
 
+class _PasswordStagePanel extends StatelessWidget {
+  const _PasswordStagePanel({
+    required this.pinInput,
+    required this.enabled,
+    required this.onDigitPressed,
+    required this.onBackspacePressed,
+  });
+
+  final String pinInput;
+  final bool enabled;
+  final ValueChanged<String> onDigitPressed;
+  final VoidCallback onBackspacePressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : constraints.minHeight > 0
+            ? constraints.minHeight
+            : 520.0;
+        final itemWidth =
+            (constraints.maxWidth -
+                (AppSpacing.sm * (_pinPadCrossAxisCount - 1))) /
+            _pinPadCrossAxisCount;
+        final itemHeight = itemWidth / _pinPadChildAspectRatio;
+        final panelHeight = itemHeight;
+        final keypadHeight =
+            (itemHeight * _pinPadRowCount) +
+            (AppSpacing.sm * (_pinPadRowCount - 1));
+        final freeSpace = (availableHeight - panelHeight - keypadHeight).clamp(
+          0.0,
+          double.infinity,
+        );
+        final sectionGap = freeSpace / 3;
+
+        return SizedBox(
+          width: double.infinity,
+          height: availableHeight,
+          child: Column(
+            children: [
+              SizedBox(height: sectionGap),
+              _PasswordEntryPanel(pinInput: pinInput),
+              SizedBox(height: sectionGap),
+              SizedBox(
+                height: keypadHeight,
+                child: _PinPad(
+                  enabled: enabled,
+                  onDigitPressed: onDigitPressed,
+                  onBackspacePressed: onBackspacePressed,
+                ),
+              ),
+              SizedBox(height: sectionGap),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _PaymentSummaryPanel extends StatelessWidget {
   const _PaymentSummaryPanel({
     super.key,
@@ -1453,10 +2169,9 @@ class _PaymentSummaryPanel extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
+      decoration: AppSurfaceStyles.emphasizedPanel(
+        radius: AppRadii.xl,
+        boxShadow: AppSurfaceStyles.raisedShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1515,64 +2230,60 @@ class _PaymentSummaryPanel extends StatelessWidget {
 }
 
 class _PasswordEntryPanel extends StatelessWidget {
-  const _PasswordEntryPanel({super.key, required this.pinInput});
+  const _PasswordEntryPanel({required this.pinInput});
 
   final String pinInput;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.cardPadding,
-        vertical: AppSpacing.md,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '6자리 비밀번호',
-            style: AppTextStyles.body2.copyWith(
-              color: AppColors.textMuted,
-              fontWeight: FontWeight.w700,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth =
+            (constraints.maxWidth -
+                (AppSpacing.sm * (_pinPadCrossAxisCount - 1))) /
+            _pinPadCrossAxisCount;
+        final panelHeight = itemWidth / _pinPadChildAspectRatio;
+
+        return SizedBox(
+          width: double.infinity,
+          height: panelHeight,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.cardPadding,
             ),
-            textAlign: TextAlign.center,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceMuted,
+              borderRadius: BorderRadius.circular(AppRadii.xl),
+            ),
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(6, (index) {
+                  final isFilled = index < pinInput.length;
+                  return Container(
+                    width: 16,
+                    height: 16,
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isFilled ? AppColors.primaryPink : Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isFilled
+                            ? AppColors.primaryPink
+                            : AppColors.border,
+                        width: 2,
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(6, (index) {
-              final isFilled = index < pinInput.length;
-              return Container(
-                width: 16,
-                height: 16,
-                margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-                decoration: BoxDecoration(
-                  color: isFilled ? AppColors.primaryPink : Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isFilled ? AppColors.primaryPink : AppColors.border,
-                    width: 2,
-                  ),
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            pinInput.isEmpty
-                ? '숫자를 눌러 입력을 시작해주세요.'
-                : '${pinInput.length}자리 입력됨',
-            style: AppTextStyles.body2,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1611,12 +2322,12 @@ class _CompletionPanel extends StatelessWidget {
 class _ProductActionArea extends StatelessWidget {
   const _ProductActionArea({
     required this.response,
-    required this.isSubmitting,
+    required this.canTapReplies,
     required this.onActionSelected,
   });
 
   final AgentResponse? response;
-  final bool isSubmitting;
+  final bool canTapReplies;
   final Future<void> Function(String action) onActionSelected;
 
   @override
@@ -1630,8 +2341,13 @@ class _ProductActionArea extends StatelessWidget {
         .where((action) => action.trim().isNotEmpty)
         .toList(growable: false);
     final orderBlockReason = payload['orderBlockReason']?.toString();
-    final showAddToCart = actions.contains('add_to_cart');
-    final showReject = actions.contains('reject');
+    final replyActions = <({String action, String label})>[
+      if (actions.contains('order_now'))
+        (action: 'order_now', label: '이 상품으로 주문하기'),
+      if (actions.contains('add_to_cart'))
+        (action: 'add_to_cart', label: '장바구니에 담기'),
+      if (actions.contains('reject')) (action: 'reject', label: '다른 상품 보기'),
+    ];
 
     return Column(
       children: [
@@ -1639,80 +2355,98 @@ class _ProductActionArea extends StatelessWidget {
           _InlineErrorBanner(message: orderBlockReason.trim()),
           const SizedBox(height: AppSpacing.md),
         ],
-        if (actions.contains('order_now'))
-          PrimaryButton(
-            label: '이 상품으로 주문하기',
-            icon: Icons.shopping_bag_rounded,
-            onPressed: isSubmitting
-                ? null
-                : () => onActionSelected('order_now'),
+        if (replyActions.isNotEmpty)
+          Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            alignment: WrapAlignment.center,
+            children: replyActions
+                .map((reply) {
+                  return _QuickReplyChip(
+                    label: reply.label,
+                    onTap: canTapReplies
+                        ? () => onActionSelected(reply.action)
+                        : null,
+                  );
+                })
+                .toList(growable: false),
           ),
-        if (actions.contains('order_now'))
-          const SizedBox(height: AppSpacing.sm),
-        if (showAddToCart && showReject)
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: AppSpacing.buttonHeight,
-                  child: OutlinedButton(
-                    onPressed: isSubmitting
-                        ? null
-                        : () => onActionSelected('add_to_cart'),
-                    child: const Text('장바구니에 담기'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: SizedBox(
-                  height: AppSpacing.buttonHeight,
-                  child: OutlinedButton(
-                    onPressed: isSubmitting
-                        ? null
-                        : () => onActionSelected('reject'),
-                    child: const Text('다른 상품 보기'),
-                  ),
-                ),
-              ),
-            ],
-          )
-        else ...[
-          if (showAddToCart)
-            SizedBox(
-              width: double.infinity,
-              height: AppSpacing.buttonHeight,
-              child: OutlinedButton(
-                onPressed: isSubmitting
-                    ? null
-                    : () => onActionSelected('add_to_cart'),
-                child: const Text('장바구니에 담기'),
-              ),
-            ),
-          if (showAddToCart && showReject)
-            const SizedBox(height: AppSpacing.sm),
-          if (showReject)
-            SizedBox(
-              width: double.infinity,
-              height: AppSpacing.buttonHeight,
-              child: OutlinedButton(
-                onPressed: isSubmitting
-                    ? null
-                    : () => onActionSelected('reject'),
-                child: const Text('다른 상품 보기'),
-              ),
-            ),
-        ],
       ],
     );
   }
 }
 
-class _QuickReplyChip extends StatelessWidget {
-  const _QuickReplyChip({required this.label, this.onTap});
+class _OverlayReplyOption {
+  const _OverlayReplyOption({required this.label, this.onTap});
 
   final String label;
   final VoidCallback? onTap;
+}
+
+class _OverlayControlBar extends StatelessWidget {
+  const _OverlayControlBar({
+    required this.voiceButton,
+    required this.backgroundColor,
+    this.leadingReplyContent,
+    this.trailingReplyContent,
+  });
+
+  final Widget voiceButton;
+  final Color backgroundColor;
+  final Widget? leadingReplyContent;
+  final Widget? trailingReplyContent;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasReplies =
+        leadingReplyContent != null || trailingReplyContent != null;
+
+    return SizedBox(
+      width: double.infinity,
+      height: _overlayControlBarHeight,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        decoration: AppSurfaceStyles.elevatedCard(
+          radius: AppRadii.xl,
+          color: backgroundColor,
+        ),
+        child: hasReplies
+            ? Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: leadingReplyContent ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Center(child: voiceButton),
+                  const SizedBox(width: AppSpacing.xs),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: trailingReplyContent ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                ],
+              )
+            : Center(child: voiceButton),
+      ),
+    );
+  }
+}
+
+class _QuickReplyChip extends StatelessWidget {
+  const _QuickReplyChip({
+    required this.label,
+    this.onTap,
+    this.textAlign = TextAlign.center,
+  });
+
+  final String label;
+  final VoidCallback? onTap;
+  final TextAlign textAlign;
 
   @override
   Widget build(BuildContext context) {
@@ -1722,191 +2456,19 @@ class _QuickReplyChip extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppRadii.pill),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm,
-            vertical: AppSpacing.xs,
-          ),
-          decoration: BoxDecoration(
-            color: isEnabled ? AppColors.surface : AppColors.surfaceMuted,
-            borderRadius: BorderRadius.circular(AppRadii.pill),
-            border: Border.all(color: AppColors.border),
-          ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxs),
           child: Text(
-            label,
+            '"$label"',
             style: AppTextStyles.caption.copyWith(
-              color: isEnabled ? AppColors.textPrimary : AppColors.textMuted,
-              fontWeight: FontWeight.w700,
+              color: isEnabled
+                  ? AppColors.primaryPinkDark
+                  : AppColors.primaryPinkDark.withValues(alpha: 0.45),
+              fontWeight: FontWeight.w400,
             ),
+            textAlign: textAlign,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _ProductRecommendationCard extends StatelessWidget {
-  const _ProductRecommendationCard({
-    required this.product,
-    required this.service,
-  });
-
-  final ShoppingProductViewData product;
-  final ShoppingFlowService service;
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor = Theme.of(context).colorScheme.outline;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: borderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _PlatformPill(label: service.platformLabel(product.platform)),
-              const Spacer(),
-              if (product.rank != null)
-                Text(
-                  '추천 ${product.rank}순위',
-                  style: AppTextStyles.caption.copyWith(
-                    color: AppColors.primaryPinkDark,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadii.lg),
-                child: SizedBox(
-                  width: 108,
-                  height: 108,
-                  child: _ProductArtwork(product: product, service: service),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      product.title,
-                      style: AppTextStyles.body1.copyWith(
-                        fontSize: 20,
-                        color: AppColors.textStrong,
-                        fontWeight: FontWeight.w800,
-                        height: 1.4,
-                      ),
-                    ),
-                    if (product.detailLine.isNotEmpty) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(product.detailLine, style: AppTextStyles.body2),
-                    ],
-                    const SizedBox(height: AppSpacing.md),
-                    Text(
-                      product.displayPrice,
-                      style: AppTextStyles.title2.copyWith(
-                        color: AppColors.textStrong,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (product.reason != null && product.reason!.trim().isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.lg),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppRadii.lg),
-              ),
-              child: Text(
-                product.reason!.trim(),
-                style: AppTextStyles.body2.copyWith(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _SecondaryRecommendationTile extends StatelessWidget {
-  const _SecondaryRecommendationTile({
-    required this.product,
-    required this.service,
-  });
-
-  final ShoppingProductViewData product;
-  final ShoppingFlowService service;
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor = Theme.of(context).colorScheme.outline;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: borderColor),
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            child: SizedBox(
-              width: 58,
-              height: 58,
-              child: _ProductArtwork(
-                product: product,
-                service: service,
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  product.title,
-                  style: AppTextStyles.body2.copyWith(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  product.displayPrice,
-                  style: AppTextStyles.caption.copyWith(
-                    color: AppColors.textMuted,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1967,11 +2529,17 @@ class _CartItemTile extends StatelessWidget {
     required this.item,
     required this.service,
     this.compact = false,
+    this.isUpdatingQuantity = false,
+    this.onDecrease,
+    this.onIncrease,
   });
 
   final ShoppingCartItemViewData item;
   final ShoppingFlowService service;
   final bool compact;
+  final bool isUpdatingQuantity;
+  final VoidCallback? onDecrease;
+  final VoidCallback? onIncrease;
 
   @override
   Widget build(BuildContext context) {
@@ -1980,7 +2548,10 @@ class _CartItemTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(
+          color: AppSurfaceStyles.emphasisOutlineColor,
+          width: AppSurfaceStyles.emphasisOutlineWidth,
+        ),
       ),
       child: Row(
         children: [
@@ -2024,12 +2595,20 @@ class _CartItemTile extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                '${item.quantity}개',
-                style: AppTextStyles.body2.copyWith(
-                  fontWeight: FontWeight.w800,
+              if (!compact && (onDecrease != null || onIncrease != null))
+                _CartQuantityStepper(
+                  quantity: item.quantity,
+                  isUpdating: isUpdatingQuantity,
+                  onDecrease: onDecrease,
+                  onIncrease: onIncrease,
+                )
+              else
+                Text(
+                  '${item.quantity}개',
+                  style: AppTextStyles.body2.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
               const SizedBox(height: AppSpacing.xs),
               Text(
                 item.displayTotalPrice,
@@ -2042,6 +2621,86 @@ class _CartItemTile extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CartQuantityStepper extends StatelessWidget {
+  const _CartQuantityStepper({
+    required this.quantity,
+    required this.isUpdating,
+    this.onDecrease,
+    this.onIncrease,
+  });
+
+  final int quantity;
+  final bool isUpdating;
+  final VoidCallback? onDecrease;
+  final VoidCallback? onIncrease;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        border: Border.all(
+          color: AppSurfaceStyles.standardOutlineColor,
+          width: AppSurfaceStyles.thinOutlineWidth,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _CartQuantityButton(
+            icon: Icons.remove_rounded,
+            onPressed: isUpdating ? null : onDecrease,
+          ),
+          SizedBox(
+            width: 34,
+            child: Text(
+              '$quantity',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.textStrong,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          _CartQuantityButton(
+            icon: Icons.add_rounded,
+            onPressed: isUpdating ? null : onIncrease,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CartQuantityButton extends StatelessWidget {
+  const _CartQuantityButton({required this.icon, this.onPressed});
+
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(AppRadii.pill),
+      child: SizedBox(
+        width: 24,
+        height: 24,
+        child: Icon(
+          icon,
+          size: 18,
+          color: onPressed == null ? AppColors.textMuted : AppColors.textStrong,
+        ),
       ),
     );
   }
@@ -2082,6 +2741,7 @@ class _PlatformPill extends StatelessWidget {
   const _PlatformPill({
     required this.label,
     this.backgroundColor = AppColors.secondaryPink,
+    this.bannerHeight = 24,
   });
 
   static const Map<String, String> _bannerAssetsByLabel = <String, String>{
@@ -2094,6 +2754,7 @@ class _PlatformPill extends StatelessWidget {
 
   final String label;
   final Color backgroundColor;
+  final double bannerHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -2101,7 +2762,7 @@ class _PlatformPill extends StatelessWidget {
     final bannerAssetPath = _bannerAssetsByLabel[trimmedLabel];
     if (bannerAssetPath != null) {
       return SizedBox(
-        height: 24,
+        height: bannerHeight,
         child: Image.asset(
           bannerAssetPath,
           fit: BoxFit.contain,
@@ -2195,10 +2856,10 @@ class _PinPad extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       itemCount: keys.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+        crossAxisCount: _pinPadCrossAxisCount,
         mainAxisSpacing: AppSpacing.sm,
         crossAxisSpacing: AppSpacing.sm,
-        childAspectRatio: 1.45,
+        childAspectRatio: _pinPadChildAspectRatio,
       ),
       itemBuilder: (context, index) {
         final key = keys[index];
@@ -2218,7 +2879,10 @@ class _PinPad extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(AppRadii.lg),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(
+                color: AppSurfaceStyles.standardOutlineColor,
+                width: AppSurfaceStyles.pinPadOutlineWidth,
+              ),
             ),
             alignment: Alignment.center,
             child: isBackspace

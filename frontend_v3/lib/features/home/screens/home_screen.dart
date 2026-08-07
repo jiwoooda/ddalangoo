@@ -5,10 +5,10 @@ import '../../../app/routes.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
-import '../../../data/repositories/cart_repository.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
@@ -23,11 +23,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final UserRepository _userRepository = UserRepository();
-  final CartRepository _cartRepository = CartRepository();
+  static const Color _temporaryDebugColor = Color(0xFF1E9E4A);
 
   String? _userName;
-  int _cartCount = 0;
-  bool _isLoading = true;
 
   @override
   void initState() {
@@ -37,40 +35,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadHomeData() async {
     try {
+      final cachedUserName = await LocalStorage.getUserName();
+      if (mounted &&
+          cachedUserName != null &&
+          cachedUserName.trim().isNotEmpty) {
+        setState(() {
+          _userName = cachedUserName.trim();
+        });
+      }
+
       final userId = await LocalStorage.getUserId();
       if (userId == null) {
-        if (!mounted) {
-          return;
-        }
-        setState(() => _isLoading = false);
         return;
       }
 
       final results = await Future.wait<Object>([
         _userRepository.getUser(userId),
-        _cartRepository.getUserCart(userId),
       ]);
       if (!mounted) {
         return;
       }
 
       final user = results[0] as dynamic;
-      final cart = results[1] as dynamic;
       setState(() {
         _userName = user.name as String?;
-        _cartCount = cart.items.length as int;
-        _isLoading = false;
       });
     } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() => _isLoading = false);
+      // Home data is best-effort; keep the default greeting on failure.
     }
   }
 
   Future<void> _logout() async {
-    await LocalStorage.clearUserId();
+    await LocalStorage.clearSession();
     if (!mounted) {
       return;
     }
@@ -94,30 +90,29 @@ class _HomeScreenState extends State<HomeScreen> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, contentConstraints) {
                     final compact = contentConstraints.maxHeight < 820;
-                    final imageHeight = compact ? 188.0 : 252.0;
+                    final imageHeight = compact ? 220.0 : 300.0;
                     final sectionGap = compact ? AppSpacing.md : AppSpacing.xl;
                     final headerGap = compact ? AppSpacing.sm : AppSpacing.lg;
-                    final shortcutAspectRatio = compact ? 1.02 : 0.94;
+                    final shortcutHeight = compact ? 118.0 : 128.0;
                     final useSingleColumnShortcuts =
                         contentConstraints.maxWidth < 320;
 
                     Widget buildShortcutCard({
                       required IconData icon,
                       required String title,
-                      required String subtitle,
                       required VoidCallback onTap,
                     }) {
-                      return AspectRatio(
-                        aspectRatio: shortcutAspectRatio,
+                      return SizedBox(
+                        height: shortcutHeight,
                         child: _ShortcutCard(
                           icon: icon,
                           title: title,
-                          subtitle: subtitle,
                           onTap: onTap,
                         ),
                       );
@@ -131,7 +126,66 @@ class _HomeScreenState extends State<HomeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  if (kDebugMode)
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.of(
+                                              context,
+                                            ).pushNamedAndRemoveUntil(
+                                              AppRoutes.splashMock,
+                                              (route) => false,
+                                            );
+                                          },
+                                          style: TextButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: AppSpacing.xs,
+                                              vertical: AppSpacing.xxs,
+                                            ),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                          ),
+                                          child: Text(
+                                            'mock 첫 흐름 보기',
+                                            style: AppTextStyles.caption
+                                                .copyWith(
+                                                  color: _temporaryDebugColor,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                          ),
+                                        ),
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.of(context).pushNamed(
+                                              AppRoutes.flowEntryMock,
+                                            );
+                                          },
+                                          style: TextButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: AppSpacing.xs,
+                                              vertical: AppSpacing.xxs,
+                                            ),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                          ),
+                                          child: Text(
+                                            'mock 쇼핑 흐름 보기',
+                                            style: AppTextStyles.caption
+                                                .copyWith(
+                                                  color: _temporaryDebugColor,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   const Spacer(),
                                   TextButton(
                                     onPressed: _logout,
@@ -183,7 +237,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Padding(
                               padding: EdgeInsets.only(
                                 top: sectionGap,
-                                bottom: compact ? AppSpacing.sm : AppSpacing.md,
+                                bottom: compact ? AppSpacing.lg : AppSpacing.xl,
                               ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -203,9 +257,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                       const SizedBox(width: AppSpacing.xs),
                                       Text(
                                         '바로가기',
-                                        style: AppTextStyles.title2.copyWith(
+                                        style: AppTextStyles.body1.copyWith(
                                           color: AppColors.primaryPinkDark,
-                                          fontWeight: FontWeight.w800,
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.25,
                                         ),
                                       ),
                                     ],
@@ -217,9 +272,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                         buildShortcutCard(
                                           icon: Icons.shopping_cart_outlined,
                                           title: '장바구니 보기',
-                                          subtitle: _isLoading
-                                              ? '불러오는 중...'
-                                              : '$_cartCount개 담겨 있어요',
                                           onTap: () => Navigator.of(
                                             context,
                                           ).pushNamed(AppRoutes.cart),
@@ -228,7 +280,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                         buildShortcutCard(
                                           icon: Icons.receipt_long_outlined,
                                           title: '지난 주문 내역',
-                                          subtitle: '구매 이력을 다시 불러와요',
                                           onTap: () {
                                             Navigator.of(
                                               context,
@@ -246,9 +297,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                           child: buildShortcutCard(
                                             icon: Icons.shopping_cart_outlined,
                                             title: '장바구니 보기',
-                                            subtitle: _isLoading
-                                                ? '불러오는 중...'
-                                                : '$_cartCount개 담겨 있어요',
                                             onTap: () => Navigator.of(
                                               context,
                                             ).pushNamed(AppRoutes.cart),
@@ -259,7 +307,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                           child: buildShortcutCard(
                                             icon: Icons.receipt_long_outlined,
                                             title: '지난 주문 내역',
-                                            subtitle: '구매 이력을 다시 불러와요',
                                             onTap: () {
                                               Navigator.of(
                                                 context,
@@ -283,6 +330,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
+              Text(
+                '딸랑구를 불러보세요!',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.body2.copyWith(
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
               PrimaryButton(
                 label: '딸랑구야 도와줘!',
                 icon: Icons.phone_in_talk_rounded,
@@ -290,21 +346,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.of(context).pushNamed(AppRoutes.flowEntry);
                 },
               ),
-              if (kDebugMode) ...[
-                const SizedBox(height: AppSpacing.sm),
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pushNamed(AppRoutes.flowEntryMock);
-                  },
-                  child: Text(
-                    'mock-data 흐름 보기',
-                    style: AppTextStyles.body2.copyWith(
-                      color: AppColors.primaryPinkDark,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
             ],
           );
         },
@@ -314,16 +355,10 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _ShortcutCard extends StatelessWidget {
-  const _ShortcutCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.onTap,
-  });
+  const _ShortcutCard({required this.icon, required this.title, this.onTap});
 
   final IconData icon;
   final String title;
-  final String subtitle;
   final VoidCallback? onTap;
 
   @override
@@ -335,38 +370,24 @@ class _ShortcutCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadii.lg),
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.md),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(AppRadii.lg),
-            border: Border.all(color: AppColors.border),
-            boxShadow: const [
-              BoxShadow(
-                color: AppColors.shadow,
-                blurRadius: 18,
-                offset: Offset(0, 8),
-              ),
-            ],
-          ),
+          decoration: AppSurfaceStyles.elevatedCard(radius: AppRadii.lg),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(icon, color: AppColors.primaryPinkDark, size: 28),
-              const SizedBox(height: AppSpacing.xl),
+              const Spacer(),
+              Center(
+                child: Icon(icon, color: AppColors.primaryPinkDark, size: 30),
+              ),
+              const SizedBox(height: AppSpacing.md),
               Text(
                 title,
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
                 style: AppTextStyles.body1.copyWith(
                   color: AppColors.primaryPinkDark,
                   fontWeight: FontWeight.w700,
+                  height: 1.25,
                 ),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.caption,
               ),
               const Spacer(),
             ],

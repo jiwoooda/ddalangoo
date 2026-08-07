@@ -6,18 +6,21 @@ import '../../../app/routes.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/accessibility_automation_service.dart';
+import '../../../core/services/voice_service.dart';
 import '../../../shared/layout/app_layout.dart';
 import '../../../shared/layout/layout_presets.dart';
-import '../../../shared/widgets/bottom_status_banner.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
+import '../../shopping/screens/purchase_history_loading_screen.dart';
 import '../services/platform_check_service.dart';
 
 class PlatformCheckScreen extends StatefulWidget {
   const PlatformCheckScreen({
     super.key,
     this.userName,
+    this.useMockFlow = false,
     this.onClosePressed,
     this.onCompleted,
     this.autoCompleteAfter = const Duration(milliseconds: 2200),
@@ -26,6 +29,7 @@ class PlatformCheckScreen extends StatefulWidget {
   });
 
   final String? userName;
+  final bool useMockFlow;
   final VoidCallback? onClosePressed;
   final VoidCallback? onCompleted;
   final Duration? autoCompleteAfter;
@@ -72,6 +76,7 @@ class PlatformCheckScreen extends StatefulWidget {
 class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     with SingleTickerProviderStateMixin {
   final PlatformCheckService _platformCheckService = PlatformCheckService();
+  final VoiceService _voiceService = VoiceService.instance;
 
   late final AnimationController _controller = AnimationController(
     vsync: this,
@@ -91,13 +96,98 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
   String _statusHint = '설치된 쇼핑 앱을 확인하고 있어요.';
   String? _automationLastMessage;
   String? _lastDetectedPlatformLabel;
+  int? _totalInstalledAppCount;
+  int? _scannedAppCount;
+  int? _detectedShoppingAppCount;
   bool _isAccessibilityConnected = false;
   bool _isScanning = true;
   bool _didScheduleCompletion = false;
+  Future<void> _speechQueue = Future<void>.value();
+  String? _lastSpokenMessage;
 
   String get _resolvedUserName {
     final trimmed = _resolvedUserNameValue?.trim() ?? widget.userName?.trim();
     return trimmed == null || trimmed.isEmpty ? '고객' : trimmed;
+  }
+
+  int get _installedPlatformCount =>
+      _platforms.where((platform) => platform.isInstalled).length;
+
+  int get _platformCandidateCount => widget.supportedPlatforms.length;
+
+  String get _progressSummary {
+    if (_totalInstalledAppCount != null && _totalInstalledAppCount! > 0) {
+      if (_isScanning) {
+        if ((_detectedShoppingAppCount ?? 0) > 0) {
+          return '$_totalInstalledAppCount개 앱 중 '
+              '${_detectedShoppingAppCount ?? 0}개의 쇼핑 앱이 확인되었어요.';
+        }
+        return '$_resolvedUserName님의 폰에 깔린 앱이 '
+            '총 $_totalInstalledAppCount개예요.';
+      }
+
+      return '$_totalInstalledAppCount개 앱을 살펴본 결과 '
+          '${_detectedShoppingAppCount ?? _installedPlatformCount}개의 쇼핑 앱이 확인되었어요.';
+    }
+
+    if (_isScanning) {
+      if (_installedPlatformCount > 0) {
+        return '$_platformCandidateCount개 후보 중 '
+            '$_installedPlatformCount개의 쇼핑 앱이 확인되었어요.';
+      }
+      return '쇼핑 앱 후보 $_platformCandidateCount개를 살펴보고 있어요.';
+    }
+
+    if (_installedPlatformCount > 0) {
+      return '쇼핑 앱 후보 $_platformCandidateCount개 중 '
+          '$_installedPlatformCount개가 확인되었어요.';
+    }
+
+    return '쇼핑 앱 후보 확인이 끝났어요.';
+  }
+
+  String get _progressDetail {
+    if (_totalInstalledAppCount != null && _totalInstalledAppCount! > 0) {
+      if (_scannedAppCount != null &&
+          _scannedAppCount! > 0 &&
+          _scannedAppCount! < _totalInstalledAppCount!) {
+        return '$_totalInstalledAppCount개 앱 중 '
+            '$_scannedAppCount개를 살펴보고 있어요.';
+      }
+      if (_isScanning) {
+        return '앱을 하나씩 살펴보는 중이에요.';
+      }
+    }
+
+    if (!_isAccessibilityConnected) {
+      return '접근성 서비스 연결 상태를 확인하고 있어요.';
+    }
+
+    if (_lastDetectedPlatformLabel != null &&
+        _lastDetectedPlatformLabel != '대기 중') {
+      return '마지막으로 $_lastDetectedPlatformLabel 앱을 확인했어요.';
+    }
+
+    if (_isScanning) {
+      return '앱을 하나씩 살펴보는 중이에요.';
+    }
+
+    return '확인이 끝나면 다음 화면으로 바로 넘어갈게요.';
+  }
+
+  String get _progressChipLabel => _isScanning
+      ? (_scannedAppCount != null && _totalInstalledAppCount != null
+            ? '$_scannedAppCount/$_totalInstalledAppCount'
+            : '앱 확인 중')
+      : '${_detectedShoppingAppCount ?? _installedPlatformCount}개 확인';
+
+  Color get _progressChipColor {
+    if (_isScanning) {
+      return AppColors.primaryPinkDark;
+    }
+    return _installedPlatformCount > 0
+        ? AppColors.success
+        : AppColors.textMuted;
   }
 
   @override
@@ -105,14 +195,20 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     super.initState();
     _startedAt = DateTime.now();
     _controller.forward();
-    unawaited(_loadPlatformCheckData());
-    _startStatusPolling();
+    unawaited(_voiceService.init());
+    if (widget.useMockFlow) {
+      unawaited(_runMockFlow());
+    } else {
+      unawaited(_loadPlatformCheckData());
+      _startStatusPolling();
+    }
   }
 
   @override
   void dispose() {
     _statusPollTimer?.cancel();
     _completionTimer?.cancel();
+    unawaited(_voiceService.stopSpeaking());
     _controller.dispose();
     super.dispose();
   }
@@ -120,6 +216,7 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
   void _handleClosePressed() {
     _statusPollTimer?.cancel();
     _completionTimer?.cancel();
+    unawaited(_voiceService.stopSpeaking());
 
     if (widget.onClosePressed != null) {
       widget.onClosePressed!();
@@ -132,6 +229,11 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
   }
 
   void _handleCompleted() {
+    unawaited(_completeAfterSpeech());
+  }
+
+  Future<void> _completeAfterSpeech() async {
+    await _waitForSpeechQueue();
     if (!mounted) {
       return;
     }
@@ -141,7 +243,118 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
       return;
     }
 
+    if (widget.userName?.trim().isNotEmpty == true || widget.useMockFlow) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => PurchaseHistoryLoadingScreen(
+            userName: _resolvedUserName,
+            useMockFlow: widget.useMockFlow,
+            nextRouteName: widget.nextRouteName,
+          ),
+        ),
+      );
+      return;
+    }
+
     Navigator.of(context).pushReplacementNamed(widget.nextRouteName);
+  }
+
+  Future<void> _runMockFlow() async {
+    final resolvedPlatforms = widget.supportedPlatforms
+        .map((platform) => platform.copyWith(isInstalled: false))
+        .toList(growable: false);
+
+    setState(() {
+      _resolvedUserNameValue = widget.userName?.trim();
+      _platforms = resolvedPlatforms;
+      _isAccessibilityConnected = true;
+      _automationLastMessage = '앱 목록을 불러왔어요.';
+      _lastDetectedPlatformLabel = null;
+      _totalInstalledAppCount = 34;
+      _scannedAppCount = 0;
+      _detectedShoppingAppCount = 0;
+      _isScanning = true;
+      _statusHint = '설치된 쇼핑 앱을 확인하고 있어요.';
+    });
+    await _speakMessage('$_resolvedUserName님의 폰에 깔린 앱이 총 34개예요.');
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _platforms = resolvedPlatforms
+          .map(
+            (platform) => platform.id == 'naver'
+                ? platform.copyWith(isInstalled: true)
+                : platform,
+          )
+          .toList(growable: false);
+      _automationLastMessage = '앱을 살펴보고 있어요.';
+      _lastDetectedPlatformLabel = '네이버';
+      _scannedAppCount = 12;
+      _detectedShoppingAppCount = 1;
+      _statusHint = '쇼핑 앱을 하나씩 확인하고 있어요.';
+    });
+    await _speakMessage('앱을 살펴보고 있어요.');
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _platforms = resolvedPlatforms
+          .map(
+            (platform) => const {'naver', 'coupang'}.contains(platform.id)
+                ? platform.copyWith(isInstalled: true)
+                : platform,
+          )
+          .toList(growable: false);
+      _lastDetectedPlatformLabel = '쿠팡';
+      _scannedAppCount = 23;
+      _detectedShoppingAppCount = 2;
+    });
+    await _speakMessage('34개 앱 중 2개의 쇼핑 앱이 확인되었어요.');
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _platforms = resolvedPlatforms
+          .map(
+            (platform) =>
+                const {'naver', 'coupang', 'kurly'}.contains(platform.id)
+                ? platform.copyWith(isInstalled: true)
+                : platform,
+          )
+          .toList(growable: false);
+      _automationLastMessage = '쇼핑 앱 확인이 거의 끝났어요.';
+      _lastDetectedPlatformLabel = '네이버';
+      _scannedAppCount = 31;
+      _detectedShoppingAppCount = 3;
+      _statusHint = '3개의 쇼핑 앱이 확인되었어요.';
+    });
+    await _speakMessage('34개 앱 중 3개의 쇼핑 앱이 확인되었어요.');
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _automationLastMessage = '사용 가능한 쇼핑 앱을 정리했어요.';
+      _lastDetectedPlatformLabel = '컬리';
+      _scannedAppCount = 34;
+      _detectedShoppingAppCount = 3;
+      _isScanning = false;
+    });
+    await _speakMessage('쇼핑 앱 확인이 끝났어요. 다음 화면으로 넘어갈게요.');
+
+    _scheduleCompletionWithMinimumDisplay();
   }
 
   Future<void> _loadPlatformCheckData() async {
@@ -180,11 +393,19 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     setState(() {
       _resolvedUserNameValue = resolvedUserName;
       _platforms = resolvedPlatforms;
+      _detectedShoppingAppCount = installedCount;
       _isScanning = false;
       _statusHint = installedCount > 0
           ? '$installedCount개의 쇼핑 앱을 확인했어요.'
           : '확인된 쇼핑 앱이 없어요.';
     });
+    unawaited(
+      _speakMessage(
+        installedCount > 0
+            ? '$_resolvedUserName님이 사용 중인 쇼핑 앱을 확인했어요. $installedCount개가 확인되었어요.'
+            : '$_resolvedUserName님이 사용 중인 쇼핑 앱을 확인하고 있어요. 확인된 쇼핑 앱은 아직 없어요.',
+      ),
+    );
 
     _scheduleCompletionWithMinimumDisplay();
   }
@@ -206,6 +427,11 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     final serviceConnected = status['serviceConnected'] == true;
     final lastMessage = status['lastMessage']?.toString().trim();
     final lastPackageName = status['lastPackageName']?.toString().trim();
+    final totalInstalledAppCount = _toInt(status['totalInstalledAppCount']);
+    final scannedAppCount =
+        _toInt(status['scannedAppCount']) ??
+        _toInt(status['inspectedAppCount']);
+    final detectedShoppingAppCount = _toInt(status['detectedShoppingAppCount']);
 
     setState(() {
       _isAccessibilityConnected = serviceConnected;
@@ -213,6 +439,11 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
           ? null
           : lastMessage;
       _lastDetectedPlatformLabel = _labelForPackageName(lastPackageName);
+      _totalInstalledAppCount =
+          totalInstalledAppCount ?? _totalInstalledAppCount;
+      _scannedAppCount = scannedAppCount ?? _scannedAppCount;
+      _detectedShoppingAppCount =
+          detectedShoppingAppCount ?? _detectedShoppingAppCount;
     });
   }
 
@@ -229,8 +460,14 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
       return;
     }
 
+    final effectiveMinimumDisplayDuration =
+        widget.useMockFlow &&
+            minimumDisplayDuration < const Duration(milliseconds: 3200)
+        ? const Duration(milliseconds: 3200)
+        : minimumDisplayDuration;
+
     final elapsed = DateTime.now().difference(startedAt);
-    final remaining = minimumDisplayDuration - elapsed;
+    final remaining = effectiveMinimumDisplayDuration - elapsed;
     final delay = remaining.isNegative ? Duration.zero : remaining;
     _completionTimer = Timer(delay, _handleCompleted);
   }
@@ -247,6 +484,47 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     }
 
     return packageName;
+  }
+
+  int? _toInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  Future<void> _speakMessage(String? message, {bool dedupe = true}) {
+    final normalized = message?.trim() ?? '';
+    if (normalized.isEmpty) {
+      return _speechQueue;
+    }
+    if (dedupe && normalized == _lastSpokenMessage) {
+      return _speechQueue;
+    }
+
+    _lastSpokenMessage = normalized;
+    _speechQueue = _speechQueue.then((_) async {
+      if (!mounted) {
+        return;
+      }
+      try {
+        await _voiceService.speak(normalized);
+      } catch (_) {
+        // TTS playback is best-effort.
+      }
+    });
+    return _speechQueue;
+  }
+
+  Future<void> _waitForSpeechQueue() async {
+    try {
+      await _speechQueue;
+    } catch (_) {
+      // Ignore speech failures during navigation gating.
+    }
   }
 
   @override
@@ -286,22 +564,11 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
                     alignment: Alignment.bottomCenter,
                     child: SlideTransition(
                       position: _bannerOffset,
-                      child: BottomStatusBanner(
-                        characterAssetPath:
-                            'assets/images/character/top/ddalangoo_greeting_top.png',
-                        message: '$_resolvedUserName님이 사용중인 쇼핑 플랫폼을\n확인하고 있어요!',
-                        messageStyle: AppTextStyles.body1.copyWith(
-                          color: AppColors.textStrong,
-                          fontWeight: FontWeight.w800,
-                          height: 1.4,
-                        ),
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.md,
-                          AppSpacing.md,
-                          AppSpacing.md,
-                          AppSpacing.md,
-                        ),
-                        avatarSize: 56,
+                      child: _PlatformProgressBanner(
+                        summary: _progressSummary,
+                        detail: _progressDetail,
+                        chipLabel: _progressChipLabel,
+                        chipColor: _progressChipColor,
                       ),
                     ),
                   ),
@@ -585,62 +852,83 @@ class _RecentActivityCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadii.xl),
           border: Border.all(color: AppColors.border),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '확인 중인 항목',
-              style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            _StatusRow(
-              title: '설치된 쇼핑 앱',
-              status: isScanning ? '확인 중' : '$installedPlatformCount개 확인',
-              accentColor: isScanning
-                  ? AppColors.primaryPinkDark
-                  : (installedPlatformCount > 0
-                        ? AppColors.success
-                        : AppColors.textMuted),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            _StatusRow(
-              title: '접근성 서비스',
-              status: isAccessibilityConnected ? '연결됨' : '확인 필요',
-              accentColor: isAccessibilityConnected
-                  ? AppColors.success
-                  : AppColors.primaryPinkDark,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            _StatusRow(
-              title: '마지막 감지',
-              status: lastDetectedPlatformLabel ?? '대기 중',
-              accentColor: lastDetectedPlatformLabel == null
-                  ? AppColors.textMuted
-                  : AppColors.primaryPinkDark,
-            ),
-            const Spacer(),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: AppSpacing.sm,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.secondaryPink,
-                borderRadius: BorderRadius.circular(AppRadii.md),
-              ),
-              child: Text(
-                automationLastMessage ??
-                    (isAccessibilityConnected
-                        ? '설치된 플랫폼 확인이 끝나면 바로 다음 화면으로 넘어가요.'
-                        : '접근성 서비스가 아직 연결되지 않았다면 이후 자동화 단계에서 켜주시면 돼요.'),
-                style: AppTextStyles.body2.copyWith(
-                  color: AppColors.primaryPinkDark,
-                  fontWeight: FontWeight.w700,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              primary: false,
+              physics: const ClampingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '확인 중인 항목',
+                          style: AppTextStyles.body1.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        _StatusRow(
+                          title: '설치된 쇼핑 앱',
+                          status: isScanning
+                              ? '확인 중'
+                              : '$installedPlatformCount개 확인',
+                          accentColor: isScanning
+                              ? AppColors.primaryPinkDark
+                              : (installedPlatformCount > 0
+                                    ? AppColors.success
+                                    : AppColors.textMuted),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        _StatusRow(
+                          title: '접근성 서비스',
+                          status: isAccessibilityConnected ? '연결됨' : '확인 필요',
+                          accentColor: isAccessibilityConnected
+                              ? AppColors.success
+                              : AppColors.primaryPinkDark,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        _StatusRow(
+                          title: '마지막 감지',
+                          status: lastDetectedPlatformLabel ?? '대기 중',
+                          accentColor: lastDetectedPlatformLabel == null
+                              ? AppColors.textMuted
+                              : AppColors.primaryPinkDark,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.secondaryPink,
+                        borderRadius: BorderRadius.circular(AppRadii.md),
+                      ),
+                      child: Text(
+                        automationLastMessage ??
+                            (isAccessibilityConnected
+                                ? '설치된 플랫폼 확인이 끝나면 바로 다음 화면으로 넘어가요.'
+                                : '접근성 서비스가 아직 연결되지 않았다면 이후 자동화 단계에서 켜주시면 돼요.'),
+                        style: AppTextStyles.body2.copyWith(
+                          color: AppColors.primaryPinkDark,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -695,6 +983,106 @@ class _StatusRow extends StatelessWidget {
                 color: accentColor,
                 fontWeight: FontWeight.w800,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlatformProgressBanner extends StatelessWidget {
+  const _PlatformProgressBanner({
+    required this.summary,
+    required this.detail,
+    required this.chipLabel,
+    required this.chipColor,
+  });
+
+  final String summary;
+  final String detail;
+  final String chipLabel;
+  final Color chipColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: AppSurfaceStyles.elevatedCard(
+        radius: AppRadii.xl,
+        color: Colors.white,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: chipColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.manage_search_rounded,
+              color: chipColor,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      '진행 상황',
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
+                        vertical: AppSpacing.xs,
+                      ),
+                      decoration: BoxDecoration(
+                        color: chipColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadii.pill),
+                      ),
+                      child: Text(
+                        chipLabel,
+                        style: AppTextStyles.caption.copyWith(
+                          color: chipColor,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  summary,
+                  style: AppTextStyles.body2.copyWith(
+                    color: AppColors.textStrong,
+                    fontWeight: FontWeight.w800,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xxs),
+                Text(
+                  detail,
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

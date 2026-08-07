@@ -20,6 +20,7 @@ class MockShoppingFlowService extends ShoppingFlowService {
 
   final Map<int, _MockConversation> _conversations = <int, _MockConversation>{};
   int _nextConversationId = 7000;
+  int _nextCartItemId = 40000;
 
   @override
   Future<int> resolveUserId() async => _mockUserId;
@@ -108,7 +109,7 @@ class MockShoppingFlowService extends ShoppingFlowService {
         );
       case 'add_to_cart':
       case 'order_now':
-        return _askQuantity(conversation);
+        return _addSelectedProductToCart(conversation, quantity: 1);
       default:
         return conversation.response;
     }
@@ -130,6 +131,54 @@ class MockShoppingFlowService extends ShoppingFlowService {
   }
 
   @override
+  Future<List<ShoppingCartItemViewData>> fetchUserCartItems({
+    required int userId,
+    int? conversationId,
+  }) async {
+    final conversation = _resolveConversation(
+      userId: userId,
+      conversationId: conversationId,
+    );
+    if (conversation == null) {
+      return const <ShoppingCartItemViewData>[];
+    }
+    return _viewCartItems(conversation);
+  }
+
+  @override
+  Future<List<ShoppingCartItemViewData>> updateCartItemQuantity({
+    required int userId,
+    int? conversationId,
+    required ShoppingCartItemViewData item,
+    required int quantity,
+  }) async {
+    final conversation = _resolveConversation(
+      userId: userId,
+      conversationId: conversationId,
+    );
+    if (conversation == null) {
+      return const <ShoppingCartItemViewData>[];
+    }
+
+    final safeQuantity = quantity < 0 ? 0 : quantity;
+    final itemIndex = conversation.cartItems.indexWhere(
+      (cartItem) => cartItem.id == item.cartItemId,
+    );
+    if (itemIndex < 0) {
+      return _viewCartItems(conversation);
+    }
+
+    if (safeQuantity <= 0) {
+      conversation.cartItems.removeAt(itemIndex);
+    } else {
+      conversation.cartItems[itemIndex] = conversation.cartItems[itemIndex]
+          .copyWith(quantity: safeQuantity);
+    }
+
+    return _viewCartItems(conversation);
+  }
+
+  @override
   Future<AgentResponse> sendWebviewResult({
     required int conversationId,
     int? orderId,
@@ -148,6 +197,7 @@ class MockShoppingFlowService extends ShoppingFlowService {
     final conversation = _MockConversation(
       conversationId: conversationId,
       userId: userId,
+      cartId: conversationId * 100,
       recommendations: const <_MockProduct>[],
       response: _idleResponse(conversationId),
       cartItems: <_MockCartItem>[],
@@ -204,28 +254,15 @@ class MockShoppingFlowService extends ShoppingFlowService {
         normalized.contains('주문') ||
         normalized.contains('이걸로') ||
         normalized.contains('좋아')) {
-      return _askQuantity(conversation);
+      return _addSelectedProductToCart(
+        conversation,
+        quantity: _quantityFromMessage(message) ?? 1,
+      );
     }
     return _showProductSelection(
       conversation,
       assistantMessage: '버튼으로 고르거나 "장바구니에 담아줘"라고 말해보세요.',
     );
-  }
-
-  AgentResponse _askQuantity(_MockConversation conversation) {
-    final selectedProduct = conversation.selectedProduct;
-    final response = AgentResponse(
-      conversationId: conversation.conversationId,
-      status: 'success',
-      stage: 'awaiting_quantity',
-      assistantMessage: '${selectedProduct.title} 몇 개 담아드릴까요?',
-      selectedProduct: selectedProduct.toSelectedProductMap(),
-      pendingConfirmation: <String, dynamic>{
-        'type': 'quantity',
-        'payload': <String, dynamic>{'productName': selectedProduct.title},
-      },
-    );
-    return _setResponse(conversation, response);
   }
 
   AgentResponse _handleQuantity(
@@ -252,8 +289,16 @@ class MockShoppingFlowService extends ShoppingFlowService {
       );
     }
 
+    return _addSelectedProductToCart(conversation, quantity: quantity);
+  }
+
+  AgentResponse _addSelectedProductToCart(
+    _MockConversation conversation, {
+    required int quantity,
+  }) {
     final selectedProduct = conversation.selectedProduct;
     final cartItem = _MockCartItem(
+      id: _nextCartItemId++,
       product: selectedProduct,
       quantity: quantity,
     );
@@ -263,7 +308,9 @@ class MockShoppingFlowService extends ShoppingFlowService {
           selectedProduct.recommendationItemId,
     );
     if (existingIndex >= 0) {
-      conversation.cartItems[existingIndex] = cartItem;
+      conversation.cartItems[existingIndex] = cartItem.copyWith(
+        id: conversation.cartItems[existingIndex].id,
+      );
     } else {
       conversation.cartItems.add(cartItem);
     }
@@ -701,9 +748,14 @@ class MockShoppingFlowService extends ShoppingFlowService {
 
   Map<String, dynamic> _cartMap(List<_MockCartItem> items) {
     return <String, dynamic>{
+      'cartId': items.isEmpty ? null : items.first.cartId,
       'items': items
           .map(
             (item) => <String, dynamic>{
+              'cartId': item.cartId,
+              'cartItemId': item.id,
+              'productId': item.product.recommendationItemId,
+              'productOptionId': null,
               'productName': item.product.title,
               'brand': item.product.brand,
               'optionText': item.product.optionText,
@@ -754,12 +806,55 @@ class MockShoppingFlowService extends ShoppingFlowService {
     }
     return null;
   }
+
+  _MockConversation? _resolveConversation({
+    required int userId,
+    int? conversationId,
+  }) {
+    if (conversationId != null) {
+      return _conversations[conversationId];
+    }
+
+    for (final conversation in _conversations.values.toList().reversed) {
+      if (conversation.userId == userId) {
+        return conversation;
+      }
+    }
+    return null;
+  }
+
+  List<ShoppingCartItemViewData> _viewCartItems(
+    _MockConversation conversation,
+  ) {
+    return conversation.cartItems
+        .map(
+          (item) => ShoppingCartItemViewData(
+            cartId: conversation.cartId,
+            cartItemId: item.id,
+            product: ShoppingProductViewData(
+              recommendationItemId: item.product.recommendationItemId,
+              productId: item.product.recommendationItemId,
+              title: item.product.title,
+              brand: item.product.brand,
+              optionText: item.product.optionText,
+              deliveryInfo: item.product.deliveryInfo,
+              reason: item.product.reason,
+              platform: item.product.platform,
+              price: item.product.price,
+            ),
+            quantity: item.quantity,
+            totalPrice: item.totalPrice,
+          ),
+        )
+        .toList(growable: false);
+  }
 }
 
 class _MockConversation {
   _MockConversation({
     required this.conversationId,
     required this.userId,
+    required this.cartId,
     required this.recommendations,
     required this.response,
     required this.cartItems,
@@ -767,6 +862,7 @@ class _MockConversation {
 
   final int conversationId;
   final int userId;
+  final int cartId;
   String? query;
   List<_MockProduct> recommendations;
   int selectedIndex = 0;
@@ -830,10 +926,24 @@ class _MockProduct {
 }
 
 class _MockCartItem {
-  const _MockCartItem({required this.product, required this.quantity});
+  const _MockCartItem({
+    required this.id,
+    required this.product,
+    required this.quantity,
+  });
 
+  final int id;
   final _MockProduct product;
   final int quantity;
+  int get cartId => product.recommendationItemId * 100;
 
   int get totalPrice => product.price * quantity;
+
+  _MockCartItem copyWith({int? id, _MockProduct? product, int? quantity}) {
+    return _MockCartItem(
+      id: id ?? this.id,
+      product: product ?? this.product,
+      quantity: quantity ?? this.quantity,
+    );
+  }
 }

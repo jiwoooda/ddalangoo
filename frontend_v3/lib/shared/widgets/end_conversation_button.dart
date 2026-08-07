@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_radii.dart';
 import '../../app/theme/app_spacing.dart';
+import '../../app/theme/app_surface_styles.dart';
 import '../../app/theme/app_text_styles.dart';
 
 enum EndConversationButtonVariant { light, dark }
@@ -29,11 +30,11 @@ class EndConversationButton extends StatelessWidget {
     final textColor = isDark
         ? AppColors.primaryPinkDark
         : AppColors.textPrimary;
-    final minimumSize = compact ? const Size(108, 44) : const Size(132, 52);
+    final minimumSize = compact ? const Size(100, 42) : const Size(132, 52);
     final padding = compact
         ? const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.xs,
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xxs,
           )
         : const EdgeInsets.symmetric(
             horizontal: AppSpacing.lg,
@@ -51,6 +52,11 @@ class EndConversationButton extends StatelessWidget {
           backgroundColor: backgroundColor,
           foregroundColor: textColor,
           side: BorderSide(color: borderColor),
+          elevation: compact
+              ? AppSurfaceStyles.compactButtonElevation
+              : AppSurfaceStyles.buttonElevation,
+          shadowColor: AppSurfaceStyles.buttonShadowColor,
+          surfaceTintColor: Colors.transparent,
           minimumSize: minimumSize,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.pill),

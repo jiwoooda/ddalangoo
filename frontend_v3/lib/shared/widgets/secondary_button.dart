@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_radii.dart';
 import '../../app/theme/app_sizes.dart';
+import '../../app/theme/app_surface_styles.dart';
 import '../../app/theme/app_text_styles.dart';
 
 class SecondaryButton extends StatelessWidget {
@@ -16,11 +17,14 @@ class SecondaryButton extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       height: AppSizes.buttonHeight,
-      child: OutlinedButton(
+      child: FilledButton(
         onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.textPrimary,
-          side: const BorderSide(color: AppColors.border),
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.secondaryPink,
+          foregroundColor: AppColors.primaryPinkDark,
+          elevation: AppSurfaceStyles.buttonElevation,
+          shadowColor: AppSurfaceStyles.buttonShadowColor,
+          surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.md),
           ),
@@ -29,7 +33,7 @@ class SecondaryButton extends StatelessWidget {
           label,
           style: AppTextStyles.body1.copyWith(
             fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
+            color: AppColors.primaryPinkDark,
           ),
         ),
       ),
