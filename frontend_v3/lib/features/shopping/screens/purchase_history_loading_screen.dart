@@ -10,6 +10,7 @@ import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../data/models/accessibility_purchase_history_model.dart';
 import '../../../data/models/purchase_history_model.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/bottom_cta_layout.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
@@ -505,6 +506,8 @@ class _PurchaseHistoryLoadingScreenState
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return ScreenFrame(
       preset: LayoutPreset.standard,
       child: BottomCtaLayout(
@@ -580,23 +583,33 @@ class _PurchaseHistoryLoadingScreenState
             Expanded(
               child: _previewItems.isEmpty
                   ? const _LoadingPlaceholder()
-                  : GridView.builder(
-                      padding: EdgeInsets.zero,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: AppSpacing.md,
-                            crossAxisSpacing: AppSpacing.md,
-                            childAspectRatio: 0.76,
-                          ),
-                      itemCount: _previewItems.length,
-                      itemBuilder: (context, index) {
-                        final preview = _previewItems[index];
-                        return PurchaseHistoryThumbnailCard(
-                          title: preview.title,
-                          subtitle: preview.subtitle,
-                          caption: preview.caption,
-                          assetPath: preview.assetPath,
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final singleColumn = constraints.maxWidth < 340;
+                        final crossAxisCount = singleColumn ? 1 : 2;
+                        final childAspectRatio = singleColumn
+                            ? 1.62
+                            : (responsive.isShortHeight ? 0.84 : 0.78);
+
+                        return GridView.builder(
+                          padding: EdgeInsets.zero,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                mainAxisSpacing: AppSpacing.md,
+                                crossAxisSpacing: AppSpacing.md,
+                                childAspectRatio: childAspectRatio,
+                              ),
+                          itemCount: _previewItems.length,
+                          itemBuilder: (context, index) {
+                            final preview = _previewItems[index];
+                            return PurchaseHistoryThumbnailCard(
+                              title: preview.title,
+                              subtitle: preview.subtitle,
+                              caption: preview.caption,
+                              assetPath: preview.assetPath,
+                            );
+                          },
                         );
                       },
                     ),

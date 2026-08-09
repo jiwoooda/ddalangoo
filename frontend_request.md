@@ -1,5 +1,11 @@
 # FrontEnd -> BackEnd/AI 요청사항
 
+## 문서 역할
+
+- 이 문서는 `backend`, `native`, `AI` 쪽으로 전달할 구현 요청과 계약 정리용 문서다.
+- 프론트 UI 규칙과 반응형 기준은 `frontend_rule.md`, `frontend.md`를 source of truth로 사용한다.
+- 즉 이 문서는 화면 디자인 문서가 아니라 handoff 문서다.
+
 # Backend Handoff: Speech Segment 분리 + 프론트 순차 재생
 
 작성일: 2026-08-06

@@ -10,6 +10,7 @@ import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../data/models/agent_model.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/bottom_status_banner.dart';
@@ -24,8 +25,8 @@ import '../services/shopping_flow_service.dart';
 const int _pinPadCrossAxisCount = 3;
 const int _pinPadRowCount = 4;
 const double _pinPadChildAspectRatio = 1.45;
-const double _dialogueSectionHeight = 148.0;
-const double _overlayControlBarHeight = 132.0;
+const double _baseDialogueSectionHeight = 148.0;
+const double _baseOverlayControlBarHeight = 132.0;
 
 class ShoppingFlowScreen extends StatefulWidget {
   const ShoppingFlowScreen({super.key, this.userName, this.service});
@@ -682,7 +683,33 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     }
   }
 
-  double get _overlayBottomInset {
+  double _dialogueSectionHeightFor(BuildContext context) {
+    final responsive = context.responsive;
+    return responsive.bound(
+      responsive.heightScaled(
+        _baseDialogueSectionHeight,
+        minFactor: 0.82,
+        maxFactor: 1.0,
+      ),
+      min: 122,
+      max: _baseDialogueSectionHeight,
+    );
+  }
+
+  double _overlayControlBarHeightFor(BuildContext context) {
+    final responsive = context.responsive;
+    return responsive.bound(
+      responsive.heightScaled(
+        _baseOverlayControlBarHeight,
+        minFactor: 0.82,
+        maxFactor: 1.0,
+      ),
+      min: 110,
+      max: _baseOverlayControlBarHeight,
+    );
+  }
+
+  double _overlayBottomInsetFor(BuildContext context) {
     return switch (_viewStage) {
       ShoppingFlowViewStage.askProduct ||
       ShoppingFlowViewStage.productSelection ||
@@ -693,7 +720,8 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       ShoppingFlowViewStage.addressConfirmation ||
       ShoppingFlowViewStage.paymentConfirmation ||
       ShoppingFlowViewStage.paymentProcessing ||
-      ShoppingFlowViewStage.error => _overlayControlBarHeight + AppSpacing.sm,
+      ShoppingFlowViewStage.error =>
+        _overlayControlBarHeightFor(context) + AppSpacing.sm,
       _ => 0,
     };
   }
@@ -950,6 +978,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   }
 
   Widget _buildConversationViewport() {
+    final overlayBottomInset = _overlayBottomInsetFor(context);
     final stageBody = AnimatedSwitcher(
       duration: const Duration(milliseconds: 260),
       switchInCurve: Curves.easeOutCubic,
@@ -967,7 +996,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
         children: [
           Positioned.fill(
             child: Padding(
-              padding: EdgeInsets.only(bottom: _overlayBottomInset),
+              padding: EdgeInsets.only(bottom: overlayBottomInset),
               child: stageBody,
             ),
           ),
@@ -1033,15 +1062,17 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   }
 
   Widget _buildDialogueSection() {
+    final dialogueSectionHeight = _dialogueSectionHeightFor(context);
+
     return SizedBox(
-      height: _dialogueSectionHeight,
+      height: dialogueSectionHeight,
       child: DialogueBubble(
         contentKey: ValueKey(
           '${_response?.conversationId ?? 0}-${_response?.stage}-${_assistantText ?? _viewStage.name}',
         ),
         animateTextChanges: true,
         borderColor: AppSurfaceStyles.emphasisOutlineColor,
-        minHeight: _dialogueSectionHeight - 8,
+        minHeight: dialogueSectionHeight - 8,
         scrollableContent: true,
         contentAlignment: Alignment.topLeft,
         text: _assistantText,
@@ -1081,6 +1112,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   }
 
   Widget _buildOverlayBottomSection() {
+    final overlayControlBarHeight = _overlayControlBarHeightFor(context);
     final replyOptions = _buildOverlayReplyOptions();
     final splitIndex = (replyOptions.length / 2).ceil();
     final overlayBackgroundColor = _voiceInputState == VoiceInputState.inactive
@@ -1110,6 +1142,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
             const SizedBox(height: AppSpacing.sm),
           ],
           _OverlayControlBar(
+            height: overlayControlBarHeight,
             backgroundColor: overlayBackgroundColor,
             leadingReplyContent: leadingReplyContent,
             trailingReplyContent: trailingReplyContent,
@@ -2385,12 +2418,14 @@ class _OverlayReplyOption {
 
 class _OverlayControlBar extends StatelessWidget {
   const _OverlayControlBar({
+    required this.height,
     required this.voiceButton,
     required this.backgroundColor,
     this.leadingReplyContent,
     this.trailingReplyContent,
   });
 
+  final double height;
   final Widget voiceButton;
   final Color backgroundColor;
   final Widget? leadingReplyContent;
@@ -2403,7 +2438,7 @@ class _OverlayControlBar extends StatelessWidget {
 
     return SizedBox(
       width: double.infinity,
-      height: _overlayControlBarHeight,
+      height: height,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),

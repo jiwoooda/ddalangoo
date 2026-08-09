@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../shared/layout/layout_presets.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../widgets/splash_logo_block.dart';
 import '../widgets/splash_message_block.dart';
@@ -52,6 +53,8 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return ScreenFrame(
       preset: LayoutPreset.standard,
       alignment: Alignment.center,
@@ -59,10 +62,20 @@ class _SplashScreenState extends State<SplashScreen>
         opacity: _fadeAnimation,
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: const [
-            SplashLogoBlock(),
-            SizedBox(height: AppSpacing.lg),
-            SplashMessageBlock(),
+          children: [
+            const SplashLogoBlock(),
+            SizedBox(
+              height: responsive.bound(
+                responsive.heightScaled(
+                  AppSpacing.lg,
+                  minFactor: 0.72,
+                  maxFactor: 1.0,
+                ),
+                min: AppSpacing.sm,
+                max: AppSpacing.lg,
+              ),
+            ),
+            const SplashMessageBlock(),
           ],
         ),
       ),

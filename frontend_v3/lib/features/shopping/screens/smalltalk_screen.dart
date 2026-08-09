@@ -11,6 +11,7 @@ import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
@@ -297,16 +298,46 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
     final currentMessage = widget.messages[_currentIndex];
     final canTapExampleReplies =
         !_isSubmitting && !_isSpeaking && !_isRecording;
+    final responsive = context.responsive;
 
     return ScreenFrame(
       preset: LayoutPreset.conversation,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final compact = constraints.maxHeight < 820;
-          final characterHeight = _isLastMessage
-              ? (compact ? 280.0 : 330.0)
-              : (compact ? 360.0 : 420.0);
-          final bubbleMinHeight = compact ? 150.0 : 172.0;
+          final compact =
+              constraints.maxHeight < 820 || responsive.usesCondensedLayout;
+          final characterHeight = responsive.bound(
+            responsive.heightScaled(
+              _isLastMessage ? (compact ? 280 : 330) : (compact ? 360 : 420),
+              minFactor: 0.8,
+              maxFactor: 1.0,
+            ),
+            min: _isLastMessage ? 240 : 300,
+            max: _isLastMessage ? 330 : 420,
+          );
+          final bubbleMinHeight = responsive.bound(
+            responsive.heightScaled(
+              compact ? 150 : 172,
+              minFactor: 0.84,
+              maxFactor: 1.0,
+            ),
+            min: 136,
+            max: 172,
+          );
+          final bubbleVerticalPadding = responsive.bound(
+            responsive.heightScaled(
+              compact ? AppSpacing.lg : AppSpacing.xl,
+              minFactor: 0.74,
+              maxFactor: 1.0,
+            ),
+            min: AppSpacing.md,
+            max: AppSpacing.xl,
+          );
+          final titleSize = responsive.bound(
+            responsive.font(compact ? 24 : 26, minFactor: 0.94, maxFactor: 1.0),
+            min: 22,
+            max: 26,
+          );
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -331,18 +362,18 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
                 minHeight: bubbleMinHeight,
                 padding: EdgeInsets.symmetric(
                   horizontal: AppSpacing.lg,
-                  vertical: compact ? AppSpacing.lg : AppSpacing.xl,
+                  vertical: bubbleVerticalPadding,
                 ),
                 style: AppTextStyles.title2.copyWith(
                   color: AppColors.textStrong,
                   height: 1.35,
-                  fontSize: compact ? 24 : 26,
+                  fontSize: titleSize,
                   fontWeight: FontWeight.w700,
                 ),
                 emphasizedStyle: AppTextStyles.title2.copyWith(
                   color: AppColors.primaryPinkDark,
                   height: 1.35,
-                  fontSize: compact ? 24 : 26,
+                  fontSize: titleSize,
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -378,6 +409,11 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
                                 style: AppTextStyles.body2.copyWith(
                                   color: AppColors.textMuted,
                                   fontWeight: FontWeight.w700,
+                                  fontSize: responsive.font(
+                                    16,
+                                    minFactor: 0.94,
+                                    maxFactor: 1.0,
+                                  ),
                                 ),
                               ),
                               if (_transcriptPreview != null &&
@@ -456,15 +492,31 @@ class _SmallTalkVoicePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
     final backgroundColor = state == VoiceInputState.inactive
         ? const Color(0xFFF7F7FA)
         : AppColors.pastelPinkSoft;
+    final panelHeight = responsive.bound(
+      responsive.heightScaled(126, minFactor: 0.84, maxFactor: 1.0),
+      min: 108,
+      max: 126,
+    );
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       width: double.infinity,
-      height: 126,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      height: panelHeight,
+      padding: EdgeInsets.symmetric(
+        horizontal: responsive.bound(
+          responsive.widthScaled(
+            AppSpacing.md,
+            minFactor: 0.84,
+            maxFactor: 1.0,
+          ),
+          min: AppSpacing.sm,
+          max: AppSpacing.md,
+        ),
+      ),
       decoration: AppSurfaceStyles.elevatedCard(
         radius: AppRadii.xl,
         color: backgroundColor,

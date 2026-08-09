@@ -7,6 +7,7 @@ import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/primary_button.dart';
@@ -101,29 +102,78 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return ScreenFrame(
       preset: LayoutPreset.standard,
       alignment: Alignment.center,
       scrollable: true,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: BoxConstraints(
+          maxWidth: responsive.isExpandedWidth ? 440 : 420,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset(
               'assets/images/character/top/ddalangoo_register_top.png',
-              height: 220,
+              height: responsive.bound(
+                responsive.heightScaled(220, minFactor: 0.8, maxFactor: 1.0),
+                min: 170,
+                max: 220,
+              ),
               fit: BoxFit.contain,
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('회원가입', style: AppTextStyles.title1),
-            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              height: responsive.bound(
+                responsive.heightScaled(
+                  AppSpacing.lg,
+                  minFactor: 0.72,
+                  maxFactor: 1.0,
+                ),
+                min: AppSpacing.md,
+                max: AppSpacing.lg,
+              ),
+            ),
+            Text(
+              '회원가입',
+              style: AppTextStyles.title1.copyWith(
+                fontSize: responsive.bound(
+                  responsive.font(28, minFactor: 0.94, maxFactor: 1.0),
+                  min: 25,
+                  max: 28,
+                ),
+              ),
+            ),
+            SizedBox(
+              height: responsive.bound(
+                responsive.heightScaled(
+                  AppSpacing.sm,
+                  minFactor: 0.72,
+                  maxFactor: 1.0,
+                ),
+                min: AppSpacing.xs,
+                max: AppSpacing.sm,
+              ),
+            ),
             Text(
               '처음 사용하신다면 간단한 정보만 입력해주세요.',
               textAlign: TextAlign.center,
-              style: AppTextStyles.body2,
+              style: AppTextStyles.body2.copyWith(
+                fontSize: responsive.font(16, minFactor: 0.94, maxFactor: 1.0),
+              ),
             ),
-            const SizedBox(height: AppSpacing.xl),
+            SizedBox(
+              height: responsive.bound(
+                responsive.heightScaled(
+                  AppSpacing.xl,
+                  minFactor: 0.72,
+                  maxFactor: 1.0,
+                ),
+                min: AppSpacing.lg,
+                max: AppSpacing.xl,
+              ),
+            ),
             _AuthField(controller: _nameController, hintText: '이름'),
             const SizedBox(height: AppSpacing.md),
             _AuthField(

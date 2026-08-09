@@ -5,6 +5,7 @@ import '../../app/theme/app_radii.dart';
 import '../../app/theme/app_sizes.dart';
 import '../../app/theme/app_surface_styles.dart';
 import '../../app/theme/app_text_styles.dart';
+import '../layout/app_responsive.dart';
 
 class SecondaryButton extends StatelessWidget {
   const SecondaryButton({super.key, required this.label, this.onPressed});
@@ -14,9 +15,20 @@ class SecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+    final buttonHeight = responsive.bound(
+      responsive.heightScaled(
+        AppSizes.buttonHeight,
+        minFactor: 0.86,
+        maxFactor: 1.0,
+      ),
+      min: AppSizes.compactButtonHeight,
+      max: AppSizes.buttonHeight,
+    );
+
     return SizedBox(
       width: double.infinity,
-      height: AppSizes.buttonHeight,
+      height: buttonHeight,
       child: FilledButton(
         onPressed: onPressed,
         style: FilledButton.styleFrom(

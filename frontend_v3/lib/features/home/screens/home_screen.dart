@@ -11,6 +11,7 @@ import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/primary_button.dart';
 
@@ -85,6 +86,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return ScreenFrame(
       preset: LayoutPreset.standard,
       child: LayoutBuilder(
@@ -95,13 +98,47 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, contentConstraints) {
-                    final compact = contentConstraints.maxHeight < 820;
-                    final imageHeight = compact ? 220.0 : 300.0;
-                    final sectionGap = compact ? AppSpacing.md : AppSpacing.xl;
-                    final headerGap = compact ? AppSpacing.sm : AppSpacing.lg;
-                    final shortcutHeight = compact ? 118.0 : 128.0;
+                    final compact =
+                        contentConstraints.maxHeight < 820 ||
+                        responsive.usesCondensedLayout;
+                    final imageHeight = responsive.bound(
+                      responsive.heightScaled(
+                        compact ? 236 : 300,
+                        minFactor: 0.8,
+                        maxFactor: 1.0,
+                      ),
+                      min: 210,
+                      max: 300,
+                    );
+                    final sectionGap = responsive.bound(
+                      responsive.heightScaled(
+                        compact ? AppSpacing.md : AppSpacing.xl,
+                        minFactor: 0.72,
+                        maxFactor: 1.0,
+                      ),
+                      min: AppSpacing.sm,
+                      max: AppSpacing.xl,
+                    );
+                    final headerGap = responsive.bound(
+                      responsive.heightScaled(
+                        compact ? AppSpacing.sm : AppSpacing.lg,
+                        minFactor: 0.72,
+                        maxFactor: 1.0,
+                      ),
+                      min: AppSpacing.xs,
+                      max: AppSpacing.lg,
+                    );
+                    final shortcutHeight = responsive.bound(
+                      responsive.heightScaled(
+                        compact ? 116 : 128,
+                        minFactor: 0.84,
+                        maxFactor: 1.0,
+                      ),
+                      min: 104,
+                      max: 128,
+                    );
                     final useSingleColumnShortcuts =
-                        contentConstraints.maxWidth < 320;
+                        contentConstraints.maxWidth < 340;
 
                     Widget buildShortcutCard({
                       required IconData icon,
@@ -206,13 +243,21 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ? ['딸랑구']
                                     : [_userName!],
                                 style: AppTextStyles.title2.copyWith(
-                                  fontSize: compact ? 22 : 25,
+                                  fontSize: responsive.bound(
+                                    responsive.font(compact ? 22 : 25),
+                                    min: 21,
+                                    max: 25,
+                                  ),
                                   height: 1.32,
                                   fontWeight: FontWeight.w600,
                                   color: AppColors.textPrimary,
                                 ),
                                 emphasizedStyle: AppTextStyles.title2.copyWith(
-                                  fontSize: compact ? 22 : 25,
+                                  fontSize: responsive.bound(
+                                    responsive.font(compact ? 22 : 25),
+                                    min: 21,
+                                    max: 25,
+                                  ),
                                   height: 1.32,
                                   fontWeight: FontWeight.w800,
                                   color: AppColors.primaryPinkDark,
@@ -237,7 +282,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Padding(
                               padding: EdgeInsets.only(
                                 top: sectionGap,
-                                bottom: compact ? AppSpacing.lg : AppSpacing.xl,
+                                bottom: responsive.bound(
+                                  responsive.heightScaled(
+                                    compact ? AppSpacing.lg : AppSpacing.xl,
+                                    minFactor: 0.76,
+                                    maxFactor: 1.0,
+                                  ),
+                                  min: AppSpacing.md,
+                                  max: AppSpacing.xl,
+                                ),
                               ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -329,16 +382,41 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
               ),
-              const SizedBox(height: AppSpacing.lg),
+              SizedBox(
+                height: responsive.bound(
+                  responsive.heightScaled(
+                    AppSpacing.lg,
+                    minFactor: 0.72,
+                    maxFactor: 1.0,
+                  ),
+                  min: AppSpacing.sm,
+                  max: AppSpacing.lg,
+                ),
+              ),
               Text(
                 '딸랑구를 불러보세요!',
                 textAlign: TextAlign.center,
                 style: AppTextStyles.body2.copyWith(
                   color: AppColors.textMuted,
                   fontWeight: FontWeight.w600,
+                  fontSize: responsive.font(
+                    16,
+                    minFactor: 0.94,
+                    maxFactor: 1.0,
+                  ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.xs),
+              SizedBox(
+                height: responsive.bound(
+                  responsive.heightScaled(
+                    AppSpacing.xs,
+                    minFactor: 0.7,
+                    maxFactor: 1.0,
+                  ),
+                  min: AppSpacing.xxs,
+                  max: AppSpacing.xs,
+                ),
+              ),
               PrimaryButton(
                 label: '딸랑구야 도와줘!',
                 icon: Icons.phone_in_talk_rounded,
@@ -363,20 +441,36 @@ class _ShortcutCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppRadii.lg),
         child: Container(
-          padding: const EdgeInsets.all(AppSpacing.md),
+          padding: EdgeInsets.all(
+            responsive.bound(
+              responsive.scale(AppSpacing.md, minFactor: 0.84, maxFactor: 1.0),
+              min: AppSpacing.sm,
+              max: AppSpacing.md,
+            ),
+          ),
           decoration: AppSurfaceStyles.elevatedCard(radius: AppRadii.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Spacer(),
               Center(
-                child: Icon(icon, color: AppColors.primaryPinkDark, size: 30),
+                child: Icon(
+                  icon,
+                  color: AppColors.primaryPinkDark,
+                  size: responsive.bound(
+                    responsive.scale(30, minFactor: 0.86, maxFactor: 1.0),
+                    min: 26,
+                    max: 30,
+                  ),
+                ),
               ),
               const SizedBox(height: AppSpacing.md),
               Text(
@@ -387,6 +481,11 @@ class _ShortcutCard extends StatelessWidget {
                   color: AppColors.primaryPinkDark,
                   fontWeight: FontWeight.w700,
                   height: 1.25,
+                  fontSize: responsive.bound(
+                    responsive.font(18, minFactor: 0.94, maxFactor: 1.0),
+                    min: 16,
+                    max: 18,
+                  ),
                 ),
               ),
               const Spacer(),

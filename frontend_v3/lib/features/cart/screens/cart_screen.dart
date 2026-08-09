@@ -8,6 +8,7 @@ import '../../../core/storage/local_storage.dart';
 import '../../../data/models/cart_model.dart';
 import '../../../data/repositories/agent_repository.dart';
 import '../../../data/repositories/cart_repository.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/primary_button.dart';
@@ -73,6 +74,18 @@ class _CartScreenState extends State<CartScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+    final headerButtonSize = responsive.bound(
+      responsive.scale(44, minFactor: 0.84, maxFactor: 1.0),
+      min: 38,
+      max: 44,
+    );
+    final verticalGap = responsive.bound(
+      responsive.heightScaled(AppSpacing.lg, minFactor: 0.72, maxFactor: 1.0),
+      min: AppSpacing.sm,
+      max: AppSpacing.lg,
+    );
+
     return ScreenFrame(
       preset: LayoutPreset.cartCompact,
       child: Column(
@@ -85,15 +98,20 @@ class _CartScreenState extends State<CartScreen> {
                 '장바구니 보기',
                 style: AppTextStyles.body1.copyWith(
                   fontWeight: FontWeight.w800,
+                  fontSize: responsive.bound(
+                    responsive.font(18, minFactor: 0.94, maxFactor: 1.0),
+                    min: 16,
+                    max: 18,
+                  ),
                 ),
               ),
               const Spacer(),
-              const SizedBox(width: 44),
+              SizedBox(width: headerButtonSize),
             ],
           ),
-          const SizedBox(height: AppSpacing.lg),
+          SizedBox(height: verticalGap),
           Expanded(child: _buildBody()),
-          const SizedBox(height: AppSpacing.lg),
+          SizedBox(height: verticalGap),
           PrimaryButton(
             label: '새 쇼핑 시작하기',
             icon: Icons.shopping_bag_outlined,
@@ -105,6 +123,8 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   Widget _buildBody() {
+    final responsive = context.responsive;
+
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -131,11 +151,32 @@ class _CartScreenState extends State<CartScreen> {
           _userName == null || _userName!.trim().isEmpty
               ? '현재 담긴 상품'
               : '${_userName!.trim()} 님의 장바구니',
-          style: AppTextStyles.title2,
+          style: AppTextStyles.title2.copyWith(
+            fontSize: responsive.bound(
+              responsive.font(24, minFactor: 0.94, maxFactor: 1.0),
+              min: 22,
+              max: 24,
+            ),
+          ),
         ),
         const SizedBox(height: AppSpacing.sm),
-        Text('${cart.items.length}개 상품이 담겨 있어요.', style: AppTextStyles.body2),
-        const SizedBox(height: AppSpacing.lg),
+        Text(
+          '${cart.items.length}개 상품이 담겨 있어요.',
+          style: AppTextStyles.body2.copyWith(
+            fontSize: responsive.font(16, minFactor: 0.94, maxFactor: 1.0),
+          ),
+        ),
+        SizedBox(
+          height: responsive.bound(
+            responsive.heightScaled(
+              AppSpacing.lg,
+              minFactor: 0.72,
+              maxFactor: 1.0,
+            ),
+            min: AppSpacing.sm,
+            max: AppSpacing.lg,
+          ),
+        ),
         Expanded(
           child: ListView.separated(
             itemCount: cart.items.length,
@@ -146,10 +187,26 @@ class _CartScreenState extends State<CartScreen> {
             },
           ),
         ),
-        const SizedBox(height: AppSpacing.lg),
+        SizedBox(
+          height: responsive.bound(
+            responsive.heightScaled(
+              AppSpacing.lg,
+              minFactor: 0.72,
+              maxFactor: 1.0,
+            ),
+            min: AppSpacing.sm,
+            max: AppSpacing.lg,
+          ),
+        ),
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(AppSpacing.md),
+          padding: EdgeInsets.all(
+            responsive.bound(
+              responsive.scale(AppSpacing.md, minFactor: 0.84, maxFactor: 1.0),
+              min: AppSpacing.sm,
+              max: AppSpacing.md,
+            ),
+          ),
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(AppRadii.lg),
@@ -185,12 +242,19 @@ class _BackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+    final buttonSize = responsive.bound(
+      responsive.scale(44, minFactor: 0.84, maxFactor: 1.0),
+      min: 38,
+      max: 44,
+    );
+
     return InkWell(
       onTap: onPressed,
       borderRadius: BorderRadius.circular(AppRadii.pill),
       child: Container(
-        width: 44,
-        height: 44,
+        width: buttonSize,
+        height: buttonSize,
         decoration: BoxDecoration(
           color: AppColors.surfaceMuted,
           borderRadius: BorderRadius.circular(AppRadii.pill),
@@ -214,10 +278,22 @@ class _EmptyPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return Center(
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(AppSpacing.cardPadding),
+        padding: EdgeInsets.all(
+          responsive.bound(
+            responsive.scale(
+              AppSpacing.cardPadding,
+              minFactor: 0.82,
+              maxFactor: 1.0,
+            ),
+            min: AppSpacing.md,
+            max: AppSpacing.cardPadding,
+          ),
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(AppRadii.xl),
@@ -228,7 +304,11 @@ class _EmptyPanel extends StatelessWidget {
           children: [
             Image.asset(
               'assets/images/character/full/ddalangoo_curious.png',
-              height: 180,
+              height: responsive.bound(
+                responsive.heightScaled(180, minFactor: 0.8, maxFactor: 1.0),
+                min: 140,
+                max: 180,
+              ),
               fit: BoxFit.contain,
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -258,9 +338,22 @@ class _CartItemCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
     final previewAsset = service.assetForProductName(item.productName);
+    final thumbnailSize = responsive.bound(
+      responsive.scale(64, minFactor: 0.82, maxFactor: 1.0),
+      min: 52,
+      max: 64,
+    );
+
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: EdgeInsets.all(
+        responsive.bound(
+          responsive.scale(AppSpacing.md, minFactor: 0.84, maxFactor: 1.0),
+          min: AppSpacing.sm,
+          max: AppSpacing.md,
+        ),
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppRadii.lg),
@@ -271,8 +364,8 @@ class _CartItemCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(AppRadii.md),
             child: Container(
-              width: 64,
-              height: 64,
+              width: thumbnailSize,
+              height: thumbnailSize,
               color: previewAsset.backgroundColor,
               child: Image.asset(previewAsset.assetPath, fit: BoxFit.cover),
             ),
@@ -287,6 +380,11 @@ class _CartItemCard extends StatelessWidget {
                   style: AppTextStyles.body2.copyWith(
                     color: AppColors.textStrong,
                     fontWeight: FontWeight.w800,
+                    fontSize: responsive.font(
+                      16,
+                      minFactor: 0.94,
+                      maxFactor: 1.0,
+                    ),
                   ),
                 ),
                 if (item.optionText?.trim().isNotEmpty == true) ...[

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_spacing.dart';
 import '../../app/theme/app_text_styles.dart';
+import '../layout/app_responsive.dart';
 
 enum VoiceInputState { inactive, active, listening }
 
@@ -69,6 +70,7 @@ class _VoiceInputButtonState extends State<VoiceInputButton>
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
     final isInactive = widget.state == VoiceInputState.inactive;
     final isInteractive = !isInactive;
     final baseColor = isInactive
@@ -81,6 +83,30 @@ class _VoiceInputButtonState extends State<VoiceInputButton>
     final resolvedLabel = isInactive
         ? widget.inactiveLabel
         : widget.activeLabel;
+    final resolvedDiameter = responsive.bound(
+      responsive.scale(widget.diameter, minFactor: 0.82, maxFactor: 1.0),
+      min: widget.diameter * 0.82,
+      max: widget.diameter,
+    );
+    final resolvedIconSize = responsive.bound(
+      responsive.scale(widget.iconSize, minFactor: 0.84, maxFactor: 1.0),
+      min: widget.iconSize * 0.84,
+      max: widget.iconSize,
+    );
+    final resolvedLabelSpacing = responsive.bound(
+      responsive.heightScaled(
+        widget.labelSpacing,
+        minFactor: 0.75,
+        maxFactor: 1.0,
+      ),
+      min: 2,
+      max: widget.labelSpacing,
+    );
+    final resolvedLabelSize = responsive.font(
+      16,
+      minFactor: 0.92,
+      maxFactor: 1.0,
+    );
 
     return AnimatedBuilder(
       animation: _pulseController,
@@ -105,33 +131,34 @@ class _VoiceInputButtonState extends State<VoiceInputButton>
                 onTap: isInteractive ? widget.onPressed : null,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 220),
-                  width: widget.diameter,
-                  height: widget.diameter,
+                  width: resolvedDiameter,
+                  height: resolvedDiameter,
                   decoration: BoxDecoration(
                     color: baseColor,
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
                         color: baseColor.withValues(alpha: glowAlpha),
-                        blurRadius: widget.diameter * 0.25,
+                        blurRadius: resolvedDiameter * 0.25,
                         offset: const Offset(0, 12),
                       ),
                     ],
                   ),
                   child: Icon(
                     Icons.mic_rounded,
-                    size: widget.iconSize,
+                    size: resolvedIconSize,
                     color: foregroundColor,
                   ),
                 ),
               ),
             ),
-            SizedBox(height: widget.labelSpacing),
+            SizedBox(height: resolvedLabelSpacing),
             Text(
               resolvedLabel,
               style: AppTextStyles.body2.copyWith(
                 fontWeight: FontWeight.w700,
                 color: labelColor,
+                fontSize: resolvedLabelSize,
               ),
             ),
           ],

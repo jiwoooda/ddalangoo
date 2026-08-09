@@ -11,6 +11,7 @@ import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/accessibility_automation_service.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../shared/layout/app_layout.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
 import '../../shopping/screens/purchase_history_loading_screen.dart';
@@ -629,6 +630,8 @@ class _PlatformCheckBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -642,7 +645,13 @@ class _PlatformCheckBackground extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 148),
+        padding: EdgeInsets.only(
+          bottom: responsive.bound(
+            responsive.heightScaled(148, minFactor: 0.72, maxFactor: 1.0),
+            min: 112,
+            max: 148,
+          ),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -712,8 +721,16 @@ class _MockSearchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: EdgeInsets.all(
+        responsive.bound(
+          responsive.scale(AppSpacing.lg, minFactor: 0.84, maxFactor: 1.0),
+          min: AppSpacing.md,
+          max: AppSpacing.lg,
+        ),
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppRadii.xl),
@@ -750,7 +767,11 @@ class _MockSearchCard extends StatelessWidget {
           const SizedBox(width: AppSpacing.md),
           Image.asset(
             'assets/images/character/full/ddalangoo_searching.png',
-            height: 84,
+            height: responsive.bound(
+              responsive.heightScaled(84, minFactor: 0.82, maxFactor: 1.0),
+              min: 68,
+              max: 84,
+            ),
             fit: BoxFit.contain,
           ),
         ],
@@ -772,13 +793,25 @@ class _PlatformTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+    final tileWidth = responsive.bound(
+      responsive.widthScaled(96, minFactor: 0.82, maxFactor: 1.0),
+      min: 82,
+      max: 96,
+    );
+    final iconBoxSize = responsive.bound(
+      responsive.scale(84, minFactor: 0.82, maxFactor: 1.0),
+      min: 70,
+      max: 84,
+    );
+
     return SizedBox(
-      width: 96,
+      width: tileWidth,
       child: Column(
         children: [
           Container(
-            width: 84,
-            height: 84,
+            width: iconBoxSize,
+            height: iconBoxSize,
             padding: const EdgeInsets.all(AppSpacing.sm),
             decoration: BoxDecoration(
               color: isInstalled ? Colors.white : AppColors.surfaceMuted,

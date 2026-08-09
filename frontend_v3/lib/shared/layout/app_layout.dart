@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme/app_spacing.dart';
+import 'app_responsive.dart';
 import 'content_constraints.dart';
 import 'layout_presets.dart';
 
@@ -18,49 +19,67 @@ class AppLayout {
   final double bottomSpacing;
 
   factory AppLayout.of(BuildContext context, LayoutPreset preset) {
-    final width = MediaQuery.sizeOf(context).width;
-    final horizontal = width < 380 ? 20.0 : AppSpacing.screenHorizontal;
+    final responsive = AppResponsive.of(context);
+    final horizontalBase = responsive.width < 380
+        ? 20.0
+        : AppSpacing.screenHorizontal;
 
     return switch (preset) {
       LayoutPreset.standard => AppLayout(
-        padding: EdgeInsets.fromLTRB(
-          horizontal,
-          AppSpacing.screenTop,
-          horizontal,
-          AppSpacing.screenBottom,
+        padding: responsive.adaptivePadding(
+          horizontal: horizontalBase,
+          top: AppSpacing.screenTop,
+          bottom: AppSpacing.screenBottom,
         ),
-        maxWidth: ContentConstraints.regular,
-        topSpacing: AppSpacing.screenTop,
-        bottomSpacing: AppSpacing.screenBottom,
+        maxWidth: responsive.isExpandedWidth
+            ? ContentConstraints.wide
+            : ContentConstraints.regular,
+        topSpacing: responsive.topSpacing(AppSpacing.screenTop),
+        bottomSpacing: responsive.bottomSpacing(AppSpacing.screenBottom),
       ),
       LayoutPreset.onboarding => AppLayout(
-        padding: EdgeInsets.fromLTRB(
-          horizontal,
-          AppSpacing.screenTop,
-          horizontal,
-          32,
+        padding: responsive.adaptivePadding(
+          horizontal: horizontalBase,
+          top: AppSpacing.screenTop,
+          bottom: 32,
         ),
-        maxWidth: ContentConstraints.regular,
-        topSpacing: AppSpacing.screenTop,
-        bottomSpacing: 32,
+        maxWidth: responsive.isExpandedWidth
+            ? ContentConstraints.wide
+            : ContentConstraints.regular,
+        topSpacing: responsive.topSpacing(AppSpacing.screenTop),
+        bottomSpacing: responsive.bottomSpacing(32),
       ),
       LayoutPreset.conversation => AppLayout(
-        padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 28),
-        maxWidth: ContentConstraints.regular,
-        topSpacing: 16,
-        bottomSpacing: 28,
+        padding: responsive.adaptivePadding(
+          horizontal: horizontalBase,
+          top: 16,
+          bottom: 28,
+        ),
+        maxWidth: responsive.isExpandedWidth
+            ? ContentConstraints.wide
+            : ContentConstraints.regular,
+        topSpacing: responsive.topSpacing(16),
+        bottomSpacing: responsive.bottomSpacing(28),
       ),
       LayoutPreset.loading => AppLayout(
-        padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 20),
+        padding: responsive.adaptivePadding(
+          horizontal: horizontalBase,
+          top: 16,
+          bottom: 20,
+        ),
         maxWidth: ContentConstraints.wide,
-        topSpacing: 16,
-        bottomSpacing: 20,
+        topSpacing: responsive.topSpacing(16),
+        bottomSpacing: responsive.bottomSpacing(20),
       ),
       LayoutPreset.cartCompact => AppLayout(
-        padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 20),
+        padding: responsive.adaptivePadding(
+          horizontal: horizontalBase,
+          top: 16,
+          bottom: 20,
+        ),
         maxWidth: ContentConstraints.regular,
-        topSpacing: 16,
-        bottomSpacing: 20,
+        topSpacing: responsive.topSpacing(16),
+        bottomSpacing: responsive.bottomSpacing(20),
       ),
     };
   }

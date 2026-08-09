@@ -7,6 +7,7 @@ import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/primary_button.dart';
@@ -95,14 +96,48 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+
     return ScreenFrame(
       preset: LayoutPreset.standard,
       alignment: Alignment.topCenter,
       scrollable: false,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: BoxConstraints(
+          maxWidth: responsive.isExpandedWidth ? 440 : 420,
+        ),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final compactHeight =
+                constraints.maxHeight < 760 || responsive.usesCondensedLayout;
+            final imageHeight = responsive.bound(
+              responsive.heightScaled(
+                compactHeight ? 190 : 220,
+                minFactor: 0.8,
+                maxFactor: 1.0,
+              ),
+              min: 170,
+              max: 220,
+            );
+            final headerTopSpacing = responsive.bound(
+              responsive.heightScaled(
+                AppSpacing.lg,
+                minFactor: 0.7,
+                maxFactor: 1.0,
+              ),
+              min: AppSpacing.md,
+              max: AppSpacing.xl,
+            );
+            final sectionSpacing = responsive.bound(
+              responsive.heightScaled(
+                AppSpacing.xl,
+                minFactor: 0.72,
+                maxFactor: 1.0,
+              ),
+              min: AppSpacing.lg,
+              max: AppSpacing.xl,
+            );
+
             return SingleChildScrollView(
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               child: ConstrainedBox(
@@ -112,24 +147,53 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.lg),
+                        padding: EdgeInsets.only(top: headerTopSpacing),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Image.asset(
                               'assets/images/character/top/ddalangoo_greeting_top.png',
-                              height: 220,
+                              height: imageHeight,
                               fit: BoxFit.contain,
                             ),
-                            const SizedBox(height: AppSpacing.lg),
-                            Text('다시 오신 걸 환영해요!', style: AppTextStyles.title1),
-                            const SizedBox(height: AppSpacing.sm),
+                            SizedBox(height: headerTopSpacing),
+                            Text(
+                              '다시 오신 걸 환영해요!',
+                              style: AppTextStyles.title1.copyWith(
+                                fontSize: responsive.bound(
+                                  responsive.font(
+                                    28,
+                                    minFactor: 0.94,
+                                    maxFactor: 1.0,
+                                  ),
+                                  min: 25,
+                                  max: 28,
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              height: responsive.bound(
+                                responsive.heightScaled(
+                                  AppSpacing.sm,
+                                  minFactor: 0.72,
+                                  maxFactor: 1.0,
+                                ),
+                                min: AppSpacing.xs,
+                                max: AppSpacing.sm,
+                              ),
+                            ),
                             Text(
                               '이름과 전화번호로 로그인할 수 있어요.',
                               textAlign: TextAlign.center,
-                              style: AppTextStyles.body2,
+                              style: AppTextStyles.body2.copyWith(
+                                fontSize: responsive.font(
+                                  16,
+                                  minFactor: 0.94,
+                                  maxFactor: 1.0,
+                                ),
+                              ),
                             ),
-                            const SizedBox(height: AppSpacing.xl),
+                            SizedBox(height: sectionSpacing),
                             _AuthField(
                               controller: _nameController,
                               hintText: '이름',
@@ -163,7 +227,17 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                        padding: EdgeInsets.only(
+                          top: responsive.bound(
+                            responsive.heightScaled(
+                              AppSpacing.xxl,
+                              minFactor: 0.6,
+                              maxFactor: 1.0,
+                            ),
+                            min: AppSpacing.lg,
+                            max: AppSpacing.xxl,
+                          ),
+                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -172,6 +246,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               style: AppTextStyles.body2.copyWith(
                                 color: AppColors.textMuted,
                                 fontWeight: FontWeight.w600,
+                                fontSize: responsive.font(
+                                  16,
+                                  minFactor: 0.94,
+                                  maxFactor: 1.0,
+                                ),
                               ),
                             ),
                             const SizedBox(height: AppSpacing.sm),

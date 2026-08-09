@@ -7,6 +7,7 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_text_styles.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/widgets/bottom_status_banner.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
@@ -1051,9 +1052,16 @@ class _SecondaryActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+    final buttonHeight = responsive.bound(
+      responsive.heightScaled(52, minFactor: 0.86, maxFactor: 1.0),
+      min: 46,
+      max: 52,
+    );
+
     return SizedBox(
       width: double.infinity,
-      height: 52,
+      height: buttonHeight,
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
