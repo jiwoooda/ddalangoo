@@ -15,6 +15,7 @@ import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/bottom_status_banner.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
+import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/primary_button.dart';
 import '../../../shared/widgets/shopping_progress_stepper.dart';
 import '../../../shared/widgets/voice_input_button.dart';
@@ -1033,7 +1034,11 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           ),
         ),
         const SizedBox(width: AppSpacing.xs),
-        _ExitIconButton(onPressed: _confirmExit),
+        EndConversationButton(
+          compact: true,
+          iconOnly: true,
+          onPressed: _confirmExit,
+        ),
       ],
     );
   }
@@ -1558,44 +1563,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           ],
         );
     }
-  }
-}
-
-class _ExitIconButton extends StatelessWidget {
-  const _ExitIconButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: '대화 종료',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(AppRadii.pill),
-          child: Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(AppRadii.pill),
-              border: Border.all(
-                color: AppSurfaceStyles.standardOutlineColor,
-                width: AppSurfaceStyles.thinOutlineWidth,
-              ),
-            ),
-            child: const Icon(
-              Icons.pause_rounded,
-              color: AppColors.textPrimary,
-              size: 20,
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 

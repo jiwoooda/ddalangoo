@@ -15,12 +15,14 @@ class EndConversationButton extends StatelessWidget {
     this.label = '대화 종료',
     this.variant = EndConversationButtonVariant.light,
     this.compact = false,
+    this.iconOnly = false,
   });
 
   final VoidCallback onPressed;
   final String label;
   final EndConversationButtonVariant variant;
   final bool compact;
+  final bool iconOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +32,11 @@ class EndConversationButton extends StatelessWidget {
     final textColor = isDark
         ? AppColors.primaryPinkDark
         : AppColors.textPrimary;
-    final minimumSize = compact ? const Size(100, 42) : const Size(132, 52);
+    final minimumSize = iconOnly
+        ? const Size(42, 42)
+        : compact
+        ? const Size(100, 42)
+        : const Size(132, 52);
     final padding = compact
         ? const EdgeInsets.symmetric(
             horizontal: AppSpacing.sm,
@@ -61,7 +67,7 @@ class EndConversationButton extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.pill),
           ),
-          padding: padding,
+          padding: iconOnly ? EdgeInsets.zero : padding,
           tapTargetSize: compact
               ? MaterialTapTargetSize.shrinkWrap
               : MaterialTapTargetSize.padded,
@@ -69,7 +75,9 @@ class EndConversationButton extends StatelessWidget {
               ? const VisualDensity(horizontal: -1, vertical: -1)
               : VisualDensity.standard,
         ),
-        child: Text(label, style: textStyle),
+        child: iconOnly
+            ? Icon(Icons.pause_rounded, size: 20, color: textColor)
+            : Text(label, style: textStyle),
       ),
     );
   }

@@ -346,6 +346,7 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
                 alignment: Alignment.topRight,
                 child: EndConversationButton(
                   compact: true,
+                  iconOnly: true,
                   onPressed: () {
                     Navigator.of(
                       context,
