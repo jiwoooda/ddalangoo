@@ -51,6 +51,15 @@ def respond_node(state: RespondNodeInput) -> dict:
     if state.get("needs_clarification"):
         msg = immediate or state.get("clarification_reason") or "다시 한번 말씀해 주세요."
 
+    elif stage == "product_confirming" and intent == "confirm" and not state.get("quantity"):
+        # intent=confirm인데 수량이 없어서 router가 어떤 agent도 안 거치고 바로
+        # 여기로 온 경우(_route_product_confirming) — pending_action["message"]는
+        # product_agent/reorder_agent가 상품을 처음 보여줬을 때(직전 턴) 찍어둔
+        # 값이 그대로 남아있어서, 아래 pending_action.get("message") 분기를 타면
+        # 사용자의 "응"을 못 들은 것처럼 완전히 똑같은 문구가 반복된다. 수량을
+        # 명시적으로 되묻는 별도 문구로 응답해야 진행되고 있다는 게 느껴진다.
+        msg = "네! 몇 개 필요하세요?"
+
     elif pending_action.get("message"):
         msg = pending_action["message"]
 
