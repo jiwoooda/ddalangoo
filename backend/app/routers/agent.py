@@ -2,9 +2,17 @@ from fastapi import APIRouter, Depends, Response, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.agent import ShoppingRequest, MessageRequest, ConfirmRequest, AgentResponse
+from app.schemas.agent import (
+    AgentResponse,
+    AutomationResultRequest,
+    AutomationVlmPlanRequest,
+    AutomationVlmPlanResponse,
+    ShoppingRequest,
+    MessageRequest,
+    ConfirmRequest,
+)
 from app.schemas.payment import WebviewResultRequest
-from app.services import agent_service, payment_service, webview_progress_service
+from app.services import agent_service, automation_vlm_service, payment_service, webview_progress_service
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 
@@ -31,6 +39,18 @@ async def confirm_action(
     db: AsyncSession = Depends(get_db),
 ):
     return await agent_service.confirm_action(db, conversationId, req)
+
+@router.post("/conversations/{conversationId}/automation-result", response_model=AgentResponse)
+async def automation_result(
+    conversationId: int,
+    req: AutomationResultRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await agent_service.handle_automation_result(db, conversationId, req)
+
+@router.post("/automation/vlm-fallback-plan", response_model=AutomationVlmPlanResponse)
+async def automation_vlm_fallback_plan(req: AutomationVlmPlanRequest):
+    return await automation_vlm_service.plan_vlm_recovery(req)
 
 @router.post("/conversations/{conversationId}/payments/webview-result")
 async def webview_result(

@@ -31,15 +31,17 @@ class AccessibilityPurchaseHistoryItem {
     final prices = _stringListFrom(map['prices']);
     final deliveryTypes = _stringListFrom(map['deliveryTypes']);
     final productNames = _stringListFrom(map['productNames']);
+    final quantities = _intListFrom(map['quantities']);
 
     return AccessibilityPurchaseHistoryItem(
       platform: _stringValue(map['platform']) ?? 'unknown',
       sourceType: 'android_accessibility',
       productName: productNames.isEmpty ? '상품명 확인 필요' : productNames.first,
       price: _parsePrice(prices.isEmpty ? null : prices.first),
-      quantity: 1,
+      quantity: quantities.isEmpty ? 1 : quantities.first,
       purchaseDate: _nullableNonEmptyString(map['purchaseDate']),
-      imageUrl: null,
+      imageUrl: _nullableNonEmptyString(map['imageUrl']) ??
+          _nullableNonEmptyString(map['thumbnailPath']),
       orderNumber: _nullableNonEmptyString(map['orderNumber']),
       deliveryStatus: _nullableNonEmptyString(map['deliveryStatus']),
       deliveryType: deliveryTypes.isEmpty ? null : deliveryTypes.join(', '),
@@ -52,6 +54,7 @@ class AccessibilityPurchaseHistoryItem {
     required String productName,
     required int productIndex,
     required String? rawPrice,
+    required int quantity,
   }) {
     final deliveryTypes = _stringListFrom(orderMap['deliveryTypes']);
     final raw = Map<String, dynamic>.from(orderMap)
@@ -64,9 +67,10 @@ class AccessibilityPurchaseHistoryItem {
       sourceType: 'android_accessibility_order_product',
       productName: productName,
       price: _parsePrice(rawPrice),
-      quantity: 1,
+      quantity: quantity,
       purchaseDate: _nullableNonEmptyString(orderMap['purchaseDate']),
-      imageUrl: null,
+      imageUrl: _nullableNonEmptyString(orderMap['imageUrl']) ??
+          _nullableNonEmptyString(orderMap['thumbnailPath']),
       orderNumber: _nullableNonEmptyString(orderMap['orderNumber']),
       deliveryStatus: _nullableNonEmptyString(orderMap['deliveryStatus']),
       deliveryType: deliveryTypes.isEmpty ? null : deliveryTypes.join(', '),
@@ -108,6 +112,7 @@ class AccessibilityPurchaseHistoryItem {
         _stringListFrom(orderMap['productNames']),
       );
       final prices = _stringListFrom(orderMap['prices']);
+      final quantities = _intListFrom(orderMap['quantities']);
 
       if (productNames.isEmpty) {
         expandedItems.add(AccessibilityPurchaseHistoryItem.fromMap(orderMap));
@@ -121,6 +126,7 @@ class AccessibilityPurchaseHistoryItem {
             productName: productNames[index],
             productIndex: index,
             rawPrice: index < prices.length ? prices[index] : null,
+            quantity: index < quantities.length ? quantities[index] : 1,
           ),
         );
       }
@@ -157,6 +163,21 @@ class AccessibilityPurchaseHistoryItem {
       return const <String>[];
     }
     return <String>[text];
+  }
+
+  static List<int> _intListFrom(dynamic value) {
+    if (value is List) {
+      return value
+          .map((item) => int.tryParse(item?.toString() ?? ''))
+          .whereType<int>()
+          .where((item) => item > 0)
+          .toList(growable: false);
+    }
+    final parsed = int.tryParse(value?.toString() ?? '');
+    if (parsed == null || parsed <= 0) {
+      return const <int>[];
+    }
+    return <int>[parsed];
   }
 
   static String? _stringValue(dynamic value) {

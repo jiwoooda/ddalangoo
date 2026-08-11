@@ -323,7 +323,7 @@ async def create_histories_from_accessibility_db(
     product_id/order_id 없이도 Agent가 재구매 근거로 읽을 수 있도록 snapshot 필드만 채운다.
     """
     created_histories: list[PurchaseHistory] = []
-    saved_or_existing: list[dict] = []
+    created_history_dicts: list[dict] = []
     skipped_items: list[dict] = []
 
     for index, item in enumerate(items):
@@ -353,7 +353,6 @@ async def create_histories_from_accessibility_db(
             purchased_at=item.get("purchased_at"),
         )
         if existing:
-            saved_or_existing.append(existing)
             continue
 
         history = PurchaseHistory(
@@ -380,6 +379,6 @@ async def create_histories_from_accessibility_db(
     await db.commit()
     for history in created_histories:
         await db.refresh(history)
-        saved_or_existing.append(_history_to_dict(history))
+        created_history_dicts.append(_history_to_dict(history))
 
-    return saved_or_existing, skipped_items
+    return created_history_dicts, skipped_items

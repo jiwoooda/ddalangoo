@@ -197,6 +197,7 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     _startedAt = DateTime.now();
     _controller.forward();
     unawaited(_voiceService.init());
+    unawaited(_announcePlatformCheckStart());
     if (widget.useMockFlow) {
       unawaited(_runMockFlow());
     } else {
@@ -227,6 +228,17 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     Navigator.of(
       context,
     ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
+  }
+
+  Future<void> _announcePlatformCheckStart() async {
+    try {
+      await _voiceService.init();
+    } catch (_) {
+      // TTS는 화면 진행 보조라 초기화 실패가 플로우를 막으면 안 된다.
+    }
+    await _speakMessage(
+      '$_resolvedUserName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요.',
+    );
   }
 
   void _handleCompleted() {

@@ -17,7 +17,7 @@ import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/voice_input_button.dart';
-import '../../platform_check/screens/platform_check_screen.dart';
+import 'agent_smalltalk_screen.dart';
 
 class SmallTalkScreen extends StatefulWidget {
   const SmallTalkScreen({
@@ -257,23 +257,9 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
         return;
       }
 
-      setState(() => _isSpeaking = true);
-      try {
-        await _voiceService.speak('$name님 반가워요. 어떤 쇼핑 앱을 쓰시는지 확인할게요.');
-      } catch (_) {
-        // Voice playback is best-effort.
-      } finally {
-        if (mounted) {
-          setState(() => _isSpeaking = false);
-        }
-      }
-
-      if (!mounted) {
-        return;
-      }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
-          builder: (_) => PlatformCheckScreen(
+          builder: (_) => AgentSmallTalkScreen(
             userName: name,
             useMockFlow: widget.useMockFlow,
           ),

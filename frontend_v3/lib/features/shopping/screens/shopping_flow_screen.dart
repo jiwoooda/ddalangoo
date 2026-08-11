@@ -44,6 +44,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   final VoiceService _voiceService = VoiceService.instance;
 
   Timer? _pollTimer;
+  Timer? _automationResultPollTimer;
   bool _isInitializing = true;
   bool _isSubmitting = false;
   bool _isRefreshingConversation = false;
@@ -52,6 +53,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   bool _isRecording = false;
   bool _isSpeaking = false;
   bool _isUpdatingCartQuantity = false;
+  bool _isSendingAutomationResult = false;
   int? _userId;
   String? _resolvedUserName;
   AgentResponse? _response;
@@ -60,9 +62,12 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   String? _inlineError;
   String _pinInput = '';
   String? _lastWebviewCommandKey;
+  String? _lastAutomationTaskId;
+  String? _automationResultPollingTaskId;
   String? _lastSpokenPromptKey;
   List<ShoppingCartItemViewData>? _cartItemsOverride;
   final Set<String> _completedWebviewCommandKeys = <String>{};
+  final Set<String> _startedAutomationTaskIds = <String>{};
 
   @override
   void initState() {
@@ -76,6 +81,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _automationResultPollTimer?.cancel();
     unawaited(_voiceService.stopSpeaking());
     if (_isRecording) {
       unawaited(_voiceService.cancelRecording());
@@ -335,6 +341,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       }
     });
     _syncPolling();
+    _handlePendingAutomationTask(response);
     _schedulePromptSpeechAfterFrame(handlePendingWebviewAfter: true);
     if (_shouldShowLiveCart(nextStage)) {
       unawaited(_refreshLiveCartItems(conversationId: response.conversationId));
@@ -349,9 +356,90 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     }
   }
 
+  void _handlePendingAutomationTask(AgentResponse response) {
+    final task = response.automationTask;
+    if (task == null || task.taskId.trim().isEmpty) {
+      return;
+    }
+    if (_startedAutomationTaskIds.contains(task.taskId) ||
+        _lastAutomationTaskId == task.taskId) {
+      return;
+    }
+
+    debugPrint(
+      'automationTask taskId=${task.taskId} 수신 '
+      'taskType=${task.taskType} platform=${task.platform}',
+    );
+    _lastAutomationTaskId = task.taskId;
+    _startedAutomationTaskIds.add(task.taskId);
+    unawaited(
+      _service
+          .startAutomationTask(task)
+          .then((_) {
+            _startAutomationResultPolling(
+              conversationId: response.conversationId,
+              taskId: task.taskId,
+            );
+          })
+          .catchError((Object error) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _inlineError = '쇼핑 앱 자동화를 시작하지 못했어요. 잠시 후 다시 시도해주세요.';
+            });
+          }),
+    );
+  }
+
+  void _startAutomationResultPolling({
+    required int conversationId,
+    required String taskId,
+  }) {
+    if (_automationResultPollingTaskId == taskId &&
+        _automationResultPollTimer?.isActive == true) {
+      return;
+    }
+
+    _automationResultPollingTaskId = taskId;
+    _automationResultPollTimer?.cancel();
+    _automationResultPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      unawaited(_consumeAutomationResult(conversationId: conversationId));
+    });
+  }
+
+  Future<void> _consumeAutomationResult({required int conversationId}) async {
+    if (_isSendingAutomationResult) {
+      return;
+    }
+
+    _isSendingAutomationResult = true;
+    try {
+      final updatedResponse = await _service.consumeAndSendAutomationResult(
+        conversationId: conversationId,
+      );
+      if (!mounted || updatedResponse == null) {
+        return;
+      }
+      _automationResultPollTimer?.cancel();
+      _automationResultPollingTaskId = null;
+      _applyResponse(updatedResponse);
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[ShoppingFlowScreen] failed to send automation result: '
+        '$error\n$stackTrace',
+      );
+    } finally {
+      _isSendingAutomationResult = false;
+    }
+  }
+
   void _handlePendingWebviewTask() {
     final response = _response;
     if (!mounted || response == null) {
+      return;
+    }
+    if (response.automationTask != null) {
       return;
     }
 
@@ -822,12 +910,23 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   }
 
   Future<void> _toggleVoiceInput() async {
+    debugPrint(
+      '[ShoppingFlow] voice toggle requested '
+      'isRecording=$_isRecording '
+      'isAwaitingUserInput=$_isAwaitingUserInput '
+      'isInitializing=$_isInitializing '
+      'isSubmitting=$_isSubmitting '
+      'isUpdatingCartQuantity=$_isUpdatingCartQuantity '
+      'isSpeaking=$_isSpeaking '
+      'viewStage=${_viewStage.name}',
+    );
     if (_isRecording) {
       await _stopRecordingAndSubmit();
       return;
     }
 
     if (!_isAwaitingUserInput) {
+      debugPrint('[ShoppingFlow] voice toggle ignored: not awaiting user input');
       return;
     }
 
@@ -842,7 +941,13 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
 
     try {
       await _voiceService.startRecording();
-    } catch (_) {
+      debugPrint('[ShoppingFlow] voice recording started');
+    } catch (error, stackTrace) {
+      debugPrint('[ShoppingFlow] voice recording start failed error=$error');
+      debugPrintStack(
+        stackTrace: stackTrace,
+        label: '[ShoppingFlow] startRecording stack',
+      );
       if (!mounted) {
         return;
       }
@@ -870,6 +975,8 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
         response.cart != null ||
         response.order != null ||
         response.payment != null ||
+        response.automationTask != null ||
+        response.automationResult != null ||
         response.uiCommand != null ||
         response.asyncStatus != null;
 
@@ -892,7 +999,9 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   }
 
   Future<void> _stopRecordingAndSubmit() async {
+    debugPrint('[ShoppingFlow] stopRecordingAndSubmit requested isRecording=$_isRecording');
     if (!_isRecording) {
+      debugPrint('[ShoppingFlow] stopRecordingAndSubmit ignored: not recording');
       return;
     }
 
@@ -904,18 +1013,30 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     try {
       final transcript = await _voiceService.stopRecordingAndTranscribe();
       final trimmed = transcript.trim();
+      debugPrint(
+        '[ShoppingFlow] STT transcript received '
+        'rawLength=${transcript.length} trimmedLength=${trimmed.length} '
+        'transcript="$trimmed"',
+      );
       if (!mounted) {
         return;
       }
       if (trimmed.isEmpty) {
+        debugPrint('[ShoppingFlow] STT transcript empty; showing retry message');
         setState(() {
           _inlineError = '잘 듣지 못했어요. 한 번 더 말씀해주세요.';
         });
         return;
       }
 
+      debugPrint('[ShoppingFlow] submitting STT transcript to agent');
       await _submitMessage(trimmed);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint('[ShoppingFlow] stopRecordingAndSubmit failed error=$error');
+      debugPrintStack(
+        stackTrace: stackTrace,
+        label: '[ShoppingFlow] stopRecordingAndSubmit stack',
+      );
       if (!mounted) {
         return;
       }

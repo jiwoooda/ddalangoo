@@ -5,7 +5,6 @@ import 'core/services/app_log_service.dart';
 import 'features/shopping_v2/screens/shopping_splash_screen.dart';
 import 'features/shopping_v2/screens/shopping_voice_screen.dart';
 import 'presentation/screens/preview/ui_preview_screen.dart';
-import 'presentation/widgets/accessibility_debug_panel.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +28,6 @@ class DdalangooV1App extends StatelessWidget {
   static Widget _initialScreenFor(String? configuredInitialRoute) {
     return switch (configuredInitialRoute) {
       '/preview' => const UiPreviewScreen(),
-      '/a11y-debug' => const AccessibilityDebugPanel(),
       _ => const ShoppingSplashScreen(),
     };
   }
@@ -62,10 +60,6 @@ class DdalangooV1App extends StatelessWidget {
         '/preview': (_) {
           debugPrint('[RouteBuild] /preview -> UiPreviewScreen');
           return const UiPreviewScreen();
-        },
-        '/a11y-debug': (_) {
-          debugPrint('[RouteBuild] /a11y-debug -> AccessibilityDebugPanel');
-          return const AccessibilityDebugPanel();
         },
       },
     );

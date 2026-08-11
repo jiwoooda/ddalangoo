@@ -86,15 +86,19 @@ class VoiceService {
 
   Future<void> startRecording() async {
     await init();
+    debugPrint('[VoiceService] startRecording requested');
     if (kIsWeb) {
+      debugPrint('[VoiceService] startRecording blocked: web unsupported');
       throw UnsupportedError('현재 음성 입력은 앱 환경에서만 지원합니다.');
     }
 
     if (_isRecording) {
+      debugPrint('[VoiceService] startRecording while recording; cancel previous');
       await cancelRecording();
     }
 
     final hasPermission = await _activeRecorder.hasPermission();
+    debugPrint('[VoiceService] microphone permission=$hasPermission');
     if (!hasPermission) {
       throw Exception('마이크 권한이 필요합니다.');
     }
@@ -117,24 +121,31 @@ class VoiceService {
 
     _recordingPath = path;
     _isRecording = true;
+    debugPrint('[VoiceService] recording started path=$path');
   }
 
   Future<String> stopRecordingAndTranscribe() async {
+    debugPrint('[VoiceService] stopRecordingAndTranscribe requested');
     if (!_isRecording) {
+      debugPrint('[VoiceService] stopRecording blocked: not recording');
       throw Exception('현재 녹음 중이 아닙니다.');
     }
 
     _isRecording = false;
     final recordedPath = await _activeRecorder.stop() ?? _recordingPath;
     _recordingPath = null;
+    debugPrint('[VoiceService] recorder stopped path=$recordedPath');
     if (recordedPath == null) {
       throw Exception('녹음 파일을 찾지 못했습니다.');
     }
 
     final file = File(recordedPath);
     if (!await file.exists()) {
+      debugPrint('[VoiceService] recorded file missing path=$recordedPath');
       throw Exception('녹음 파일이 존재하지 않습니다.');
     }
+    final fileSize = await file.length();
+    debugPrint('[VoiceService] recorded file ready size=$fileSize path=$recordedPath');
 
     final formData = FormData.fromMap(<String, dynamic>{
       'file': await MultipartFile.fromFile(
@@ -147,6 +158,7 @@ class VoiceService {
     });
 
     try {
+      debugPrint('[VoiceService] STT request started path=$_sttPath size=$fileSize');
       final response = await ApiClient.dio.post<Map<String, dynamic>>(
         _sttPath,
         data: formData,
@@ -159,8 +171,17 @@ class VoiceService {
           response.data?['transcript']?.toString().trim() ??
           response.data?['text']?.toString().trim() ??
           '';
+      debugPrint(
+        '[VoiceService] STT request succeeded status=${response.statusCode} '
+        'transcriptLength=${transcript.length} transcript="$transcript"',
+      );
       return transcript;
+    } catch (error, stackTrace) {
+      debugPrint('[VoiceService] STT request failed error=$error');
+      debugPrintStack(stackTrace: stackTrace, label: '[VoiceService] STT stack');
+      rethrow;
     } finally {
+      debugPrint('[VoiceService] deleting recorded file path=${file.path}');
       unawaited(_deleteIfExists(file.path));
     }
   }
@@ -173,6 +194,7 @@ class VoiceService {
     _isRecording = false;
     final path = _recordingPath;
     _recordingPath = null;
+    debugPrint('[VoiceService] cancelRecording path=$path');
     await _activeRecorder.cancel();
     if (path != null) {
       await _deleteIfExists(path);

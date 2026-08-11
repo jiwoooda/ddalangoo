@@ -263,6 +263,65 @@ class WebviewTaskViewData {
   final String? canonicalProductUrl;
 }
 
+class AutomationTaskViewData {
+  const AutomationTaskViewData({
+    required this.taskId,
+    required this.taskType,
+    this.conversationId,
+    this.userId,
+    this.platform,
+    this.packageName,
+    this.currentStep,
+    this.targetProductName,
+    this.searchKeyword,
+    this.optionName,
+    this.quantity = 1,
+    this.cartItemId,
+    this.orderId,
+    this.paymentId,
+    this.metadata = const {},
+    this.raw = const {},
+  });
+
+  final String taskId;
+  final String taskType;
+  final int? conversationId;
+  final int? userId;
+  final String? platform;
+  final String? packageName;
+  final String? currentStep;
+  final String? targetProductName;
+  final String? searchKeyword;
+  final String? optionName;
+  final int quantity;
+  final String? cartItemId;
+  final int? orderId;
+  final int? paymentId;
+  final Map<String, dynamic> metadata;
+  final Map<String, dynamic> raw;
+
+  Map<String, dynamic> toMethodChannelJson() {
+    return {
+      'contractVersion': 1,
+      'taskId': taskId,
+      'taskType': taskType,
+      'conversationId': conversationId,
+      'userId': userId,
+      'platform': platform,
+      'packageName': packageName,
+      'currentStep': currentStep,
+      'targetProductName': targetProductName,
+      'searchKeyword': searchKeyword,
+      'optionName': optionName,
+      'quantity': quantity,
+      'cartItemId': cartItemId,
+      'orderId': orderId,
+      'paymentId': paymentId,
+      'metadata': metadata,
+    }..removeWhere((_, value) => value == null);
+  }
+}
+
 class ShoppingAgentResponse {
   const ShoppingAgentResponse({
     this.conversationId,
@@ -281,6 +340,7 @@ class ShoppingAgentResponse {
     this.order,
     this.payment,
     this.uiCommand,
+    this.automationTask,
     this.asyncStatus,
     this.error,
     this.raw = const {},
@@ -302,6 +362,7 @@ class ShoppingAgentResponse {
   final Map<String, dynamic>? order;
   final Map<String, dynamic>? payment;
   final Map<String, dynamic>? uiCommand;
+  final AutomationTaskViewData? automationTask;
   final Map<String, dynamic>? asyncStatus;
   final Object? error;
   final Map<String, dynamic> raw;

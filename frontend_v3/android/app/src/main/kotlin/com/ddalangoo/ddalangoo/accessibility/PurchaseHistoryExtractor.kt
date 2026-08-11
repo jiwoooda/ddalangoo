@@ -12,12 +12,14 @@ data class PurchaseHistoryCandidate(
     val deliveryTypes: List<String>,
     val productNames: List<String>,
     val prices: List<String>,
+    val quantities: List<Int> = emptyList(),
     val nodeIds: List<Int>,
     val boundsLeft: Int,
     val boundsTop: Int,
     val boundsRight: Int,
     val boundsBottom: Int,
-    val centerY: Int
+    val centerY: Int,
+    val thumbnailPath: String? = null
 )
 
 interface PurchaseHistoryExtractor {
@@ -151,9 +153,160 @@ class KurlyPurchaseHistoryExtractor : PurchaseHistoryExtractor {
 }
 
 class CoupangPurchaseHistoryExtractor : PurchaseHistoryExtractor {
+    private val purchaseDateRegex = Regex("""^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})$""")
+    private val arrivalDateRegex = Regex("""\d{1,2}/\d{1,2}\([월화수목금토일]\)\s*도착""")
+    private val priceAndQuantityRegex = Regex("""(.+?)\s+(\d{1,3}(?:,\d{3})*)\s*원\s+(\d+)\s*개$""")
+    private val deliveryStatusKeywords = listOf("배송완료", "배송중", "배송 준비중", "주문완료", "반품완료", "취소완료")
+    private val deliveryTypeMap = listOf(
+        "ROCKET_MERCHANT" to "판매자로켓",
+        "LOGO_WOW" to "와우",
+        "WOW" to "와우",
+        "ROCKET" to "로켓배송"
+    )
+    private val productNameSkipKeywords = listOf(
+        "장바구니",
+        "바로구매",
+        "배송 · 주문 관리",
+        "배송 주문 관리",
+        "주문내역",
+        "주문목록",
+        "검색",
+        "홈",
+        "마이쿠팡"
+    )
+
     override fun extract(filteredNodes: List<UiNode>): List<PurchaseHistoryCandidate> {
-        // 쿠팡 구매이력 parser는 다음 단계에서 플랫폼별 구조를 확정한 뒤 구현한다.
-        return emptyList()
+        val sortedNodes = filteredNodes
+            .filter { node -> isVisiblePurchaseHistoryNode(node) }
+            .sortedWith(compareBy<UiNode> { it.boundsTop }.thenBy { it.boundsLeft })
+        val dateNodes = sortedNodes
+            .filter { node -> purchaseDateRegex.matches(node.primaryText().trim()) }
+
+        val productNodes = sortedNodes
+            .filter { node -> parseProductSummary(rawProductText(node)).isValid }
+
+        if (productNodes.isEmpty()) return emptyList()
+
+        return productNodes.mapNotNull { productNode ->
+            val productSummary = parseProductSummary(rawProductText(productNode))
+            if (!productSummary.isValid) return@mapNotNull null
+
+            val purchaseDateNode = dateNodes
+                .filter { dateNode -> dateNode.centerY <= productNode.centerY }
+                .maxByOrNull { dateNode -> dateNode.centerY }
+                ?: dateNodes.minByOrNull { dateNode -> kotlin.math.abs(dateNode.centerY - productNode.centerY) }
+            val groupTop = purchaseDateNode?.centerY ?: maxOf(0, productNode.centerY - 360)
+            val groupBottom = productNode.boundsBottom + 220
+            val groupNodes = sortedNodes.filter { node ->
+                node.centerY in groupTop..groupBottom
+            }
+            val deliveryStatus = groupNodes
+                .map { node -> node.primaryText().trim() }
+                .firstOrNull { text -> deliveryStatusKeywords.any { keyword -> text.contains(keyword) } }
+            val deliveryTypes = groupNodes
+                .mapNotNull { node -> deliveryTypeFrom(rawNodeText(node)) }
+                .distinct()
+            val purchaseDate = purchaseDateNode?.primaryText()?.let { normalizeCoupangPurchaseDate(it) }
+                ?: return@mapNotNull null
+            val orderNumber = buildSyntheticOrderNumber(
+                purchaseDate = purchaseDate,
+                productName = productSummary.productName,
+            )
+            val boundsNodes = groupNodes.filter { node ->
+                node.id == purchaseDateNode?.id ||
+                    node.id == productNode.id ||
+                    deliveryStatus != null && node.primaryText().contains(deliveryStatus)
+            }.ifEmpty { listOf(productNode) }
+
+            PurchaseHistoryCandidate(
+                platform = "coupang",
+                orderNumber = orderNumber,
+                purchaseDate = purchaseDate,
+                deliveryStatus = deliveryStatus,
+                deliveryTypes = deliveryTypes,
+                productNames = listOf(productSummary.productName),
+                prices = listOf(productSummary.price),
+                quantities = listOf(productSummary.quantity),
+                nodeIds = boundsNodes.map { node -> node.id }.distinct(),
+                boundsLeft = boundsNodes.minOf { node -> node.boundsLeft },
+                boundsTop = boundsNodes.minOf { node -> node.boundsTop },
+                boundsRight = boundsNodes.maxOf { node -> node.boundsRight },
+                boundsBottom = boundsNodes.maxOf { node -> node.boundsBottom },
+                centerY = (boundsNodes.minOf { node -> node.boundsTop } + boundsNodes.maxOf { node -> node.boundsBottom }) / 2
+            )
+        }
+    }
+
+    private data class ProductSummary(
+        val productName: String = "",
+        val price: String = "",
+        val quantity: Int = 1
+    ) {
+        val isValid: Boolean
+            get() = productName.isNotBlank() && price.isNotBlank()
+    }
+
+    private fun parseProductSummary(rawText: String?): ProductSummary {
+        val text = rawText?.trim().orEmpty()
+        if (text.isBlank()) return ProductSummary()
+        val match = priceAndQuantityRegex.find(text) ?: return ProductSummary()
+        val productName = match.groupValues[1].trim()
+        val price = "${match.groupValues[2]} 원"
+        val quantity = match.groupValues[3].toIntOrNull() ?: 1
+        if (!isLikelyCoupangProductName(productName)) return ProductSummary()
+        return ProductSummary(productName = productName, price = price, quantity = quantity)
+    }
+
+    private fun isVisiblePurchaseHistoryNode(node: UiNode): Boolean {
+        if (!node.visibleToUser || !node.enabled) return false
+        if (node.width <= 0 || node.height <= 0) return false
+        if (node.boundsRight <= 0 || node.boundsBottom <= 0) return false
+        if (node.boundsBottom <= 220) return false
+        if (node.boundsTop >= 2300) return false
+        return true
+    }
+
+    private fun isLikelyCoupangProductName(productName: String): Boolean {
+        if (productName.length < 2) return false
+        if (productNameSkipKeywords.any { keyword -> productName.contains(keyword) }) return false
+        if (arrivalDateRegex.containsMatchIn(productName)) return false
+        if (purchaseDateRegex.matches(productName)) return false
+        if (productName.all { character -> character.isDigit() || character.isWhitespace() }) return false
+        return true
+    }
+
+    private fun rawProductText(node: UiNode): String {
+        return node.contentDescription?.takeIf { it.isNotBlank() }
+            ?: node.text.orEmpty()
+    }
+
+    private fun rawNodeText(node: UiNode): String {
+        return listOfNotNull(node.text, node.contentDescription, node.viewIdResourceName)
+            .joinToString(" ")
+            .trim()
+    }
+
+    private fun normalizeCoupangPurchaseDate(rawText: String): String? {
+        val match = purchaseDateRegex.find(rawText.trim()) ?: return null
+        val year = match.groupValues[1].toIntOrNull() ?: return null
+        val month = match.groupValues[2].toIntOrNull() ?: return null
+        val day = match.groupValues[3].toIntOrNull() ?: return null
+        return "%04d-%02d-%02dT00:00:00+09:00".format(year, month, day)
+    }
+
+    private fun deliveryTypeFrom(rawText: String?): String? {
+        val text = rawText?.trim().orEmpty()
+        if (text.isBlank()) return null
+        if (arrivalDateRegex.containsMatchIn(text)) return null
+        return deliveryTypeMap
+            .firstOrNull { (keyword, _) -> text.contains(keyword, ignoreCase = true) }
+            ?.second
+    }
+
+    private fun buildSyntheticOrderNumber(purchaseDate: String?, productName: String): String {
+        val dateKey = purchaseDate?.take(10)?.replace("-", "") ?: "unknown-date"
+        val productKey = kotlin.math.abs(productName.hashCode()).toString()
+        return "coupang-$dateKey-$productKey"
     }
 }
 
@@ -170,6 +323,9 @@ object PurchaseHistoryCandidateJsonSerializer {
                     .put("deliveryTypes", JSONArray(candidate.deliveryTypes))
                     .put("productNames", JSONArray(candidate.productNames))
                     .put("prices", JSONArray(candidate.prices))
+                    .put("quantities", JSONArray(candidate.quantities))
+                    .put("thumbnailPath", candidate.thumbnailPath.orEmpty())
+                    .put("imageUrl", candidate.thumbnailPath.orEmpty())
                     .put("nodeIds", JSONArray(candidate.nodeIds))
                     .put(
                         "bounds",
@@ -251,6 +407,7 @@ object PurchaseHistoryExtractionStore {
         val mergedDeliveryTypes = (existingCandidate.deliveryTypes + newCandidate.deliveryTypes).distinct()
         val mergedProductNames = (existingCandidate.productNames + newCandidate.productNames).distinct()
         val mergedPrices = (existingCandidate.prices + newCandidate.prices).distinct()
+        val mergedQuantities = existingCandidate.quantities.ifEmpty { newCandidate.quantities }
         val mergedNodeIds = (existingCandidate.nodeIds + newCandidate.nodeIds).distinct()
 
         return existingCandidate.copy(
@@ -259,6 +416,7 @@ object PurchaseHistoryExtractionStore {
             deliveryTypes = mergedDeliveryTypes,
             productNames = mergedProductNames,
             prices = mergedPrices,
+            quantities = mergedQuantities,
             nodeIds = mergedNodeIds,
             boundsLeft = minOf(existingCandidate.boundsLeft, newCandidate.boundsLeft),
             boundsTop = minOf(existingCandidate.boundsTop, newCandidate.boundsTop),

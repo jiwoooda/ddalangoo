@@ -1,12 +1,21 @@
 import os
 import re
 import threading
+import logging
 from dataclasses import dataclass
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.agent import AgentResponse, ShoppingRequest, MessageRequest, ConfirmRequest
+from app.schemas.agent import (
+    AgentResponse,
+    AutomationResultInAgent,
+    AutomationResultRequest,
+    AutomationTaskInAgent,
+    ShoppingRequest,
+    MessageRequest,
+    ConfirmRequest,
+)
 from app.repositories import (
     address_repository,
     agent_event_repository,
@@ -21,6 +30,8 @@ from app.repositories import (
 from app.agent import runtime, mapper, actions, product_data_layer, recommendation_sync
 from app.services import webview_progress_service
 from app.utils.product_url_contract import is_kurly_goods_url
+
+logger = logging.getLogger(__name__)
 
 try:
     from langchain_core.messages import AIMessage
@@ -48,6 +59,179 @@ class WebViewOrderInput:
     expected_price: int | None
     selected_options: dict
     quantity: int
+
+
+def _response_with_automation_contract(
+    response: AgentResponse,
+    *,
+    automation_task: AutomationTaskInAgent | None = None,
+    automation_result: AutomationResultInAgent | None = None,
+    ui_command: dict | None = None,
+) -> AgentResponse:
+    """
+    AutomationTask/Result는 LangGraph ShoppingState가 아니라 backend orchestration 계약이다.
+
+    그래서 state mapper가 만든 비즈니스 응답 위에, 이번 HTTP 응답에서만 필요한
+    실행 계약 필드를 덧붙인다.
+    """
+    if hasattr(response, "model_dump"):
+        payload = response.model_dump()
+    else:
+        payload = response.dict()
+    if automation_task is not None:
+        payload["automationTask"] = automation_task
+    if automation_result is not None:
+        payload["automationResult"] = automation_result
+    if ui_command is not None and payload.get("uiCommand") is None:
+        payload["uiCommand"] = ui_command
+    return AgentResponse(**payload)
+
+
+def _state_to_agent_response(
+    state: dict,
+    conversation_id: int,
+    *,
+    ui_command: dict | None = None,
+) -> AgentResponse:
+    automation_task = None
+    response_ui_command = ui_command
+    if isinstance(state, dict):
+        automation_task = state.pop("_response_automation_task", None)
+        response_ui_command = state.pop("_response_ui_command", response_ui_command)
+    response = mapper.state_to_response(state, conversation_id)
+    if isinstance(automation_task, AutomationTaskInAgent) or response_ui_command is not None:
+        return _response_with_automation_contract(
+            response,
+            automation_task=automation_task if isinstance(automation_task, AutomationTaskInAgent) else None,
+            ui_command=response_ui_command,
+        )
+    return response
+
+
+def _is_user_onboarded(user_id: int) -> bool:
+    """
+    LangGraph smalltalk_agent의 내부 완료 플래그(profile.onboarded_at)를
+    backend orchestration에서 UI 명령으로 번역하기 위해 읽는다.
+    """
+    try:
+        from src.tools import db_client
+
+        profile = db_client.get_profile(str(user_id)) or {}
+    except Exception:
+        logger.exception("failed to read onboarding profile user_id=%s", user_id)
+        return False
+    return bool(profile.get("onboarded_at"))
+
+
+def _attach_purchase_history_ui_command_if_onboarding_completed(
+    state: dict,
+    *,
+    was_onboarded_before: bool,
+    is_onboarded_after: bool,
+) -> dict:
+    """
+    이번 턴에 smalltalk 온보딩이 막 끝난 경우에만 프론트 자동 전환 명령을 붙인다.
+
+    profile.onboarded_at 같은 LangGraph 내부 필드를 프론트로 직접 노출하지 않고,
+    UI가 이해할 수 있는 start_purchase_history_collection 명령으로 변환한다.
+    """
+    if was_onboarded_before or not is_onboarded_after:
+        return state
+    if state.get("last_agent") != "smalltalk_agent":
+        return state
+
+    mapped_state = dict(state)
+    mapped_state["_response_ui_command"] = {
+        "type": "start_purchase_history_collection",
+        "reason": "onboarding_complete",
+    }
+    logger.info(
+        "onboarding completed; uiCommand=start_purchase_history_collection user_id=%s",
+        state.get("user_id"),
+    )
+    return mapped_state
+
+
+def _automation_cart_added_state_patch(
+    req: AutomationResultRequest,
+    payload_override: dict | None = None,
+) -> dict:
+    """
+    Android 실행 결과를 장바구니 비즈니스 상태로 번역한다.
+
+    completed라는 문자열만 믿지 않고, runtime이 관찰한 수량이 있으면
+    요청 수량과 비교한다. 관찰값이 없으면 성공 신호는 인정하되 payload에
+    검증 불가 상태가 남아 다음 단계에서 더 보수적으로 처리할 수 있게 한다.
+    """
+    payload = dict(payload_override or req.payload or {})
+    requested_quantity = payload.get("requestedQuantity")
+    observed_quantity = payload.get("observedQuantity")
+    verification_status = payload.get("verificationStatus")
+
+    if (
+        isinstance(requested_quantity, int)
+        and isinstance(observed_quantity, int)
+        and observed_quantity != requested_quantity
+    ):
+        return {
+            "stage": "cart_shopping",
+            "pending_action": {
+                "type": "clarification",
+                "message": (
+                    "장바구니에 담긴 수량이 요청과 달라요. "
+                    f"요청은 {requested_quantity}개였는데 실제 확인된 수량은 {observed_quantity}개예요."
+                ),
+                "payload": {
+                    "reason": "cart_quantity_mismatch",
+                    "source": "automation_runtime",
+                    "taskId": req.taskId,
+                    "currentStep": req.currentStep,
+                    "resultType": req.resultType,
+                    "payload": payload,
+                },
+            },
+            "error": None,
+            "messages": _assistant_message_patch(
+                "장바구니 수량이 요청과 달라 확인이 필요해요."
+            ),
+        }
+
+    return {
+        "stage": "cart_shopping",
+        "pending_action": None,
+        "error": None,
+        "messages": _assistant_message_patch(
+            "장바구니 담기 자동화가 완료되었어요."
+            if verification_status != "unverified"
+            else "장바구니 담기는 완료됐지만 수량 확인은 하지 못했어요."
+        ),
+    }
+
+
+def _cart_added_business_outcome(payload: dict) -> dict:
+    """
+    add_to_cart 실행 결과 payload에 백엔드 관점의 검증 상태를 덧붙인다.
+
+    - matched: 요청 수량과 관찰 수량이 같음
+    - mismatch: 관찰 수량이 있지만 요청과 다름
+    - unverified: 장바구니 성공 신호는 있지만 실제 수량 관찰값이 없음
+    """
+    requested_quantity = payload.get("requestedQuantity")
+    observed_quantity = payload.get("observedQuantity")
+
+    if isinstance(requested_quantity, int) and isinstance(observed_quantity, int):
+        quantity_verified = observed_quantity == requested_quantity
+        return {
+            "executionSucceeded": True,
+            "quantityVerified": quantity_verified,
+            "verificationStatus": "matched" if quantity_verified else "mismatch",
+        }
+
+    return {
+        "executionSucceeded": True,
+        "quantityVerified": False,
+        "verificationStatus": "unverified",
+    }
 
 
 async def _sync_recommendations(
@@ -1423,7 +1607,7 @@ async def _persist_cart_order_payment_for_confirm(
             conversation_id=conversation_id,
         )
         existing_cart_items = await cart_repository.get_cart_items_by_cart_id_db(db, cart["id"])
-        should_add_item = action == "add_to_cart" or not existing_cart_items
+        should_add_item = action in {"add_to_cart", "order_now"} or not existing_cart_items
         if should_add_item:
             cart_item = await cart_repository.add_recommendation_item_to_cart_db(
                 db,
@@ -1454,107 +1638,191 @@ async def _persist_cart_order_payment_for_confirm(
         "stage": "cart_shopping",
     }
 
-    if action in {"add_to_cart", "order_now"}:
-        try:
-            default_address = await address_repository.get_default_address_by_user_id_db(
-                db,
-                user_id,
-            )
-            order_bundle = await order_repository.create_order_from_cart_db(
-                db,
-                cart_id=cart["id"],
-                user_id=user_id,
-                conversation_id=conversation_id,
-                address=default_address,
-                status="payment_pending",
-            )
-            payment_bundle = await payment_repository.create_payment_for_order_db(
-                db,
-                order_id=order_bundle["order"]["id"],
-                payment_provider="internal",
-                payment_method="manual",
-                payment_status="pending_user_action",
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=409, detail={
-                "category": "ORDER_ERROR",
-                "code": "ORDER_CREATE_FAILED",
-                "message": str(error),
-            }) from error
-
-        await agent_event_repository.create_agent_event_db(
-            db,
-            conversation_id=conversation_id,
-            agent_name="order_service",
-            event_type="order_created",
-            input_summary={"cart_id": cart["id"]},
-            output_summary={"order_id": order_bundle["order"]["id"], "status": order_bundle["order"]["status"]},
-        )
-        await agent_event_repository.create_agent_event_db(
-            db,
-            conversation_id=conversation_id,
-            agent_name="payment_service",
-            event_type="payment_created",
-            input_summary={"order_id": order_bundle["order"]["id"]},
-            output_summary={"payment_id": payment_bundle["payment"]["id"], "payment_status": payment_bundle["payment"]["payment_status"]},
-        )
-
-        selected_product = state.get("selected_product") or {}
-        first_item = (order_bundle.get("order_items") or [{}])[0]
+    if action == "add_to_cart":
         product_name = (
-            first_item.get("product_name_snapshot")
-            or selected_product.get("product_name")
-            or selected_product.get("name")
+            (cart_item or {}).get("product_name_snapshot")
+            or (state.get("selected_product") or {}).get("product_name")
+            or (state.get("selected_product") or {}).get("name")
             or "상품"
         )
-        quantity = first_item.get("quantity") or state.get("quantity") or 1
-        assistant_message = f"네, {product_name} {quantity}개를 장바구니에 담을게요."
-        selected_product = state.get("selected_product") or {}
-        webview_recommendation_item_id = (
-            _first_order_recommendation_item_id(order_bundle)
-            or recommendation_item_id
-        )
-        webview_input = await _build_webview_order_input(
-            db,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            recommendation_item_id=webview_recommendation_item_id,
-            selected_product=selected_product if isinstance(selected_product, dict) else {},
-            order_bundle=order_bundle,
-        )
-
-        webview_payload = _webview_task_payload(
-            task="add_to_cart",
-            state={
-                **state,
-                "order": _order_response(
-                    order_bundle["order"],
-                    order_bundle["order_items"],
-                ),
-                "payment": _payment_response(payment_bundle["payment"]),
-            },
-            webview_input=webview_input,
-        )
+        quantity = (cart_item or {}).get("quantity") or state.get("quantity") or 1
         state_patch.update({
-            "stage": "webview_cart",
-            "messages": _assistant_message_patch(assistant_message),
+            "messages": _assistant_message_patch(
+                f"네, {product_name} {quantity}개를 장바구니에 담았어요. 결제할까요, 더 보실래요?"
+            ),
             "pending_action": {
-                "type": "webview_task",
-                "message": assistant_message,
+                "type": "payment",
+                "message": "결제할까요, 더 보실래요?",
                 "payload": {
-                    **webview_payload,
-                    "uiCommand": {"type": "open_webview", "task": "add_to_cart"},
+                    "subType": "continue_shopping",
+                    "actions": ["checkout_cart", "continue_shopping"],
+                    "cartId": cart["id"],
+                    "cartItemId": cart_item["id"] if cart_item else None,
                 },
             },
-            "checkout_session": order_bundle["checkout_session"],
-            "order": _order_response(
-                order_bundle["order"],
-                order_bundle["order_items"],
-            ),
-            "payment": _payment_response(payment_bundle["payment"]),
         })
+        return await runtime.update_state(conversation_id, state_patch)
+
+    if action == "order_now":
+        return await _prepare_checkout_automation_from_active_cart(
+            db,
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
 
     return await runtime.update_state(conversation_id, state_patch)
+
+
+async def _cart_checkout_items_for_automation(
+    db: AsyncSession,
+    cart_items: list[dict],
+) -> list[dict]:
+    """내부 cart item snapshot을 외부 앱 자동화가 실행할 item 계약으로 변환한다."""
+    checkout_items: list[dict] = []
+    for item in cart_items:
+        recommendation_item = None
+        recommendation_item_id = item.get("recommendation_item_id")
+        if recommendation_item_id:
+            recommendation_item = await recommendation_repository.get_recommendation_item_by_id_db(
+                db,
+                int(recommendation_item_id),
+            )
+        platform = (recommendation_item or {}).get("platform") or "kurly"
+        product_name = item.get("product_name_snapshot") or (recommendation_item or {}).get("product_name") or "상품"
+        checkout_items.append({
+            "cartItemId": str(item["id"]),
+            "recommendationItemId": recommendation_item_id,
+            "platform": str(platform).lower(),
+            "productName": product_name,
+            "searchKeyword": product_name,
+            "optionName": item.get("option_snapshot") or (recommendation_item or {}).get("option_text") or "",
+            "quantity": item.get("quantity") or 1,
+            "unitPrice": item.get("unit_price_snapshot"),
+            "productUrl": (recommendation_item or {}).get("product_url"),
+        })
+    return checkout_items
+
+
+def _package_name_for_platform(platform: str | None) -> str | None:
+    return {
+        "kurly": "com.dbs.kurly.m2",
+        "coupang": "com.coupang.mobile",
+    }.get((platform or "").lower())
+
+
+async def _prepare_checkout_automation_from_active_cart(
+    db: AsyncSession,
+    *,
+    conversation_id: int,
+    user_id: int,
+) -> dict:
+    """
+    새 흐름의 결제 시작점.
+
+    내부 가짜 장바구니 전체를 order/payment로 묶고, 첫 플랫폼 checkout task만 내려보낸다.
+    이후 플랫폼 순차 실행은 AutomationResult 처리 단계에서 이어 붙일 예정이다.
+    """
+    cart = await cart_repository.get_active_cart_by_user_id_db(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+    if not cart:
+        raise HTTPException(status_code=409, detail={
+            "category": "CART_ERROR",
+            "code": "ACTIVE_CART_NOT_FOUND",
+            "message": "결제할 장바구니가 없습니다.",
+        })
+
+    cart_items = await cart_repository.get_cart_items_by_cart_id_db(db, cart["id"])
+    if not cart_items:
+        raise HTTPException(status_code=409, detail={
+            "category": "CART_ERROR",
+            "code": "CART_EMPTY",
+            "message": "장바구니가 비어 있습니다.",
+        })
+
+    default_address = await address_repository.get_default_address_by_user_id_db(
+        db,
+        user_id,
+    )
+    order_bundle = await order_repository.create_order_from_cart_db(
+        db,
+        cart_id=cart["id"],
+        user_id=user_id,
+        conversation_id=conversation_id,
+        address=default_address,
+        status="payment_pending",
+    )
+    payment_bundle = await payment_repository.create_payment_for_order_db(
+        db,
+        order_id=order_bundle["order"]["id"],
+        payment_provider="internal",
+        payment_method="manual",
+        payment_status="pending_user_action",
+    )
+
+    checkout_items = await _cart_checkout_items_for_automation(db, cart_items)
+    platforms_in_order = []
+    for item in checkout_items:
+        platform = item["platform"]
+        if platform not in platforms_in_order:
+            platforms_in_order.append(platform)
+
+    first_platform = platforms_in_order[0] if platforms_in_order else "kurly"
+    first_platform_items = [
+        item for item in checkout_items if item["platform"] == first_platform
+    ]
+    first_item = first_platform_items[0]
+    automation_task = {
+        "contractVersion": 1,
+        "taskId": f"checkout-{conversation_id}-{order_bundle['order']['id']}-{first_platform}",
+        "taskType": "checkout_platform_cart",
+        "conversationId": conversation_id,
+        "userId": user_id,
+        "platform": first_platform,
+        "packageName": _package_name_for_platform(first_platform),
+        "currentStep": "open_search",
+        "targetProductName": first_item["productName"],
+        "searchKeyword": first_item["searchKeyword"],
+        "optionName": first_item["optionName"],
+        "quantity": first_item["quantity"],
+        "cartItemId": first_item["cartItemId"],
+        "orderId": order_bundle["order"]["id"],
+        "paymentId": payment_bundle["payment"]["id"],
+        "metadata": {
+            "source": "checkout_cart_flow",
+            "platforms": platforms_in_order,
+            "currentPlatformIndex": 0,
+            "checkoutItems": checkout_items,
+            "platformItems": first_platform_items,
+        },
+    }
+    logger.info(
+        "automationTask taskId=%s 생성 taskType=%s platform=%s itemCount=%s",
+        automation_task["taskId"],
+        automation_task["taskType"],
+        first_platform,
+        len(first_platform_items),
+    )
+
+    state_patch = {
+        "cart": _cart_response(cart),
+        "stage": "payment_processing",
+        "messages": _assistant_message_patch(
+            "이제 장바구니에 담긴 상품들을 실제 쇼핑 앱에 담고 결제를 진행할게요."
+        ),
+        "pending_action": None,
+        "checkout_session": order_bundle["checkout_session"],
+        "order": _order_response(
+            order_bundle["order"],
+            order_bundle["order_items"],
+        ),
+        "payment": _payment_response(payment_bundle["payment"]),
+    }
+    updated_state = await runtime.update_state(conversation_id, state_patch)
+    updated_state["_response_automation_task"] = AutomationTaskInAgent(**automation_task)
+    return updated_state
 
 
 async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentResponse:
@@ -1581,10 +1849,16 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         event_type="shopping_request_started",
         input_summary={"message": req.message[:200], "user_id": req.userId},
     )
+    was_onboarded_before = _is_user_onboarded(req.userId)
     state = await runtime.start(
         user_id=req.userId,
         message=req.message,
         conversation_id=conv["id"],
+    )
+    state = _attach_purchase_history_ui_command_if_onboarding_completed(
+        state,
+        was_onboarded_before=was_onboarded_before,
+        is_onboarded_after=_is_user_onboarded(req.userId),
     )
     state = await _run_post_graph_persistence(
         db,
@@ -1595,7 +1869,156 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         stage_before="idle",
         pending_action_before=None,
     )
-    return mapper.state_to_response(state, conv["id"])
+    return _state_to_agent_response(state, conv["id"])
+
+
+async def handle_automation_result(
+    db: AsyncSession,
+    conversation_id: int,
+    req: AutomationResultRequest,
+) -> AgentResponse:
+    """
+    Android Accessibility runtime 결과를 LangGraph state에 반영한다.
+
+    AutomationResult 자체는 Backend ↔ Flutter ↔ Android 실행 계약이다.
+    LangGraph에는 raw runtime DTO를 넣지 않고, 쇼핑 Agent가 판단할 수 있는
+    비즈니스 상태(stage/pending_action/error)만 반영한다.
+    """
+    conversation = await conversation_repository.get_conversation_by_id_db(
+        db,
+        conversation_id,
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail={
+            "category": "CONVERSATION_ERROR",
+            "code": "CONVERSATION_NOT_FOUND",
+            "message": "대화를 찾을 수 없습니다.",
+        })
+
+    normalized_status = (
+        "requires_user_action"
+        if req.status == "needs_user_confirmation"
+        else req.status
+    )
+    result_payload = dict(req.payload or {})
+    result_metadata = dict(req.metadata or {})
+    if normalized_status == "completed" and req.resultType == "cart_added":
+        result_payload.update(_cart_added_business_outcome(result_payload))
+    if normalized_status == "completed" and req.resultType == "checkout_platform_cart_completed":
+        result_payload.update({
+            "executionSucceeded": True,
+            "checkoutAutomationCompleted": True,
+        })
+
+    automation_result = {
+        "contractVersion": req.contractVersion,
+        "taskId": req.taskId,
+        "taskType": req.taskType,
+        "status": normalized_status,
+        "currentStep": req.currentStep,
+        "platform": req.platform,
+        "packageName": req.packageName,
+        "resultType": req.resultType,
+        "errorCode": req.errorCode,
+        "errorMessage": req.errorMessage,
+        "message": req.errorMessage,
+        "payload": result_payload,
+        "metadata": result_metadata,
+    }
+    automation_result = {
+        key: value
+        for key, value in automation_result.items()
+        if value is not None
+    }
+
+    state_patch: dict = {}
+    if normalized_status == "completed":
+        if req.resultType == "cart_added":
+            state_patch.update(_automation_cart_added_state_patch(req, result_payload))
+        elif req.resultType == "checkout_platform_cart_completed":
+            item_outcomes = result_payload.get("itemOutcomes")
+            completed_item_count = result_payload.get("completedItemCount")
+            requested_item_count = result_payload.get("requestedItemCount")
+            state_patch.update({
+                "stage": "address_confirming",
+                "pending_action": None,
+                "error": None,
+                "automation_outcome": {
+                    "taskId": req.taskId,
+                    "resultType": req.resultType,
+                    "payload": result_payload,
+                },
+                "messages": _assistant_message_patch(
+                    "쇼핑 앱 장바구니에 상품을 모두 담았어요. 배송지를 확인할게요."
+                ),
+            })
+        else:
+            state_patch["stage"] = "cart_shopping"
+            state_patch["pending_action"] = None
+            state_patch["error"] = None
+            state_patch["messages"] = _assistant_message_patch("장바구니 담기 자동화가 완료되었어요.")
+    elif normalized_status == "failed":
+        state_patch["stage"] = "failed"
+        state_patch["error"] = req.errorCode or "automation_failed"
+        state_patch["pending_action"] = None
+    elif normalized_status == "requires_user_action":
+        state_patch["pending_action"] = {
+            "type": "clarification",
+            "message": req.errorMessage or "자동화 진행을 위해 확인이 필요해요.",
+            "payload": {
+                "reason": req.errorCode or "automation_requires_user_action",
+                "source": "automation_runtime",
+                "taskId": req.taskId,
+                "currentStep": req.currentStep,
+                "resultType": req.resultType,
+                "payload": result_payload,
+                "metadata": result_metadata,
+            },
+        }
+
+    logger.info(
+        "automationResult taskId=%s 수신 status=%s resultType=%s currentStep=%s",
+        req.taskId,
+        normalized_status,
+        req.resultType,
+        req.currentStep,
+    )
+    state = await runtime.update_state(conversation_id, state_patch)
+    if normalized_status == "completed" and req.resultType == "cart_added":
+        logger.info(
+            "cart outcome translated taskId=%s executionSucceeded=%s "
+            "quantityVerified=%s verificationStatus=%s requestedQuantity=%s observedQuantity=%s",
+            req.taskId,
+            result_payload.get("executionSucceeded"),
+            result_payload.get("quantityVerified"),
+            result_payload.get("verificationStatus"),
+            result_payload.get("requestedQuantity"),
+            result_payload.get("observedQuantity"),
+        )
+    if normalized_status == "completed" and req.resultType == "checkout_platform_cart_completed":
+        logger.info(
+            "checkout platform cart outcome translated taskId=%s completedItemCount=%s "
+            "requestedItemCount=%s platforms=%s",
+            req.taskId,
+            result_payload.get("completedItemCount"),
+            result_payload.get("requestedItemCount"),
+            result_payload.get("platforms"),
+        )
+        response = await _address_required_or_default_response(db, conversation_id, state)
+        return _response_with_automation_contract(
+            response,
+            automation_result=AutomationResultInAgent(**automation_result),
+        )
+    logger.info(
+        "automation result business state 반영 완료 taskId=%s status=%s",
+        req.taskId,
+        normalized_status,
+    )
+    response = _state_to_agent_response(state, conversation_id)
+    return _response_with_automation_contract(
+        response,
+        automation_result=AutomationResultInAgent(**automation_result),
+    )
 
 
 async def get_conversation(db: AsyncSession, conversation_id: int) -> AgentResponse:
@@ -1639,7 +2062,7 @@ async def get_conversation(db: AsyncSession, conversation_id: int) -> AgentRespo
         event_type="conversation_recovered",
         output_summary={"stage": snapshot.values.get("stage"), "intent": snapshot.values.get("intent")},
     )
-    return mapper.state_to_response(snapshot.values, conversation_id)
+    return _state_to_agent_response(snapshot.values, conversation_id)
 
 
 async def send_message(db: AsyncSession, conversation_id: int, req: MessageRequest) -> AgentResponse:
@@ -1692,7 +2115,14 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         )
         return response
 
+    user_id = int(snapshot.values["user_id"])
+    was_onboarded_before = _is_user_onboarded(user_id)
     state = await runtime.resume(conversation_id=conversation_id, message=req.message)
+    state = _attach_purchase_history_ui_command_if_onboarding_completed(
+        state,
+        was_onboarded_before=was_onboarded_before,
+        is_onboarded_after=_is_user_onboarded(user_id),
+    )
     if _is_address_confirmation_stage(snapshot.values, pending_action_before) and (
         state.get("intent") == "confirm" or _is_explicit_payment_confirmation(req.message)
     ):
@@ -1711,7 +2141,6 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         )
         return response
 
-    user_id = int(snapshot.values["user_id"])
     state = await _run_post_graph_persistence(
         db,
         conversation_id=conversation_id,
@@ -1722,16 +2151,20 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         pending_action_before=pending_action_before,
     )
     if _should_create_order_from_message(state, pending_action_before, req.message):
-        recommendation_item_id = _selected_recommendation_item_id(state)
-        if recommendation_item_id is not None:
-            state = await _persist_cart_order_payment_for_confirm(
-                db,
-                conversation_id=conversation_id,
-                user_id=user_id,
-                action="order_now",
-                recommendation_item_id=int(recommendation_item_id),
-                state=state,
-            )
+        state = await _prepare_checkout_automation_from_active_cart(
+            db,
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
+    elif (
+        pending_action_before in {"continue_shopping", "payment"}
+        and _is_checkout_request(req.message)
+    ):
+        state = await _prepare_checkout_automation_from_active_cart(
+            db,
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
     elif _should_add_cart_from_message(state, pending_action_before):
         recommendation_item_id = _selected_recommendation_item_id(state)
         if recommendation_item_id is not None:
@@ -1743,7 +2176,7 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
                 recommendation_item_id=int(recommendation_item_id),
                 state=state,
             )
-    return mapper.state_to_response(state, conversation_id)
+    return _state_to_agent_response(state, conversation_id)
 
 
 async def confirm_action(db: AsyncSession, conversation_id: int, req: ConfirmRequest) -> AgentResponse:
@@ -1790,4 +2223,10 @@ async def confirm_action(db: AsyncSession, conversation_id: int, req: ConfirmReq
             recommendation_item_id=int(recommendation_item_id),
             state=state,
         )
-    return mapper.state_to_response(state, conversation_id)
+    elif req.action == "checkout_cart":
+        state = await _prepare_checkout_automation_from_active_cart(
+            db,
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
+    return _state_to_agent_response(state, conversation_id)

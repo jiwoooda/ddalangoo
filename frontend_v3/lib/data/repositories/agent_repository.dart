@@ -36,7 +36,7 @@ class AgentRepository {
       Map<String, dynamic>.from(data as Map),
     );
     debugPrint(
-      '[$label]\n${_jsonEncoder.convert(<String, dynamic>{'conversationId': response.conversationId, 'status': response.status, 'stage': response.stage, 'assistantMessage': response.assistantMessage})}',
+      '[$label]\n${_jsonEncoder.convert(<String, dynamic>{'conversationId': response.conversationId, 'status': response.status, 'stage': response.stage, 'assistantMessage': response.assistantMessage, 'uiCommand': response.uiCommand})}',
     );
     return response;
   }
@@ -195,6 +195,28 @@ class AgentRepository {
       data: payload,
     );
     return _parseAgentResponse(response.data, label: 'Webview Result Response');
+  }
+
+  Future<AgentResponse> sendAutomationResult({
+    required int conversationId,
+    required Map<String, dynamic> result,
+  }) async {
+    debugPrint(
+      '[Automation Result Request]\n${_jsonEncoder.convert(<String, dynamic>{'endpoint': '/api/agent/conversations/$conversationId/automation-result', 'payload': result})}',
+    );
+    final response = await _dio.post(
+      '/api/agent/conversations/$conversationId/automation-result',
+      data: result,
+    );
+    final parsed = _parseAgentResponse(
+      response.data,
+      label: 'Automation Result Response',
+    );
+    debugPrint(
+      'AutomationResult taskId=${result['taskId']} backend POST 완료 '
+      'status=${result['status']}',
+    );
+    return parsed;
   }
 
   Future<Map<String, dynamic>> getWebviewStatus(int conversationId) async {

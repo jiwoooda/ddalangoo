@@ -1,6 +1,7 @@
 package com.ddalangoo.ddalangoo
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioFormat
@@ -234,30 +235,13 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 AutomationContract.Method.SET_TASK,
                 AutomationContract.Method.SET_TEST_TASK -> {
-                    val task = AutomationTask(
-                        taskId = call.argument<String>(AutomationContract.Argument.TASK_ID)
-                            ?: "test-task",
-                        taskType = call.argument<String>(AutomationContract.Argument.TASK_TYPE)
-                            ?: AutomationContract.TaskType.SEARCH_AND_ADD_TO_CART,
-                        targetProductName = call.argument<String>(
-                            AutomationContract.Argument.TARGET_PRODUCT_NAME,
-                        ).orEmpty(),
-                        searchKeyword = call.argument<String>(
-                            AutomationContract.Argument.SEARCH_KEYWORD,
-                        ).orEmpty(),
-                        optionName = call.argument<String>(
-                            AutomationContract.Argument.OPTION_NAME,
-                        ).orEmpty(),
-                        quantity = call.argument<Int>(AutomationContract.Argument.QUANTITY) ?: 1,
-                        platform = call.argument<String>(AutomationContract.Argument.PLATFORM)
-                            ?: AutomationContract.Platform.UNKNOWN,
-                        packageName = call.argument<String>(AutomationContract.Argument.PACKAGE_NAME),
-                        currentStep = call.argument<String>(AutomationContract.Argument.CURRENT_STEP)
-                            ?: AutomationContract.Step.SEARCH_INPUT,
+                    val arguments = call.arguments as? Map<*, *> ?: emptyMap<String, Any?>()
+                    val task = AutomationTask.fromMap(
+                        arguments.entries.associate { (key, value) -> key.toString() to value },
                     )
                     AutomationTaskStore.setTask(task)
                     if (shouldLaunchPackageForTask(task)) {
-                        task.packageName?.let { packageName ->
+                        task.effectivePackageName()?.let { packageName ->
                             launchPackage(packageName)
                         }
                     }
@@ -277,6 +261,10 @@ class MainActivity : FlutterActivity() {
 
                 AutomationContract.Method.GET_STATUS -> {
                     result.success(AutomationTaskStore.statusMap())
+                }
+
+                AutomationContract.Method.CONSUME_RESULT -> {
+                    result.success(AutomationTaskStore.consumeResultMap())
                 }
 
                 AutomationContract.Method.GET_INSTALLED_SHOPPING_PLATFORMS -> {
@@ -314,6 +302,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun launchPackage(packageName: String): Boolean {
+        if (packageName == this.packageName) {
+            return bringDdalangooTaskToFront()
+        }
+
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         if (launchIntent == null) {
             AutomationLogger.warn("launch failed packageName=$packageName reason=launchIntent_missing")
@@ -323,6 +315,26 @@ class MainActivity : FlutterActivity() {
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(launchIntent)
         AutomationLogger.info("launch requested packageName=$packageName")
+        return true
+    }
+
+    private fun bringDdalangooTaskToFront(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            val activityManager = getSystemService(ActivityManager::class.java)
+            val appTask = activityManager?.appTasks?.firstOrNull()
+            if (appTask != null) {
+                appTask.moveToFront()
+                AutomationLogger.info("bring own task to front packageName=$packageName")
+                return true
+            }
+        }
+
+        val ownIntent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        startActivity(ownIntent)
+        AutomationLogger.info("bring own activity to front fallback packageName=$packageName")
         return true
     }
 

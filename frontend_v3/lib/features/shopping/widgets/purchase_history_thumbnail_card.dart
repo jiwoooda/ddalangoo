@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_colors.dart';
@@ -13,12 +15,14 @@ class PurchaseHistoryThumbnailCard extends StatelessWidget {
     required this.subtitle,
     required this.caption,
     required this.assetPath,
+    this.imagePath,
   });
 
   final String title;
   final String subtitle;
   final String caption;
   final String assetPath;
+  final String? imagePath;
 
   @override
   Widget build(BuildContext context) {
@@ -37,11 +41,7 @@ class PurchaseHistoryThumbnailCard extends StatelessWidget {
             children: [
               const ColoredBox(color: Colors.white),
               Positioned.fill(
-                child: Image.asset(
-                  assetPath,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.center,
-                ),
+                child: _ThumbnailImage(assetPath: assetPath, imagePath: imagePath),
               ),
               Positioned.fill(
                 child: DecoratedBox(
@@ -116,6 +116,34 @@ class PurchaseHistoryThumbnailCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _ThumbnailImage extends StatelessWidget {
+  const _ThumbnailImage({required this.assetPath, required this.imagePath});
+
+  final String assetPath;
+  final String? imagePath;
+
+  @override
+  Widget build(BuildContext context) {
+    final localPath = imagePath?.trim();
+    if (localPath != null && localPath.isNotEmpty) {
+      final localFile = File(localPath);
+      if (localFile.existsSync()) {
+        return Image.file(
+          localFile,
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+        );
+      }
+    }
+
+    return Image.asset(
+      assetPath,
+      fit: BoxFit.cover,
+      alignment: Alignment.center,
     );
   }
 }

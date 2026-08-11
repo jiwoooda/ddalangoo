@@ -440,7 +440,15 @@ def _call_meta_mcp(params: dict[str, Any]) -> list[dict[str, Any]]:
                         )
                         products = _normalize(products)
                         print(f"[meta_mcp_client] products={len(products)}")
-                        return products
+                        if products:
+                            return products
+                        print("[meta_mcp_client] empty products; using naver fallback")
+                        agent_logger.log_source_fallback(
+                            from_source="local_mcp",
+                            to_source="naver_api",
+                            reason="empty_products",
+                        )
+                        return _call_naver_search_api(params)
             except (json.JSONDecodeError, KeyError):
                 continue
 

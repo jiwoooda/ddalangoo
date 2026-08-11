@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/services/accessibility_automation_service.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/models/agent_model.dart';
 import '../../../data/models/cart_model.dart';
@@ -215,6 +216,49 @@ class ShoppingFlowService {
     );
   }
 
+  Future<void> startAutomationTask(AutomationTaskInAgent task) {
+    return AccessibilityAutomationService.instance.setAutomationTask(
+      AccessibilityAutomationTask(
+        taskId: task.taskId,
+        taskType: task.taskType,
+        conversationId: task.conversationId,
+        userId: task.userId,
+        targetProductName: task.targetProductName ?? '',
+        searchKeyword: task.searchKeyword ?? '',
+        optionName: task.optionName ?? '',
+        quantity: task.quantity,
+        platform: task.platform ?? AccessibilityAutomationPlatform.unknown,
+        packageName: task.packageName,
+        currentStep:
+            task.currentStep ?? AccessibilityAutomationStep.openSearch,
+        cartItemId: task.cartItemId,
+        orderId: task.orderId,
+        paymentId: task.paymentId,
+        metadata: task.metadata,
+      ),
+    );
+  }
+
+  Future<AgentResponse?> consumeAndSendAutomationResult({
+    required int conversationId,
+  }) async {
+    final result =
+        await AccessibilityAutomationService.instance.consumeAutomationResult();
+    final taskId = result?['taskId']?.toString().trim();
+    if (result == null || taskId == null || taskId.isEmpty) {
+      return null;
+    }
+    debugPrint(
+      'AutomationResult taskId=${result['taskId']} backend POST '
+      'status=${result['status']}',
+    );
+    final request = AutomationResultRequest.fromRuntimeResult(result);
+    return _agentRepository.sendAutomationResult(
+      conversationId: conversationId,
+      result: request.toJson(),
+    );
+  }
+
   ShoppingFlowViewStage inferViewStage(AgentResponse? response) {
     if (response == null) {
       return ShoppingFlowViewStage.askProduct;
@@ -246,7 +290,9 @@ class ShoppingFlowService {
           ? ShoppingFlowViewStage.paymentProcessing
           : ShoppingFlowViewStage.paymentConfirmation;
     }
-    if (pendingType == 'webview_task' ||
+    if (pendingType == 'automation_task' ||
+        pendingType == 'webview_task' ||
+        response.automationTask != null ||
         (response.uiCommand is Map &&
             (response.uiCommand as Map)['type'] == 'open_webview') ||
         stage.contains('cart_processing') ||

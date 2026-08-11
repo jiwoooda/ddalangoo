@@ -576,9 +576,40 @@ class ShoppingAgentService {
       order: _mapOf(json['order']),
       payment: _mapOf(json['payment']),
       uiCommand: _mapOf(json['uiCommand']),
+      automationTask: _parseAutomationTask(json['automationTask']),
       asyncStatus: _mapOf(json['asyncStatus']),
       error: json['error'],
       raw: json,
+    );
+  }
+
+  AutomationTaskViewData? _parseAutomationTask(Object? raw) {
+    final map = _mapOf(raw);
+    if (map == null) {
+      return null;
+    }
+    final taskId = _stringOf(map['taskId']);
+    final taskType = _stringOf(map['taskType']);
+    if (taskId == null || taskType == null) {
+      return null;
+    }
+    return AutomationTaskViewData(
+      taskId: taskId,
+      taskType: taskType,
+      conversationId: _intOf(map['conversationId']),
+      userId: _intOf(map['userId']),
+      platform: _stringOf(map['platform']),
+      packageName: _stringOf(map['packageName']),
+      currentStep: _stringOf(map['currentStep']),
+      targetProductName: _stringOf(map['targetProductName']),
+      searchKeyword: _stringOf(map['searchKeyword']),
+      optionName: _stringOf(map['optionName']),
+      quantity: _intOf(map['quantity']) ?? 1,
+      cartItemId: _stringOf(map['cartItemId']),
+      orderId: _intOf(map['orderId']),
+      paymentId: _intOf(map['paymentId']),
+      metadata: _mapOf(map['metadata']) ?? const <String, dynamic>{},
+      raw: map,
     );
   }
 

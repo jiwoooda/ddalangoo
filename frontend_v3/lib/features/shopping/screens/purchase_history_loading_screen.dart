@@ -55,9 +55,14 @@ class _PurchaseHistoryLoadingScreenState
   String? _helperMessage;
   bool _isLoading = true;
   bool _hasCompletedFlow = false;
+  bool _isImportingCurrentPlatform = false;
   bool _isAccessibilityConnected = false;
   Future<void> _speechQueue = Future<void>.value();
   String? _lastSpokenMessage;
+  List<PurchaseHistoryAutomationPlan> _automationPlans =
+      const <PurchaseHistoryAutomationPlan>[];
+  int _currentAutomationPlanIndex = 0;
+  int _totalImportedPurchaseHistoryCount = 0;
 
   List<PurchaseHistoryPreviewItem> _previewItems =
       const <PurchaseHistoryPreviewItem>[];
@@ -71,7 +76,9 @@ class _PurchaseHistoryLoadingScreenState
   void initState() {
     super.initState();
     unawaited(_voiceService.init());
-    if (widget.useMockFlow) {
+    if (_service.hasCompletedAutomationFlowThisSession) {
+      unawaited(_restoreCompletedAutomationFlow());
+    } else if (widget.useMockFlow) {
       unawaited(_runMockLoadFlow());
     } else {
       unawaited(_runLoadFlow());
@@ -93,9 +100,12 @@ class _PurchaseHistoryLoadingScreenState
           ? widget.userName!.trim()
           : await _service.resolveUserName(userId: userId);
       final installedPlatforms = await _service.getInstalledPlatforms();
-      final automationPlan = _service.createAutomationPlan(installedPlatforms);
+      final automationPlans = _service.createAutomationPlans(
+        installedPlatforms,
+      );
       final initialStatus = await _service.getAutomationStatus();
       final serviceConnected = initialStatus['serviceConnected'] == true;
+      final firstAutomationPlan = automationPlans.firstOrNull;
 
       if (!mounted) {
         return;
@@ -104,24 +114,28 @@ class _PurchaseHistoryLoadingScreenState
       setState(() {
         _resolvedUserNameValue = resolvedUserName;
         _isAccessibilityConnected = serviceConnected;
-        _statusMessage = automationPlan.canAutomate
-            ? '${automationPlan.displayName} 앱에서 지난 주문 내역을 불러오고 있어요.'
+        _automationPlans = automationPlans;
+        _currentAutomationPlanIndex = 0;
+        _totalImportedPurchaseHistoryCount = 0;
+        _statusMessage = firstAutomationPlan != null
+            ? '${firstAutomationPlan.displayName} 앱에서 지난 주문 내역을 불러오고 있어요.'
             : '저장된 구매 이력을 불러오고 있어요.';
-        _helperMessage = automationPlan.reason;
-        _progressLabel = automationPlan.canAutomate
+        _helperMessage = automationPlans.isEmpty
+            ? _service.unsupportedAutomationReason(installedPlatforms)
+            : _service.skippedAutomationMessage(installedPlatforms);
+        _progressLabel = firstAutomationPlan != null
             ? '자동 추출 준비 중'
             : '저장된 이력 확인 중';
       });
       unawaited(_speakMessage(_statusMessage));
 
-      if (automationPlan.canAutomate && serviceConnected) {
-        await _service.prepareForExtraction();
-        await _service.startExtraction(automationPlan);
+      if (automationPlans.isNotEmpty && serviceConnected) {
+        await _startCurrentAutomationPlan(userId: userId);
         _startAutomationPolling(userId: userId);
         return;
       }
 
-      if (automationPlan.canAutomate && !serviceConnected && mounted) {
+      if (automationPlans.isNotEmpty && !serviceConnected && mounted) {
         setState(() {
           _helperMessage = '접근성 서비스가 아직 연결되지 않아 저장된 구매 이력만 먼저 불러오고 있어요.';
         });
@@ -136,6 +150,25 @@ class _PurchaseHistoryLoadingScreenState
       setState(() {
         _isLoading = false;
         _statusMessage = '구매 이력을 불러오는 중 문제가 생겼어요.';
+        _helperMessage = error.toString();
+        _progressLabel = '다시 확인 필요';
+      });
+    }
+  }
+
+  Future<void> _restoreCompletedAutomationFlow() async {
+    try {
+      final userId = await _service.resolveUserId();
+      _hasCompletedFlow = true;
+      await _loadStoredHistoriesAndFinish(userId: userId);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+        _statusMessage = '저장된 구매 이력을 불러오는 중 문제가 생겼어요.';
         _helperMessage = error.toString();
         _progressLabel = '다시 확인 필요';
       });
@@ -195,8 +228,32 @@ class _PurchaseHistoryLoadingScreenState
     unawaited(_pollAutomation(userId: userId));
   }
 
+  Future<void> _startCurrentAutomationPlan({required int userId}) async {
+    if (_currentAutomationPlanIndex >= _automationPlans.length) {
+      await _finishAutomationSequence(userId: userId);
+      return;
+    }
+
+    final plan = _automationPlans[_currentAutomationPlanIndex];
+    await _service.prepareForExtraction();
+    await _service.startExtraction(plan);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _statusMessage = '${plan.displayName} 앱에서 지난 주문 내역을 불러오고 있어요.';
+      _progressLabel =
+          '${_currentAutomationPlanIndex + 1}/${_automationPlans.length} ${plan.displayName} 확인 중';
+      _helperMessage = _automationPlans.length > 1
+          ? '플랫폼별로 순서대로 구매 이력을 확인하고 있어요.'
+          : _helperMessage;
+    });
+  }
+
   Future<void> _pollAutomation({required int userId}) async {
-    if (_hasCompletedFlow) {
+    if (_hasCompletedFlow || _isImportingCurrentPlatform) {
       return;
     }
 
@@ -226,18 +283,22 @@ class _PurchaseHistoryLoadingScreenState
 
     if (taskCompleted || currentStep == 'completed') {
       _statusPollTimer?.cancel();
-      await _importAndFinish(userId: userId);
+      await _importCurrentPlatformAndContinue(userId: userId);
     }
   }
 
-  Future<void> _importAndFinish({required int userId}) async {
-    if (_hasCompletedFlow) {
+  Future<void> _importCurrentPlatformAndContinue({required int userId}) async {
+    if (_hasCompletedFlow || _isImportingCurrentPlatform) {
       return;
     }
 
-    _hasCompletedFlow = true;
+    _isImportingCurrentPlatform = true;
+    final plan = _currentAutomationPlanIndex < _automationPlans.length
+        ? _automationPlans[_currentAutomationPlanIndex]
+        : null;
     try {
       final importResponse = await _service.importAccumulatedPurchaseHistory();
+      _totalImportedPurchaseHistoryCount += importResponse.count;
       final histories = await _service.fetchUserHistories(userId: userId);
       if (!mounted) {
         return;
@@ -248,11 +309,8 @@ class _PurchaseHistoryLoadingScreenState
           : _previewItems;
 
       setState(() {
-        _isLoading = false;
         _previewItems = previews;
-        _statusMessage = importResponse.count > 0
-            ? '구매 이력 ${importResponse.count}개를 저장했어요.'
-            : '저장된 구매 이력을 불러왔어요.';
+        _statusMessage = _platformImportMessage(plan, importResponse.count);
         _progressLabel = histories.histories.isEmpty
             ? '표시할 이력이 아직 없어요'
             : '${histories.histories.length}개 항목 준비 완료';
@@ -277,9 +335,64 @@ class _PurchaseHistoryLoadingScreenState
         userId: userId,
         scheduleAfterFetch: false,
       );
+    } finally {
+      _isImportingCurrentPlatform = false;
     }
 
+    await _service.prepareForExtraction();
+    _currentAutomationPlanIndex += 1;
+
+    if (_currentAutomationPlanIndex < _automationPlans.length) {
+      await _startCurrentAutomationPlan(userId: userId);
+      _startAutomationPolling(userId: userId);
+      return;
+    }
+
+    await _finishAutomationSequence(userId: userId);
+  }
+
+  Future<void> _finishAutomationSequence({required int userId}) async {
+    if (_hasCompletedFlow) {
+      return;
+    }
+
+    _hasCompletedFlow = true;
+    _service.markCompletedAutomationFlowThisSession();
+    final histories = await _service.fetchUserHistories(userId: userId);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+      _previewItems = _previewsFromHistories(histories.histories);
+      _statusMessage = _totalImportedPurchaseHistoryCount > 0
+          ? '구매 이력 $_totalImportedPurchaseHistoryCount개를 저장했어요.'
+          : '저장된 구매 이력을 불러왔어요.';
+      _progressLabel = histories.histories.isEmpty
+          ? '표시할 이력이 아직 없어요'
+          : '${histories.histories.length}개 항목 준비 완료';
+      if (_automationPlans.length > 1) {
+        _helperMessage = '연결된 쇼핑 앱의 구매 이력 확인을 마쳤어요.';
+      }
+    });
+    await _service.returnToDdalangooApp();
+    if (!mounted) {
+      return;
+    }
+    unawaited(_speakMessage(_statusMessage));
     _scheduleCompletion();
+  }
+
+  String _platformImportMessage(
+    PurchaseHistoryAutomationPlan? plan,
+    int importedCount,
+  ) {
+    final platformName = plan?.displayName ?? '쇼핑 앱';
+    if (importedCount > 0) {
+      return '$platformName 구매 이력 $importedCount개를 저장했어요.';
+    }
+    return '$platformName에서 새로 저장할 구매 이력을 찾지 못했어요.';
   }
 
   Future<void> _loadStoredHistoriesAndFinish({
@@ -342,6 +455,7 @@ class _PurchaseHistoryLoadingScreenState
             subtitle:
                 '${_platformLabel(item.platform)} ${_formatPrice(item.price)}',
             caption: item.purchaseDate ?? '구매일 확인 중',
+            imagePath: item.imageUrl,
           ),
         )
         .toList(growable: false);
@@ -398,6 +512,7 @@ class _PurchaseHistoryLoadingScreenState
     required String productName,
     required String subtitle,
     required String caption,
+    String? imagePath,
   }) {
     final asset = _assetForProductName(productName);
     return PurchaseHistoryPreviewItem(
@@ -405,6 +520,7 @@ class _PurchaseHistoryLoadingScreenState
       subtitle: subtitle,
       caption: caption,
       assetPath: asset.assetPath,
+      imagePath: imagePath,
     );
   }
 
@@ -608,6 +724,7 @@ class _PurchaseHistoryLoadingScreenState
                               subtitle: preview.subtitle,
                               caption: preview.caption,
                               assetPath: preview.assetPath,
+                              imagePath: preview.imagePath,
                             );
                           },
                         );
@@ -637,12 +754,14 @@ class PurchaseHistoryPreviewItem {
     required this.subtitle,
     required this.caption,
     required this.assetPath,
+    this.imagePath,
   });
 
   final String title;
   final String subtitle;
   final String caption;
   final String assetPath;
+  final String? imagePath;
 }
 
 class _PreviewAsset {

@@ -1,45 +1,8 @@
 package com.ddalangoo.ddalangoo.accessibility
 
-data class AutomationTask(
-    val taskId: String,
-    val taskType: String,
-    val targetProductName: String,
-    val searchKeyword: String = "",
-    val optionName: String = "",
-    val quantity: Int,
-    val platform: String,
-    val packageName: String?,
-    val currentStep: String
-)
-
-data class AutomationRuntimeStatus(
-    val serviceConnected: Boolean = false,
-    val lastPackageName: String? = null,
-    val lastStep: String? = null,
-    val lastScreenType: String? = null,
-    val lastTrigger: String? = null,
-    val currentRetryCount: Int = 0,
-    val currentRecoveryCount: Int = 0,
-    val rawNodeCount: Int = 0,
-    val filteredNodeCount: Int = 0,
-    val lastActionType: String? = null,
-    val lastReasonCode: String? = null,
-    val lastTargetNodeId: Int? = null,
-    val lastSelectedNodeText: String? = null,
-    val lastActionSuccess: Boolean? = null,
-    val lastActionMethod: String? = null,
-    val lastErrorCode: String? = null,
-    val lastMessage: String? = null,
-    val aiFallbackSuggested: Boolean = false,
-    val fallbackType: String? = null,
-    val fallbackReasonCode: String? = null,
-    val failedAction: String? = null,
-    val expectedState: String? = null,
-    val observedState: String? = null
-)
-
 object AutomationTaskStore {
     private var currentTask: AutomationTask? = null
+    private var pendingResult: AutomationResult? = null
     private var runtimeStatus = AutomationRuntimeStatus()
     private val retryCountsByStep = mutableMapOf<String, Int>()
     private var purchaseHistoryFinishHandled = false
@@ -51,6 +14,8 @@ object AutomationTaskStore {
     private var searchSubmitRetryCount = 0
     private var searchInputTextRetryCount = 0
     private var optionSelectNoEffectRetryCount = 0
+    private var lastObservedOptionQuantity: Int? = null
+    private val checkoutItemOutcomes = mutableListOf<Map<String, Any?>>()
     private const val MAX_RETRY_COUNT_PER_STEP = 5
     private const val MAX_RECOVERY_COUNT = 2
     private const val MAX_SEARCH_INPUT_FOCUS_RETRY_COUNT = 2
@@ -61,6 +26,7 @@ object AutomationTaskStore {
     @Synchronized
     fun setTask(task: AutomationTask) {
         currentTask = task
+        pendingResult = null
         retryCountsByStep.clear()
         purchaseHistoryFinishHandled = false
         purchaseHistoryExpandKeys.clear()
@@ -71,8 +37,10 @@ object AutomationTaskStore {
         searchSubmitRetryCount = 0
         searchInputTextRetryCount = 0
         optionSelectNoEffectRetryCount = 0
+        lastObservedOptionQuantity = null
+        checkoutItemOutcomes.clear()
         runtimeStatus = runtimeStatus.copy(
-            lastPackageName = task.packageName,
+            lastPackageName = task.effectivePackageName(),
             lastStep = task.currentStep,
             lastScreenType = null,
             lastTrigger = null,
@@ -105,7 +73,11 @@ object AutomationTaskStore {
         ) {
             SearchInspectionStore.clear()
         }
-        AutomationLogger.info("task set taskId=${task.taskId} platform=${task.platform} currentStep=${task.currentStep}")
+        AutomationLogger.info(
+            "AutomationTask taskId=${task.taskId} 저장 " +
+                "taskType=${task.taskType} platform=${task.platform} " +
+                "packageName=${task.effectivePackageName()} currentStep=${task.currentStep}"
+        )
     }
 
     @Synchronized
@@ -127,6 +99,8 @@ object AutomationTaskStore {
         searchSubmitRetryCount = 0
         searchInputTextRetryCount = 0
         optionSelectNoEffectRetryCount = 0
+        lastObservedOptionQuantity = null
+        checkoutItemOutcomes.clear()
         runtimeStatus = runtimeStatus.copy(
             lastStep = null,
             lastScreenType = null,
@@ -164,9 +138,11 @@ object AutomationTaskStore {
         expectedState: String? = null,
         observedState: String? = null
     ) {
+        val task = currentTask
         val shouldSuggestFallback = reasonCode == "search_submit_not_effective" ||
             reasonCode == "search_input_text_not_applied" ||
             reasonCode == "target_product_not_found" ||
+            reasonCode == "possible_popup_blocking" ||
             reasonCode == "possible_overlay_occlusion" ||
             reasonCode == "no_state_change_after_action" ||
             reasonCode == "option_increase_click_no_effect" ||
@@ -175,6 +151,31 @@ object AutomationTaskStore {
             "task stopped taskId=${currentTask?.taskId.orEmpty()} reason=$reasonCode " +
                 "screenType=$screenType trigger=$trigger message=$message"
         )
+        if (task != null) {
+            pendingResult = AutomationResult(
+                taskId = task.taskId,
+                taskType = task.taskType,
+                status = "failed",
+                platform = task.platform,
+                packageName = task.effectivePackageName(),
+                currentStep = currentStep,
+                errorCode = reasonCode,
+                errorMessage = message,
+                metadata = mapOf(
+                    "trigger" to trigger,
+                    "screenType" to screenType,
+                    "failedAction" to failedAction,
+                    "expectedState" to expectedState,
+                    "observedState" to observedState,
+                    "aiFallbackSuggested" to shouldSuggestFallback,
+                    "fallbackType" to if (shouldSuggestFallback) fallbackTypeFor(reasonCode) else null,
+                ).filterValues { it != null },
+            )
+            AutomationLogger.info(
+                "AutomationResult taskId=${task.taskId} status=failed 생성 " +
+                    "reason=$reasonCode currentStep=$currentStep"
+            )
+        }
         currentTask = null
         retryCountsByStep.clear()
         purchaseHistoryFinishHandled = false
@@ -186,6 +187,8 @@ object AutomationTaskStore {
         searchSubmitRetryCount = 0
         searchInputTextRetryCount = 0
         optionSelectNoEffectRetryCount = 0
+        lastObservedOptionQuantity = null
+        checkoutItemOutcomes.clear()
         runtimeStatus = runtimeStatus.copy(
             lastPackageName = packageName,
             lastStep = currentStep,
@@ -215,10 +218,40 @@ object AutomationTaskStore {
     private fun fallbackTypeFor(reasonCode: String): String {
         return when (reasonCode) {
             "possible_overlay_occlusion",
+            "possible_popup_blocking",
             "no_state_change_after_action",
             "option_increase_click_no_effect",
             "unknown_after_add_click" -> "vlm"
             else -> "ui_tree_or_vlm"
+        }
+    }
+
+    private fun checkoutItems(task: AutomationTask): List<Map<String, Any?>> {
+        val rawItems = task.metadata["checkoutItems"] as? List<*> ?: return emptyList()
+        return rawItems.mapNotNull { rawItem ->
+            (rawItem as? Map<*, *>)?.entries?.associate { (key, value) ->
+                key.toString() to value
+            }
+        }
+    }
+
+    private fun checkoutItemIndex(task: AutomationTask): Int {
+        return intFrom(task.metadata["currentCheckoutItemIndex"])
+            ?: intFrom(task.metadata["currentPlatformItemIndex"])
+            ?: 0
+    }
+
+    private fun stringFrom(value: Any?): String? {
+        return value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun intFrom(value: Any?): Int? {
+        return when (value) {
+            is Int -> value
+            is Long -> value.toInt()
+            is Number -> value.toInt()
+            is String -> value.toIntOrNull()
+            else -> null
         }
     }
 
@@ -246,14 +279,49 @@ object AutomationTaskStore {
     }
 
     @Synchronized
-    fun markCompleted(trigger: String, message: String) {
+    fun recordObservedOptionQuantity(quantity: Int) {
+        lastObservedOptionQuantity = quantity
+    }
+
+    @Synchronized
+    fun lastObservedOptionQuantity(): Int? {
+        return lastObservedOptionQuantity
+    }
+
+    @Synchronized
+    fun markCompleted(
+        trigger: String,
+        message: String,
+        resultType: String? = null,
+        payload: Map<String, Any?> = emptyMap()
+    ) {
         val task = currentTask ?: return
         currentTask = task.copy(currentStep = AutomationContract.Step.COMPLETED)
+        pendingResult = AutomationResult(
+            taskId = task.taskId,
+            taskType = task.taskType,
+            status = "completed",
+            platform = task.platform,
+            packageName = task.effectivePackageName(),
+            currentStep = AutomationContract.Step.COMPLETED,
+            resultType = resultType,
+            payload = payload,
+            metadata = mapOf(
+                "trigger" to trigger,
+                "message" to message,
+            ),
+        )
+        AutomationLogger.info(
+            "AutomationResult taskId=${task.taskId} status=completed 생성 " +
+                "currentStep=${AutomationContract.Step.COMPLETED}"
+        )
         retryCountsByStep.clear()
         searchInputFocusRetryCount = 0
         searchSubmitRetryCount = 0
         searchInputTextRetryCount = 0
         optionSelectNoEffectRetryCount = 0
+        lastObservedOptionQuantity = null
+        checkoutItemOutcomes.clear()
         runtimeStatus = runtimeStatus.copy(
             lastStep = AutomationContract.Step.COMPLETED,
             lastTrigger = trigger,
@@ -275,6 +343,82 @@ object AutomationTaskStore {
             observedState = null
         )
         AutomationLogger.info("task completed taskId=${task.taskId} trigger=$trigger message=$message")
+    }
+
+    @Synchronized
+    fun advanceCheckoutItemOrComplete(
+        trigger: String,
+        itemOutcome: Map<String, Any?>
+    ): AutomationTask? {
+        val task = currentTask ?: return null
+        if (task.taskType != AutomationContract.TaskType.CHECKOUT_PLATFORM_CART) {
+            return null
+        }
+
+        checkoutItemOutcomes.add(itemOutcome)
+        val checkoutItems = checkoutItems(task)
+        val currentIndex = checkoutItemIndex(task)
+        val nextIndex = currentIndex + 1
+        if (nextIndex >= checkoutItems.size) {
+            markCompleted(
+                trigger = trigger,
+                message = "Checkout platform cart automation completed",
+                resultType = AutomationContract.ResultType.CHECKOUT_PLATFORM_CART_COMPLETED,
+                payload = mapOf(
+                    "itemOutcomes" to checkoutItemOutcomes.toList(),
+                    "completedItemCount" to checkoutItemOutcomes.size,
+                    "requestedItemCount" to checkoutItems.size,
+                    "platforms" to (task.metadata["platforms"] ?: emptyList<String>()),
+                    "orderId" to task.orderId,
+                    "paymentId" to task.paymentId,
+                )
+            )
+            return null
+        }
+
+        val nextItem = checkoutItems[nextIndex]
+        val nextPlatform = stringFrom(nextItem["platform"]) ?: task.platform
+        val nextPackageName = stringFrom(nextItem["packageName"])
+            ?: AutomationContract.defaultPackageNameForPlatform(nextPlatform)
+        val nextTask = task.copy(
+            platform = nextPlatform,
+            packageName = nextPackageName,
+            currentStep = AutomationContract.Step.OPEN_SEARCH,
+            targetProductName = stringFrom(nextItem["productName"]).orEmpty(),
+            searchKeyword = stringFrom(nextItem["searchKeyword"])
+                ?: stringFrom(nextItem["productName"]).orEmpty(),
+            optionName = stringFrom(nextItem["optionName"]).orEmpty(),
+            quantity = intFrom(nextItem["quantity"]) ?: 1,
+            cartItemId = stringFrom(nextItem["cartItemId"]),
+            metadata = task.metadata + mapOf(
+                "currentCheckoutItemIndex" to nextIndex,
+                "currentCheckoutItem" to nextItem,
+                "itemOutcomes" to checkoutItemOutcomes.toList(),
+            )
+        )
+        currentTask = nextTask
+        retryCountsByStep.clear()
+        recoveryCount = 0
+        searchInputFocusRetryCount = 0
+        searchSubmitRetryCount = 0
+        searchInputTextRetryCount = 0
+        optionSelectNoEffectRetryCount = 0
+        lastObservedOptionQuantity = null
+        SearchInspectionStore.clear()
+        runtimeStatus = runtimeStatus.copy(
+            lastPackageName = nextTask.effectivePackageName(),
+            lastStep = nextTask.currentStep,
+            currentRetryCount = 0,
+            currentRecoveryCount = 0,
+            lastReasonCode = "checkout_next_item",
+            lastMessage = "Checkout automation moved to next cart item"
+        )
+        AutomationLogger.info(
+            "checkout next item taskId=${task.taskId} nextIndex=$nextIndex " +
+                "platform=$nextPlatform packageName=$nextPackageName " +
+                "productName=${nextTask.targetProductName} quantity=${nextTask.quantity}"
+        )
+        return nextTask
     }
 
     @Synchronized
@@ -504,6 +648,85 @@ object AutomationTaskStore {
     }
 
     @Synchronized
+    fun recordVlmFallbackRequested(
+        packageName: String?,
+        currentStep: String,
+        rawNodeCount: Int,
+        filteredNodeCount: Int,
+        trigger: String,
+        reasonCode: String,
+        expectedState: String,
+        observedState: String
+    ) {
+        runtimeStatus = runtimeStatus.copy(
+            lastPackageName = packageName,
+            lastStep = currentStep,
+            lastTrigger = trigger,
+            currentRetryCount = retryCountsByStep[currentStep] ?: 0,
+            currentRecoveryCount = recoveryCount,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodeCount,
+            lastActionType = "vlm_fallback_request",
+            lastReasonCode = reasonCode,
+            lastTargetNodeId = null,
+            lastSelectedNodeText = null,
+            lastActionSuccess = null,
+            lastActionMethod = null,
+            lastErrorCode = null,
+            lastMessage = "VLM fallback requested for step=$currentStep",
+            aiFallbackSuggested = true,
+            fallbackType = "vlm",
+            fallbackReasonCode = reasonCode,
+            failedAction = currentStep,
+            expectedState = expectedState,
+            observedState = observedState
+        )
+        AutomationLogger.info(
+            "vlm_fallback requested taskId=${currentTask?.taskId.orEmpty()} step=$currentStep " +
+                "reason=$reasonCode trigger=$trigger"
+        )
+    }
+
+    @Synchronized
+    fun recordVlmFallbackAction(
+        packageName: String?,
+        currentStep: String,
+        rawNodeCount: Int,
+        filteredNodeCount: Int,
+        trigger: String,
+        action: String,
+        success: Boolean,
+        method: String?,
+        message: String,
+        errorCode: String? = null
+    ) {
+        runtimeStatus = runtimeStatus.copy(
+            lastPackageName = packageName,
+            lastStep = currentStep,
+            lastTrigger = trigger,
+            currentRetryCount = retryCountsByStep[currentStep] ?: 0,
+            currentRecoveryCount = recoveryCount,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodeCount,
+            lastActionType = "vlm_$action",
+            lastReasonCode = "vlm_recovery_action",
+            lastTargetNodeId = null,
+            lastSelectedNodeText = null,
+            lastActionSuccess = success,
+            lastActionMethod = method,
+            lastErrorCode = errorCode,
+            lastMessage = message,
+            aiFallbackSuggested = true,
+            fallbackType = "vlm",
+            fallbackReasonCode = "possible_popup_blocking"
+        )
+        AutomationLogger.info(
+            "vlm_fallback action taskId=${currentTask?.taskId.orEmpty()} step=$currentStep " +
+                "action=$action success=$success method=${method.orEmpty()} message=$message"
+        )
+    }
+
+    @Synchronized
     fun recordSearchInputTextMismatch(
         packageName: String?,
         currentStep: String,
@@ -667,15 +890,23 @@ object AutomationTaskStore {
         val task = currentTask
         val status = runtimeStatus
         return mapOf(
+            "contractVersion" to AutomationContract.CONTRACT_VERSION,
             "hasTask" to (task != null),
             "taskId" to task?.taskId,
             "taskType" to task?.taskType,
+            "conversationId" to task?.conversationId,
+            "userId" to task?.userId,
             "platform" to task?.platform,
             "searchKeyword" to task?.searchKeyword,
             "targetProductName" to task?.targetProductName,
             "optionName" to task?.optionName,
+            "quantity" to task?.quantity,
             "packageName" to task?.packageName,
+            "effectivePackageName" to task?.effectivePackageName(),
             "currentStep" to task?.currentStep,
+            "cartItemId" to task?.cartItemId,
+            "orderId" to task?.orderId,
+            "paymentId" to task?.paymentId,
             "taskCompleted" to (task?.currentStep == AutomationContract.Step.COMPLETED),
             "purchaseHistoryFinishHandled" to purchaseHistoryFinishHandled,
             "serviceConnected" to status.serviceConnected,
@@ -708,5 +939,15 @@ object AutomationTaskStore {
             "latestPurchaseHistoryCount" to PurchaseHistoryExtractionStore.latestExtractionResult().size,
             "accumulatedPurchaseHistoryCount" to PurchaseHistoryExtractionStore.accumulatedCandidates().size
         ) + SearchInspectionStore.statusMap()
+    }
+
+    @Synchronized
+    fun consumeResultMap(): Map<String, Any?>? {
+        val result = pendingResult ?: return null
+        pendingResult = null
+        AutomationLogger.info(
+            "AutomationResult taskId=${result.taskId} status=${result.status} Flutter로 전달"
+        )
+        return result.toMap()
     }
 }

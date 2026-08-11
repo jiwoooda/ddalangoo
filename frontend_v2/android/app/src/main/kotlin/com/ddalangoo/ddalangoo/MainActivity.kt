@@ -220,30 +220,13 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 AutomationContract.Method.SET_TASK,
                 AutomationContract.Method.SET_TEST_TASK -> {
-                    val task = AutomationTask(
-                        taskId = call.argument<String>(AutomationContract.Argument.TASK_ID)
-                            ?: "test-task",
-                        taskType = call.argument<String>(AutomationContract.Argument.TASK_TYPE)
-                            ?: AutomationContract.TaskType.SEARCH_AND_ADD_TO_CART,
-                        targetProductName = call.argument<String>(
-                            AutomationContract.Argument.TARGET_PRODUCT_NAME,
-                        ).orEmpty(),
-                        searchKeyword = call.argument<String>(
-                            AutomationContract.Argument.SEARCH_KEYWORD,
-                        ).orEmpty(),
-                        optionName = call.argument<String>(
-                            AutomationContract.Argument.OPTION_NAME,
-                        ).orEmpty(),
-                        quantity = call.argument<Int>(AutomationContract.Argument.QUANTITY) ?: 1,
-                        platform = call.argument<String>(AutomationContract.Argument.PLATFORM)
-                            ?: AutomationContract.Platform.UNKNOWN,
-                        packageName = call.argument<String>(AutomationContract.Argument.PACKAGE_NAME),
-                        currentStep = call.argument<String>(AutomationContract.Argument.CURRENT_STEP)
-                            ?: AutomationContract.Step.SEARCH_INPUT,
+                    val arguments = call.arguments as? Map<*, *> ?: emptyMap<String, Any?>()
+                    val task = AutomationTask.fromMap(
+                        arguments.entries.associate { (key, value) -> key.toString() to value },
                     )
                     AutomationTaskStore.setTask(task)
                     if (shouldLaunchPackageForTask(task)) {
-                        task.packageName?.let { packageName ->
+                        task.effectivePackageName()?.let { packageName ->
                             launchPackage(packageName)
                         }
                     }

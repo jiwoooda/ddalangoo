@@ -105,6 +105,208 @@ class RecommendationItemInAgent {
   }
 }
 
+class AutomationTaskInAgent {
+  AutomationTaskInAgent({
+    this.contractVersion = 1,
+    required this.taskId,
+    required this.taskType,
+    this.conversationId,
+    this.userId,
+    this.platform,
+    this.packageName,
+    this.currentStep,
+    this.targetProductName,
+    this.searchKeyword,
+    this.optionName,
+    this.quantity = 1,
+    this.cartItemId,
+    this.orderId,
+    this.paymentId,
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final int contractVersion;
+  final String taskId;
+  final String taskType;
+  final int? conversationId;
+  final int? userId;
+  final String? platform;
+  final String? packageName;
+  final String? currentStep;
+  final String? targetProductName;
+  final String? searchKeyword;
+  final String? optionName;
+  final int quantity;
+  final String? cartItemId;
+  final int? orderId;
+  final int? paymentId;
+  final Map<String, dynamic> metadata;
+
+  factory AutomationTaskInAgent.fromJson(Map<String, dynamic> json) {
+    return AutomationTaskInAgent(
+      contractVersion: _intOf(json['contractVersion']) ?? 1,
+      taskId: json['taskId']?.toString() ?? '',
+      taskType: json['taskType']?.toString() ?? '',
+      conversationId: _intOf(json['conversationId']),
+      userId: _intOf(json['userId']),
+      platform: json['platform']?.toString(),
+      packageName: json['packageName']?.toString(),
+      currentStep: json['currentStep']?.toString(),
+      targetProductName: json['targetProductName']?.toString(),
+      searchKeyword: json['searchKeyword']?.toString(),
+      optionName: json['optionName']?.toString(),
+      quantity: _intOf(json['quantity']) ?? 1,
+      cartItemId: json['cartItemId']?.toString(),
+      orderId: _intOf(json['orderId']),
+      paymentId: _intOf(json['paymentId']),
+      metadata: json['metadata'] is Map
+          ? Map<String, dynamic>.from(json['metadata'] as Map)
+          : const <String, dynamic>{},
+    );
+  }
+}
+
+class AutomationResultInAgent {
+  AutomationResultInAgent({
+    this.contractVersion = 1,
+    required this.taskId,
+    required this.status,
+    this.taskType,
+    this.platform,
+    this.packageName,
+    this.currentStep,
+    this.resultType,
+    this.payload = const <String, dynamic>{},
+    this.errorCode,
+    this.errorMessage,
+    this.message,
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final int contractVersion;
+  final String taskId;
+  final String status;
+  final String? taskType;
+  final String? platform;
+  final String? packageName;
+  final String? currentStep;
+  final String? resultType;
+  final Map<String, dynamic> payload;
+  final String? errorCode;
+  final String? errorMessage;
+  final String? message;
+  final Map<String, dynamic> metadata;
+
+  factory AutomationResultInAgent.fromJson(Map<String, dynamic> json) {
+    return AutomationResultInAgent(
+      contractVersion: _intOf(json['contractVersion']) ?? 1,
+      taskId: json['taskId']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+      taskType: json['taskType']?.toString(),
+      platform: json['platform']?.toString(),
+      packageName: json['packageName']?.toString(),
+      currentStep: json['currentStep']?.toString(),
+      resultType: json['resultType']?.toString(),
+      payload: json['payload'] is Map
+          ? Map<String, dynamic>.from(json['payload'] as Map)
+          : const <String, dynamic>{},
+      errorCode: json['errorCode']?.toString(),
+      errorMessage: json['errorMessage']?.toString(),
+      message: json['message']?.toString(),
+      metadata: json['metadata'] is Map
+          ? Map<String, dynamic>.from(json['metadata'] as Map)
+          : const <String, dynamic>{},
+    );
+  }
+}
+
+class AutomationResultRequest {
+  AutomationResultRequest({
+    this.contractVersion = 1,
+    required this.taskId,
+    required this.status,
+    this.taskType,
+    this.currentStep,
+    this.platform,
+    this.packageName,
+    this.resultType,
+    this.errorCode,
+    this.errorMessage,
+    this.payload = const <String, dynamic>{},
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final int contractVersion;
+  final String taskId;
+  final String status;
+  final String? taskType;
+  final String? currentStep;
+  final String? platform;
+  final String? packageName;
+  final String? resultType;
+  final String? errorCode;
+  final String? errorMessage;
+  final Map<String, dynamic> payload;
+  final Map<String, dynamic> metadata;
+
+  factory AutomationResultRequest.fromRuntimeResult(
+    Map<String, dynamic> result,
+  ) {
+    final metadata = result['metadata'] is Map
+        ? Map<String, dynamic>.from(result['metadata'] as Map)
+        : const <String, dynamic>{};
+    final payload = result['payload'] is Map
+        ? Map<String, dynamic>.from(result['payload'] as Map)
+        : const <String, dynamic>{};
+
+    return AutomationResultRequest(
+      contractVersion: _intOf(result['contractVersion']) ?? 1,
+      taskId: result['taskId']?.toString() ?? '',
+      status: result['status']?.toString() ?? 'failed',
+      taskType: result['taskType']?.toString(),
+      currentStep: result['currentStep']?.toString(),
+      platform: result['platform']?.toString(),
+      packageName: result['packageName']?.toString(),
+      resultType: result['resultType']?.toString(),
+      errorCode: result['errorCode']?.toString(),
+      errorMessage:
+          result['errorMessage']?.toString() ?? result['message']?.toString(),
+      payload: payload,
+      metadata: metadata,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'contractVersion': contractVersion,
+      'taskId': taskId,
+      'status': status,
+      'taskType': taskType,
+      'currentStep': currentStep,
+      'platform': platform,
+      'packageName': packageName,
+      'resultType': resultType,
+      'errorCode': errorCode,
+      'errorMessage': errorMessage,
+      'payload': payload,
+      'metadata': metadata,
+    }..removeWhere((_, value) => value == null);
+  }
+}
+
+abstract final class AutomationContract {
+  static const version = 1;
+
+  static const statusCompleted = 'completed';
+  static const statusFailed = 'failed';
+  static const statusRequiresUserAction = 'requires_user_action';
+  static const statusNeedsUserConfirmation = 'needs_user_confirmation';
+
+  static const taskSearchAndAddToCart = 'search_and_add_to_cart';
+  static const taskPurchaseHistory = 'purchase_history';
+  static const taskCheckoutPlatformCart = 'checkout_platform_cart';
+}
+
 class AgentResponse {
   AgentResponse({
     required this.conversationId,
@@ -124,6 +326,8 @@ class AgentResponse {
     this.order,
     this.payment,
     this.uiCommand,
+    this.automationTask,
+    this.automationResult,
     this.asyncStatus,
     this.error,
   });
@@ -145,6 +349,8 @@ class AgentResponse {
   final dynamic order;
   final dynamic payment;
   final dynamic uiCommand;
+  final AutomationTaskInAgent? automationTask;
+  final AutomationResultInAgent? automationResult;
   final dynamic asyncStatus;
   final dynamic error;
 
@@ -192,10 +398,33 @@ class AgentResponse {
       order: json['order'],
       payment: json['payment'],
       uiCommand: json['uiCommand'],
+      automationTask: json['automationTask'] is Map
+          ? AutomationTaskInAgent.fromJson(
+              Map<String, dynamic>.from(json['automationTask'] as Map),
+            )
+          : null,
+      automationResult: json['automationResult'] is Map
+          ? AutomationResultInAgent.fromJson(
+              Map<String, dynamic>.from(json['automationResult'] as Map),
+            )
+          : null,
       asyncStatus: json['asyncStatus'],
       error: json['error'],
     );
   }
+}
+
+int? _intOf(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value);
+  }
+  return null;
 }
 
 class SpeechSegmentModel {

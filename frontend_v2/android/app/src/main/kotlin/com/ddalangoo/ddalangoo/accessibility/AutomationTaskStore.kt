@@ -1,43 +1,5 @@
 package com.ddalangoo.ddalangoo.accessibility
 
-data class AutomationTask(
-    val taskId: String,
-    val taskType: String,
-    val targetProductName: String,
-    val searchKeyword: String = "",
-    val optionName: String = "",
-    val quantity: Int,
-    val platform: String,
-    val packageName: String?,
-    val currentStep: String
-)
-
-data class AutomationRuntimeStatus(
-    val serviceConnected: Boolean = false,
-    val lastPackageName: String? = null,
-    val lastStep: String? = null,
-    val lastScreenType: String? = null,
-    val lastTrigger: String? = null,
-    val currentRetryCount: Int = 0,
-    val currentRecoveryCount: Int = 0,
-    val rawNodeCount: Int = 0,
-    val filteredNodeCount: Int = 0,
-    val lastActionType: String? = null,
-    val lastReasonCode: String? = null,
-    val lastTargetNodeId: Int? = null,
-    val lastSelectedNodeText: String? = null,
-    val lastActionSuccess: Boolean? = null,
-    val lastActionMethod: String? = null,
-    val lastErrorCode: String? = null,
-    val lastMessage: String? = null,
-    val aiFallbackSuggested: Boolean = false,
-    val fallbackType: String? = null,
-    val fallbackReasonCode: String? = null,
-    val failedAction: String? = null,
-    val expectedState: String? = null,
-    val observedState: String? = null
-)
-
 object AutomationTaskStore {
     private var currentTask: AutomationTask? = null
     private var runtimeStatus = AutomationRuntimeStatus()
@@ -72,7 +34,7 @@ object AutomationTaskStore {
         searchInputTextRetryCount = 0
         optionSelectNoEffectRetryCount = 0
         runtimeStatus = runtimeStatus.copy(
-            lastPackageName = task.packageName,
+            lastPackageName = task.effectivePackageName(),
             lastStep = task.currentStep,
             lastScreenType = null,
             lastTrigger = null,
@@ -667,15 +629,23 @@ object AutomationTaskStore {
         val task = currentTask
         val status = runtimeStatus
         return mapOf(
+            "contractVersion" to AutomationContract.CONTRACT_VERSION,
             "hasTask" to (task != null),
             "taskId" to task?.taskId,
             "taskType" to task?.taskType,
+            "conversationId" to task?.conversationId,
+            "userId" to task?.userId,
             "platform" to task?.platform,
             "searchKeyword" to task?.searchKeyword,
             "targetProductName" to task?.targetProductName,
             "optionName" to task?.optionName,
+            "quantity" to task?.quantity,
             "packageName" to task?.packageName,
+            "effectivePackageName" to task?.effectivePackageName(),
             "currentStep" to task?.currentStep,
+            "cartItemId" to task?.cartItemId,
+            "orderId" to task?.orderId,
+            "paymentId" to task?.paymentId,
             "taskCompleted" to (task?.currentStep == AutomationContract.Step.COMPLETED),
             "purchaseHistoryFinishHandled" to purchaseHistoryFinishHandled,
             "serviceConnected" to status.serviceConnected,
