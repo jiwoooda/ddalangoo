@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 # 프론트는 녹음이 끝난 WAV 파일을 업로드한다. 진짜 Realtime 스트리밍은
 # WebRTC/WebSocket 입력 구조가 필요하므로, 현재 엔드포인트에서는 Transcription API를 사용한다.
 _STT_MODEL = os.getenv("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
-_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview")
 _TTS_FALLBACK_MODELS = [
     model.strip()
     for model in os.getenv(
         "GEMINI_TTS_FALLBACK_MODELS",
-        "gemini-3.1-flash-tts-preview",
+        "gemini-2.5-flash-preview-tts",
     ).split(",")
     if model.strip()
 ]

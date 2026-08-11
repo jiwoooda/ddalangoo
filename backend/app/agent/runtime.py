@@ -30,7 +30,9 @@ _VENDOR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../vendor/ddalangoo-langgraph")
 )
 if _VENDOR not in sys.path:
-    sys.path.insert(0, _VENDOR)
+    # Keep the backend app directory ahead of vendor modules so uvicorn reload
+    # continues to resolve backend/main.py for "main:app".
+    sys.path.append(_VENDOR)
 
 from langchain_core.messages import HumanMessage
 from psycopg_pool import AsyncConnectionPool
