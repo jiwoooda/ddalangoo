@@ -23,6 +23,8 @@ object AutomationContract {
         const val DUMP_CURRENT_UI_TREE = "dumpCurrentUiTree"
         const val LAUNCH_PLATFORM_APP = "launchPlatformApp"
         const val CONSUME_RESULT = "consumeAutomationResult"
+        const val OPEN_ACCESSIBILITY_SETTINGS = "openAccessibilitySettings"
+        const val IS_ACCESSIBILITY_SERVICE_ENABLED = "isAccessibilityServiceEnabled"
     }
 
     object Argument {

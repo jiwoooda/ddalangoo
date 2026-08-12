@@ -13,8 +13,9 @@ import '../../../core/services/voice_service.dart';
 import '../../../shared/layout/app_layout.dart';
 import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
+import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
-import '../../shopping/screens/purchase_history_loading_screen.dart';
+import '../../shopping/screens/analysis_intro_screen.dart';
 import '../services/platform_check_service.dart';
 
 class PlatformCheckScreen extends StatefulWidget {
@@ -110,6 +111,12 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     final trimmed = _resolvedUserNameValue?.trim() ?? widget.userName?.trim();
     return trimmed == null || trimmed.isEmpty ? '고객' : trimmed;
   }
+
+  // 말풍선에 표시할 문구. 아직 TTS가 한 번도 시작되지 않은 첫 프레임에는
+  // 기본 인사말을 보여주고, 이후로는 _speakMessage로 실제 말한(말하는)
+  // 내용을 그대로 보여줘서 화면 텍스트와 TTS 내용이 항상 일치하게 한다.
+  String get _bubbleText =>
+      _lastSpokenMessage ?? '$_resolvedUserName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요';
 
   int get _installedPlatformCount =>
       _platforms.where((platform) => platform.isInstalled).length;
@@ -257,9 +264,12 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     }
 
     if (widget.userName?.trim().isNotEmpty == true || widget.useMockFlow) {
+      // 구매 이력을 불러오기 직전에 "이제 취향을 분석해볼게요" 안내를 한 번
+      // 들려준다(AnalysisIntroScreen). 그 화면이 말이 끝나면 알아서
+      // PurchaseHistoryLoadingScreen으로 넘어간다.
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
-          builder: (_) => PurchaseHistoryLoadingScreen(
+          builder: (_) => AnalysisIntroScreen(
             userName: _resolvedUserName,
             useMockFlow: widget.useMockFlow,
             nextRouteName: widget.nextRouteName,
@@ -518,7 +528,11 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
       return _speechQueue;
     }
 
-    _lastSpokenMessage = normalized;
+    // 화면에 보이는 말풍선 텍스트가 실제 TTS로 말하는 내용과 항상 일치하게
+    // setState로 갱신한다(예전엔 필드만 바뀌고 화면은 그대로였다).
+    setState(() {
+      _lastSpokenMessage = normalized;
+    });
     _speechQueue = _speechQueue.then((_) async {
       if (!mounted) {
         return;
@@ -559,29 +573,40 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
                   _PlatformCheckBackground(
                     platforms: _platforms,
                     userName: _resolvedUserName,
-                    statusHint: _statusHint,
+                    bubbleText: _bubbleText,
                     isAccessibilityConnected: _isAccessibilityConnected,
                     automationLastMessage: _automationLastMessage,
                     lastDetectedPlatformLabel: _lastDetectedPlatformLabel,
                     isScanning: _isScanning,
                   ),
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: EndConversationButton(
-                      compact: true,
-                      onPressed: _handleClosePressed,
-                    ),
-                  ),
                   Align(
                     alignment: Alignment.bottomCenter,
                     child: SlideTransition(
                       position: _bannerOffset,
-                      child: _PlatformProgressBanner(
-                        summary: _progressSummary,
-                        detail: _progressDetail,
-                        chipLabel: _progressChipLabel,
-                        chipColor: _progressChipColor,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 캐릭터를 말풍선 옆이 아니라 하단 패널 쪽으로 옮겨
+                          // 다른 화면들과 비율/배치를 통일했다.
+                          Image.asset(
+                            'assets/images/character/full/ddalangoo_searching.png',
+                            height: 108,
+                            fit: BoxFit.contain,
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          _PlatformProgressBanner(
+                            summary: _progressSummary,
+                            detail: _progressDetail,
+                            chipLabel: _progressChipLabel,
+                            chipColor: _progressChipColor,
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          EndConversationButton(
+                            fullWidth: true,
+                            variant: EndConversationButtonVariant.dark,
+                            onPressed: _handleClosePressed,
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -625,7 +650,7 @@ class _PlatformCheckBackground extends StatelessWidget {
   const _PlatformCheckBackground({
     required this.platforms,
     required this.userName,
-    required this.statusHint,
+    required this.bubbleText,
     required this.isAccessibilityConnected,
     required this.automationLastMessage,
     required this.lastDetectedPlatformLabel,
@@ -634,7 +659,7 @@ class _PlatformCheckBackground extends StatelessWidget {
 
   final List<PlatformPreviewApp> platforms;
   final String userName;
-  final String statusHint;
+  final String bubbleText;
   final bool isAccessibilityConnected;
   final String? automationLastMessage;
   final String? lastDetectedPlatformLabel;
@@ -658,42 +683,51 @@ class _PlatformCheckBackground extends StatelessWidget {
       ),
       child: Padding(
         padding: EdgeInsets.only(
+          // 하단 패널에 캐릭터 이미지가 추가되면서 패널 높이가 늘어난 만큼
+          // 여백도 함께 늘려 배경 콘텐츠가 패널에 가리지 않게 한다.
           bottom: responsive.bound(
-            responsive.heightScaled(148, minFactor: 0.72, maxFactor: 1.0),
-            min: 112,
-            max: 148,
+            responsive.heightScaled(268, minFactor: 0.72, maxFactor: 1.0),
+            min: 220,
+            max: 268,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _MockStatusStrip(),
-            const SizedBox(height: AppSpacing.lg),
-            _MockSearchCard(userName: userName, statusHint: statusHint),
-            const SizedBox(height: AppSpacing.lg),
-            Wrap(
-              spacing: AppSpacing.md,
-              runSpacing: AppSpacing.md,
-              children: [
-                for (final platform in platforms)
-                  _PlatformTile(
-                    name: platform.name,
-                    assetPath: platform.assetPath,
-                    isInstalled: platform.isInstalled,
-                  ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            _RecentActivityCard(
-              isAccessibilityConnected: isAccessibilityConnected,
-              installedPlatformCount: platforms
-                  .where((platform) => platform.isInstalled)
-                  .length,
-              automationLastMessage: automationLastMessage,
-              lastDetectedPlatformLabel: lastDetectedPlatformLabel,
-              isScanning: isScanning,
-            ),
-          ],
+        // 플랫폼 아이콘 개수가 많아 Wrap이 2줄 이상으로 넘어가면 고정 Column
+        // 높이를 초과해 아래쪽이 오버플로우될 수 있었다(예: 후보 5개가 3+2로
+        // 줄바꿈되는 경우). 전체를 스크롤 가능하게 바꿔 아이콘 개수와 무관하게
+        // 항상 안전하게 표시되도록 한다.
+        child: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _MockStatusStrip(),
+              const SizedBox(height: AppSpacing.lg),
+              _MockSearchCard(userName: userName, bubbleText: bubbleText),
+              const SizedBox(height: AppSpacing.lg),
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  for (final platform in platforms)
+                    _PlatformTile(
+                      name: platform.name,
+                      assetPath: platform.assetPath,
+                      isInstalled: platform.isInstalled,
+                    ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              _RecentActivityCard(
+                isAccessibilityConnected: isAccessibilityConnected,
+                installedPlatformCount: platforms
+                    .where((platform) => platform.isInstalled)
+                    .length,
+                automationLastMessage: automationLastMessage,
+                lastDetectedPlatformLabel: lastDetectedPlatformLabel,
+                isScanning: isScanning,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -726,67 +760,35 @@ class _MockStatusStrip extends StatelessWidget {
 }
 
 class _MockSearchCard extends StatelessWidget {
-  const _MockSearchCard({required this.userName, required this.statusHint});
+  const _MockSearchCard({required this.userName, required this.bubbleText});
 
   final String userName;
-  final String statusHint;
+  final String bubbleText;
 
   @override
   Widget build(BuildContext context) {
-    final responsive = context.responsive;
-
-    return Container(
-      padding: EdgeInsets.all(
-        responsive.bound(
-          responsive.scale(AppSpacing.lg, minFactor: 0.84, maxFactor: 1.0),
-          min: AppSpacing.md,
-          max: AppSpacing.lg,
-        ),
+    // 다른 대화형 화면(스몰토크/에이전트 인사/메인 쇼핑 흐름)과 같은
+    // 말풍선(DialogueBubble)을 써서 딸랑구가 말하는 부분의 모양을 통일했다.
+    // 캐릭터는 더 이상 이 말풍선 옆에 두지 않는다(다른 화면과 비율이 달라
+    // 통일감이 떨어져서 하단 패널 쪽으로 옮겼다 — 아래 _PlatformCheckScreen
+    // 참고). 텍스트도 고정 문구가 아니라 실제 TTS로 말하는 내용을 그대로
+    // 보여줘서 화면과 음성이 항상 일치하게 했다.
+    return DialogueBubble(
+      text: bubbleText,
+      contentKey: ValueKey(bubbleText),
+      animateTextChanges: true,
+      cyclePages: true,
+      highlightedWords: [userName],
+      minHeight: 96,
+      style: AppTextStyles.title2.copyWith(
+        fontSize: 22,
+        color: AppColors.textStrong,
+        fontWeight: FontWeight.w700,
       ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 18,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$userName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요',
-                  style: AppTextStyles.title2.copyWith(fontSize: 22),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  statusHint,
-                  style: AppTextStyles.body2.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Image.asset(
-            'assets/images/character/full/ddalangoo_searching.png',
-            height: responsive.bound(
-              responsive.heightScaled(84, minFactor: 0.82, maxFactor: 1.0),
-              min: 68,
-              max: 84,
-            ),
-            fit: BoxFit.contain,
-          ),
-        ],
+      emphasizedStyle: AppTextStyles.title2.copyWith(
+        fontSize: 22,
+        color: AppColors.primaryPinkDark,
+        fontWeight: FontWeight.w800,
       ),
     );
   }
@@ -889,92 +891,74 @@ class _RecentActivityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.94),
-          borderRadius: BorderRadius.circular(AppRadii.xl),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              primary: false,
-              physics: const ClampingScrollPhysics(),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '확인 중인 항목',
-                          style: AppTextStyles.body1.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        _StatusRow(
-                          title: '설치된 쇼핑 앱',
-                          status: isScanning
-                              ? '확인 중'
-                              : '$installedPlatformCount개 확인',
-                          accentColor: isScanning
-                              ? AppColors.primaryPinkDark
-                              : (installedPlatformCount > 0
-                                    ? AppColors.success
-                                    : AppColors.textMuted),
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        _StatusRow(
-                          title: '접근성 서비스',
-                          status: isAccessibilityConnected ? '연결됨' : '확인 필요',
-                          accentColor: isAccessibilityConnected
-                              ? AppColors.success
-                              : AppColors.primaryPinkDark,
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        _StatusRow(
-                          title: '마지막 감지',
-                          status: lastDetectedPlatformLabel ?? '대기 중',
-                          accentColor: lastDetectedPlatformLabel == null
-                              ? AppColors.textMuted
-                              : AppColors.primaryPinkDark,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                        vertical: AppSpacing.sm,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.secondaryPink,
-                        borderRadius: BorderRadius.circular(AppRadii.md),
-                      ),
-                      child: Text(
-                        automationLastMessage ??
-                            (isAccessibilityConnected
-                                ? '설치된 플랫폼 확인이 끝나면 바로 다음 화면으로 넘어가요.'
-                                : '접근성 서비스가 아직 연결되지 않았다면 이후 자동화 단계에서 켜주시면 돼요.'),
-                        style: AppTextStyles.body2.copyWith(
-                          color: AppColors.primaryPinkDark,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+    // 이 카드는 이제 상위 SingleChildScrollView 안에 있어 높이가 무한대로
+    // 열려 있다. 예전처럼 Expanded/LayoutBuilder(constraints.maxHeight)로
+    // "남은 공간 채우기"를 시도하면 무한 높이 제약과 충돌하므로, 콘텐츠
+    // 크기에 맞춰 자연스럽게 표시되도록 단순화한다.
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '확인 중인 항목',
+            style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _StatusRow(
+            title: '설치된 쇼핑 앱',
+            status: isScanning ? '확인 중' : '$installedPlatformCount개 확인',
+            accentColor: isScanning
+                ? AppColors.primaryPinkDark
+                : (installedPlatformCount > 0
+                      ? AppColors.success
+                      : AppColors.textMuted),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _StatusRow(
+            title: '접근성 서비스',
+            status: isAccessibilityConnected ? '연결됨' : '확인 필요',
+            accentColor: isAccessibilityConnected
+                ? AppColors.success
+                : AppColors.primaryPinkDark,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _StatusRow(
+            title: '마지막 감지',
+            status: lastDetectedPlatformLabel ?? '대기 중',
+            accentColor: lastDetectedPlatformLabel == null
+                ? AppColors.textMuted
+                : AppColors.primaryPinkDark,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.secondaryPink,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: Text(
+              automationLastMessage ??
+                  (isAccessibilityConnected
+                      ? '설치된 플랫폼 확인이 끝나면 바로 다음 화면으로 넘어가요.'
+                      : '접근성 서비스가 아직 연결되지 않았다면 이후 자동화 단계에서 켜주시면 돼요.'),
+              style: AppTextStyles.body2.copyWith(
+                color: AppColors.primaryPinkDark,
+                fontWeight: FontWeight.w700,
               ),
-            );
-          },
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }

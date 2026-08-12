@@ -135,6 +135,28 @@ class ShoppingAddressViewData {
   final String? deliveryRequest;
   final bool isDefault;
 
+  ShoppingAddressViewData copyWith({
+    String? label,
+    String? recipientName,
+    String? recipientPhone,
+    String? zipCode,
+    String? addressLine1,
+    String? addressLine2,
+    String? deliveryRequest,
+    bool? isDefault,
+  }) {
+    return ShoppingAddressViewData(
+      label: label ?? this.label,
+      recipientName: recipientName ?? this.recipientName,
+      recipientPhone: recipientPhone ?? this.recipientPhone,
+      zipCode: zipCode ?? this.zipCode,
+      addressLine1: addressLine1 ?? this.addressLine1,
+      addressLine2: addressLine2 ?? this.addressLine2,
+      deliveryRequest: deliveryRequest ?? this.deliveryRequest,
+      isDefault: isDefault ?? this.isDefault,
+    );
+  }
+
   String get displayAddress {
     final parts = <String>[
       if (addressLine1 != null && addressLine1!.trim().isNotEmpty)

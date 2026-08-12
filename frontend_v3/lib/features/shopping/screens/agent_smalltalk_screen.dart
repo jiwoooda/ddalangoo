@@ -9,14 +9,19 @@ import '../../../core/services/voice_service.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/models/agent_model.dart';
 import '../../../data/repositories/agent_repository.dart';
+import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
-import '../../../shared/widgets/primary_button.dart';
 import '../../../shared/widgets/voice_input_button.dart';
+import '../../../shared/widgets/voice_panel.dart';
 import '../../platform_check/screens/platform_check_screen.dart';
 
+/// 딸랑구가 인사말을 건네는 화면. 이 화면은 사용자 응답이 필요 없는
+/// 일방향 안내 구간이라, 딸랑구의 TTS가 끝나면 곧바로 다음 화면(플랫폼
+/// 확인)으로 자동 전환한다. 그래서 하단 음성 패널은 항상 비활성(회색)
+/// 상태로만 보여주고 마이크 입력을 받지 않는다.
 class AgentSmallTalkScreen extends StatefulWidget {
   const AgentSmallTalkScreen({
     super.key,
@@ -37,21 +42,9 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
 
   AgentResponse? _response;
   bool _isLoading = true;
-  bool _isRecording = false;
-  bool _isSubmitting = false;
   bool _isSpeaking = false;
   bool _isNavigatingToPurchaseHistory = false;
   String? _errorMessage;
-  String? _transcriptPreview;
-
-  VoiceInputState get _voiceInputState => _isRecording
-      ? VoiceInputState.listening
-      : (_isLoading ||
-                _isSubmitting ||
-                _isSpeaking ||
-                _isNavigatingToPurchaseHistory
-            ? VoiceInputState.inactive
-            : VoiceInputState.active);
 
   @override
   void initState() {
@@ -62,9 +55,6 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
   @override
   void dispose() {
     unawaited(_voiceService.stopSpeaking());
-    if (_isRecording) {
-      unawaited(_voiceService.cancelRecording());
-    }
     super.dispose();
   }
 
@@ -76,15 +66,18 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
 
     try {
       await _voiceService.init();
+      // mock 플로우에서는 smalltalk_screen이 userId를 일부러 비워두고
+      // (LocalStorage.clearUserId) 실제 회원가입 API도 타지 않으므로,
+      // userId 존재 여부 체크는 실제 백엔드 호출 경로에서만 의미가 있다.
       final userId = await LocalStorage.getUserId();
-      if (userId == null) {
+      if (userId == null && !widget.useMockFlow) {
         throw StateError('사용자 정보를 찾지 못했어요.');
       }
 
       final response = widget.useMockFlow
           ? _mockSmallTalkResponse()
           : await _agentRepository.startShopping(
-              userId: userId,
+              userId: userId!,
               message: '안녕하세요, 제 이름은 ${widget.userName}이에요.',
             );
 
@@ -96,7 +89,7 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
         _response = response;
         _isLoading = false;
       });
-      await _speakAndHandleUiCommand(response);
+      await _speakThenContinue(response);
     } catch (error) {
       if (!mounted) {
         return;
@@ -135,116 +128,11 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
     }
   }
 
-  Future<void> _toggleRecording() async {
-    if (_isLoading || _isSubmitting || _isSpeaking) {
-      return;
-    }
-
-    if (_isRecording) {
-      await _stopRecordingAndSubmitReply();
-      return;
-    }
-
-    setState(() {
-      _errorMessage = null;
-      _transcriptPreview = null;
-      _isRecording = true;
-    });
-
-    try {
-      await _voiceService.startRecording();
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isRecording = false;
-        _errorMessage = '마이크를 시작하지 못했어요. 다시 한 번 말씀해주세요.';
-      });
-    }
-  }
-
-  Future<void> _stopRecordingAndSubmitReply() async {
-    setState(() {
-      _isRecording = false;
-      _errorMessage = null;
-    });
-
-    try {
-      final transcript = await _voiceService.stopRecordingAndTranscribe();
-      final trimmed = transcript.trim();
-      if (!mounted) {
-        return;
-      }
-      if (trimmed.isEmpty) {
-        setState(() {
-          _errorMessage = '잘 듣지 못했어요. 한 번 더 말씀해주세요.';
-        });
-        return;
-      }
-
-      setState(() => _transcriptPreview = trimmed);
-      await _submitSmallTalkReply(trimmed);
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _errorMessage = '음성 인식 중 문제가 생겼어요. 다시 한 번 말씀해주세요.';
-      });
-    }
-  }
-
-  Future<void> _submitSmallTalkReply(String message) async {
-    final conversationId = _response?.conversationId;
-    if (conversationId == null || conversationId < 0 || _isSubmitting) {
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final response = await _agentRepository.sendMessage(
-        conversationId: conversationId,
-        message: message,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _response = response;
-      });
-      await _speakAndHandleUiCommand(response);
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _errorMessage = '대화를 이어가지 못했어요. 잠시 후 다시 말씀해주세요.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-      }
-    }
-  }
-
-  Future<void> _speakAndHandleUiCommand(AgentResponse response) async {
+  // 이 화면은 사용자 응답을 받지 않는 일방향 안내라, 딸랑구가 말을 끝내면
+  // (uiCommand 여부와 상관없이) 항상 바로 다음 화면으로 넘어간다.
+  Future<void> _speakThenContinue(AgentResponse response) async {
     await _speak(response.assistantMessage);
-    if (_shouldStartPurchaseHistoryCollection(response)) {
-      _continueToPurchaseHistory();
-    }
-  }
-
-  bool _shouldStartPurchaseHistoryCollection(AgentResponse response) {
-    final command = response.uiCommand;
-    if (command is! Map) {
-      return false;
-    }
-    return command['type']?.toString() == 'start_purchase_history_collection';
+    _continueToPurchaseHistory();
   }
 
   void _continueToPurchaseHistory() {
@@ -275,15 +163,9 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Align(
-            alignment: Alignment.topRight,
-            child: EndConversationButton(
-              compact: true,
-              onPressed: _continueToPurchaseHistory,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
           DialogueBubble(
+            contentKey: ValueKey('$_isLoading-${message ?? ''}'),
+            cyclePages: true,
             text: _isLoading
                 ? '잠시만요. 딸랑구가 ${widget.userName}님과 인사하고 있어요.'
                 : (message == null || message.isEmpty
@@ -311,7 +193,7 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
             child: Center(
               child: Image.asset(
                 'assets/images/character/full/ddalangoo_smalltalk.png',
-                height: 330,
+                height: context.responsive.conversationCharacterHeight(),
                 fit: BoxFit.contain,
               ),
             ),
@@ -327,36 +209,21 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
             ),
             const SizedBox(height: AppSpacing.md),
           ],
-          if (_transcriptPreview != null &&
-              _transcriptPreview!.isNotEmpty) ...[
-            Text(
-              '방금 말씀: $_transcriptPreview',
-              textAlign: TextAlign.center,
-              style: AppTextStyles.caption.copyWith(
-                color: AppColors.primaryPinkDark,
-                fontWeight: FontWeight.w700,
-              ),
+          // 사용자 응답이 필요 없는 구간이라 음성 패널은 항상 비활성(회색)
+          // 상태로만 보여준다. 딸랑구 TTS가 끝나면 자동으로 다음 화면으로
+          // 넘어간다.
+          IgnorePointer(
+            child: VoicePanel(
+              state: VoiceInputState.inactive,
+              onPressed: () {},
             ),
-            const SizedBox(height: AppSpacing.md),
-          ],
-          VoiceInputButton(
-            state: _voiceInputState,
-            onPressed: _toggleRecording,
-            activeLabel: '답장하기',
-            inactiveLabel: _isNavigatingToPurchaseHistory
-                ? '구매이력으로 넘어가고 있어요'
-                : (_isSubmitting ? '답장을 보내고 있어요' : '딸랑구가 말하고 있어요'),
-            diameter: 88,
-            iconSize: 38,
-            labelSpacing: AppSpacing.sm,
           ),
           const SizedBox(height: AppSpacing.md),
-          PrimaryButton(
-            label: _isNavigatingToPurchaseHistory
-                ? '구매이력으로 이동 중...'
-                : '스몰토크가 끝나면 자동으로 넘어갈게요',
-            icon: Icons.shopping_bag_rounded,
-            onPressed: null,
+          EndConversationButton(
+            fullWidth: true,
+            variant: EndConversationButtonVariant.dark,
+            label: _isNavigatingToPurchaseHistory ? '구매이력으로 이동 중...' : '대화 종료',
+            onPressed: _continueToPurchaseHistory,
           ),
         ],
       ),

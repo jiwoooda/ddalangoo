@@ -379,7 +379,7 @@ class MockShoppingFlowService extends ShoppingFlowService {
           conversationId: conversation.conversationId,
           status: 'success',
           stage: 'idle',
-          assistantMessage: '좋아요. 또 어떤 상품이 필요하세요?',
+          assistantMessage: '좋아요. 또 어떤 상품이 필요하세요? 예를 들어 "삼겹살 1근 구매해줘"처럼 말해보세요.',
           cart: _cartMap(conversation.cartItems),
         ),
       );
@@ -604,7 +604,8 @@ class MockShoppingFlowService extends ShoppingFlowService {
       conversationId: conversationId,
       status: 'success',
       stage: 'idle',
-      assistantMessage: '어떤 상품이 필요하세요?',
+      // 예시 답변 칩을 없앤 대신, 같은 예시를 멘트에 그대로 녹였다.
+      assistantMessage: '어떤 상품이 필요하세요? 예를 들어 "토마토 사고 싶어"처럼 말해보세요.',
     );
   }
 

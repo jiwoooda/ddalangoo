@@ -22,7 +22,13 @@ class AppResponsive {
     );
   }
 
-  static const Size _designSize = Size(390, 844);
+  // 타겟 디바이스 실측 해상도 1080x2340(19.5:9)를 dp 기준으로 환산한 값.
+  // 해당 해상도대의 실제 기기는 대부분 density ~2.75~2.8로 리포트되며,
+  // 그 결과 논리 픽셀(dp)이 390x845 근방으로 수렴한다. 스케일 계산은 절대값이
+  // 아니라 이 비율(width/height) 대비 실제 화면 비율의 편차만 보므로, 이 값을
+  // 1080x2340과 최대한 가깝게 맞춰두면 그 해상도 기기에서 scale factor가
+  // 1.0에 가장 가깝게 나온다(= 폰트/여백이 디자인 의도값에 가장 근접).
+  static const Size _designSize = Size(390, 845);
 
   final Size size;
   final EdgeInsets viewInsets;
@@ -149,6 +155,20 @@ class AppResponsive {
 
   double _clamp(double value, double min, double max) {
     return value.clamp(min, max).toDouble();
+  }
+
+  /// 스몰토크/에이전트 인사/분석 안내처럼 화면 가운데에 캐릭터 한 명을
+  /// 크게 보여주는 "대화형" 화면들이 공통으로 쓰는 반응형 캐릭터 높이.
+  /// 화면마다 고정값(예: 330)을 쓰거나 서로 다른 스케일 범위를 쓰면 같은
+  /// 그림도 화면마다 크기가 달라 보이는 문제가 있어서, 하나의 계산식으로
+  /// 통일했다. base/min만 화면별로 필요하면 조정하고, 스케일 공식 자체는
+  /// 항상 같게 유지한다.
+  double conversationCharacterHeight({double base = 330, double min = 260}) {
+    return bound(
+      heightScaled(base, minFactor: 0.82, maxFactor: 1.0),
+      min: min,
+      max: base,
+    );
   }
 }
 

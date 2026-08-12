@@ -65,19 +65,6 @@ class FlowEntryPlaceholderScreen extends StatelessWidget {
 
           return Column(
             children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: EndConversationButton(
-                  compact: true,
-                  variant: EndConversationButtonVariant.dark,
-                  onPressed: () {
-                    Navigator.of(
-                      context,
-                    ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
-                  },
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
               const ShoppingProgressStepper(
                 currentStep: ShoppingProgressStep.productCheck,
               ),
@@ -129,6 +116,16 @@ class FlowEntryPlaceholderScreen extends StatelessWidget {
                       content: Text('다음 상품 요청 단계는 이어서 구현할 예정이에요.'),
                     ),
                   );
+                },
+              ),
+              SizedBox(height: largeGap),
+              EndConversationButton(
+                fullWidth: true,
+                variant: EndConversationButtonVariant.dark,
+                onPressed: () {
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
                 },
               ),
             ],

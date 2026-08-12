@@ -7,7 +7,6 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_text_styles.dart';
-import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/widgets/bottom_status_banner.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
@@ -894,20 +893,6 @@ class _ShoppingWebviewScreenState extends State<ShoppingWebviewScreen> {
         backgroundColor: AppColors.background,
         surfaceTintColor: Colors.transparent,
         title: Text(_title(), style: AppTextStyles.body1),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: AppSpacing.screenHorizontal),
-            child: Center(
-              child: EndConversationButton(
-                compact: true,
-                label: _isInterrupting ? '중단 중...' : '중단하기',
-                onPressed: _isSubmitting || _isInterrupting
-                    ? () {}
-                    : _interruptWebviewProgress,
-              ),
-            ),
-          ),
-        ],
       ),
       body: SafeArea(
         child: Column(
@@ -998,24 +983,31 @@ class _ShoppingWebviewScreenState extends State<ShoppingWebviewScreen> {
             label: _isSubmitting ? '처리 중...' : _completeButtonLabel(),
             onPressed: _isSubmitting ? null : _handleCompletePressed,
           ),
+          const SizedBox(height: AppSpacing.sm),
+          EndConversationButton(
+            fullWidth: true,
+            label: _isInterrupting ? '중단 중...' : '중단하기',
+            variant: EndConversationButtonVariant.dark,
+            onPressed: _isSubmitting || _isInterrupting
+                ? () {}
+                : _interruptWebviewProgress,
+          ),
         ],
       );
     }
 
     if (_automationDone && _canRetryAutomation) {
-      return Row(
+      return Column(
         children: [
-          Expanded(
-            child: _SecondaryActionButton(
-              label: _isInterrupting ? '중단 중...' : '중단하기',
-              onPressed: _isSubmitting || _isInterrupting
-                  ? null
-                  : _interruptWebviewProgress,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: PrimaryButton(label: '다시 시도', onPressed: _retryAutomation),
+          PrimaryButton(label: '다시 시도', onPressed: _retryAutomation),
+          const SizedBox(height: AppSpacing.sm),
+          EndConversationButton(
+            fullWidth: true,
+            label: _isInterrupting ? '중단 중...' : '중단하기',
+            variant: EndConversationButtonVariant.dark,
+            onPressed: _isSubmitting || _isInterrupting
+                ? () {}
+                : _interruptWebviewProgress,
           ),
         ],
       );
@@ -1026,6 +1018,15 @@ class _ShoppingWebviewScreenState extends State<ShoppingWebviewScreen> {
         PrimaryButton(
           label: _isSubmitting ? '처리 중...' : '자동으로 진행 중이에요',
           onPressed: null,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        EndConversationButton(
+          fullWidth: true,
+          label: _isInterrupting ? '중단 중...' : '중단하기',
+          variant: EndConversationButtonVariant.dark,
+          onPressed: _isSubmitting || _isInterrupting
+              ? () {}
+              : _interruptWebviewProgress,
         ),
       ],
     );
@@ -1044,39 +1045,3 @@ class _ShoppingWebviewScreenState extends State<ShoppingWebviewScreen> {
   }
 }
 
-class _SecondaryActionButton extends StatelessWidget {
-  const _SecondaryActionButton({required this.label, this.onPressed});
-
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final responsive = context.responsive;
-    final buttonHeight = responsive.bound(
-      responsive.heightScaled(52, minFactor: 0.86, maxFactor: 1.0),
-      min: 46,
-      max: 52,
-    );
-
-    return SizedBox(
-      width: double.infinity,
-      height: buttonHeight,
-      child: OutlinedButton(
-        onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: AppColors.textPrimary,
-          side: const BorderSide(color: AppColors.border),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadii.pill),
-          ),
-        ),
-        child: Text(
-          label,
-          style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w800),
-        ),
-      ),
-    );
-  }
-}

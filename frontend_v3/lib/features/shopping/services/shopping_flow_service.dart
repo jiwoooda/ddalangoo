@@ -463,7 +463,10 @@ class ShoppingFlowService {
 
   List<String> quickRepliesFor(ShoppingFlowViewStage stage) {
     return switch (stage) {
-      ShoppingFlowViewStage.askProduct => const ['토마토 사고 싶어', '삼겹살 1근 구매해줘'],
+      ShoppingFlowViewStage.askProduct => const [
+        '신선한 완숙 토마토 사고 싶어',
+        '삼겹살 1근 구매해줘',
+      ],
       ShoppingFlowViewStage.quantitySelection => const ['1개', '2개', '3개', '4개'],
       ShoppingFlowViewStage.cartCompleted => const ['더 구매할래요', '결제할래요'],
       ShoppingFlowViewStage.addressConfirmation => const [

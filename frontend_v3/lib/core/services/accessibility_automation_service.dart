@@ -185,6 +185,34 @@ class AccessibilityAutomationService {
     return launchPlatformApp(AccessibilityAutomationPackage.ddalangoo);
   }
 
+  /// 온보딩의 "접근성 켜기" 페이지에서 호출한다. Android 접근성 설정 목록
+  /// 화면(ACTION_ACCESSIBILITY_SETTINGS)으로 즉시 이동시키고, 앱이 다시
+  /// foreground로 돌아오면 [isAccessibilityServiceEnabled]로 실제로
+  /// 켜졌는지 확인하면 된다.
+  Future<bool> openAccessibilitySettings() async {
+    try {
+      return await _channel.invokeMethod<bool>('openAccessibilitySettings') ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> isAccessibilityServiceEnabled() async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'isAccessibilityServiceEnabled',
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   Future<Map<String, dynamic>> getAutomationStatus() async {
     try {
       final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(

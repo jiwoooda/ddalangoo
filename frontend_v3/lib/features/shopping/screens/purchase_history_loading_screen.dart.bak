@@ -6,14 +6,14 @@ import '../../../app/routes.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
-import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../data/models/accessibility_purchase_history_model.dart';
 import '../../../data/models/purchase_history_model.dart';
-import '../../../shared/layout/app_layout.dart';
 import '../../../shared/layout/app_responsive.dart';
+import '../../../shared/layout/bottom_cta_layout.dart';
 import '../../../shared/layout/layout_presets.dart';
+import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/primary_button.dart';
 import '../services/purchase_history_loading_service.dart';
@@ -41,24 +41,10 @@ class PurchaseHistoryLoadingScreen extends StatefulWidget {
 }
 
 class _PurchaseHistoryLoadingScreenState
-    extends State<PurchaseHistoryLoadingScreen>
-    with SingleTickerProviderStateMixin {
+    extends State<PurchaseHistoryLoadingScreen> {
   final PurchaseHistoryLoadingService _service =
       PurchaseHistoryLoadingService();
   final VoiceService _voiceService = VoiceService.instance;
-
-  // platform_check_screen과 같은 오버레이 패널 등장 애니메이션. 배경(진행 중인
-  // 구매 이력 카드들)은 항상 보이고, 하단 캐릭터+진행 상황 패널만 아래에서
-  // 위로 슬라이드해 올라오게 해서 "실시간 상황을 알려주는 오버레이 패널"
-  // 느낌을 다른 화면들과 통일했다.
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 420),
-  );
-  late final Animation<Offset> _bannerOffset = Tween<Offset>(
-    begin: const Offset(0, 1.15),
-    end: Offset.zero,
-  ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic));
 
   Timer? _statusPollTimer;
   Timer? _completionTimer;
@@ -89,7 +75,6 @@ class _PurchaseHistoryLoadingScreenState
   @override
   void initState() {
     super.initState();
-    _controller.forward();
     unawaited(_voiceService.init());
     if (_service.hasCompletedAutomationFlowThisSession) {
       unawaited(_restoreCompletedAutomationFlow());
@@ -105,7 +90,6 @@ class _PurchaseHistoryLoadingScreenState
     _statusPollTimer?.cancel();
     _completionTimer?.cancel();
     unawaited(_voiceService.stopSpeaking());
-    _controller.dispose();
     super.dispose();
   }
 
@@ -502,11 +486,7 @@ class _PurchaseHistoryLoadingScreenState
       return _speechQueue;
     }
 
-    // 화면에 보이는 말풍선/배너 텍스트가 실제 TTS로 말하는 내용과 항상
-    // 일치하게 setState로 갱신한다.
-    setState(() {
-      _lastSpokenMessage = normalized;
-    });
+    _lastSpokenMessage = normalized;
     _speechQueue = _speechQueue.then((_) async {
       if (!mounted) {
         return;
@@ -642,66 +622,130 @@ class _PurchaseHistoryLoadingScreenState
 
   @override
   Widget build(BuildContext context) {
-    // platform_check_screen과 동일한 Stack 오버레이 구조: 배경에는 진행 중인
-    // 구매 이력 카드들이 스크롤 가능한 형태로 항상 보이고, 그 위에 캐릭터 +
-    // 실시간 진행 상황 배너 + CTA 버튼이 담긴 패널이 하단에 떠서 겹쳐진다.
-    final layout = AppLayout.of(context, LayoutPreset.loading);
+    final responsive = context.responsive;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F7FA),
-      body: SafeArea(
-        child: Padding(
-          padding: layout.padding,
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: layout.maxWidth),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _PurchaseHistoryBackground(
-                    resolvedUserName: _resolvedUserName,
-                    previewItems: _previewItems,
-                  ),
-                  Align(
-                    alignment: Alignment.bottomCenter,
-                    child: SlideTransition(
-                      position: _bannerOffset,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // 다른 오버레이 화면들(platform_check 등)과 같은
-                          // 위치·비율로 캐릭터를 하단 패널 쪽에 둬서 레이아웃
-                          // 통일감을 맞췄다.
-                          Image.asset(
-                            'assets/images/character/full/ddalangoo_searching.png',
-                            height: 108,
-                            fit: BoxFit.contain,
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          _PurchaseHistoryProgressBanner(
-                            statusMessage: _statusMessage,
-                            helperMessage: _helperMessage,
-                            progressLabel: _progressLabel,
-                            isLoading: _isLoading,
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          PrimaryButton(
-                            label: _isLoading ? '불러오는 중...' : '홈으로 돌아가기',
-                            icon: _isLoading
-                                ? Icons.hourglass_top_rounded
-                                : Icons.home_rounded,
-                            onPressed: _isLoading ? null : _handleCompleted,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+    return ScreenFrame(
+      preset: LayoutPreset.standard,
+      child: BottomCtaLayout(
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 상단에 버튼처럼 보이는 회색 pill(예: "구매 이력 불러오기")은 눌리지도
+            // 않는데 버튼처럼 보여서 혼동을 줘 제거했다. 말풍선이 같은 정보를
+            // 전달한다.
+            // 다른 대화형 화면(스몰토크/에이전트 인사/메인 쇼핑 흐름)과 같은
+            // 말풍선(DialogueBubble)을 써서 딸랑구가 말하는 부분의 모양을
+            // 통일했다.
+            DialogueBubble(
+              text: '$_resolvedUserName님의 지난 구매 이력을\n불러오는 중이에요',
+              highlightedWords: [_resolvedUserName],
+              minHeight: 96,
+              style: AppTextStyles.title2.copyWith(
+                color: AppColors.textStrong,
+                height: 1.32,
+                fontWeight: FontWeight.w700,
+              ),
+              emphasizedStyle: AppTextStyles.title2.copyWith(
+                color: AppColors.primaryPinkDark,
+                height: 1.32,
+                fontWeight: FontWeight.w800,
               ),
             ),
-          ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              _statusMessage,
+              style: AppTextStyles.body2.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (_helperMessage != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceMuted,
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                ),
+                child: Text(
+                  _helperMessage!,
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+            Row(
+              children: [
+                _InfoChip(
+                  label: _progressLabel,
+                  backgroundColor: AppColors.secondaryPink,
+                  textColor: AppColors.primaryPinkDark,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                _InfoChip(
+                  label: _previewItems.isEmpty
+                      ? '0개 준비'
+                      : '${_previewItems.length}개 미리보기',
+                  backgroundColor: AppColors.surfaceMuted,
+                  textColor: AppColors.textSecondary,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Expanded(
+              child: _previewItems.isEmpty
+                  ? const _LoadingPlaceholder()
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final singleColumn = constraints.maxWidth < 340;
+                        final crossAxisCount = singleColumn ? 1 : 2;
+                        final childAspectRatio = singleColumn
+                            ? 1.62
+                            : (responsive.isShortHeight ? 0.84 : 0.78);
+
+                        return GridView.builder(
+                          padding: EdgeInsets.zero,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                mainAxisSpacing: AppSpacing.md,
+                                crossAxisSpacing: AppSpacing.md,
+                                childAspectRatio: childAspectRatio,
+                              ),
+                          itemCount: _previewItems.length,
+                          itemBuilder: (context, index) {
+                            final preview = _previewItems[index];
+                            return PurchaseHistoryThumbnailCard(
+                              title: preview.title,
+                              subtitle: preview.subtitle,
+                              caption: preview.caption,
+                              assetPath: preview.assetPath,
+                              imagePath: preview.imagePath,
+                            );
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
+        cta: _isLoading
+            ? const PrimaryButton(
+                label: '불러오는 중...',
+                icon: Icons.hourglass_top_rounded,
+              )
+            : PrimaryButton(
+                label: '홈으로 돌아가기',
+                icon: Icons.home_rounded,
+                onPressed: _handleCompleted,
+              ),
       ),
     );
   }
@@ -730,225 +774,34 @@ class _PreviewAsset {
   final String assetPath;
 }
 
-/// platform_check_screen의 _PlatformCheckBackground와 같은 역할: 화면
-/// 배경 전체를 채우는 스크롤 가능한 콘텐츠. 말풍선 + 구매 이력 미리보기
-/// 카드들을 보여주고, 하단은 오버레이 패널에 가리지 않도록 여백을 둔다.
-class _PurchaseHistoryBackground extends StatelessWidget {
-  const _PurchaseHistoryBackground({
-    required this.resolvedUserName,
-    required this.previewItems,
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({
+    required this.label,
+    required this.backgroundColor,
+    required this.textColor,
   });
 
-  final String resolvedUserName;
-  final List<PurchaseHistoryPreviewItem> previewItems;
+  final String label;
+  final Color backgroundColor;
+  final Color textColor;
 
   @override
   Widget build(BuildContext context) {
-    final responsive = context.responsive;
-
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.white, Color(0xFFF9F2F6), Color(0xFFF3F4F8)],
-        ),
-      ),
-      child: Padding(
-        padding: EdgeInsets.only(
-          // 하단 패널(캐릭터+배너+버튼)에 배경 콘텐츠가 가려지지 않도록 그
-          // 높이만큼 여백을 둔다. platform_check_screen과 같은 계산식.
-          bottom: responsive.bound(
-            responsive.heightScaled(268, minFactor: 0.72, maxFactor: 1.0),
-            min: 220,
-            max: 268,
-          ),
-        ),
-        child: SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 다른 대화형 화면(스몰토크/에이전트 인사/메인 쇼핑 흐름)과 같은
-              // 말풍선(DialogueBubble)을 써서 딸랑구가 말하는 부분의 모양을
-              // 통일했다.
-              DialogueBubble(
-                text: '$resolvedUserName님의 지난 구매 이력을\n불러오는 중이에요',
-                cyclePages: true,
-                highlightedWords: [resolvedUserName],
-                minHeight: 96,
-                style: AppTextStyles.title2.copyWith(
-                  color: AppColors.textStrong,
-                  height: 1.32,
-                  fontWeight: FontWeight.w700,
-                ),
-                emphasizedStyle: AppTextStyles.title2.copyWith(
-                  color: AppColors.primaryPinkDark,
-                  height: 1.32,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              previewItems.isEmpty
-                  ? const _LoadingPlaceholder()
-                  : _PreviewGrid(items: previewItems),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PreviewGrid extends StatelessWidget {
-  const _PreviewGrid({required this.items});
-
-  final List<PurchaseHistoryPreviewItem> items;
-
-  @override
-  Widget build(BuildContext context) {
-    final responsive = context.responsive;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final singleColumn = constraints.maxWidth < 340;
-        final crossAxisCount = singleColumn ? 1 : 2;
-        final childAspectRatio = singleColumn
-            ? 1.62
-            : (responsive.isShortHeight ? 0.84 : 0.78);
-
-        return GridView.builder(
-          padding: EdgeInsets.zero,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            mainAxisSpacing: AppSpacing.md,
-            crossAxisSpacing: AppSpacing.md,
-            childAspectRatio: childAspectRatio,
-          ),
-          itemCount: items.length,
-          itemBuilder: (context, index) {
-            final preview = items[index];
-            return PurchaseHistoryThumbnailCard(
-              title: preview.title,
-              subtitle: preview.subtitle,
-              caption: preview.caption,
-              assetPath: preview.assetPath,
-              imagePath: preview.imagePath,
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-/// platform_check_screen의 _PlatformProgressBanner와 같은 모양의 실시간
-/// 진행 상황 카드. 하단 오버레이 패널 안에서 statusMessage/helperMessage/
-/// progressLabel을 그대로 보여줘 백그라운드 자동화 진행 상황과 항상
-/// 일치하게 한다.
-class _PurchaseHistoryProgressBanner extends StatelessWidget {
-  const _PurchaseHistoryProgressBanner({
-    required this.statusMessage,
-    required this.helperMessage,
-    required this.progressLabel,
-    required this.isLoading,
-  });
-
-  final String statusMessage;
-  final String? helperMessage;
-  final String progressLabel;
-  final bool isLoading;
-
-  @override
-  Widget build(BuildContext context) {
-    final chipColor = isLoading
-        ? AppColors.primaryPinkDark
-        : AppColors.success;
-
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: AppSurfaceStyles.elevatedCard(
-        radius: AppRadii.xl,
-        color: Colors.white,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: chipColor.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.receipt_long_rounded,
-              color: chipColor,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      '진행 상황',
-                      style: AppTextStyles.caption.copyWith(
-                        color: AppColors.textMuted,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                        vertical: AppSpacing.xs,
-                      ),
-                      decoration: BoxDecoration(
-                        color: chipColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(AppRadii.pill),
-                      ),
-                      child: Text(
-                        progressLabel,
-                        style: AppTextStyles.caption.copyWith(
-                          color: chipColor,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  statusMessage,
-                  style: AppTextStyles.body2.copyWith(
-                    color: AppColors.textStrong,
-                    fontWeight: FontWeight.w800,
-                    height: 1.35,
-                  ),
-                ),
-                if (helperMessage != null) ...[
-                  const SizedBox(height: AppSpacing.xxs),
-                  Text(
-                    helperMessage!,
-                    style: AppTextStyles.caption.copyWith(
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Text(
+        label,
+        style: AppTextStyles.caption.copyWith(
+          color: textColor,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -985,36 +838,43 @@ class _LoadingPlaceholderState extends State<_LoadingPlaceholder> {
   @override
   Widget build(BuildContext context) {
     final dots = '.' * _dotCount;
-    // 이 위젯은 이제 배경의 SingleChildScrollView 안(Expanded로 눌리지
-    // 않는 자연스러운 높이)에 놓이기 때문에, 예전처럼 남는 세로 공간이
-    // 좁아져 오버플로우를 걱정할 필요 없이 콘텐츠 크기 그대로 표시하면
-    // 된다.
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.xl),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.9),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadii.xl),
         border: Border.all(color: AppColors.border),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Image.asset(
-            'assets/images/character/full/ddalangoo_searching.png',
-            height: 132,
-            fit: BoxFit.contain,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Text(
-            '지난 주문 내역을 차근차근 살펴보고 있어요$dots',
-            textAlign: TextAlign.center,
-            style: AppTextStyles.body1.copyWith(
-              color: AppColors.textStrong,
-              fontWeight: FontWeight.w800,
+      // 위쪽 _helperMessage(에러 발생 시 예외 메시지 전체가 표시되는 경우 등)가
+      // 길어지면 Expanded로 이 위젯에 남는 세로 공간이 132px 이미지+텍스트보다
+      // 작아져 RenderFlex 오버플로우가 났다. Center 안에서 넘치는 만큼만
+      // 스크롤되도록 감싸 어떤 높이에서도 안전하게 표시되게 한다.
+      child: Center(
+        child: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                  'assets/images/character/full/ddalangoo_searching.png',
+                  height: 132,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  '지난 주문 내역을 차근차근 살펴보고 있어요$dots',
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.body1.copyWith(
+                    color: AppColors.textStrong,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

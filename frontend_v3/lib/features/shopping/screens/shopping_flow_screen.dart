@@ -1,14 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/routes.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_radii.dart';
+import '../../../app/theme/app_sizes.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
-import '../../../core/services/voice_service.dart';
 import '../../../data/models/agent_model.dart';
 import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
@@ -19,421 +20,109 @@ import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/primary_button.dart';
 import '../../../shared/widgets/shopping_progress_stepper.dart';
 import '../../../shared/widgets/voice_input_button.dart';
+import '../../../shared/widgets/voice_panel.dart';
+import '../controllers/shopping_flow_controller.dart';
+import '../controllers/shopping_flow_state.dart';
 import '../models/shopping_flow_models.dart';
 import 'shopping_webview_screen.dart';
+import '../services/mock_shopping_flow_service.dart';
 import '../services/shopping_flow_service.dart';
 
 const int _pinPadCrossAxisCount = 3;
 const int _pinPadRowCount = 4;
 const double _pinPadChildAspectRatio = 1.45;
 const double _baseDialogueSectionHeight = 148.0;
-const double _baseOverlayControlBarHeight = 132.0;
+// 대화 종료 버튼을 오버레이 음성 패널 아래 하단 전체너비 버튼으로 옮기면서
+// 추가된 높이. _overlayBottomInsetFor 계산에도 반영해 스테이지 콘텐츠가
+// 버튼에 가려지지 않게 한다.
+const double _overlayEndButtonRowHeight =
+    AppSizes.compactButtonHeight + AppSpacing.sm;
 
-class ShoppingFlowScreen extends StatefulWidget {
+class ShoppingFlowScreen extends ConsumerStatefulWidget {
   const ShoppingFlowScreen({super.key, this.userName, this.service});
 
   final String? userName;
   final ShoppingFlowService? service;
 
   @override
-  State<ShoppingFlowScreen> createState() => _ShoppingFlowScreenState();
+  ConsumerState<ShoppingFlowScreen> createState() =>
+      _ShoppingFlowScreenState();
 }
 
-class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
-  late final ShoppingFlowService _service;
-  final VoiceService _voiceService = VoiceService.instance;
+class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
+  // 상태/비즈니스 로직(응답 반영, 폴링, automation task/result, 음성 녹음·재생,
+  // 카트 수량 변경, PIN 입력)은 전부 ShoppingFlowController(Riverpod
+  // StateNotifier)로 옮겼다. 아래 getter들은 이름을 예전 private 필드와 똑같이
+  // 맞춘 "forwarding shim"이라, 이 파일의 나머지 build 코드(위젯 트리)는 거의
+  // 손대지 않고 그대로 컨트롤러 상태를 읽는다.
+  late final ShoppingFlowArgs _args = ShoppingFlowArgs(
+    userName: widget.userName,
+    service: widget.service,
+  );
 
-  Timer? _pollTimer;
-  Timer? _automationResultPollTimer;
-  bool _isInitializing = true;
-  bool _isSubmitting = false;
-  bool _isRefreshingConversation = false;
-  bool _isRefreshingCart = false;
+  ShoppingFlowController get _controller =>
+      ref.read(shoppingFlowControllerProvider(_args).notifier);
+
+  // ref.watch가 아니라 ref.read인 이유: 이 getter는 build() 안에서도 쓰이지만
+  // _handlePendingWebviewTask처럼 addPostFrameCallback/ref.listen 콜백
+  // (build 바깥)에서도 쓰인다. ref.watch는 build 중에만 호출할 수 있어서,
+  // 리빌드 구독은 build()에서 명시적 ref.watch 한 번으로 따로 걸어준다.
+  ShoppingFlowState get _flowState =>
+      ref.read(shoppingFlowControllerProvider(_args));
+
+  ShoppingFlowService get _service => _controller.service;
+
+  AgentResponse? get _response => _flowState.response;
+  ShoppingFlowViewStage get _viewStage => _flowState.viewStage;
+  String? get _inlineError => _flowState.inlineError;
+  String get _pinInput => _flowState.pinInput;
+  bool get _isInitializing => _flowState.isInitializing;
+  bool get _isSubmitting => _flowState.isSubmitting;
+  bool get _isRecording => _flowState.isRecording;
+  bool get _isSpeaking => _flowState.isSpeaking;
+  bool get _isUpdatingCartQuantity => _flowState.isUpdatingCartQuantity;
+  int? get _userId => _flowState.userId;
+  String? get _resolvedUserName => _flowState.resolvedUserName;
+  ShoppingAddressViewData? get _fallbackAddress => _flowState.fallbackAddress;
+  List<ShoppingCartItemViewData>? get _cartItemsOverride =>
+      _flowState.cartItemsOverride;
+
+  // 웹뷰 기반 결제 자동화는 이제 accessibility automationTask 경로로 대체돼서
+  // 실질적으로 도달하지 않는 레거시 흐름이다. Navigator가 필요해서 컨트롤러로
+  // 옮기지 않고 여기 그대로 남겨뒀다.
   bool _isWebviewOpen = false;
-  bool _isRecording = false;
-  bool _isSpeaking = false;
-  bool _isUpdatingCartQuantity = false;
-  bool _isSendingAutomationResult = false;
-  int? _userId;
-  String? _resolvedUserName;
-  AgentResponse? _response;
-  ShoppingAddressViewData? _fallbackAddress;
-  ShoppingFlowViewStage _viewStage = ShoppingFlowViewStage.askProduct;
-  String? _inlineError;
-  String _pinInput = '';
   String? _lastWebviewCommandKey;
-  String? _lastAutomationTaskId;
-  String? _automationResultPollingTaskId;
-  String? _lastSpokenPromptKey;
-  List<ShoppingCartItemViewData>? _cartItemsOverride;
   final Set<String> _completedWebviewCommandKeys = <String>{};
-  final Set<String> _startedAutomationTaskIds = <String>{};
 
-  @override
-  void initState() {
-    super.initState();
-    _service = widget.service ?? ShoppingFlowService();
-    _resolvedUserName = widget.userName?.trim();
-    unawaited(_bootstrapVoice());
-    unawaited(_bootstrap());
-  }
+  List<ShoppingCartItemViewData> get _effectiveCartItems =>
+      _controller.effectiveCartItems;
 
-  @override
-  void dispose() {
-    _pollTimer?.cancel();
-    _automationResultPollTimer?.cancel();
-    unawaited(_voiceService.stopSpeaking());
-    if (_isRecording) {
-      unawaited(_voiceService.cancelRecording());
-    }
-    super.dispose();
-  }
-
-  Future<void> _bootstrapVoice() async {
-    try {
-      await _voiceService.init();
-    } catch (_) {}
-  }
-
-  Future<void> _bootstrap() async {
-    setState(() {
-      _isInitializing = true;
-      _inlineError = null;
-    });
-
-    try {
-      final userId = await _service.resolveUserId();
-      final resolvedUserName = _resolvedUserName?.isNotEmpty == true
-          ? _resolvedUserName
-          : await _service.resolveUserName(userId: userId);
-      final fallbackAddress = await _service.fetchDefaultAddress(
-        userId: userId,
-        fallbackRecipientName: resolvedUserName,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _userId = userId;
-        _resolvedUserName = resolvedUserName;
-        _fallbackAddress = fallbackAddress;
-        _isInitializing = false;
-      });
-      _schedulePromptSpeechAfterFrame(force: true);
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isInitializing = false;
-        _inlineError = '쇼핑 준비 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.';
-      });
-    }
-  }
-
-  Future<void> _refreshFallbackAddress() async {
-    final userId = _userId;
-    if (userId == null) {
-      return;
-    }
-
-    final fallbackAddress = await _service.fetchDefaultAddress(
-      userId: userId,
-      fallbackRecipientName: _resolvedUserName,
+  Future<void> _submitMessage(
+    String message, {
+    bool redactMessageForLogs = false,
+  }) {
+    return _controller.submitMessage(
+      message,
+      redactMessageForLogs: redactMessageForLogs,
     );
-    if (!mounted || fallbackAddress == null) {
-      return;
-    }
-
-    setState(() {
-      _fallbackAddress = fallbackAddress;
-    });
   }
 
-  List<ShoppingCartItemViewData> get _effectiveCartItems {
-    final override = _cartItemsOverride;
-    if (override != null) {
-      return override;
-    }
+  Future<void> _confirmAction(String action) => _controller.confirmAction(action);
 
-    final response = _response;
-    if (response == null) {
-      return const <ShoppingCartItemViewData>[];
-    }
-    return _service.extractCartItems(response);
-  }
+  Future<void> _toggleVoiceInput() => _controller.toggleVoiceInput();
 
-  bool _shouldShowLiveCart(ShoppingFlowViewStage stage) {
-    switch (stage) {
-      case ShoppingFlowViewStage.cartCompleted:
-      case ShoppingFlowViewStage.addressConfirmation:
-      case ShoppingFlowViewStage.paymentConfirmation:
-      case ShoppingFlowViewStage.paymentPassword:
-      case ShoppingFlowViewStage.paymentProcessing:
-      case ShoppingFlowViewStage.completed:
-        return true;
-      case ShoppingFlowViewStage.askProduct:
-      case ShoppingFlowViewStage.searchingProduct:
-      case ShoppingFlowViewStage.productSelection:
-      case ShoppingFlowViewStage.quantitySelection:
-      case ShoppingFlowViewStage.cartProcessing:
-      case ShoppingFlowViewStage.error:
-        return false;
-    }
-  }
+  void _appendPinDigit(String digit) => _controller.appendPinDigit(digit);
 
-  Future<void> _refreshLiveCartItems({int? conversationId}) async {
-    final userId = _userId;
-    if (userId == null || _isRefreshingCart) {
-      return;
-    }
+  void _removePinDigit() => _controller.removePinDigit();
 
-    _isRefreshingCart = true;
-    try {
-      final items = await _service.fetchUserCartItems(
-        userId: userId,
-        conversationId: conversationId ?? _response?.conversationId,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _cartItemsOverride = items;
-      });
-    } catch (_) {
-      // Live cart sync is best-effort.
-    } finally {
-      _isRefreshingCart = false;
-    }
-  }
+  Future<void> _submitPin() => _controller.submitPin();
 
   Future<void> _changeCartItemQuantity(
     ShoppingCartItemViewData item,
     int nextQuantity,
-  ) async {
-    final userId = _userId;
-    final conversationId = _response?.conversationId;
-    if (userId == null ||
-        conversationId == null ||
-        _isSubmitting ||
-        _isUpdatingCartQuantity) {
-      return;
-    }
-
-    setState(() {
-      _isUpdatingCartQuantity = true;
-      _inlineError = null;
-    });
-
-    try {
-      final items = await _service.updateCartItemQuantity(
-        userId: userId,
-        conversationId: conversationId,
-        item: item,
-        quantity: nextQuantity,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _cartItemsOverride = items;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _inlineError = '장바구니 수량을 바꾸지 못했어요. 다시 시도해주세요.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isUpdatingCartQuantity = false;
-        });
-      }
-    }
+  ) {
+    return _controller.changeCartItemQuantity(item, nextQuantity);
   }
-
-  bool _containsExplicitQuantity(String message) {
-    final normalized = message.replaceAll(' ', '');
-    if (RegExp(r'\d+\s*(개|근|팩|박스|봉|송이|상자)?').hasMatch(normalized)) {
-      return true;
-    }
-
-    const exactQuantityWords = <String>{
-      '하나',
-      '둘',
-      '셋',
-      '넷',
-      '다섯',
-      '한개',
-      '두개',
-      '세개',
-      '네개',
-      '다섯개',
-    };
-    if (exactQuantityWords.contains(normalized)) {
-      return true;
-    }
-
-    final wordPatterns = <RegExp>[
-      RegExp(r'(한|하나)\s*(개|근|팩|박스|봉|송이|상자)'),
-      RegExp(r'(두|둘)\s*(개|근|팩|박스|봉|송이|상자)'),
-      RegExp(r'(세|셋)\s*(개|근|팩|박스|봉|송이|상자)'),
-      RegExp(r'(네|넷)\s*(개|근|팩|박스|봉|송이|상자)'),
-      RegExp(r'다섯\s*(개|근|팩|박스|봉|송이|상자)'),
-    ];
-    return wordPatterns.any((pattern) => pattern.hasMatch(message));
-  }
-
-  bool _shouldAutoDefaultQuantityForMessage(String message) {
-    if (_viewStage != ShoppingFlowViewStage.productSelection) {
-      return false;
-    }
-
-    final normalized = message.trim().toLowerCase();
-    if (normalized.isEmpty || _containsExplicitQuantity(normalized)) {
-      return false;
-    }
-
-    return normalized.contains('담') ||
-        normalized.contains('주문') ||
-        normalized.contains('이걸로') ||
-        normalized.contains('좋아') ||
-        normalized.contains('괜찮') ||
-        normalized == '응' ||
-        normalized == '네';
-  }
-
-  Future<AgentResponse> _resolveAutoDefaultQuantityResponse(
-    AgentResponse response, {
-    required bool shouldAutoDefaultQuantity,
-  }) async {
-    final userId = _userId;
-    if (!shouldAutoDefaultQuantity ||
-        userId == null ||
-        _service.inferViewStage(response) !=
-            ShoppingFlowViewStage.quantitySelection) {
-      return response;
-    }
-
-    return _service.submitMessage(
-      userId: userId,
-      message: '1개',
-      conversationId: response.conversationId,
-    );
-  }
-
-  void _applyResponse(AgentResponse response) {
-    final nextStage = _service.inferViewStage(response);
-    final previousConversationId = _response?.conversationId;
-    setState(() {
-      if (previousConversationId != response.conversationId) {
-        _cartItemsOverride = null;
-      }
-      _response = response;
-      _viewStage = nextStage;
-      _inlineError = null;
-      if (nextStage != ShoppingFlowViewStage.paymentPassword) {
-        _pinInput = '';
-      }
-    });
-    _syncPolling();
-    _handlePendingAutomationTask(response);
-    _schedulePromptSpeechAfterFrame(handlePendingWebviewAfter: true);
-    if (_shouldShowLiveCart(nextStage)) {
-      unawaited(_refreshLiveCartItems(conversationId: response.conversationId));
-    }
-
-    if (_fallbackAddress == null &&
-        (nextStage == ShoppingFlowViewStage.addressConfirmation ||
-            nextStage == ShoppingFlowViewStage.paymentConfirmation ||
-            nextStage == ShoppingFlowViewStage.paymentPassword ||
-            nextStage == ShoppingFlowViewStage.paymentProcessing)) {
-      unawaited(_refreshFallbackAddress());
-    }
-  }
-
-  void _handlePendingAutomationTask(AgentResponse response) {
-    final task = response.automationTask;
-    if (task == null || task.taskId.trim().isEmpty) {
-      return;
-    }
-    if (_startedAutomationTaskIds.contains(task.taskId) ||
-        _lastAutomationTaskId == task.taskId) {
-      return;
-    }
-
-    debugPrint(
-      'automationTask taskId=${task.taskId} 수신 '
-      'taskType=${task.taskType} platform=${task.platform}',
-    );
-    _lastAutomationTaskId = task.taskId;
-    _startedAutomationTaskIds.add(task.taskId);
-    unawaited(
-      _service
-          .startAutomationTask(task)
-          .then((_) {
-            _startAutomationResultPolling(
-              conversationId: response.conversationId,
-              taskId: task.taskId,
-            );
-          })
-          .catchError((Object error) {
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _inlineError = '쇼핑 앱 자동화를 시작하지 못했어요. 잠시 후 다시 시도해주세요.';
-            });
-          }),
-    );
-  }
-
-  void _startAutomationResultPolling({
-    required int conversationId,
-    required String taskId,
-  }) {
-    if (_automationResultPollingTaskId == taskId &&
-        _automationResultPollTimer?.isActive == true) {
-      return;
-    }
-
-    _automationResultPollingTaskId = taskId;
-    _automationResultPollTimer?.cancel();
-    _automationResultPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      unawaited(_consumeAutomationResult(conversationId: conversationId));
-    });
-  }
-
-  Future<void> _consumeAutomationResult({required int conversationId}) async {
-    if (_isSendingAutomationResult) {
-      return;
-    }
-
-    _isSendingAutomationResult = true;
-    try {
-      final updatedResponse = await _service.consumeAndSendAutomationResult(
-        conversationId: conversationId,
-      );
-      if (!mounted || updatedResponse == null) {
-        return;
-      }
-      _automationResultPollTimer?.cancel();
-      _automationResultPollingTaskId = null;
-      _applyResponse(updatedResponse);
-    } catch (error, stackTrace) {
-      debugPrint(
-        '[ShoppingFlowScreen] failed to send automation result: '
-        '$error\n$stackTrace',
-      );
-    } finally {
-      _isSendingAutomationResult = false;
-    }
-  }
-
   void _handlePendingWebviewTask() {
     final response = _response;
     if (!mounted || response == null) {
@@ -489,7 +178,7 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
                 return;
               }
               _completedWebviewCommandKeys.add(task.commandKey);
-              _applyResponse(nextResponse);
+              _controller.applyResponse(nextResponse);
             },
           ),
         ),
@@ -501,153 +190,8 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     });
   }
 
-  void _syncPolling() {
-    _pollTimer?.cancel();
-    final response = _response;
-    if (response == null || !_service.requiresPolling(response)) {
-      return;
-    }
-
-    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      unawaited(_refreshConversation());
-    });
-  }
-
-  Future<void> _refreshConversation() async {
-    final response = _response;
-    if (_isRefreshingConversation || response == null) {
-      return;
-    }
-
-    _isRefreshingConversation = true;
-    try {
-      final refreshed = await _service.getConversation(response.conversationId);
-      if (!mounted) {
-        return;
-      }
-      _applyResponse(refreshed);
-    } catch (_) {
-      // Ignore silent polling failures and keep the current UI.
-    } finally {
-      _isRefreshingConversation = false;
-    }
-  }
-
-  Future<void> _submitMessage(
-    String message, {
-    bool redactMessageForLogs = false,
-  }) async {
-    final trimmed = message.trim();
-    if (trimmed.isEmpty || _isSubmitting) {
-      return;
-    }
-
-    final userId = _userId;
-    if (userId == null) {
-      return;
-    }
-    final shouldAutoDefaultQuantity = _shouldAutoDefaultQuantityForMessage(
-      trimmed,
-    );
-    final shouldStartFreshConversation = _shouldStartFreshConversation(
-      nextMessage: trimmed,
-    );
-    final conversationId = shouldStartFreshConversation
-        ? null
-        : _response?.conversationId;
-
-    setState(() {
-      _isSubmitting = true;
-      _inlineError = null;
-      if (conversationId == null) {
-        _viewStage = ShoppingFlowViewStage.searchingProduct;
-      }
-    });
-
-    try {
-      var response = await _service.submitMessage(
-        userId: userId,
-        message: trimmed,
-        conversationId: conversationId,
-        redactMessageForLogs: redactMessageForLogs,
-      );
-      response = await _resolveAutoDefaultQuantityResponse(
-        response,
-        shouldAutoDefaultQuantity: shouldAutoDefaultQuantity,
-      );
-      if (!mounted) {
-        return;
-      }
-      _applyResponse(response);
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _inlineError = '메시지를 보내지 못했어요. 다시 한 번 시도해주세요.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _confirmAction(String action) async {
-    final response = _response;
-    if (response == null || _isSubmitting) {
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = true;
-      _inlineError = null;
-    });
-
-    try {
-      var nextResponse = await _service.confirmProductAction(
-        response: response,
-        action: action,
-      );
-      nextResponse = await _resolveAutoDefaultQuantityResponse(
-        nextResponse,
-        shouldAutoDefaultQuantity:
-            action == 'add_to_cart' || action == 'order_now',
-      );
-      if (!mounted) {
-        return;
-      }
-      _applyResponse(nextResponse);
-    } catch (_) {
-      if (action == 'reject') {
-        await _submitMessage('다른 상품 보여줘');
-      } else if (mounted) {
-        setState(() {
-          _inlineError = '선택을 처리하지 못했어요. 다시 시도해주세요.';
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
-    }
-  }
-
   Future<void> _handleExit() async {
-    await _voiceService.stopSpeaking();
-    if (_isRecording) {
-      await _voiceService.cancelRecording();
-    }
-    final conversationId = _response?.conversationId;
-    if (conversationId != null) {
-      try {
-        await _service.cancelConversation(conversationId);
-      } catch (_) {}
-    }
+    await _controller.prepareForExit();
     if (!mounted) {
       return;
     }
@@ -674,30 +218,60 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
             '지금 진행 중인 쇼핑 흐름이 중단되고 홈 화면으로 돌아가요.',
             style: AppTextStyles.body2,
           ),
+          // 기본 AlertDialog actions는 버튼이 다 안 들어가면 세로로
+          // 쌓이면서 "계속하기"가 흐린 회색 글씨로 오른쪽 위에 작게
+          // 붙어버렸다. 두 버튼을 같은 무게로 나란히 두 줄이 아니라 한
+          // 줄에 배치한다.
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(
-                '계속하기',
-                style: AppTextStyles.caption.copyWith(
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w700,
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: AppColors.textPrimary,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.sm,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.lg),
+                      ),
+                    ),
+                    child: Text(
+                      '계속하기',
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primaryPink,
-                foregroundColor: Colors.white,
-              ),
-              child: Text(
-                '종료하기',
-                style: AppTextStyles.caption.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primaryPink,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.sm,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.lg),
+                      ),
+                    ),
+                    child: Text(
+                      '종료하기',
+                      style: AppTextStyles.caption.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ],
         );
@@ -707,31 +281,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     if (shouldExit == true && mounted) {
       await _handleExit();
     }
-  }
-
-  void _appendPinDigit(String digit) {
-    if (_pinInput.length >= 6) {
-      return;
-    }
-    setState(() {
-      _pinInput = '$_pinInput$digit';
-    });
-  }
-
-  void _removePinDigit() {
-    if (_pinInput.isEmpty) {
-      return;
-    }
-    setState(() {
-      _pinInput = _pinInput.substring(0, _pinInput.length - 1);
-    });
-  }
-
-  Future<void> _submitPin() async {
-    if (_pinInput.isEmpty) {
-      return;
-    }
-    await _submitMessage(_pinInput, redactMessageForLogs: true);
   }
 
   bool get _supportsVoiceInput {
@@ -785,19 +334,6 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     );
   }
 
-  double _overlayControlBarHeightFor(BuildContext context) {
-    final responsive = context.responsive;
-    return responsive.bound(
-      responsive.heightScaled(
-        _baseOverlayControlBarHeight,
-        minFactor: 0.82,
-        maxFactor: 1.0,
-      ),
-      min: 110,
-      max: _baseOverlayControlBarHeight,
-    );
-  }
-
   double _overlayBottomInsetFor(BuildContext context) {
     return switch (_viewStage) {
       ShoppingFlowViewStage.askProduct ||
@@ -810,7 +346,9 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       ShoppingFlowViewStage.paymentConfirmation ||
       ShoppingFlowViewStage.paymentProcessing ||
       ShoppingFlowViewStage.error =>
-        _overlayControlBarHeightFor(context) + AppSpacing.sm,
+        VoicePanel.heightFor(context) +
+            AppSpacing.sm +
+            _overlayEndButtonRowHeight,
       _ => 0,
     };
   }
@@ -842,10 +380,20 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     switch (_viewStage) {
       case ShoppingFlowViewStage.askProduct:
       case ShoppingFlowViewStage.searchingProduct:
+        // 예전엔 음성 버튼 옆에 예시 답변 칩("토마토 사고 싶어" 등)을 따로
+        // 보여줬는데, 데모에서는 그 칩을 없애기로 해서 같은 예시를 딸랑구
+        // 안내 멘트 자체에 자연스럽게 녹였다. quickRepliesFor와 같은
+        // 소스를 써서 칩 문구가 바뀌면 이 안내도 같이 바뀐다.
+        final askProductExample = _askProductExample;
         if (_resolvedUserName != null && _resolvedUserName!.trim().isNotEmpty) {
-          return '${_resolvedUserName!}님, 뭐가 필요하세요?';
+          final name = _resolvedUserName!;
+          return '$name님, 어떤게 필요하세요? '
+              '"$askProductExample" 처럼, 원하시는 상품을 말해주시면 '
+              '$name님을 위한 상품을 바로 찾아드릴게요!';
         }
-        return '뭐가 필요하세요?';
+        return '어떤게 필요하세요? '
+            '"$askProductExample" 처럼, 원하시는 상품을 말해주시면 '
+            '바로 찾아드릴게요!';
       case ShoppingFlowViewStage.quantitySelection:
         return '좋아요. 몇 개 담아드릴까요?';
       case ShoppingFlowViewStage.cartCompleted:
@@ -865,198 +413,37 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     }
   }
 
-  Future<void> _speakPromptIfNeeded({bool force = false}) async {
-    final prompt = _spokenPromptText?.trim();
-    if (prompt == null || prompt.isEmpty || _isRecording) {
-      return;
-    }
-
-    final promptKey =
-        '${_response?.conversationId ?? 0}:${_viewStage.name}:$prompt';
-    if (!force && _lastSpokenPromptKey == promptKey) {
-      return;
-    }
-    _lastSpokenPromptKey = promptKey;
-
-    if (mounted) {
-      setState(() => _isSpeaking = true);
-    }
-
-    try {
-      await _voiceService.speak(prompt);
-    } catch (_) {
-      // Voice playback is best-effort.
-    } finally {
-      if (mounted) {
-        setState(() => _isSpeaking = false);
-      }
-    }
-  }
-
-  void _schedulePromptSpeechAfterFrame({
-    bool force = false,
-    bool handlePendingWebviewAfter = false,
-  }) {
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) {
-        return;
-      }
-      await _speakPromptIfNeeded(force: force);
-      if (!mounted || !handlePendingWebviewAfter) {
-        return;
-      }
-      _handlePendingWebviewTask();
-    });
-  }
-
-  Future<void> _toggleVoiceInput() async {
-    debugPrint(
-      '[ShoppingFlow] voice toggle requested '
-      'isRecording=$_isRecording '
-      'isAwaitingUserInput=$_isAwaitingUserInput '
-      'isInitializing=$_isInitializing '
-      'isSubmitting=$_isSubmitting '
-      'isUpdatingCartQuantity=$_isUpdatingCartQuantity '
-      'isSpeaking=$_isSpeaking '
-      'viewStage=${_viewStage.name}',
-    );
-    if (_isRecording) {
-      await _stopRecordingAndSubmit();
-      return;
-    }
-
-    if (!_isAwaitingUserInput) {
-      debugPrint('[ShoppingFlow] voice toggle ignored: not awaiting user input');
-      return;
-    }
-
-    await _voiceService.stopSpeaking();
-    if (mounted) {
-      setState(() {
-        _isSpeaking = false;
-        _inlineError = null;
-        _isRecording = true;
-      });
-    }
-
-    try {
-      await _voiceService.startRecording();
-      debugPrint('[ShoppingFlow] voice recording started');
-    } catch (error, stackTrace) {
-      debugPrint('[ShoppingFlow] voice recording start failed error=$error');
-      debugPrintStack(
-        stackTrace: stackTrace,
-        label: '[ShoppingFlow] startRecording stack',
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isRecording = false;
-        _inlineError = '마이크를 시작하지 못했어요. 잠시 후 다시 시도해주세요.';
-      });
-    }
-  }
-
-  bool _shouldStartFreshConversation({required String nextMessage}) {
-    final response = _response;
-    if (response == null) {
-      return true;
-    }
-
-    final stage = response.stage.trim().toLowerCase();
-    final assistantMessage = response.assistantMessage.trim();
-    final hasFlowProgress =
-        response.recommendations.isNotEmpty ||
-        response.selectedProduct != null ||
-        response.pendingConfirmation != null ||
-        response.availableOptions != null ||
-        response.deliveryAddress != null ||
-        response.cart != null ||
-        response.order != null ||
-        response.payment != null ||
-        response.automationTask != null ||
-        response.automationResult != null ||
-        response.uiCommand != null ||
-        response.asyncStatus != null;
-
-    if (hasFlowProgress) {
-      return false;
-    }
-
-    final isRetryPrompt =
-        assistantMessage.contains('다시 한번 말씀해 주세요') ||
-        assistantMessage.contains('다시 말씀');
-    final isEarlyStage =
-        _viewStage == ShoppingFlowViewStage.askProduct ||
-        _viewStage == ShoppingFlowViewStage.error;
-    final isExampleMessage = _service
-        .quickRepliesFor(ShoppingFlowViewStage.askProduct)
-        .contains(nextMessage);
-
-    return isEarlyStage &&
-        (stage == 'idle' || isRetryPrompt || isExampleMessage);
-  }
-
-  Future<void> _stopRecordingAndSubmit() async {
-    debugPrint('[ShoppingFlow] stopRecordingAndSubmit requested isRecording=$_isRecording');
-    if (!_isRecording) {
-      debugPrint('[ShoppingFlow] stopRecordingAndSubmit ignored: not recording');
-      return;
-    }
-
-    setState(() {
-      _isRecording = false;
-      _inlineError = null;
-    });
-
-    try {
-      final transcript = await _voiceService.stopRecordingAndTranscribe();
-      final trimmed = transcript.trim();
-      debugPrint(
-        '[ShoppingFlow] STT transcript received '
-        'rawLength=${transcript.length} trimmedLength=${trimmed.length} '
-        'transcript="$trimmed"',
-      );
-      if (!mounted) {
-        return;
-      }
-      if (trimmed.isEmpty) {
-        debugPrint('[ShoppingFlow] STT transcript empty; showing retry message');
-        setState(() {
-          _inlineError = '잘 듣지 못했어요. 한 번 더 말씀해주세요.';
-        });
-        return;
-      }
-
-      debugPrint('[ShoppingFlow] submitting STT transcript to agent');
-      await _submitMessage(trimmed);
-    } catch (error, stackTrace) {
-      debugPrint('[ShoppingFlow] stopRecordingAndSubmit failed error=$error');
-      debugPrintStack(
-        stackTrace: stackTrace,
-        label: '[ShoppingFlow] stopRecordingAndSubmit stack',
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _inlineError = '음성 인식 중 문제가 생겼어요. 한 번 더 말씀해주세요.';
-      });
-    }
-  }
-
   List<DialogueSegment>? get _fallbackPromptSegments {
     switch (_viewStage) {
       case ShoppingFlowViewStage.askProduct:
       case ShoppingFlowViewStage.searchingProduct:
+        final askProductExample = _askProductExample;
+        // DialogueBubble의 cyclePages는 명시적 '\n'을 문단 경계로, 그
+        // 안에서는 마침표/느낌표/물음표를 문장 경계로 써서 페이지를 나눈다.
+        // "이름님"과 "어떤게 필요하세요?" 사이에 강제 줄바꿈을 넣었더니
+        // 한 문장인데도 두 페이지로 쪼개지는 문제가 있었다. 아래는 정확히
+        // 3페이지로 나오도록 의도적으로 맞춘 구조다:
+        // 페이지1 "OOO님, 어떤게 필요하세요?" / 페이지2 ""예시" 처럼, 원하시는
+        // 상품을 말해주시면" / 페이지3 "OOO님을 위한 상품을 바로 찾아드릴게요!"
         if (_resolvedUserName != null && _resolvedUserName!.trim().isNotEmpty) {
+          final name = _resolvedUserName!;
           return [
-            DialogueSegment(text: '${_resolvedUserName!}님\n', emphasized: true),
-            const DialogueSegment(text: '뭐가 필요하세요?'),
+            DialogueSegment(text: '$name님, ', emphasized: true),
+            const DialogueSegment(text: '어떤게 필요하세요? '),
+            DialogueSegment(
+              text: '"$askProductExample" 처럼, 원하시는 상품을 말해주시면\n',
+            ),
+            DialogueSegment(text: '$name님', emphasized: true),
+            const DialogueSegment(text: '을 위한 상품을 바로 찾아드릴게요!'),
           ];
         }
-        return const [DialogueSegment(text: '뭐가 필요하세요?')];
+        return [
+          const DialogueSegment(text: '어떤게 필요하세요? '),
+          DialogueSegment(
+            text: '"$askProductExample" 처럼, 원하시는 상품을 말해주시면\n',
+          ),
+          const DialogueSegment(text: '바로 찾아드릴게요!'),
+        ];
       case ShoppingFlowViewStage.quantitySelection:
         return const [
           DialogueSegment(text: '좋아요\n'),
@@ -1066,6 +453,14 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
       default:
         return null;
     }
+  }
+
+  /// askProduct 단계에서 예시 답변 칩 대신 딸랑구 멘트에 녹여 넣을 예시 문구.
+  /// quickRepliesFor(askProduct)의 첫 항목을 그대로 재사용해 칩 목록이
+  /// 바뀌어도 이 안내 문구가 따로 겉돌지 않게 한다.
+  String get _askProductExample {
+    final replies = _service.quickRepliesFor(ShoppingFlowViewStage.askProduct);
+    return replies.isNotEmpty ? replies.first : '신선한 완숙 토마토 사고 싶어';
   }
 
   String? get _assistantText {
@@ -1078,6 +473,28 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 위 shim getter들은 ref.read라 자체적으로 리빌드를 구독하지 않는다 —
+    // 그래서 여기서 한 번 ref.watch로 구독을 걸고, ref.listen으로 응답이
+    // 새로 들어올 때마다(웹뷰 pending task가 남아있다면) 프레임 이후에
+    // _handlePendingWebviewTask를 실행한다. 예전에는 _applyResponse가
+    // 직접 _schedulePromptSpeechAfterFrame(handlePendingWebviewAfter: true)를
+    // 불렀는데, 그 부분이 컨트롤러로 옮겨가면서 Navigator가 필요한 이 조각만
+    // 위젯에 남았다.
+    ref.watch(shoppingFlowControllerProvider(_args));
+    ref.listen<ShoppingFlowState>(shoppingFlowControllerProvider(_args), (
+      previous,
+      next,
+    ) {
+      if (identical(previous?.response, next.response)) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _handlePendingWebviewTask();
+        }
+      });
+    });
+
     final currentStep = _service.progressStepFor(_viewStage);
     final completedSteps = _service.completedStepsFor(_viewStage);
 
@@ -1144,23 +561,13 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
     required ShoppingProgressStep currentStep,
     required Set<ShoppingProgressStep> completedSteps,
   }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: ShoppingProgressStepper(
-            currentStep: currentStep,
-            completedSteps: completedSteps,
-            compact: true,
-          ),
-        ),
-        const SizedBox(width: AppSpacing.xs),
-        EndConversationButton(
-          compact: true,
-          iconOnly: true,
-          onPressed: _confirmExit,
-        ),
-      ],
+    // 대화 종료 버튼은 더 이상 헤더(단계바 옆)에 두지 않는다. 화면마다
+    // 상단 아이콘/텍스트로 제각각이던 걸 하단 전체너비 버튼으로 통일했다
+    // (_buildOverlayBottomSection / _buildBottomArea 참고).
+    return ShoppingProgressStepper(
+      currentStep: currentStep,
+      completedSteps: completedSteps,
+      compact: true,
     );
   }
 
@@ -1197,6 +604,11 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           '${_response?.conversationId ?? 0}-${_response?.stage}-${_assistantText ?? _viewStage.name}',
         ),
         animateTextChanges: true,
+        // 문구를 한 번에 다 보여주지 않고 문장 단위로 하나씩 순서대로
+        // 보여준다. 실제 백엔드 응답처럼 문장이 길어져도 말풍선 높이를
+        // 고정으로 유지하면서 잘리지 않게 하고, 딸랑구가 실제로 한 문장씩
+        // 말하는 듯한 느낌도 준다.
+        cyclePages: true,
         borderColor: AppSurfaceStyles.emphasisOutlineColor,
         minHeight: dialogueSectionHeight - 8,
         scrollableContent: true,
@@ -1238,12 +650,8 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   }
 
   Widget _buildOverlayBottomSection() {
-    final overlayControlBarHeight = _overlayControlBarHeightFor(context);
     final replyOptions = _buildOverlayReplyOptions();
     final splitIndex = (replyOptions.length / 2).ceil();
-    final overlayBackgroundColor = _voiceInputState == VoiceInputState.inactive
-        ? const Color(0xFFF7F7FA)
-        : AppColors.pastelPinkSoft;
     final leadingReplyContent = _buildOverlayReplyColumn(
       replyOptions.take(splitIndex).toList(growable: false),
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -1267,18 +675,19 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
             ),
             const SizedBox(height: AppSpacing.sm),
           ],
-          _OverlayControlBar(
-            height: overlayControlBarHeight,
-            backgroundColor: overlayBackgroundColor,
-            leadingReplyContent: leadingReplyContent,
-            trailingReplyContent: trailingReplyContent,
-            voiceButton: VoiceInputButton(
-              state: _voiceInputState,
-              onPressed: _toggleVoiceInput,
-              diameter: 62,
-              iconSize: 28,
-              labelSpacing: 2,
-            ),
+          // 스몰토크/에이전트 인사 화면과 동일한 공용 VoicePanel을 써서
+          // 메인 쇼핑 흐름의 음성 패널도 같은 모양/크기로 통일했다.
+          VoicePanel(
+            state: _voiceInputState,
+            onPressed: _toggleVoiceInput,
+            leadingReply: leadingReplyContent,
+            trailingReply: trailingReplyContent,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          EndConversationButton(
+            fullWidth: true,
+            variant: EndConversationButtonVariant.dark,
+            onPressed: _confirmExit,
           ),
         ],
       ),
@@ -1288,6 +697,13 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
   List<_OverlayReplyOption> _buildOverlayReplyOptions() {
     switch (_viewStage) {
       case ShoppingFlowViewStage.askProduct:
+        // 실제 서비스에서는 예시 답변 칩을 제거하고 같은 예시를 딸랑구
+        // 멘트(_fallbackPromptSegments/_spokenPromptText)로 옮겼다. 다만
+        // 에뮬레이터에서 빠르게 흐름을 테스트할 수 있도록 mock flow에서는
+        // 예시 답변 칩을 그대로 유지한다.
+        if (_service is! MockShoppingFlowService) {
+          return const <_OverlayReplyOption>[];
+        }
         return _service
             .quickRepliesFor(_viewStage)
             .map(
@@ -1420,19 +836,20 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           caption: '예시 문장과 음성 요청은 같은 쇼핑 대화로 이어집니다.',
         );
       case ShoppingFlowViewStage.searchingProduct:
-        return _wrapStagePanel(
-          _StatusPanel(
-            key: const ValueKey('searching-product'),
-            title: _service.statusTitleFor(_viewStage),
-            message: _service.statusMessageFor(
-              _viewStage,
-              response: _response,
-              product: selectedProduct,
-            ),
-            progress: _service.progressValueFor(_viewStage),
-            assetPath: 'assets/images/character/full/ddalangoo_curious.png',
-            helperText: '추천 상품과 이유를 정리해서 보여드릴게요.',
+        // _StatusPanel이 내부적으로 남는 높이에 맞춰 스스로 크기를
+        // 조정하므로(_wrapStagePanel의 획일적인 스크롤 래핑 대신), 여기서는
+        // 더 이상 _wrapStagePanel로 감싸지 않는다.
+        return _StatusPanel(
+          key: const ValueKey('searching-product'),
+          title: _service.statusTitleFor(_viewStage),
+          message: _service.statusMessageFor(
+            _viewStage,
+            response: _response,
+            product: selectedProduct,
           ),
+          progress: _service.progressValueFor(_viewStage),
+          assetPath: 'assets/images/character/full/ddalangoo_curious.png',
+          helperText: '추천 상품과 이유를 정리해서 보여드릴게요.',
         );
       case ShoppingFlowViewStage.productSelection:
         return _ProductSelectionPanel(
@@ -1452,21 +869,19 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           ),
         );
       case ShoppingFlowViewStage.cartProcessing:
-        return _wrapStagePanel(
-          _StatusPanel(
-            key: const ValueKey('cart-processing'),
-            title: _service.statusTitleFor(_viewStage),
-            message: _service.statusMessageFor(
-              _viewStage,
-              response: _response,
-              product: selectedProduct,
-              quantity: cartItems.firstOrNull?.quantity,
-            ),
-            progress: _service.progressValueFor(_viewStage),
+        return _StatusPanel(
+          key: const ValueKey('cart-processing'),
+          title: _service.statusTitleFor(_viewStage),
+          message: _service.statusMessageFor(
+            _viewStage,
+            response: _response,
             product: selectedProduct,
-            service: _service,
-            helperText: '옵션과 수량을 확인한 뒤 주문서에 반영하고 있어요.',
+            quantity: cartItems.firstOrNull?.quantity,
           ),
+          progress: _service.progressValueFor(_viewStage),
+          product: selectedProduct,
+          service: _service,
+          helperText: '옵션과 수량을 확인한 뒤 주문서에 반영하고 있어요.',
         );
       case ShoppingFlowViewStage.cartCompleted:
         return _wrapStagePanel(
@@ -1505,19 +920,17 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
           ),
         );
       case ShoppingFlowViewStage.paymentProcessing:
-        return _wrapStagePanel(
-          _StatusPanel(
-            key: const ValueKey('payment-processing'),
-            title: _service.statusTitleFor(_viewStage),
-            message: _service.statusMessageFor(
-              _viewStage,
-              response: _response,
-              product: selectedProduct,
-            ),
-            progress: _service.progressValueFor(_viewStage),
-            assetPath: 'assets/images/character/full/ddalangoo_calling.png',
-            helperText: '결제 자동화가 진행되는 동안 이 화면에서 상태를 이어서 보여드릴게요.',
+        return _StatusPanel(
+          key: const ValueKey('payment-processing'),
+          title: _service.statusTitleFor(_viewStage),
+          message: _service.statusMessageFor(
+            _viewStage,
+            response: _response,
+            product: selectedProduct,
           ),
+          progress: _service.progressValueFor(_viewStage),
+          assetPath: 'assets/images/character/full/ddalangoo_calling.png',
+          helperText: '결제 자동화가 진행되는 동안 이 화면에서 상태를 이어서 보여드릴게요.',
         );
       case ShoppingFlowViewStage.completed:
         return const _CompletionPanel(key: ValueKey('completed'));
@@ -1538,25 +951,11 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
 
     switch (_viewStage) {
       case ShoppingFlowViewStage.askProduct:
+        // 이 stage는 _usesOverlayBottomSection에서 항상 true라 실제로는
+        // _buildOverlayBottomSection()이 쓰이지만, 방어적으로 이 분기도
+        // 예시 답변 칩 없이 음성 버튼만 두도록 맞춰둔다.
         return Column(
           children: [
-            Wrap(
-              spacing: AppSpacing.xs,
-              runSpacing: AppSpacing.xs,
-              alignment: WrapAlignment.center,
-              children: _service
-                  .quickRepliesFor(_viewStage)
-                  .map((reply) {
-                    return _QuickReplyChip(
-                      label: reply,
-                      onTap: _canTapReplyChip
-                          ? () => _submitMessage(reply)
-                          : null,
-                    );
-                  })
-                  .toList(growable: false),
-            ),
-            const SizedBox(height: AppSpacing.lg),
             VoiceInputButton(
               state: _voiceInputState,
               onPressed: _toggleVoiceInput,
@@ -1666,6 +1065,12 @@ class _ShoppingFlowScreenState extends State<ShoppingFlowScreen> {
             PrimaryButton(
               label: _isSubmitting ? '확인 중...' : '비밀번호 확인',
               onPressed: _isSubmitting || _pinInput.isEmpty ? null : _submitPin,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            EndConversationButton(
+              fullWidth: true,
+              variant: EndConversationButtonVariant.dark,
+              onPressed: _confirmExit,
             ),
           ],
         );
@@ -1802,52 +1207,93 @@ class _StatusPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: AppSurfaceStyles.emphasizedPanel(
-        radius: AppRadii.xl,
-        boxShadow: AppSurfaceStyles.raisedShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: AppTextStyles.caption.copyWith(
-              fontSize: 14,
-              color: AppColors.textMuted,
-              fontWeight: FontWeight.w700,
+    // _EmptyStatePanel/_ProductSelectionPanel과 같은 패턴: 이 화면(예:
+    // 상품 검색 중)에서 남는 세로 공간에 맞춰 캐릭터 이미지 높이를 줄여서,
+    // 실제로 스크롤이 필요한 상황이 거의 생기지 않게 한다. Scrollbar는
+    // 아주 작은 화면에서만 동작하는 안전망일 뿐, 평소엔 보이지 않는다.
+    // 테두리도 다른 바디 패널들처럼 무거운 검정 테두리 대신 은은한
+    // 그림자로 통일했다.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 420.0;
+        final compact = availableHeight < 300;
+        final imageHeight = (availableHeight * 0.34)
+            .clamp(96.0, 176.0)
+            .toDouble();
+        final sectionSpacing = compact ? AppSpacing.sm : AppSpacing.md;
+
+        return Scrollbar(
+          thumbVisibility: true,
+          radius: const Radius.circular(999),
+          thickness: 4,
+          child: SingleChildScrollView(
+            primary: true,
+            physics: const ClampingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: availableHeight),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                decoration: AppSurfaceStyles.floatingCard(
+                  radius: AppRadii.xl,
+                  boxShadow: AppSurfaceStyles.raisedShadow,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTextStyles.caption.copyWith(
+                        fontSize: 14,
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      message,
+                      style: AppTextStyles.title2.copyWith(
+                        fontSize: 26,
+                        height: 1.3,
+                      ),
+                    ),
+                    SizedBox(height: sectionSpacing),
+                    if (product != null && service != null) ...[
+                      _CompactProductRow(product: product!, service: service!),
+                      SizedBox(height: sectionSpacing),
+                    ] else if (assetPath != null) ...[
+                      Center(
+                        child: Image.asset(
+                          assetPath!,
+                          height: imageHeight,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                      SizedBox(height: sectionSpacing),
+                    ],
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: progress.clamp(0, 1),
+                        minHeight: 12,
+                        backgroundColor: AppColors.surfaceMuted,
+                        color: AppColors.primaryPink,
+                      ),
+                    ),
+                    if (helperText != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Text(helperText!, style: AppTextStyles.body2),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            message,
-            style: AppTextStyles.title2.copyWith(fontSize: 26, height: 1.3),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          if (product != null && service != null) ...[
-            _CompactProductRow(product: product!, service: service!),
-            const SizedBox(height: AppSpacing.lg),
-          ] else if (assetPath != null) ...[
-            Center(child: Image.asset(assetPath!, height: 180)),
-            const SizedBox(height: AppSpacing.lg),
-          ],
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: progress.clamp(0, 1),
-              minHeight: 12,
-              backgroundColor: AppColors.surfaceMuted,
-              color: AppColors.primaryPink,
-            ),
-          ),
-          if (helperText != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(helperText!, style: AppTextStyles.body2),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1874,38 +1320,14 @@ class _ProductSelectionPanel extends StatelessWidget {
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final canStretchCard =
-            constraints.maxHeight.isFinite && constraints.maxHeight >= 420;
-
-        if (canStretchCard) {
-          return Column(
-            children: [
-              Expanded(
-                child: _HeroProductPanel(
-                  product: primaryProduct!,
-                  service: service,
-                ),
-              ),
-            ],
-          );
-        }
-
-        return Scrollbar(
-          thumbVisibility: true,
-          radius: const Radius.circular(999),
-          thickness: 4,
-          child: SingleChildScrollView(
-            primary: true,
-            child: _HeroProductPanel(
-              product: primaryProduct!,
-              service: service,
-            ),
-          ),
-        );
-      },
-    );
+    // 예전에는 남은 높이가 420px 미만이면 카드를 스크롤 가능한 고정
+    // 420px짜리로 바꿨는데, 이 화면 구성(단계바+말풍선+하단 음성 패널)
+    // 예산을 계산해보면 일반적인 휴대폰 화면에서도 남는 높이가 420px보다
+    // 작은 경우가 흔해서 사실상 항상 스크롤이 뜨고 있었다. 여기 도달할 때
+    // 이 영역은 이미 Stack의 Positioned.fill로 높이가 확정돼 있으니,
+    // 스크롤 대신 그냥 남는 높이만큼 카드를 채워서 항상 한 화면에 다
+    // 보이게 한다.
+    return _HeroProductPanel(product: primaryProduct!, service: service);
   }
 }
 
@@ -2020,6 +1442,13 @@ class _HeroProductPanel extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                           ),
                         ),
+                        // 추천 이유는 계산은 되고 있었는데 화면 어디에도 노출이
+                        // 안 되고 있었다. 왜 이 상품을 골랐는지 짧게 보여준다.
+                        if (product.reason != null &&
+                            product.reason!.trim().isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.sm),
+                          _RecommendationReasonNote(reason: product.reason!),
+                        ],
                         const Spacer(),
                         Align(
                           alignment: Alignment.bottomLeft,
@@ -2084,11 +1513,6 @@ class _CartSummaryPanel extends StatelessWidget {
                 ? '장바구니'
                 : '${userName!.trim()} 님의 장바구니',
             style: AppTextStyles.title2.copyWith(fontSize: 23),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            '지금 담긴 상품과 금액을 확인해보세요.',
-            style: AppTextStyles.body2.copyWith(height: 1.45),
           ),
           const SizedBox(height: AppSpacing.lg),
           if (items.isEmpty)
@@ -2236,15 +1660,23 @@ class _PasswordStagePanel extends StatelessWidget {
         final keypadHeight =
             (itemHeight * _pinPadRowCount) +
             (AppSpacing.sm * (_pinPadRowCount - 1));
+        // 예전엔 freeSpace를 0으로까지 clamp하고 바깥 SizedBox는 항상
+        // availableHeight로 고정해서, 점 표시판+키패드가 필요한 높이가
+        // availableHeight보다 큰(작은 화면 등) 경우 Column 실제 콘텐츠가
+        // 고정 박스보다 커져 RenderFlex 오버플로우가 났다. 최소 여백은
+        // 유지하되, 콘텐츠가 실제로 필요로 하는 만큼 박스 높이 자체를
+        // 늘려서(그 초과분은 상위 _wrapStagePanel의 스크롤이 안전망으로
+        // 처리) 어떤 화면 크기에서도 오버플로우 없이 다 보이게 한다.
         final freeSpace = (availableHeight - panelHeight - keypadHeight).clamp(
-          0.0,
+          AppSpacing.sm * 2,
           double.infinity,
         );
         final sectionGap = freeSpace / 3;
+        final columnHeight = panelHeight + keypadHeight + freeSpace;
 
         return SizedBox(
           width: double.infinity,
-          height: availableHeight,
+          height: columnHeight,
           child: Column(
             children: [
               SizedBox(height: sectionGap),
@@ -2504,61 +1936,6 @@ class _OverlayReplyOption {
   final VoidCallback? onTap;
 }
 
-class _OverlayControlBar extends StatelessWidget {
-  const _OverlayControlBar({
-    required this.height,
-    required this.voiceButton,
-    required this.backgroundColor,
-    this.leadingReplyContent,
-    this.trailingReplyContent,
-  });
-
-  final double height;
-  final Widget voiceButton;
-  final Color backgroundColor;
-  final Widget? leadingReplyContent;
-  final Widget? trailingReplyContent;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasReplies =
-        leadingReplyContent != null || trailingReplyContent != null;
-
-    return SizedBox(
-      width: double.infinity,
-      height: height,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-        decoration: AppSurfaceStyles.elevatedCard(
-          radius: AppRadii.xl,
-          color: backgroundColor,
-        ),
-        child: hasReplies
-            ? Row(
-                children: [
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: leadingReplyContent ?? const SizedBox.shrink(),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Center(child: voiceButton),
-                  const SizedBox(width: AppSpacing.xs),
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: trailingReplyContent ?? const SizedBox.shrink(),
-                    ),
-                  ),
-                ],
-              )
-            : Center(child: voiceButton),
-      ),
-    );
-  }
-}
 
 class _QuickReplyChip extends StatelessWidget {
   const _QuickReplyChip({
@@ -2666,82 +2043,110 @@ class _CartItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 작은 정사각 썸네일 + 텍스트 대신, 상품 확인/선택 화면의 히어로
+    // 카드처럼 상품 이미지를 타일 배경 전체에 깔고 그 위에 이름/수량/
+    // 가격을 얹는다. 화면 간 상품 카드 스타일을 통일하고, 이름이 들어가는
+    // 영역도 더 넓고 깔끔해진다.
+    final tileHeight = compact ? 76.0 : 96.0;
     return Container(
-      padding: EdgeInsets.all(compact ? AppSpacing.sm : AppSpacing.md),
+      height: tileHeight,
+      clipBehavior: Clip.antiAlias,
+      // 진한 검정 테두리 대신, 카드가 배경에서 살짝 뜨는 느낌의 그림자로
+      // 대비를 준다. Container가 boxShadow는 clip 밖에, 배경 이미지는
+      // clipBehavior로 안쪽에서 잘리게 그려서 모서리가 깔끔하게 유지된다.
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(
-          color: AppSurfaceStyles.emphasisOutlineColor,
-          width: AppSurfaceStyles.emphasisOutlineWidth,
-        ),
+        boxShadow: AppSurfaceStyles.raisedShadow,
       ),
-      child: Row(
+      child: Stack(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            child: SizedBox(
-              width: compact ? 48 : 56,
-              height: compact ? 48 : 56,
-              child: _ProductArtwork(
-                product: item.product,
-                service: service,
-                fit: BoxFit.cover,
+          Positioned.fill(
+            child: _ProductArtwork(
+              product: item.product,
+              service: service,
+              fit: BoxFit.cover,
+            ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.95),
+                    Colors.white.withValues(alpha: 0.86),
+                    Colors.white.withValues(alpha: 0.55),
+                  ],
+                  stops: const [0, 0.55, 1],
+                ),
               ),
             ),
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? AppSpacing.sm : AppSpacing.md,
+            ),
+            child: Row(
               children: [
-                Text(
-                  item.product.title,
-                  maxLines: compact ? 1 : 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.body2.copyWith(
-                    color: AppColors.textStrong,
-                    fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.product.title,
+                        maxLines: compact ? 1 : 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.body2.copyWith(
+                          color: AppColors.textStrong,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (item.product.optionText?.trim().isNotEmpty ==
+                          true) ...[
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          item.product.optionText!.trim(),
+                          style: AppTextStyles.caption,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                if (item.product.optionText?.trim().isNotEmpty == true) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    item.product.optionText!.trim(),
-                    style: AppTextStyles.caption,
-                  ),
-                ],
+                const SizedBox(width: AppSpacing.sm),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (!compact && (onDecrease != null || onIncrease != null))
+                      _CartQuantityStepper(
+                        quantity: item.quantity,
+                        isUpdating: isUpdatingQuantity,
+                        onDecrease: onDecrease,
+                        onIncrease: onIncrease,
+                      )
+                    else
+                      Text(
+                        '${item.quantity}개',
+                        style: AppTextStyles.body2.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      item.displayTotalPrice,
+                      textAlign: TextAlign.right,
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppColors.primaryPinkDark,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (!compact && (onDecrease != null || onIncrease != null))
-                _CartQuantityStepper(
-                  quantity: item.quantity,
-                  isUpdating: isUpdatingQuantity,
-                  onDecrease: onDecrease,
-                  onIncrease: onIncrease,
-                )
-              else
-                Text(
-                  '${item.quantity}개',
-                  style: AppTextStyles.body2.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                item.displayTotalPrice,
-                textAlign: TextAlign.right,
-                style: AppTextStyles.caption.copyWith(
-                  color: AppColors.primaryPinkDark,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -2857,6 +2262,50 @@ class _ProductArtwork extends StatelessWidget {
     }
 
     return Image.asset(fallback.assetPath, height: height, fit: fit);
+  }
+}
+
+class _RecommendationReasonNote extends StatelessWidget {
+  const _RecommendationReasonNote({required this.reason});
+
+  final String reason;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.auto_awesome_rounded,
+            size: 16,
+            color: AppColors.primaryPinkDark,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Flexible(
+            child: Text(
+              reason,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.primaryPinkDark,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

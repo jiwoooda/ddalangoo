@@ -4,9 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/routes.dart';
 import '../../../app/theme/app_colors.dart';
-import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
-import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../core/storage/local_storage.dart';
@@ -17,6 +15,7 @@ import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/voice_input_button.dart';
+import '../../../shared/widgets/voice_panel.dart';
 import 'agent_smalltalk_screen.dart';
 
 class SmallTalkScreen extends StatefulWidget {
@@ -34,7 +33,10 @@ class SmallTalkScreen extends StatefulWidget {
       text: '안녕하세요! 저는 딸랑구예요 :)\n오늘도 반갑게 인사하러 왔어요!',
       highlightWords: ['딸랑구'],
     ),
-    SmallTalkMessage(text: '성함이 어떻게 되세요?', highlightWords: ['성함']),
+    SmallTalkMessage(
+      text: '성함이 어떻게 되세요?\n예를 들어 "내 이름은 딸랑구"처럼 말해보세요.',
+      highlightWords: ['성함'],
+    ),
   ];
 
   @override
@@ -292,15 +294,12 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
         builder: (context, constraints) {
           final compact =
               constraints.maxHeight < 820 || responsive.usesCondensedLayout;
-          final characterHeight = responsive.bound(
-            responsive.heightScaled(
-              _isLastMessage ? (compact ? 280 : 330) : (compact ? 360 : 420),
-              minFactor: 0.8,
-              maxFactor: 1.0,
-            ),
-            min: _isLastMessage ? 240 : 300,
-            max: _isLastMessage ? 330 : 420,
-          );
+          // 예전엔 마지막 메시지(이름 입력) 상태와 첫 인사 상태의 캐릭터
+          // 크기가 서로 다른 공식을 썼고, agent_smalltalk_screen 등 다른
+          // 대화형 화면과도 계산식이 달라 같은 그림인데도 화면마다 크기가
+          // 달라 보였다. 이제 모든 대화형 화면이 공유하는
+          // conversationCharacterHeight()로 통일한다.
+          final characterHeight = responsive.conversationCharacterHeight();
           final bubbleMinHeight = responsive.bound(
             responsive.heightScaled(
               compact ? 150 : 172,
@@ -328,22 +327,10 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Align(
-                alignment: Alignment.topRight,
-                child: EndConversationButton(
-                  compact: true,
-                  iconOnly: true,
-                  onPressed: () {
-                    Navigator.of(
-                      context,
-                    ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
-                  },
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
               DialogueBubble(
                 contentKey: ValueKey('message-$_currentIndex'),
                 animateTextChanges: true,
+                cyclePages: true,
                 text: currentMessage.text,
                 highlightedWords: currentMessage.highlightWords,
                 minHeight: bubbleMinHeight,
@@ -389,20 +376,9 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
                               ),
                             ),
                             if (_isLastMessage) ...[
-                              const SizedBox(height: AppSpacing.lg),
-                              Text(
-                                '성함을 말씀해주세요.',
-                                textAlign: TextAlign.center,
-                                style: AppTextStyles.body2.copyWith(
-                                  color: AppColors.textMuted,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: responsive.font(
-                                    16,
-                                    minFactor: 0.94,
-                                    maxFactor: 1.0,
-                                  ),
-                                ),
-                              ),
+                              // "성함을 말씀해주세요." 회색 안내 텍스트는 삭제했다.
+                              // 같은 안내는 이미 위쪽 말풍선(현재 메시지)이
+                              // 전달하고 있다.
                               if (_transcriptPreview != null &&
                                   _transcriptPreview!.isNotEmpty) ...[
                                 const SizedBox(height: AppSpacing.sm),
@@ -428,23 +404,40 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
                 _ErrorText(message: _errorMessage!),
                 const SizedBox(height: AppSpacing.md),
               ],
-              _SmallTalkVoicePanel(
+              VoicePanel(
                 state: _voiceInputState,
                 onPressed: _toggleRecording,
-                leadingReply: _SmallTalkExampleReply(
-                  label: '내 이름은\n딸랑구',
-                  textAlign: TextAlign.right,
-                  onTap: canTapExampleReplies
-                      ? () => _submitExampleReply('내 이름은 딸랑구')
-                      : null,
-                ),
-                trailingReply: _SmallTalkExampleReply(
-                  label: '나는\n딸랑구야',
-                  textAlign: TextAlign.left,
-                  onTap: canTapExampleReplies
-                      ? () => _submitExampleReply('나는 딸랑구야')
-                      : null,
-                ),
+                // 실제 서비스에서는 예시 답변 칩을 없애고 같은 예시를 딸랑구
+                // 멘트("예를 들어 ...처럼 말해보세요")에 녹였다. 에뮬레이터에서
+                // 빠르게 테스트할 수 있도록 mock flow에서는 칩을 유지한다.
+                leadingReply: !widget.useMockFlow
+                    ? null
+                    : VoiceExampleReplyChip(
+                        label: '내 이름은\n딸랑구',
+                        textAlign: TextAlign.right,
+                        onTap: canTapExampleReplies
+                            ? () => _submitExampleReply('내 이름은 딸랑구')
+                            : null,
+                      ),
+                trailingReply: !widget.useMockFlow
+                    ? null
+                    : VoiceExampleReplyChip(
+                        label: '나는\n딸랑구야',
+                        textAlign: TextAlign.left,
+                        onTap: canTapExampleReplies
+                            ? () => _submitExampleReply('나는 딸랑구야')
+                            : null,
+                      ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              EndConversationButton(
+                fullWidth: true,
+                variant: EndConversationButtonVariant.dark,
+                onPressed: () {
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
+                },
               ),
             ],
           );
@@ -462,123 +455,6 @@ class SmallTalkMessage {
 
   final String text;
   final List<String> highlightWords;
-}
-
-class _SmallTalkVoicePanel extends StatelessWidget {
-  const _SmallTalkVoicePanel({
-    required this.state,
-    required this.onPressed,
-    this.leadingReply,
-    this.trailingReply,
-  });
-
-  final VoiceInputState state;
-  final VoidCallback onPressed;
-  final Widget? leadingReply;
-  final Widget? trailingReply;
-
-  @override
-  Widget build(BuildContext context) {
-    final responsive = context.responsive;
-    final backgroundColor = state == VoiceInputState.inactive
-        ? const Color(0xFFF7F7FA)
-        : AppColors.pastelPinkSoft;
-    final panelHeight = responsive.bound(
-      responsive.heightScaled(126, minFactor: 0.84, maxFactor: 1.0),
-      min: 108,
-      max: 126,
-    );
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      width: double.infinity,
-      height: panelHeight,
-      padding: EdgeInsets.symmetric(
-        horizontal: responsive.bound(
-          responsive.widthScaled(
-            AppSpacing.md,
-            minFactor: 0.84,
-            maxFactor: 1.0,
-          ),
-          min: AppSpacing.sm,
-          max: AppSpacing.md,
-        ),
-      ),
-      decoration: AppSurfaceStyles.elevatedCard(
-        radius: AppRadii.xl,
-        color: backgroundColor,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: leadingReply ?? const SizedBox.shrink(),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.xs),
-          Center(
-            child: VoiceInputButton(
-              state: state,
-              onPressed: onPressed,
-              diameter: 72,
-              iconSize: 34,
-              labelSpacing: 6,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.xs),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: trailingReply ?? const SizedBox.shrink(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SmallTalkExampleReply extends StatelessWidget {
-  const _SmallTalkExampleReply({
-    required this.label,
-    required this.textAlign,
-    this.onTap,
-  });
-
-  final String label;
-  final TextAlign textAlign;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isEnabled = onTap != null;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xs,
-            vertical: AppSpacing.xxs,
-          ),
-          child: Text(
-            '"$label"',
-            textAlign: textAlign,
-            maxLines: 2,
-            style: AppTextStyles.caption.copyWith(
-              color: isEnabled
-                  ? AppColors.primaryPinkDark
-                  : AppColors.primaryPinkDark.withValues(alpha: 0.45),
-              fontWeight: FontWeight.w400,
-              height: 1.35,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _ErrorText extends StatelessWidget {

@@ -11,7 +11,6 @@ import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/widgets/primary_button.dart';
-import '../../../shared/widgets/secondary_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -226,45 +225,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                         ),
                       ),
-                      Padding(
-                        padding: EdgeInsets.only(
-                          top: responsive.bound(
-                            responsive.heightScaled(
-                              AppSpacing.xxl,
-                              minFactor: 0.6,
-                              maxFactor: 1.0,
-                            ),
-                            min: AppSpacing.lg,
-                            max: AppSpacing.xxl,
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '처음이시라면?',
-                              style: AppTextStyles.body2.copyWith(
-                                color: AppColors.textMuted,
-                                fontWeight: FontWeight.w600,
-                                fontSize: responsive.font(
-                                  16,
-                                  minFactor: 0.94,
-                                  maxFactor: 1.0,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                            SecondaryButton(
-                              label: '회원가입',
-                              onPressed: _isLoading
-                                  ? null
-                                  : () => Navigator.of(
-                                      context,
-                                    ).pushNamed(AppRoutes.register),
-                            ),
-                          ],
-                        ),
-                      ),
+                      // 회원가입 진입은 현재 플로우에서 제외한다(신규 사용자는 온보딩 →
+                      // 스몰토크 경로로만 가입한다). RegisterScreen/AppRoutes.register
+                      // 자체는 그대로 남겨두고, 여기서 진입 버튼만 뺀다.
                     ],
                   ),
                 ),

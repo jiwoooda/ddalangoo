@@ -91,9 +91,25 @@ class DdalangooAccessibilityService : AccessibilityService() {
     }
 
     private fun processCurrentRoot(trigger: String, packageNameOverride: String?) {
-        AutomationLogger.info("processCurrentRoot trigger=$trigger")
         val taskAtStart = AutomationTaskStore.getTask()
-        if (taskAtStart?.currentStep == AutomationContract.Step.COMPLETED) {
+
+        // 자동화 task가 없을 때(스몰토크/온보딩 등 자동화와 무관한 화면)는 원래
+        // "검증용 로그만 남기는" 분기였는데, 그 분기에 들어가기도 전에 이미
+        // rootInActiveWindow 전체를 순회 + JSON 직렬화 + 로깅하는 무거운 작업을
+        // 매 accessibility 이벤트마다 실행하고 있었다. 이 서비스는 앱과 같은
+        // 메인 스레드에서 돌기 때문에(별도 android:process 없음), 화면
+        // 애니메이션(마이크 버튼 펄스 등)만으로도 accessibility 이벤트가 계속
+        // 발생하고, 그때마다 메인 스레드가 이 무거운 작업에 점유돼 TTS 요청 같은
+        // Flutter 쪽 비동기 작업이 실행될 기회를 못 받는 문제로 이어졌다.
+        // task가 없을 때는 무거운 작업 없이 즉시 리턴한다 — 실제 자동화 로직
+        // (아래 task != null 경로)은 전혀 건드리지 않는다.
+        if (taskAtStart == null) {
+            lastPurchaseHistoryScrollFingerprint = null
+            return
+        }
+
+        AutomationLogger.info("processCurrentRoot trigger=$trigger")
+        if (taskAtStart.currentStep == AutomationContract.Step.COMPLETED) {
             AutomationLogger.info("task_completed_ignore_event trigger=$trigger")
             AutomationTaskStore.recordCompletedIgnored(
                 packageName = packageNameOverride ?: taskAtStart.packageName,
@@ -113,7 +129,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
 
         val rootPackageName = rootNode.packageName?.toString()
         val currentPackageName =
-            if (!taskAtStart?.packageName.isNullOrBlank() && rootPackageName == taskAtStart?.packageName) {
+            if (!taskAtStart.packageName.isNullOrBlank() && rootPackageName == taskAtStart.packageName) {
                 rootPackageName
             } else {
                 packageNameOverride ?: rootPackageName
@@ -123,29 +139,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
         AutomationLogger.info("ui_tree filteredNodeCount=${filteredNodes.size}")
         AutomationLogger.debug("filtered_nodes_json=${uiNodeSerializer.toJson(filteredNodes)}")
 
-        // task가 없을 때는 자동 클릭/입력 없이 UI Tree 검증 로그만 남긴다.
         val task = taskAtStart
-        if (task == null) {
-            lastPurchaseHistoryScrollFingerprint = null
-            AutomationTaskStore.recordObservation(
-                packageName = currentPackageName,
-                currentStep = null,
-                rawNodeCount = rawNodes.size,
-                filteredNodeCount = filteredNodes.size,
-                trigger = trigger
-            )
-            AutomationLogger.validation(
-                platform = null,
-                packageName = currentPackageName,
-                currentStep = null,
-                rawNodeCount = rawNodes.size,
-                filteredNodeCount = filteredNodes.size,
-                actionPlan = null,
-                actionResult = null,
-                selectedNode = null
-            )
-            return
-        }
 
         if (
             task.platform == AutomationContract.Platform.KURLY &&

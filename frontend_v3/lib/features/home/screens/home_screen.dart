@@ -14,6 +14,7 @@ import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/primary_button.dart';
+import '../../shopping/screens/shopping_flow_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -76,12 +77,26 @@ class _HomeScreenState extends State<HomeScreen> {
     ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
   }
 
+  // 말풍선 문구를 한 문장씩 순서대로 보여준다. DialogueBubble의
+  // cyclePages 기능이 문장을 나누고 순환시키는 걸 알아서 처리해서, 화면마다
+  // 따로 Timer를 관리하던 코드를 걷어냈다. 다만 이 화면에는 TTS 음성 재생이
+  // 연결되어 있지 않아 실제 음성과 싱크는 맞지 않는다 — 필요하면
+  // VoiceService.speak 연동을 별도로 추가해야 한다.
   String get _greetingText {
     final trimmed = _userName?.trim();
     if (trimmed == null || trimmed.isEmpty) {
-      return '안녕하세요! 저는 딸랑구예요 :)\n오늘도 반갑게 인사하러 왔어요!';
+      return '안녕하세요! 저는 딸랑구예요 :)\n'
+          '오늘도 반갑게 인사하러 왔어요!\n'
+          '화면 아래쪽 버튼을 누르면 바로 시작할 수 있어요!';
     }
-    return '$trimmed님, 안녕하세요!\n오늘도 딸랑구가 쇼핑을 도와드릴게요.';
+    return '$trimmed님, 안녕하세요!\n'
+        '오늘도 딸랑구가 쇼핑을 도와드릴게요.\n'
+        '화면 아래쪽 버튼을 누르면 바로 시작할 수 있어요!';
+  }
+
+  List<String> get _greetingHighlightedWords {
+    final trimmed = _userName?.trim();
+    return [if (trimmed != null && trimmed.isNotEmpty) trimmed, '딸랑구'];
   }
 
   @override
@@ -128,14 +143,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       min: AppSpacing.xs,
                       max: AppSpacing.lg,
                     );
+                    // "딸랑구가 본 나 보기"처럼 2줄로 넘어가는 라벨이 있어서
+                    // 기존 높이(104~128)로는 텍스트가 살짝 잘렸다(오버플로우).
+                    // 여유를 좀 더 뒀다.
                     final shortcutHeight = responsive.bound(
                       responsive.heightScaled(
-                        compact ? 116 : 128,
+                        compact ? 132 : 144,
                         minFactor: 0.84,
                         maxFactor: 1.0,
                       ),
-                      min: 104,
-                      max: 128,
+                      min: 120,
+                      max: 144,
                     );
                     final useSingleColumnShortcuts =
                         contentConstraints.maxWidth < 340;
@@ -239,9 +257,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               SizedBox(height: headerGap),
                               DialogueBubble(
                                 text: _greetingText,
-                                highlightedWords: _userName == null
-                                    ? ['딸랑구']
-                                    : [_userName!],
+                                cyclePages: true,
+                                highlightedWords: _greetingHighlightedWords,
                                 style: AppTextStyles.title2.copyWith(
                                   fontSize: responsive.bound(
                                     responsive.font(compact ? 22 : 25),
@@ -331,13 +348,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                         const SizedBox(height: AppSpacing.md),
                                         buildShortcutCard(
-                                          icon: Icons.receipt_long_outlined,
-                                          title: '지난 주문 내역',
+                                          icon: Icons.auto_awesome_rounded,
+                                          title: '딸랑구가 본 나',
                                           onTap: () {
-                                            Navigator.of(
-                                              context,
-                                            ).pushReplacementNamed(
-                                              AppRoutes.purchaseHistoryLoading,
+                                            Navigator.of(context).pushNamed(
+                                              AppRoutes.preferenceReport,
                                             );
                                           },
                                         ),
@@ -358,14 +373,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                         const SizedBox(width: AppSpacing.md),
                                         Expanded(
                                           child: buildShortcutCard(
-                                            icon: Icons.receipt_long_outlined,
-                                            title: '지난 주문 내역',
+                                            icon: Icons.auto_awesome_rounded,
+                                            title: '딸랑구가 본 나',
                                             onTap: () {
-                                              Navigator.of(
-                                                context,
-                                              ).pushReplacementNamed(
-                                                AppRoutes
-                                                    .purchaseHistoryLoading,
+                                              Navigator.of(context).pushNamed(
+                                                AppRoutes.preferenceReport,
                                               );
                                             },
                                           ),
@@ -393,35 +405,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   max: AppSpacing.lg,
                 ),
               ),
-              Text(
-                '딸랑구를 불러보세요!',
-                textAlign: TextAlign.center,
-                style: AppTextStyles.body2.copyWith(
-                  color: AppColors.textMuted,
-                  fontWeight: FontWeight.w600,
-                  fontSize: responsive.font(
-                    16,
-                    minFactor: 0.94,
-                    maxFactor: 1.0,
-                  ),
-                ),
-              ),
-              SizedBox(
-                height: responsive.bound(
-                  responsive.heightScaled(
-                    AppSpacing.xs,
-                    minFactor: 0.7,
-                    maxFactor: 1.0,
-                  ),
-                  min: AppSpacing.xxs,
-                  max: AppSpacing.xs,
-                ),
-              ),
+              // "딸랑구를 불러보세요!" 회색 안내 문구는 삭제하고, 같은 안내를
+              // 말풍선 문구(화면 아래쪽 버튼을 누르면...)에 녹여 넣었다.
               PrimaryButton(
                 label: '딸랑구야 도와줘!',
                 icon: Icons.phone_in_talk_rounded,
                 onPressed: () {
-                  Navigator.of(context).pushNamed(AppRoutes.flowEntry);
+                  // named route(AppRoutes.flowEntry)로 가면 ShoppingFlowScreen이
+                  // userName 없이 시작해서, 컨트롤러 부트스트랩 단계에서
+                  // 사용자 이름을 다시 네트워크로 조회한다. 그 대기 시간 동안
+                  // "쇼핑 화면을 준비하고 있어요" 초기화 화면이 잠깐 보였다가
+                  // 사라지는 깜빡임이 생겼다. 홈 화면이 이미 알고 있는
+                  // _userName을 그대로 넘겨서 그 조회를 건너뛰게 한다.
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ShoppingFlowScreen(userName: _userName),
+                    ),
+                  );
                 },
               ),
             ],

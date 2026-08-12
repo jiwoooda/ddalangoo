@@ -6,6 +6,7 @@ import '../features/cart/screens/cart_screen.dart';
 import '../features/onboarding/screens/onboarding_screen.dart';
 import '../features/home/screens/home_screen.dart';
 import '../features/platform_check/screens/platform_check_screen.dart';
+import '../features/profile/screens/preference_report_screen.dart';
 import '../features/shopping/screens/purchase_history_loading_screen.dart';
 import '../features/shopping/screens/shopping_flow_screen.dart';
 import '../features/shopping/screens/smalltalk_screen.dart';
@@ -26,6 +27,7 @@ abstract final class AppRoutes {
   static const purchaseHistoryLoading = '/purchase-history-loading';
   static const flowEntry = '/flow-entry';
   static const flowEntryMock = '/flow-entry-mock';
+  static const preferenceReport = '/preference-report';
 
   static final map = <String, WidgetBuilder>{
     splash: (_) => const SplashScreen(),
@@ -42,5 +44,6 @@ abstract final class AppRoutes {
     flowEntry: (_) => const ShoppingFlowScreen(),
     flowEntryMock: (_) =>
         ShoppingFlowScreen(service: MockShoppingFlowService()),
+    preferenceReport: (_) => const PreferenceReportScreen(),
   };
 }

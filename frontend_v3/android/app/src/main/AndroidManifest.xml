@@ -58,5 +58,10 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- flutter_tts(기기 내장 TTS) 폴백이 Android 11+에서 TTS 엔진을
+             찾을 수 있도록 필요. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 </manifest>

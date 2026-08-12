@@ -2,6 +2,7 @@ package com.ddalangoo.ddalangoo
 
 import android.Manifest
 import android.app.ActivityManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioFormat
@@ -11,9 +12,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.text.TextUtils
 import androidx.core.app.ActivityCompat
 import com.ddalangoo.ddalangoo.accessibility.AutomationContract
 import com.ddalangoo.ddalangoo.accessibility.AutomationLogger
@@ -267,6 +270,14 @@ class MainActivity : FlutterActivity() {
                     result.success(AutomationTaskStore.consumeResultMap())
                 }
 
+                AutomationContract.Method.OPEN_ACCESSIBILITY_SETTINGS -> {
+                    result.success(openAccessibilitySettings())
+                }
+
+                AutomationContract.Method.IS_ACCESSIBILITY_SERVICE_ENABLED -> {
+                    result.success(isAccessibilityServiceEnabled())
+                }
+
                 AutomationContract.Method.GET_INSTALLED_SHOPPING_PLATFORMS -> {
                     result.success(getInstalledShoppingPlatforms())
                 }
@@ -299,6 +310,52 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    /**
+     * 온보딩의 "접근성 켜기" 단계에서 호출된다. 개별 서비스 상세 화면 대신
+     * 접근성 설정 목록 화면(ACTION_ACCESSIBILITY_SETTINGS)으로 보낸다 —
+     * 제조사별로 개별 서비스 딥링크가 막혀 있는 경우가 있어 목록 화면이
+     * 가장 안정적으로 동작한다. 사용자가 목록에서 "딸랑구"를 직접 켠다.
+     */
+    private fun openAccessibilitySettings(): Boolean {
+        return try {
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            AutomationLogger.info("openAccessibilitySettings requested")
+            true
+        } catch (error: Exception) {
+            AutomationLogger.warn("openAccessibilitySettings failed reason=${error.message}")
+            false
+        }
+    }
+
+    /**
+     * Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES에 우리 서비스의
+     * flattened component name이 포함돼 있는지로 판단한다.
+     * DdalangooAccessibilityService.onServiceConnected() 기반 상태
+     * (AutomationTaskStore.statusMap()의 serviceConnected)는 프로세스가 이미
+     * 떠 있어야 갱신되므로, 온보딩처럼 설정 화면 왕복 직후 즉시 확인해야 하는
+     * 시점에는 이 시스템 설정값을 직접 읽는 편이 더 신뢰도가 높다.
+     */
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val expectedComponent = ComponentName(this, DdalangooAccessibilityService::class.java)
+            .flattenToString()
+        val enabledServices = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+        ) ?: return false
+
+        val splitter = TextUtils.SimpleStringSplitter(':')
+        splitter.setString(enabledServices)
+        for (component in splitter) {
+            if (component.equals(expectedComponent, ignoreCase = true)) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun launchPackage(packageName: String): Boolean {

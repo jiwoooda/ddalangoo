@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/theme/app_colors.dart';
@@ -27,6 +29,8 @@ class DialogueBubble extends StatelessWidget {
     this.emphasizedStyle,
     this.contentKey,
     this.animateTextChanges = false,
+    this.cyclePages = false,
+    this.cyclePageInterval = const Duration(milliseconds: 2600),
     this.backgroundColor = Colors.white,
     this.borderColor,
     this.padding = const EdgeInsets.all(AppSpacing.lg),
@@ -47,6 +51,17 @@ class DialogueBubble extends StatelessWidget {
   final TextStyle? emphasizedStyle;
   final Key? contentKey;
   final bool animateTextChanges;
+
+  /// true면 전체 문구를 한 번에 다 보여주는 대신, 문장(또는 명시적으로
+  /// '\n'으로 나눈 문단) 단위로 하나씩 순서대로 보여준다. 딸랑구가 실제로
+  /// 한 문장씩 말하는 듯한 느낌을 주고, 문구가 길어도 말풍선 높이를 고정으로
+  /// 유지하면서 잘리는 문제 없이 다 보여줄 수 있다. [contentKey]가 바뀌면
+  /// (새 메시지로 교체되면) 처음 문장부터 다시 시작한다.
+  final bool cyclePages;
+
+  /// [cyclePages]가 true일 때 문장이 넘어가는 간격.
+  final Duration cyclePageInterval;
+
   final Color backgroundColor;
   final Color? borderColor;
   final EdgeInsets padding;
@@ -56,33 +71,56 @@ class DialogueBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = animateTextChanges
-        ? AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            child: _DialogueText(
-              key: contentKey,
-              text: text,
-              highlightedWords: highlightedWords,
-              segments: segments,
-              textAlign: textAlign,
-              style: style,
-              emphasizedStyle: emphasizedStyle,
-            ),
-          )
-        : _DialogueText(
-            key: contentKey,
-            text: text,
-            highlightedWords: highlightedWords,
-            segments: segments,
-            textAlign: textAlign,
-            style: style,
-            emphasizedStyle: emphasizedStyle,
-          );
+    final baseStyle = style ?? AppTextStyles.body1;
+    final accentStyle =
+        emphasizedStyle ??
+        baseStyle.copyWith(
+          color: AppColors.primaryPinkDark,
+          fontWeight: FontWeight.w800,
+        );
+
+    final fragments = _buildFragments(
+      source: text,
+      highlightedWords: highlightedWords,
+      segments: segments,
+      baseStyle: baseStyle,
+      accentStyle: accentStyle,
+    );
+
+    final Widget content;
+    if (cyclePages) {
+      content = _CyclingDialogueContent(
+        key:
+            contentKey ??
+            ValueKey(text ?? segments?.map((s) => s.text).join('|') ?? ''),
+        fragments: fragments,
+        baseStyle: baseStyle,
+        textAlign: textAlign,
+        interval: cyclePageInterval,
+      );
+    } else if (animateTextChanges) {
+      content = AnimatedSwitcher(
+        duration: const Duration(milliseconds: 260),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+        child: _WordBoundaryTextLayout(
+          key: contentKey,
+          fragments: fragments,
+          baseStyle: baseStyle,
+          textAlign: textAlign,
+        ),
+      );
+    } else {
+      content = _WordBoundaryTextLayout(
+        key: contentKey,
+        fragments: fragments,
+        baseStyle: baseStyle,
+        textAlign: textAlign,
+      );
+    }
 
     return _BubbleContainer(
       tail: tail,
@@ -101,115 +139,235 @@ class DialogueBubble extends StatelessWidget {
   }
 }
 
-class _DialogueText extends StatelessWidget {
-  const _DialogueText({
-    super.key,
-    required this.text,
-    required this.highlightedWords,
-    required this.segments,
-    required this.textAlign,
-    required this.style,
-    required this.emphasizedStyle,
-  });
-
-  final String? text;
-  final List<String> highlightedWords;
-  final List<DialogueSegment>? segments;
-  final TextAlign textAlign;
-  final TextStyle? style;
-  final TextStyle? emphasizedStyle;
-
-  @override
-  Widget build(BuildContext context) {
-    final baseStyle = style ?? AppTextStyles.body1;
-    final accentStyle =
-        emphasizedStyle ??
-        baseStyle.copyWith(
-          color: AppColors.primaryPinkDark,
-          fontWeight: FontWeight.w800,
-        );
-
-    final fragments = _fragments(
-      source: text,
-      highlightedWords: highlightedWords,
-      segments: segments,
-      baseStyle: baseStyle,
-      accentStyle: accentStyle,
-    );
-
-    return _WordBoundaryTextLayout(
-      fragments: fragments,
-      baseStyle: baseStyle,
-      textAlign: textAlign,
-    );
+List<_StyledFragment> _buildFragments({
+  required String? source,
+  required List<String> highlightedWords,
+  required List<DialogueSegment>? segments,
+  required TextStyle baseStyle,
+  required TextStyle accentStyle,
+}) {
+  if (segments != null && segments.isNotEmpty) {
+    return [
+      for (final segment in segments)
+        _StyledFragment(
+          text: segment.text,
+          style: segment.emphasized ? accentStyle : baseStyle,
+        ),
+    ];
   }
 
-  List<_StyledFragment> _fragments({
-    required String? source,
-    required List<String> highlightedWords,
-    required List<DialogueSegment>? segments,
-    required TextStyle baseStyle,
-    required TextStyle accentStyle,
-  }) {
-    if (segments != null && segments.isNotEmpty) {
-      return [
-        for (final segment in segments)
-          _StyledFragment(
-            text: segment.text,
-            style: segment.emphasized ? accentStyle : baseStyle,
-          ),
-      ];
+  final resolvedSource = source ?? '';
+  final words =
+      highlightedWords.toSet().where((word) => word.isNotEmpty).toList()
+        ..sort((a, b) => b.length.compareTo(a.length));
+
+  if (words.isEmpty) {
+    return [_StyledFragment(text: resolvedSource, style: baseStyle)];
+  }
+
+  final fragments = <_StyledFragment>[];
+  final buffer = StringBuffer();
+  var index = 0;
+
+  while (index < resolvedSource.length) {
+    String? matched;
+    for (final word in words) {
+      if (resolvedSource.startsWith(word, index)) {
+        matched = word;
+        break;
+      }
     }
 
-    final resolvedSource = source ?? '';
-    final words =
-        highlightedWords.toSet().where((word) => word.isNotEmpty).toList()
-          ..sort((a, b) => b.length.compareTo(a.length));
-
-    if (words.isEmpty) {
-      return [_StyledFragment(text: resolvedSource, style: baseStyle)];
-    }
-
-    final fragments = <_StyledFragment>[];
-    final buffer = StringBuffer();
-    var index = 0;
-
-    while (index < resolvedSource.length) {
-      String? matched;
-      for (final word in words) {
-        if (resolvedSource.startsWith(word, index)) {
-          matched = word;
-          break;
-        }
-      }
-
-      if (matched == null) {
-        buffer.write(resolvedSource[index]);
-        index += 1;
-        continue;
-      }
-
-      if (buffer.isNotEmpty) {
-        fragments.add(
-          _StyledFragment(text: buffer.toString(), style: baseStyle),
-        );
-        buffer.clear();
-      }
-
-      fragments.add(_StyledFragment(text: matched, style: accentStyle));
-      index += matched.length;
+    if (matched == null) {
+      buffer.write(resolvedSource[index]);
+      index += 1;
+      continue;
     }
 
     if (buffer.isNotEmpty) {
       fragments.add(_StyledFragment(text: buffer.toString(), style: baseStyle));
+      buffer.clear();
     }
 
-    return fragments;
+    fragments.add(_StyledFragment(text: matched, style: accentStyle));
+    index += matched.length;
+  }
+
+  if (buffer.isNotEmpty) {
+    fragments.add(_StyledFragment(text: buffer.toString(), style: baseStyle));
+  }
+
+  return fragments;
+}
+
+/// [fragments]를 "페이지" 단위로 쪼갠다. 먼저 명시적으로 넣은 '\n'을
+/// 문단 경계로 존중하고, 한 문단 안에 마침표/느낌표/물음표로 끝나는 문장이
+/// 여러 개 섞여 있으면(백엔드가 여러 문장을 한 번에 내려주는 경우 등)
+/// 문장 단위로 한 번 더 쪼갠다. 닫는 따옴표는 앞 문장에 붙여서 문장부호와
+/// 따옴표가 서로 다른 페이지로 갈라지지 않게 한다.
+List<List<_StyledFragment>> _splitFragmentsIntoPages(
+  List<_StyledFragment> fragments,
+) {
+  final flatChars = <MapEntry<String, TextStyle>>[];
+  for (final fragment in fragments) {
+    for (final rune in fragment.text.runes) {
+      flatChars.add(MapEntry(String.fromCharCode(rune), fragment.style));
+    }
+  }
+
+  if (flatChars.isEmpty) {
+    return [fragments];
+  }
+
+  const sentenceEnders = {'.', '!', '?'};
+  const closingQuotes = {'"', '”', '’', "'"};
+
+  final pages = <List<_StyledFragment>>[];
+  var current = <_StyledFragment>[];
+  final buffer = StringBuffer();
+  TextStyle? bufferStyle;
+
+  void flushBuffer() {
+    if (buffer.isEmpty) return;
+    current.add(_StyledFragment(text: buffer.toString(), style: bufferStyle!));
+    buffer.clear();
+  }
+
+  void flushPage() {
+    flushBuffer();
+    if (current.isNotEmpty) {
+      pages.add(current);
+    }
+    current = <_StyledFragment>[];
+  }
+
+  void writeChar(String char, TextStyle style) {
+    if (bufferStyle != style) {
+      flushBuffer();
+      bufferStyle = style;
+    }
+    buffer.write(char);
+  }
+
+  for (var i = 0; i < flatChars.length; i++) {
+    final entry = flatChars[i];
+    final char = entry.key;
+
+    if (char == '\n') {
+      flushPage();
+      continue;
+    }
+
+    writeChar(char, entry.value);
+
+    if (sentenceEnders.contains(char)) {
+      if (i + 1 < flatChars.length &&
+          closingQuotes.contains(flatChars[i + 1].key)) {
+        final next = flatChars[i + 1];
+        writeChar(next.key, next.value);
+        i += 1;
+      }
+      flushPage();
+      while (i + 1 < flatChars.length && flatChars[i + 1].key == ' ') {
+        i += 1;
+      }
+    }
+  }
+  flushPage();
+
+  return pages.isEmpty ? [fragments] : pages;
+}
+
+/// [DialogueBubble.cyclePages]가 true일 때 문장을 하나씩 순서대로
+/// 페이드 전환하며 보여주는 위젯. 위젯 자체가 (contentKey를 통해) 메시지가
+/// 바뀔 때마다 새로 생성되므로, 매 메시지마다 자연스럽게 첫 문장부터 다시
+/// 시작한다.
+class _CyclingDialogueContent extends StatefulWidget {
+  const _CyclingDialogueContent({
+    super.key,
+    required this.fragments,
+    required this.baseStyle,
+    required this.textAlign,
+    required this.interval,
+  });
+
+  final List<_StyledFragment> fragments;
+  final TextStyle baseStyle;
+  final TextAlign textAlign;
+  final Duration interval;
+
+  @override
+  State<_CyclingDialogueContent> createState() =>
+      _CyclingDialogueContentState();
+}
+
+class _CyclingDialogueContentState extends State<_CyclingDialogueContent> {
+  Timer? _timer;
+  int _index = 0;
+  late final List<List<_StyledFragment>> _pages = _splitFragmentsIntoPages(
+    widget.fragments,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleTimer() {
+    _timer?.cancel();
+    if (_pages.length <= 1) {
+      return;
+    }
+    // 마지막 문장까지 보여준 뒤에는 멈춘다(처음으로 되돌아가 무한 반복하지
+    // 않는다). 마지막 페이지에 도달하면 타이머 자체를 취소한다.
+    _timer = Timer.periodic(widget.interval, (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_index >= _pages.length - 1) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _index += 1;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final page = _pages.isEmpty
+        ? const <_StyledFragment>[]
+        : _pages[_index.clamp(0, _pages.length - 1)];
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+      child: _WordBoundaryTextLayout(
+        key: ValueKey(_index),
+        fragments: page,
+        baseStyle: widget.baseStyle,
+        textAlign: widget.textAlign,
+      ),
+    );
   }
 }
 
 class _WordBoundaryTextLayout extends StatelessWidget {
   const _WordBoundaryTextLayout({
+    super.key,
     required this.fragments,
     required this.baseStyle,
     required this.textAlign,
