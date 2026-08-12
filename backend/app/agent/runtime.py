@@ -52,14 +52,20 @@ _init_lock = asyncio.Lock()
 async def init():
     """FastAPI lifespan startup: 풀 생성 + checkpoint 테이블 초기화 + 그래프 빌드."""
     global _graph, _pool
+    print("[DEBUG] runtime.init: start", flush=True)
     # setup()은 CREATE INDEX CONCURRENTLY를 실행하므로 autocommit 단독 커넥션으로 처리
     async with AsyncPostgresSaver.from_conn_string(_PG_CONNINFO) as saver:
+        print("[DEBUG] runtime.init: saver created, calling setup()", flush=True)
         await saver.setup()
+        print("[DEBUG] runtime.init: saver.setup() done", flush=True)
     # 실제 운영은 커넥션 풀 기반 체크포인터 사용
     _pool = AsyncConnectionPool(_PG_CONNINFO, max_size=10, open=False)
+    print("[DEBUG] runtime.init: pool created, opening", flush=True)
     await _pool.open()
+    print("[DEBUG] runtime.init: pool opened", flush=True)
     checkpointer = AsyncPostgresSaver(_pool)
     _graph = build_graph(checkpointer=checkpointer)
+    print("[DEBUG] runtime.init: graph built, done", flush=True)
 
 
 async def ensure_initialized():
