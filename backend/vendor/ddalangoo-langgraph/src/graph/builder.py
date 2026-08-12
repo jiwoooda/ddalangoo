@@ -2,9 +2,7 @@
 Orchestrator Graph Builder.
 
 LangGraph StateGraph 구성:
-- session_start → 신규사용자: smalltalk_agent → respond → wait_for_input
-- session_start → 기존사용자: wait_for_input
-- 이후 턴: wait_for_input → intent_agent/smalltalk_agent → ... → respond
+- wait_for_input → intent_agent → route() → {agents} → respond → after_respond()
 - interrupt_before=["wait_for_input"] (human-in-the-loop)
 - MemorySaver (standalone 기본; production: PostgresSaver)
 
@@ -20,7 +18,6 @@ from src.state.schema import ShoppingState
 from src.graph.router import (
     route,
     route_entry,
-    route_session_start,
     after_respond,
     after_context_agent,
     after_reorder_agent,
@@ -35,7 +32,6 @@ from src.agents.reorder_agent import reorder_agent_node
 from src.agents.product_agent import product_agent_node
 from src.agents.response_agent import response_agent_node
 from src.agents.nodes import (
-    session_start_node,
     wait_for_input_node,
     reset_turn_observability_node,
     respond_node,
@@ -61,7 +57,6 @@ def build_graph(checkpointer=None):
 
     builder = StateGraph(ShoppingState)
 
-    builder.add_node("session_start", session_start_node)
     builder.add_node("wait_for_input", wait_for_input_node)
     builder.add_node("reset_turn_observability", reset_turn_observability_node)
     # intent_agent/smalltalk_agent: 단일 LLM 호출 중심 + 부수효과 없음 → Node 전체
@@ -81,14 +76,7 @@ def build_graph(checkpointer=None):
     builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
     builder.add_node("cancel", cancel_node)
 
-    # 신규 사용자는 세션을 여는 순간 딸랑구가 먼저 자기소개와 이름 질문을
-    # 건넨다. 기존 사용자는 바로 wait_for_input에서 멈춘다.
-    builder.set_entry_point("session_start")
-    builder.add_conditional_edges(
-        "session_start",
-        route_session_start,
-        {"smalltalk_agent": "smalltalk_agent", "wait_for_input": "wait_for_input"},
-    )
+    builder.set_entry_point("wait_for_input")
     builder.add_edge("wait_for_input", "reset_turn_observability")
     # 온보딩 미완료 신규유저는 intent_agent를 거치지 않고 바로 smalltalk_agent로
     # (route_entry, src/graph/router.py 참고) — smalltalk는 LLM이 매턴 판단하는

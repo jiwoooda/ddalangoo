@@ -104,20 +104,6 @@ def main() -> None:
     print("  /status  /profile  /reset  /quit")
     print("=" * 64)
 
-    # 실제 그래프와 동일하게 신규 세션은 사용자 입력을 기다리기 전에
-    # 딸랑구가 먼저 자기소개와 이름 질문을 건넨다.
-    initial_result = smalltalk_agent_node(state)
-    if initial_result.get("degraded_mode"):
-        _print_degraded_error(initial_result, args.model)
-    else:
-        initial_reply = initial_result["immediate_response"]
-        state.update(initial_result)
-        state["messages"].append({"role": "assistant", "content": initial_reply})
-        print(f"\n딸랑구 > {initial_reply}")
-        print(f"  └─ 질문 수={initial_reply.count('?') + initial_reply.count('？')}")
-        if args.debug:
-            _print_status(state)
-
     while True:
         try:
             user_input = input("\n사용자 > ").strip()
@@ -142,14 +128,6 @@ def main() -> None:
                 db_client.save_profile(user_id, {})
                 state = _new_state(user_id)
                 print("대화와 mock 프로필을 초기화했습니다.")
-                reset_result = smalltalk_agent_node(state)
-                if reset_result.get("degraded_mode"):
-                    _print_degraded_error(reset_result, args.model)
-                else:
-                    reset_reply = reset_result["immediate_response"]
-                    state.update(reset_result)
-                    state["messages"].append({"role": "assistant", "content": reset_reply})
-                    print(f"\n딸랑구 > {reset_reply}")
                 continue
             print("알 수 없는 명령입니다: /status /profile /reset /quit")
             continue

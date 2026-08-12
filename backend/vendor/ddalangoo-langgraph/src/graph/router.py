@@ -257,30 +257,6 @@ def route_entry(state: ShoppingState) -> Literal["smalltalk_agent", "intent_agen
     return "smalltalk_agent"
 
 
-def route_session_start(state: ShoppingState) -> Literal["smalltalk_agent", "wait_for_input"]:
-    """세션을 열자마자 딸랑구가 먼저 인사할지 결정한다.
-
-    아직 대화 메시지가 없는 신규·미온보딩 사용자만 smalltalk_agent로 보내고,
-    이미 온보딩됐거나 구매 이력이 있는 사용자는 기존처럼 사용자 입력을
-    기다린다. 사용자 메시지가 이미 담긴 상태로 그래프를 시작하는 테스트나
-    외부 호출은 선제 인사를 끼워 넣지 않고 기존 입력 대기 흐름을 사용한다.
-    """
-    if state.get("messages"):
-        return "wait_for_input"
-    if state.get("stage", "idle") != "idle":
-        return "wait_for_input"
-    user_id = state.get("user_id", "")
-    if not user_id:
-        return "wait_for_input"
-
-    from src.tools import db_client
-
-    profile = db_client.get_profile(user_id)
-    already_onboarded = bool(profile and profile.get("onboarded_at"))
-    has_purchase_history = bool(db_client.get_purchase_histories(user_id))
-    return "wait_for_input" if (already_onboarded or has_purchase_history) else "smalltalk_agent"
-
-
 def route(state: ShoppingState) -> RouteName:
     """
     Intent + Stage 기반 라우팅.
