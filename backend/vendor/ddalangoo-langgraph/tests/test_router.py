@@ -3,7 +3,15 @@ Router unit tests.
 LLM 없이 route() 함수 로직만 검증.
 """
 import pytest
-from src.graph.router import route, after_respond
+import langgraph.errors
+
+if not hasattr(langgraph.errors, "NodeError"):
+    class NodeError(Exception):
+        pass
+
+    langgraph.errors.NodeError = NodeError
+
+from src.graph.router import route, route_session_start, after_respond
 from src.state.schema import get_default_shopping_state
 
 
@@ -11,6 +19,59 @@ def make_state(**overrides) -> dict:
     state = get_default_shopping_state("user_test", "session_test")
     state.update(overrides)
     return state
+
+
+def test_session_start_new_user_greets_first(monkeypatch):
+    from src.tools import db_client
+
+    monkeypatch.setattr(db_client, "get_profile", lambda user_id: None)
+    monkeypatch.setattr(db_client, "get_purchase_histories", lambda user_id: [])
+    assert route_session_start(make_state(messages=[])) == "smalltalk_agent"
+
+
+def test_session_start_onboarded_user_waits(monkeypatch):
+    from src.tools import db_client
+
+    monkeypatch.setattr(db_client, "get_profile", lambda user_id: {"onboarded_at": "now"})
+    monkeypatch.setattr(db_client, "get_purchase_histories", lambda user_id: [])
+    assert route_session_start(make_state(messages=[])) == "wait_for_input"
+
+
+def test_session_start_with_existing_message_does_not_preempt_input(monkeypatch):
+    assert route_session_start(
+        make_state(messages=[{"role": "user", "content": "우유 사줘"}])
+    ) == "wait_for_input"
+
+
+def test_graph_new_session_emits_assistant_greeting_before_wait(monkeypatch):
+    from src.tools import db_client
+    import src.graph.builder as graph_builder
+
+    monkeypatch.setattr(db_client, "get_profile", lambda user_id: None)
+    monkeypatch.setattr(db_client, "get_purchase_histories", lambda user_id: [])
+
+    def fake_smalltalk(state, runtime=None):
+        greeting = "안녕하세요, 쇼핑을 도와드릴 딸랑구예요. 성함이 어떻게 되세요?"
+        return {
+            "explanation": greeting,
+            "immediate_response": greeting,
+            "pending_action": None,
+            "onboarding_started_at": "now",
+            "stage": "idle",
+            "last_agent": "smalltalk_agent",
+            "error": None,
+        }
+
+    monkeypatch.setattr(graph_builder, "smalltalk_agent_node", fake_smalltalk)
+    graph = graph_builder.build_graph()
+    config = {"configurable": {"thread_id": "proactive-greeting-test"}}
+    graph.invoke(make_state(messages=[]), config)
+
+    current = graph.get_state(config)
+    assert current.next == ("wait_for_input",)
+    last_message = current.values["messages"][-1]
+    assert getattr(last_message, "type", None) == "ai"
+    assert "성함이 어떻게 되세요?" in last_message.content
 
 
 # ══════════════════════════════════════════════
