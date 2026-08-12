@@ -28,12 +28,6 @@ dependencies = [
 dev = [
     "streamlit>=1.38.0",
 ]
-# vivid_bridge.py 전용 — 외부 검증 서비스(VIVID)가 붙을 수 있는 최소 HTTP
-# 래퍼. backend/app(main.py)의 무거운 FastAPI 스택과는 별개.
-bridge = [
-    "fastapi>=0.110.0",
-    "uvicorn>=0.29.0",
-]
 
 [project.scripts]
 ddalangoo = "main:main"
