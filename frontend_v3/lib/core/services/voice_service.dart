@@ -22,6 +22,9 @@ class VoiceService {
   static const String _ttsPath = '/api/voice/tts';
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
+  // Gemini TTS quota가 회복되기 전까지 백엔드 TTS 요청 자체를 보내지 않고
+  // 기기 내장 TTS만 사용한다. quota가 회복되면 false로 되돌리면 된다.
+  static const bool _forceDeviceFallbackTts = true;
 
   // 백엔드 TTS 응답(오디오 바이트) 캐시. 온보딩/스몰토크 대사는 상당수가
   // 고정 문구라 같은 문장을 반복 재생할 때 매번 새로 네트워크를 타지 않도록
@@ -89,6 +92,14 @@ class VoiceService {
     await init();
     debugPrint('[VoiceService] speak: stopSpeaking start');
     await stopSpeaking();
+
+    if (_forceDeviceFallbackTts) {
+      debugPrint(
+        '[VoiceService] speak: backend TTS skipped by force fallback flag',
+      );
+      await _speakViaDeviceFallback(normalized);
+      return;
+    }
 
     // 백엔드 TTS(서버에서 오디오 파일을 만들어 내려주는 방식)가 응답을 못 주거나
     // (연결 타임아웃 등), 응답은 왔는데 재생 자체가 실패하는 경우 등 어떤

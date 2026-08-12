@@ -7,6 +7,7 @@ cd "$SCRIPT_DIR" || exit 1
 
 PORT=8000
 HOST="0.0.0.0"
+BACKEND_MODE="${BACKEND_MODE:-detached}"
 CHECK_URL="http://127.0.0.1:${PORT}/docs"
 LOG_DIR="logs"
 LOG_FILE="${LOG_DIR}/uvicorn_8000.log"
@@ -29,7 +30,18 @@ else
   echo "[restart] no existing process on port ${PORT}"
 fi
 
-echo "[restart] starting uvicorn on port ${PORT}"
+if [ "$BACKEND_MODE" = "foreground" ]; then
+  echo "[restart] starting uvicorn in foreground on port ${PORT}"
+  echo "[restart] foreground mode keeps the server attached to this terminal"
+  exec .venv/bin/uvicorn main:app --host "$HOST" --port "$PORT" --lifespan off
+fi
+
+if [ "$BACKEND_MODE" != "detached" ]; then
+  echo "[restart] unsupported BACKEND_MODE=${BACKEND_MODE}. Use detached or foreground."
+  exit 1
+fi
+
+echo "[restart] starting uvicorn in detached mode on port ${PORT}"
 nohup .venv/bin/uvicorn main:app --host "$HOST" --port "$PORT" --lifespan off > "$LOG_FILE" 2>&1 &
 SERVER_PID="$!"
 echo "$SERVER_PID" > "$PID_FILE"

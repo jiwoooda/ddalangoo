@@ -16,7 +16,7 @@ import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/voice_input_button.dart';
 import '../../../shared/widgets/voice_panel.dart';
-import '../../platform_check/screens/platform_check_screen.dart';
+import 'smalltalk_purchase_history_bridge_screen.dart';
 
 /// 이름 입력 이후 LangGraph smalltalk_agent와 이어서 대화하는 화면.
 /// 구매이력 자동화는 백엔드가 uiCommand로 명시적으로 요청할 때만 시작한다.
@@ -48,6 +48,7 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
   int _mockReplyCount = 0;
   String? _errorMessage;
   String? _transcriptPreview;
+  String? _visibleAssistantMessage;
 
   @override
   void initState() {
@@ -133,37 +134,83 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
     );
   }
 
-  Future<void> _speak(String message) async {
-    final trimmed = message.trim();
-    if (trimmed.isEmpty) {
-      return;
-    }
-    setState(() => _isSpeaking = true);
-    try {
-      await _voiceService.speak(trimmed);
-    } catch (_) {
-      // TTS는 진행 보조 기능이라 실패해도 다음 단계 이동은 막지 않는다.
-    } finally {
-      if (mounted) {
-        setState(() => _isSpeaking = false);
-      }
-    }
-  }
-
   Future<void> _handleAgentResponse(AgentResponse response) async {
     if (!mounted) {
       return;
     }
+    final responseSentences = _sentencesForResponse(response);
     setState(() {
       _response = response;
       _conversationId = response.conversationId;
+      _visibleAssistantMessage = responseSentences.isNotEmpty
+          ? responseSentences.first
+          : response.assistantMessage.trim();
       _isLoading = false;
       _isSubmitting = false;
       _errorMessage = null;
     });
-    await _speak(response.assistantMessage);
+    await _speakSentences(responseSentences);
     if (_shouldStartPurchaseHistory(response)) {
       _continueToPurchaseHistory();
+    }
+  }
+
+  List<String> _sentencesForResponse(AgentResponse response) {
+    if (response.messageSentences.isNotEmpty) {
+      return response.messageSentences;
+    }
+
+    final segmentSentences = response.speechSegments
+        .map((segment) => segment.text.trim())
+        .where((sentence) => sentence.isNotEmpty)
+        .toList(growable: false);
+    if (segmentSentences.isNotEmpty) {
+      return segmentSentences;
+    }
+
+    return _fallbackSplitSentences(response.assistantMessage);
+  }
+
+  List<String> _fallbackSplitSentences(String message) {
+    final normalized = message.trim();
+    if (normalized.isEmpty) {
+      return const <String>[];
+    }
+
+    final matches = RegExp(r'[^.!?。？！]+[.!?。？！]?').allMatches(normalized);
+    final sentences = matches
+        .map((match) => match.group(0)?.trim() ?? '')
+        .where((sentence) => sentence.isNotEmpty)
+        .toList(growable: false);
+    return sentences.isEmpty ? <String>[normalized] : sentences;
+  }
+
+  Future<void> _speakSentences(List<String> sentences) async {
+    final queue = sentences
+        .map((sentence) => sentence.trim())
+        .where((sentence) => sentence.isNotEmpty)
+        .toList(growable: false);
+    if (queue.isEmpty) {
+      return;
+    }
+
+    setState(() => _isSpeaking = true);
+    try {
+      for (final sentence in queue) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _visibleAssistantMessage = sentence);
+        try {
+          await _voiceService.speak(sentence);
+        } catch (_) {
+          // TTS는 진행 보조 기능이라 실패해도 다음 문장/단계 이동은 막지 않는다.
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSpeaking = false);
+      }
     }
   }
 
@@ -295,7 +342,7 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
-        builder: (_) => PlatformCheckScreen(
+        builder: (_) => SmallTalkPurchaseHistoryBridgeScreen(
           userName: widget.userName,
           useMockFlow: widget.useMockFlow,
         ),
@@ -305,7 +352,8 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final message = _response?.assistantMessage.trim();
+    final message =
+        _visibleAssistantMessage?.trim() ?? _response?.assistantMessage.trim();
     final transcriptPreview = _transcriptPreview?.trim();
 
     return ScreenFrame(
@@ -315,7 +363,7 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
         children: [
           DialogueBubble(
             contentKey: ValueKey('$_isLoading-${message ?? ''}'),
-            cyclePages: true,
+            cyclePages: false,
             text: _isLoading
                 ? '잠시만요. 딸랑구가 ${widget.userName}님과 인사하고 있어요.'
                 : (message == null || message.isEmpty

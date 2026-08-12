@@ -20,6 +20,7 @@ class ShoppingFlowState {
     this.userId,
     this.resolvedUserName,
     this.response,
+    this.visibleAssistantMessage,
     this.fallbackAddress,
     this.viewStage = ShoppingFlowViewStage.askProduct,
     this.inlineError,
@@ -38,6 +39,7 @@ class ShoppingFlowState {
   final int? userId;
   final String? resolvedUserName;
   final AgentResponse? response;
+  final String? visibleAssistantMessage;
   final ShoppingAddressViewData? fallbackAddress;
   final ShoppingFlowViewStage viewStage;
   final String? inlineError;
@@ -58,6 +60,7 @@ class ShoppingFlowState {
     Object? userId = _sentinel,
     Object? resolvedUserName = _sentinel,
     Object? response = _sentinel,
+    Object? visibleAssistantMessage = _sentinel,
     Object? fallbackAddress = _sentinel,
     ShoppingFlowViewStage? viewStage,
     Object? inlineError = _sentinel,
@@ -83,6 +86,9 @@ class ShoppingFlowState {
       response: identical(response, _sentinel)
           ? this.response
           : response as AgentResponse?,
+      visibleAssistantMessage: identical(visibleAssistantMessage, _sentinel)
+          ? this.visibleAssistantMessage
+          : visibleAssistantMessage as String?,
       fallbackAddress: identical(fallbackAddress, _sentinel)
           ? this.fallbackAddress
           : fallbackAddress as ShoppingAddressViewData?,

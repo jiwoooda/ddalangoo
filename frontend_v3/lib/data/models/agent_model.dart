@@ -314,6 +314,7 @@ class AgentResponse {
     required this.stage,
     required this.assistantMessage,
     this.message,
+    this.messageSentences = const <String>[],
     this.speechMode,
     this.speechSegments = const <SpeechSegmentModel>[],
     this.recommendationId,
@@ -337,6 +338,7 @@ class AgentResponse {
   final String stage;
   final String assistantMessage;
   final String? message;
+  final List<String> messageSentences;
   final String? speechMode;
   final List<SpeechSegmentModel> speechSegments;
   final int? recommendationId;
@@ -355,6 +357,12 @@ class AgentResponse {
   final dynamic error;
 
   factory AgentResponse.fromJson(Map<String, dynamic> json) {
+    final messageSentences =
+        (json['messageSentences'] as List<dynamic>? ?? const <dynamic>[])
+            .map((sentence) => sentence.toString().trim())
+            .where((sentence) => sentence.isNotEmpty)
+            .toList(growable: false);
+
     final speechSegments =
         (json['speechSegments'] as List<dynamic>? ?? const <dynamic>[])
             .whereType<Map>()
@@ -386,6 +394,7 @@ class AgentResponse {
           json['message'] as String? ??
           '',
       message: json['message'] as String?,
+      messageSentences: messageSentences,
       speechMode: json['speechMode'] as String?,
       speechSegments: speechSegments,
       recommendationId: json['recommendationId'] as int?,
