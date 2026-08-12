@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -342,7 +342,7 @@ async def handle_webview_result_db(
             {
                 "status": "order_completed",
                 "stage": "completed",
-                "ended_at": datetime.now(UTC),
+                "ended_at": datetime.now(timezone.utc),
             },
         )
         await agent_event_repository.create_agent_event_db(
@@ -398,7 +398,7 @@ async def handle_webview_result_db(
             {
                 "status": "payment_button_attempted",
                 "stage": "completed",
-                "ended_at": datetime.now(UTC),
+                "ended_at": datetime.now(timezone.utc),
             },
         )
         await agent_event_repository.create_agent_event_db(
@@ -689,7 +689,7 @@ async def handle_webview_result_db(
             {
                 "status": "cancelled",
                 "stage": "cancelled",
-                "ended_at": datetime.now(UTC),
+                "ended_at": datetime.now(timezone.utc),
             },
         )
         await agent_event_repository.create_agent_event_db(
@@ -726,76 +726,6 @@ async def handle_webview_result_db(
             "error": None,
         }
 
-    if result == "cart_failed":
-        failure_reason = (req.failureReason or "webview_cart_failed").strip()
-        retry_message = (
-            "상품을 찾지 못했어요. 다시 말씀해주세요."
-            if failure_reason == "search_product_missing"
-            else "장바구니에 담지 못했어요. 다시 말씀해주세요."
-        )
-        await conversation_repository.update_conversation_db(
-            db,
-            conversation_id,
-            {
-                "status": "waiting_user_input",
-                "stage": "clarification_needed",
-            },
-        )
-        await agent_event_repository.create_agent_event_db(
-            db,
-            conversation_id=conversation_id,
-            agent_name="payment_service",
-            event_type="webview_cart_failed",
-            input_summary={
-                "order_id": req.orderId,
-                "payment_id": req.paymentId,
-                "failure_reason": failure_reason,
-            },
-            output_summary={
-                "conversation_stage": "clarification_needed",
-                "retry_message": retry_message,
-            },
-        )
-        webview_progress_service.clear_progress(conversation_id)
-        await runtime.update_state(conversation_id, {
-            "stage": "clarification_needed",
-            "messages": _assistant_message_patch(retry_message),
-            "pending_action": {
-                "type": "clarify_product",
-                "message": retry_message,
-                "payload": {
-                    "subType": "clarify_product",
-                    "failureReason": failure_reason,
-                },
-            },
-            "order": order_payload,
-            "payment": payment_payload,
-            "webview_progress": None,
-            "error": failure_reason,
-        })
-        return {
-            **base,
-            "status": "waiting_user_input",
-            "stage": "clarification_needed",
-            "assistantMessage": retry_message,
-            "pendingConfirmation": {
-                "type": "clarify_product",
-                "message": retry_message,
-                "payload": {
-                    "subType": "clarify_product",
-                    "failureReason": failure_reason,
-                },
-            },
-            "order": order_payload,
-            "payment": payment_payload,
-            "uiCommand": {"type": "close_webview"},
-            "error": {
-                "category": "WEBVIEW_ERROR",
-                "code": failure_reason.upper(),
-                "message": retry_message,
-            },
-        }
-
     updated_payment = await payment_repository.update_payment_status_db(
         db,
         req.paymentId,
@@ -814,7 +744,7 @@ async def handle_webview_result_db(
         {
             "status": "failed",
             "stage": "failed",
-            "ended_at": datetime.now(UTC),
+            "ended_at": datetime.now(timezone.utc),
         },
     )
     await agent_event_repository.create_agent_event_db(

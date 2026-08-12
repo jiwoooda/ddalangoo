@@ -1,0 +1,3639 @@
+package com.ddalangoo.ddalangoo.accessibility
+
+import android.accessibilityservice.AccessibilityService
+import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.graphics.Rect
+import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.view.Display
+import android.view.accessibility.AccessibilityEvent
+import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+
+private enum class KurlyScreenType(val value: String) {
+    ORDER_HISTORY("order_history"),
+    MY_KURLY("my_kurly"),
+    KURLY_HOME("kurly_home"),
+    SEARCH_RESULTS("search_results"),
+    PRODUCT_DETAIL("product_detail"),
+    CART("cart"),
+    SENSITIVE("sensitive"),
+    UNKNOWN("unknown")
+}
+
+private enum class CoupangScreenType(val value: String) {
+    ORDER_HISTORY("order_history"),
+    MY_COUPANG("my_coupang"),
+    COUPANG_HOME("coupang_home"),
+    SEARCH_RESULTS("search_results"),
+    PRODUCT_DETAIL("product_detail"),
+    CART("cart"),
+    SENSITIVE("sensitive"),
+    UNKNOWN("unknown")
+}
+
+class DdalangooAccessibilityService : AccessibilityService() {
+    companion object {
+        private var activeService: DdalangooAccessibilityService? = null
+
+        fun scheduleTaskStartedTicks() {
+            activeService?.scheduleTaskStartedTicks()
+                ?: AutomationLogger.warn("task tick skipped reason=service_not_active")
+        }
+    }
+
+    private val uiTreeCollector = UiTreeCollector()
+    private val uiNodeSerializer = UiNodeSerializer()
+    private val ruleBasedPlanner = RuleBasedPlanner()
+    private val kurlyPurchaseHistoryExtractor = KurlyPurchaseHistoryExtractor()
+    private val coupangPurchaseHistoryExtractor = CoupangPurchaseHistoryExtractor()
+    private val handler = Handler(Looper.getMainLooper())
+    private var suppressExtractUntilMs: Long = 0L
+    private var suppressOrderHistoryGuardUntilMs: Long = 0L
+    private var suppressSearchSubmitUntilMs: Long = 0L
+    private var suppressSearchResultDumpUntilMs: Long = 0L
+    private var suppressAddToCartResultUntilMs: Long = 0L
+    private var suppressOrderHistoryScreenGuardUntilMs: Long = 0L
+    private var suppressPurchaseHistoryNavigationNormalizeUntilMs: Long = 0L
+    private var lastPurchaseHistoryScrollFingerprint: String? = null
+    private var lastPurchaseHistoryScrollChanged: Boolean? = null
+    private var purchaseHistoryScrollAttemptCount = 0
+    private var searchResultCollectionTaskId: String? = null
+    private var lastSearchResultFingerprint: String? = null
+    private var lastSearchResultScrollChanged: Boolean? = null
+    private var searchResultScrollAttemptCount = 0
+    private var searchResultNoProgressCount = 0
+    private val purchaseHistoryPeriodFilterEnabled = false
+    private val pendingTickReasons = mutableSetOf<String>()
+    private val visualSentinelCompletedKeys = mutableSetOf<String>()
+    private val visualSentinelAttemptCounts = mutableMapOf<String, Int>()
+    private val purchaseHistoryCanonicalResetCounts = mutableMapOf<String, Int>()
+    private val coupangCanonicalNavigationTaskIds = mutableSetOf<String>()
+    private val coupangInitialOrderHistoryResetTaskIds = mutableSetOf<String>()
+    private val defaultSearchResultDumpLimit = 2
+    private val targetSearchResultDumpLimit = 20
+    private val defaultProductSearchCandidateLimitPerPlatform = 10
+    private val searchResultNoProgressLimit = 3
+    private val purchaseHistoryNoProgressLimit = 3
+    private var rootUnavailableTaskId: String? = null
+    private var rootUnavailableCount = 0
+    private var lastObservedPackageName: String? = null
+    private var suppressCoupangInitialOrderHistoryResetUntilMs: Long = 0L
+    private lateinit var actionExecutor: ActionExecutor
+    private lateinit var vlmFallbackRuntime: VlmFallbackRuntime
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        activeService = this
+        actionExecutor = ActionExecutor(this)
+        vlmFallbackRuntime = VlmFallbackRuntime(
+            service = this,
+            actionExecutor = actionExecutor,
+            scheduleProcessTick = { delayMs, reason -> scheduleProcessTick(delayMs, reason) }
+        )
+        AutomationTaskStore.markServiceConnected()
+        AutomationLogger.info("service connected rootAvailable=${rootInActiveWindow != null}")
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val eventType = event?.eventType ?: return
+        val eventPackageName = event.packageName?.toString()
+        if (!eventPackageName.isNullOrBlank()) {
+            lastObservedPackageName = eventPackageName
+        }
+        AutomationLogger.debug("event type=$eventType packageName=${eventPackageName.orEmpty()}")
+        processCurrentRoot(trigger = "event", packageNameOverride = eventPackageName)
+    }
+
+    fun processCurrentRoot(trigger: String) {
+        processCurrentRoot(trigger = trigger, packageNameOverride = null)
+    }
+
+    private fun processCurrentRoot(trigger: String, packageNameOverride: String?) {
+        val taskAtStart = AutomationTaskStore.getTask()
+
+        // 자동화 task가 없을 때(스몰토크/온보딩 등 자동화와 무관한 화면)는 원래
+        // "검증용 로그만 남기는" 분기였는데, 그 분기에 들어가기도 전에 이미
+        // rootInActiveWindow 전체를 순회 + JSON 직렬화 + 로깅하는 무거운 작업을
+        // 매 accessibility 이벤트마다 실행하고 있었다. 이 서비스는 앱과 같은
+        // 메인 스레드에서 돌기 때문에(별도 android:process 없음), 화면
+        // 애니메이션(마이크 버튼 펄스 등)만으로도 accessibility 이벤트가 계속
+        // 발생하고, 그때마다 메인 스레드가 이 무거운 작업에 점유돼 TTS 요청 같은
+        // Flutter 쪽 비동기 작업이 실행될 기회를 못 받는 문제로 이어졌다.
+        // task가 없을 때는 무거운 작업 없이 즉시 리턴한다 — 실제 자동화 로직
+        // (아래 task != null 경로)은 전혀 건드리지 않는다.
+        if (taskAtStart == null) {
+            lastPurchaseHistoryScrollFingerprint = null
+            lastPurchaseHistoryScrollChanged = null
+            resetProductSearchCollectionState()
+            return
+        }
+
+        AutomationLogger.info("processCurrentRoot trigger=$trigger")
+        if (taskAtStart.currentStep == AutomationContract.Step.COMPLETED) {
+            AutomationLogger.info("task_completed_ignore_event trigger=$trigger")
+            AutomationTaskStore.recordCompletedIgnored(
+                packageName = packageNameOverride ?: taskAtStart.packageName,
+                rawNodeCount = 0,
+                filteredNodeCount = 0,
+                trigger = trigger
+            )
+            return
+        }
+
+        val rootNode = rootInActiveWindow
+        if (rootNode == null) {
+            val currentPackageName = packageNameOverride ?: lastObservedPackageName
+            if (
+                maybeRequestStepEntryVisualSentinel(
+                    task = taskAtStart,
+                    currentPackageName = currentPackageName,
+                    rootAvailable = false,
+                    rawNodeCount = 0,
+                    filteredNodes = emptyList(),
+                    trigger = trigger
+                )
+            ) {
+                return
+            }
+            if (handleRootUnavailable(taskAtStart, trigger, currentPackageName)) {
+                return
+            }
+            scheduleProcessTick(1000L, "root_unavailable")
+            return
+        }
+        rootUnavailableTaskId = null
+        rootUnavailableCount = 0
+
+        val rootPackageName = rootNode.packageName?.toString()
+        val currentPackageName =
+            if (!taskAtStart.packageName.isNullOrBlank() && rootPackageName == taskAtStart.packageName) {
+                rootPackageName
+            } else if (rootPackageName == applicationContext.packageName) {
+                rootPackageName
+            } else {
+                packageNameOverride ?: rootPackageName
+            }
+        if (!currentPackageName.isNullOrBlank()) {
+            lastObservedPackageName = currentPackageName
+        }
+        val rawNodes = uiTreeCollector.collect(rootNode)
+        val filteredNodes = uiNodeSerializer.filter(rawNodes)
+        AutomationLogger.info("ui_tree filteredNodeCount=${filteredNodes.size}")
+        AutomationLogger.debug("filtered_nodes_json=${uiNodeSerializer.toJson(filteredNodes)}")
+
+        val task = taskAtStart
+        ensureProductSearchCollectionState(task)
+
+        if (
+            task.platform == AutomationContract.Platform.KURLY &&
+            task.currentStep == AutomationContract.Step.OPEN_MY_KURLY
+        ) {
+            lastPurchaseHistoryScrollFingerprint = null
+            lastPurchaseHistoryScrollChanged = null
+            purchaseHistoryScrollAttemptCount = 0
+        }
+
+        if (task.currentStep == AutomationContract.Step.COMPLETED) {
+            AutomationLogger.info("task_completed_ignore_event trigger=$trigger")
+            AutomationTaskStore.recordCompletedIgnored(
+                packageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger
+            )
+            return
+        }
+
+        if (
+            maybeRequestStepEntryVisualSentinel(
+                task = task,
+                currentPackageName = currentPackageName,
+                rootAvailable = true,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+        ) {
+            return
+        }
+
+        if (!task.packageName.isNullOrBlank() && task.packageName != currentPackageName) {
+            if (
+                handleSystemInterruption(
+                    task = task,
+                    foregroundPackageName = currentPackageName,
+                    rawNodeCount = rawNodes.size,
+                    filteredNodeCount = filteredNodes.size,
+                    filteredNodes = filteredNodes,
+                    trigger = trigger
+                )
+            ) {
+                return
+            }
+            AutomationTaskStore.recordWaitingForPackage(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                targetPackageName = task.packageName,
+                trigger = trigger
+            )
+            AutomationLogger.debug(
+                "task waiting targetPackage=${task.packageName} currentPackage=${currentPackageName.orEmpty()} " +
+                    "currentStep=${task.currentStep} trigger=$trigger"
+            )
+            AutomationLogger.validation(
+                platform = task.platform,
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                actionPlan = null,
+                actionResult = null,
+                selectedNode = null
+            )
+            scheduleProcessTick(1000L, "waiting_for_package")
+            return
+        }
+
+        if (shouldWaitForPurchaseHistoryScreenTree(task, rawNodes.size, filteredNodes.size)) {
+            val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                reasonCode = "purchase_history_screen_tree_not_ready",
+                message = "Waiting for ${task.platform} screen to expose accessibility nodes"
+            )
+            AutomationLogger.validation(
+                platform = task.platform,
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                actionPlan = null,
+                actionResult = null,
+                selectedNode = null
+            )
+            if (shouldRetry) {
+                scheduleProcessTick(900L, "waiting_purchase_history_screen_tree")
+            }
+            return
+        }
+
+        AutomationTaskStore.recordObservation(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodes.size,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger
+        )
+
+        if (maybeRequestVisualSentinelRetry(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger,
+                actionPlan = null
+            )
+        ) {
+            return
+        }
+
+        if (task.taskType == AutomationContract.TaskType.INSPECT_SEARCH_FLOW) {
+            if (!isSearchInspectionScreenReady(rawNodes.size, filteredNodes.size)) {
+                val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodes.size,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    reasonCode = "search_inspection_screen_not_ready",
+                    message = "Waiting for Kurly screen to expose enough accessibility nodes"
+                )
+                if (shouldRetry) {
+                    scheduleProcessTick(900L, "waiting_search_inspection_screen")
+                }
+                return
+            }
+            val snapshot = SearchInspectionStore.inspect(
+                step = task.currentStep,
+                platform = task.platform,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes
+            )
+            AutomationLogger.searchInspectionDump(
+                packageName = task.packageName ?: currentPackageName,
+                snapshot = snapshot
+            )
+            AutomationTaskStore.markCompleted(
+                trigger = trigger,
+                message = "Search inspection completed for step=${task.currentStep}"
+            )
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.FINISH_PRODUCT_SEARCH) {
+            completeProductSearchCollection(
+                task = task,
+                trigger = trigger,
+                reason = "finish_product_search_step"
+            )
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.FINISH_PURCHASE_HISTORY) {
+            if (AutomationTaskStore.markPurchaseHistoryFinishHandledIfNeeded()) {
+                AutomationLogger.accumulatedPurchaseHistoryFinal(
+                    platform = task.platform,
+                    packageName = task.packageName ?: currentPackageName,
+                    accumulatedCandidates = PurchaseHistoryExtractionStore.accumulatedCandidates()
+                )
+            }
+            AutomationTaskStore.markCompleted(
+                trigger = trigger,
+                message = "Purchase history collection completed"
+            )
+            return
+        }
+
+        if (shouldDelayExtractAfterScroll(task, trigger)) {
+            AutomationLogger.info(
+                "skip early extract after scroll trigger=$trigger currentStep=${task.currentStep}"
+            )
+            return
+        }
+
+        if (normalizeKurlyPurchaseHistoryStart(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+        ) {
+            return
+        }
+
+        if (normalizeCoupangPurchaseHistoryStart(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+        ) {
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.WAIT_PRODUCT_DETAIL) {
+            handleWaitProductDetail(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.WAIT_OPTION_OR_CART_RESULT) {
+            if (shouldDelayAddToCartResultAfterClick(task, trigger)) {
+                AutomationLogger.info(
+                    "skip early add-to-cart result classification currentStep=${task.currentStep} trigger=$trigger"
+                )
+                scheduleProcessTick(500L, "waiting_add_to_cart_result_settle")
+                return
+            }
+            handleWaitOptionOrCartResult(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.VERIFY_CART_ADDED) {
+            handleVerifyCartAdded(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+            return
+        }
+
+        if (task.currentStep == AutomationContract.Step.WAIT_OPTION_SELECTED) {
+            handleWaitOptionSelected(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+            return
+        }
+
+        if (shouldGuardPurchaseHistory(task, filteredNodes)) {
+            if (shouldDelayOrderHistoryGuard(task)) {
+                AutomationLogger.info(
+                    "skip order history guard during navigation settle currentStep=${task.currentStep} trigger=$trigger"
+                )
+                return
+            }
+            val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                reasonCode = "not_order_history_screen",
+                message = "Waiting for ${task.platform} order history screen"
+            )
+            AutomationLogger.validation(
+                platform = task.platform,
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                actionPlan = null,
+                actionResult = null,
+                selectedNode = null
+            )
+            if (shouldRetry) {
+                scheduleProcessTick(1000L, "waiting_order_history_screen")
+            }
+            return
+        }
+
+        if (shouldLogPurchaseHistoryScrollDiagnostic(task)) {
+            logPurchaseHistoryScrollDiagnostic(
+                task = task,
+                trigger = trigger,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes
+            )
+        }
+
+        if (shouldDelaySearchSubmitAfterInput(task)) {
+            AutomationLogger.info(
+                "skip early search submit currentStep=${task.currentStep} trigger=$trigger"
+            )
+            scheduleProcessTick(700L, "waiting_search_input_settle")
+            return
+        }
+
+        if (verifySearchInputBeforeSubmit(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+        ) {
+            return
+        }
+
+        val actionPlan = ruleBasedPlanner.plan(filteredNodes, task)
+        val selectedNode = actionPlan.targetNodeId?.let { targetNodeId ->
+            filteredNodes.firstOrNull { node -> node.id == targetNodeId }
+        }
+        val policyDecision = ActionPolicy.evaluate(
+            task = task,
+            actionPlan = actionPlan,
+            selectedNode = selectedNode,
+            filteredNodes = filteredNodes,
+            screenType = visualSentinelScreenType(task, filteredNodes)
+        )
+        if (!policyDecision.allowed) {
+            AutomationLogger.warn(
+                "action_blocked_by_policy " +
+                    "taskId=${task.taskId} currentStep=${task.currentStep} " +
+                    "actionType=${actionPlan.actionType} reasonCode=${actionPlan.reasonCode} " +
+                    "nodeText=${selectedNode?.primaryText().orEmpty()} " +
+                    "policyReason=${policyDecision.reason}"
+            )
+            AutomationTaskStore.recordAction(
+                actionPlan = actionPlan,
+                actionResult = ActionResult(
+                    success = false,
+                    method = ActionExecutionMethod.NONE.value,
+                    errorCode = ActionPolicy.UNSAFE_RECOVERY_ACTION_ERROR,
+                    message = "Action blocked by policy reason=${policyDecision.reason}"
+                ),
+                selectedNode = selectedNode
+            )
+            scheduleProcessTick(500L, "after_policy_block")
+            return
+        }
+        if (maybeRequestVisualSentinelRetry(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger,
+                actionPlan = actionPlan
+            )
+        ) {
+            return
+        }
+        if (actionPlan.actionType == AutomationActionType.DUMP_SEARCH_RESULTS.value) {
+            if (shouldDelaySearchResultDumpAfterSubmit(task)) {
+                AutomationLogger.info(
+                    "skip early search result dump currentStep=${task.currentStep} trigger=$trigger"
+                )
+                scheduleProcessTick(500L, "waiting_search_result_settle")
+                return
+            }
+            if (!isSearchResultsScreenReady(task, filteredNodes)) {
+                val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodes.size,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    reasonCode = "search_results_not_ready",
+                    message = "Waiting for ${task.platform} search results to expose product nodes"
+                )
+                if (shouldRetry) {
+                    if (shouldRetrySearchSubmitAfterResultWait()) {
+                        AutomationLogger.info(
+                            "search submit appears ineffective. retrying submit " +
+                                "currentStep=${task.currentStep} trigger=$trigger"
+                        )
+                        AutomationTaskStore.updateCurrentStep(AutomationContract.Step.SEARCH_SUBMIT)
+                        scheduleProcessTick(600L, "retry_search_submit")
+                    } else {
+                        scheduleProcessTick(900L, "waiting_search_results")
+                    }
+                } else {
+                    AutomationTaskStore.stopTask(
+                        packageName = currentPackageName,
+                        currentStep = task.currentStep,
+                        rawNodeCount = rawNodes.size,
+                        filteredNodeCount = filteredNodes.size,
+                        trigger = trigger,
+                        screenType = "search_results_not_ready",
+                        reasonCode = "search_submit_not_effective",
+                        message = "Search submit did not expose product results after retries"
+                    )
+                }
+                return
+            }
+            val snapshot = SearchInspectionStore.inspect(
+                step = AutomationContract.Step.DUMP_SEARCH_RESULTS,
+                platform = task.platform,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes
+            )
+            AutomationLogger.searchInspectionDump(
+                packageName = task.packageName ?: currentPackageName,
+                snapshot = snapshot
+            )
+            if (task.taskType == AutomationContract.TaskType.PRODUCT_SEARCH) {
+                handleProductSearchResultsDump(
+                    task = task,
+                    snapshot = snapshot,
+                    filteredNodes = filteredNodes,
+                    trigger = trigger
+                )
+                return
+            }
+            val isTargetSearch = isExplicitTargetSearch(task)
+            val matchedTargetCandidate = if (isTargetSearch) {
+                SearchInspectionStore.matchedProductCandidate(task.targetProductName)
+            } else {
+                null
+            }
+            val searchResultDumpLimit = if (isTargetSearch) {
+                targetSearchResultDumpLimit
+            } else {
+                defaultSearchResultDumpLimit
+            }
+            if (matchedTargetCandidate != null) {
+                AutomationLogger.info(
+                    "target_product_found productName=${matchedTargetCandidate.productName.orEmpty()} " +
+                        "nextStep=${AutomationContract.Step.SELECT_PRODUCT}"
+                )
+                AutomationTaskStore.updateCurrentStep(AutomationContract.Step.SELECT_PRODUCT)
+                scheduleProcessTick(500L, "after_target_product_found")
+            } else if (SearchInspectionStore.searchResultDumpCount() >= searchResultDumpLimit) {
+                if (isTargetSearch) {
+                    AutomationTaskStore.stopTask(
+                        packageName = currentPackageName,
+                        currentStep = task.currentStep,
+                        rawNodeCount = rawNodes.size,
+                        filteredNodeCount = filteredNodes.size,
+                        trigger = trigger,
+                        screenType = "search_results",
+                        reasonCode = "target_product_not_found",
+                        message = "Target product not found after $searchResultDumpLimit dumps " +
+                            "targetProductName=${task.targetProductName}"
+                    )
+                } else {
+                    AutomationTaskStore.markCompleted(
+                        trigger = trigger,
+                        message = "Search result collection completed " +
+                            "accumulatedProductCandidateCount=${SearchInspectionStore.accumulatedProductCandidateCount()}"
+                    )
+                }
+            } else {
+                AutomationTaskStore.updateCurrentStep(AutomationContract.Step.SCROLL_SEARCH_RESULTS)
+                scheduleProcessTick(700L, "after_search_result_dump")
+            }
+            return
+        }
+        if (actionPlan.actionType == AutomationActionType.DUMP_PURCHASE_HISTORY.value) {
+            if (handlePurchaseHistoryPeriodFilterIfNeeded(task, filteredNodes)) {
+                return
+            }
+            val orderExpandSelection = findKurlyOrderExpandNodes(task, filteredNodes)
+                .firstNotNullOfOrNull { node ->
+                    val expandKey = purchaseHistoryExpandKey(node, filteredNodes)
+                    if (AutomationTaskStore.tryReservePurchaseHistoryExpand(expandKey)) {
+                        node to expandKey
+                    } else {
+                        null
+                    }
+                }
+            if (orderExpandSelection != null) {
+                val (orderExpandNode, orderExpandKey) = orderExpandSelection
+                val expandPlan = ActionPlan(
+                    actionType = AutomationActionType.CLICK.value,
+                    targetNodeId = orderExpandNode.id,
+                    textToInput = null,
+                    reasonCode = RuleReasonCode.PURCHASE_HISTORY_EXPAND.value,
+                    confidence = 0.86
+                )
+                val expandResult = actionExecutor.execute(expandPlan, filteredNodes)
+                AutomationLogger.info(
+                    "purchase_history_expand selectedNodeText=${orderExpandNode.primaryText()} " +
+                        "key=$orderExpandKey success=${expandResult.success} method=${expandResult.method}"
+                )
+                AutomationTaskStore.recordAction(expandPlan, expandResult, orderExpandNode)
+                scheduleProcessTick(900L, "after_purchase_history_expand")
+                return
+            }
+            val shouldExtractPurchaseHistory = actionPlan.reasonCode != RuleReasonCode.PURCHASE_HISTORY_FINISH.value
+            val parsedPurchaseHistory = if (shouldExtractPurchaseHistory) {
+                attachPurchaseHistoryThumbnailsIfNeeded(
+                    task = task,
+                    candidates = purchaseHistoryExtractorFor(task.platform).extract(filteredNodes)
+                )
+            } else {
+                emptyList()
+            }
+            AutomationLogger.purchaseHistoryDump(
+                packageName = task.packageName ?: currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodeCount = filteredNodes.size,
+                candidateNodes = findPurchaseHistoryCandidates(filteredNodes)
+            )
+            if (task.taskType == AutomationContract.TaskType.PURCHASE_HISTORY_VALIDATION) {
+                AutomationTaskStore.markCompleted(
+                    trigger = trigger,
+                    message = "Purchase history dump inspection completed"
+                )
+                return
+            }
+            if (shouldExtractPurchaseHistory) {
+                val mergeResult = PurchaseHistoryExtractionStore.merge(parsedPurchaseHistory)
+                AutomationLogger.parsedPurchaseHistory(
+                    platform = task.platform,
+                    packageName = task.packageName ?: currentPackageName,
+                    candidates = parsedPurchaseHistory
+                )
+                AutomationLogger.accumulatedPurchaseHistory(
+                    platform = task.platform,
+                    packageName = task.packageName ?: currentPackageName,
+                    mergeResult = mergeResult
+                )
+                if (task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY) {
+                    val targetPurchaseHistoryCount = targetPurchaseHistoryCount(task)
+                    val reachedTargetPurchaseHistoryCount =
+                        targetPurchaseHistoryCount != null &&
+                            mergeResult.accumulatedOrderCount >= targetPurchaseHistoryCount
+                    val reachedEndOfPurchaseHistory =
+                        trigger == "tick:after_scroll" &&
+                            purchaseHistoryScrollAttemptCount > 0 &&
+                            lastPurchaseHistoryScrollChanged == false &&
+                            !hasSafePopupDismissCandidate(task, filteredNodes) &&
+                            mergeResult.noProgressExtractCount >= purchaseHistoryNoProgressLimit
+                    if (reachedTargetPurchaseHistoryCount) {
+                        if (purchaseHistoryScrollAttemptCount == 0) {
+                            AutomationLogger.info(
+                                "purchase_history_target_count_reached_before_scroll " +
+                                    "targetPurchaseHistoryCount=$targetPurchaseHistoryCount " +
+                                    "accumulatedOrderCount=${mergeResult.accumulatedOrderCount} " +
+                                    "scrollAttemptCount=$purchaseHistoryScrollAttemptCount"
+                            )
+                            AutomationTaskStore.updateCurrentStep(
+                                AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+                            )
+                            scheduleProcessTick(300L, "target_count_reached_before_scroll")
+                        } else {
+                            finishPurchaseHistorySoon(
+                                reason = "purchase_history_target_count_reached " +
+                                    "targetPurchaseHistoryCount=$targetPurchaseHistoryCount " +
+                                    "accumulatedOrderCount=${mergeResult.accumulatedOrderCount} " +
+                                    "scrollAttemptCount=$purchaseHistoryScrollAttemptCount"
+                            )
+                        }
+                    } else if (reachedEndOfPurchaseHistory) {
+                        finishPurchaseHistorySoon(
+                            reason = "purchase_history_end_detected " +
+                                "currentExtractCount=${mergeResult.currentExtractCount} " +
+                                "newOrderCount=${mergeResult.newOrderCount} " +
+                                "updatedOrderCount=${mergeResult.updatedOrderCount} " +
+                                "noProgressExtractCount=${mergeResult.noProgressExtractCount} " +
+                                "noProgressLimit=$purchaseHistoryNoProgressLimit " +
+                                "accumulatedOrderCount=${mergeResult.accumulatedOrderCount} " +
+                                "scrollAttemptCount=$purchaseHistoryScrollAttemptCount"
+                        )
+                    }
+                }
+            } else {
+                AutomationLogger.accumulatedPurchaseHistoryFinal(
+                    platform = task.platform,
+                    packageName = task.packageName ?: currentPackageName,
+                    accumulatedCandidates = PurchaseHistoryExtractionStore.accumulatedCandidates()
+                )
+            }
+        }
+        AutomationLogger.info(
+            "plan actionType=${actionPlan.actionType} targetNodeId=${actionPlan.targetNodeId} " +
+                "reasonCode=${actionPlan.reasonCode} confidence=${actionPlan.confidence}"
+        )
+
+        val actionResult = actionExecutor.execute(actionPlan, filteredNodes)
+        AutomationLogger.info(
+            "action_result success=${actionResult.success} method=${actionResult.method} " +
+                "errorCode=${actionResult.errorCode.orEmpty()} message=${actionResult.message}"
+        )
+        if (actionResult.success && isSearchSubmitAction(task, actionPlan)) {
+            AutomationLogger.info(
+                "search_submit_owner=rule taskId=${task.taskId} step=${task.currentStep} " +
+                    "reasonCode=${actionPlan.reasonCode}"
+            )
+        }
+        AutomationTaskStore.recordAction(actionPlan, actionResult, selectedNode)
+
+        if (
+            actionPlan.reasonCode == RuleReasonCode.PURCHASE_HISTORY_SCROLL.value &&
+            !actionResult.success &&
+            PurchaseHistoryExtractionStore.accumulatedCandidates().isNotEmpty()
+        ) {
+            finishPurchaseHistorySoon(
+                reason = "purchase_history_scroll_unavailable " +
+                    "errorCode=${actionResult.errorCode.orEmpty()} " +
+                    "scrollAttemptCount=$purchaseHistoryScrollAttemptCount"
+            )
+        } else if (actionPlan.actionType == AutomationActionType.STOP_FOR_SENSITIVE_SCREEN.value) {
+            AutomationTaskStore.clearTask()
+        } else if (actionResult.success && AutomationTaskStore.getTask()?.currentStep == task.currentStep) {
+            if (actionPlan.reasonCode == RuleReasonCode.MY_COUPANG.value) {
+                markCoupangCanonicalNavigationStarted(task)
+            }
+            AutomationTaskStore.advanceAfterSuccess(actionPlan)
+            scheduleAfterSuccessfulAction(actionPlan)
+        }
+
+        AutomationLogger.validation(
+            platform = task.platform,
+            packageName = task.packageName ?: currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodes.size,
+            filteredNodeCount = filteredNodes.size,
+            actionPlan = actionPlan,
+            actionResult = actionResult,
+            selectedNode = selectedNode
+        )
+    }
+
+    private fun isExplicitTargetSearch(task: AutomationTask): Boolean {
+        val normalizedSearchKeyword = normalizeSearchTarget(task.searchKeyword)
+        val normalizedTargetProductName = normalizeSearchTarget(task.targetProductName)
+        return normalizedSearchKeyword.isNotBlank() &&
+            normalizedTargetProductName.isNotBlank() &&
+            normalizedSearchKeyword != normalizedTargetProductName
+    }
+
+    private fun normalizeSearchTarget(value: String): String {
+        return value
+            .lowercase()
+            .replace(Regex("[^0-9a-z가-힣]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun ensureProductSearchCollectionState(task: AutomationTask) {
+        if (task.taskType != AutomationContract.TaskType.PRODUCT_SEARCH) return
+        if (searchResultCollectionTaskId == task.taskId) return
+
+        searchResultCollectionTaskId = task.taskId
+        lastSearchResultFingerprint = null
+        lastSearchResultScrollChanged = null
+        searchResultScrollAttemptCount = 0
+        searchResultNoProgressCount = 0
+        AutomationLogger.info("product_search_collection_state_reset taskId=${task.taskId}")
+    }
+
+    private fun resetProductSearchCollectionState() {
+        searchResultCollectionTaskId = null
+        lastSearchResultFingerprint = null
+        lastSearchResultScrollChanged = null
+        searchResultScrollAttemptCount = 0
+        searchResultNoProgressCount = 0
+    }
+
+    private fun handleProductSearchResultsDump(
+        task: AutomationTask,
+        snapshot: SearchInspectionSnapshot,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        val candidateLimit = productSearchCandidateLimit(task)
+        val products = SearchInspectionStore.platformSearchProductMaps(task.platform)
+        val accumulatedUniqueCandidateCount = products.size
+        updateSearchResultScrollProgress(snapshot, filteredNodes, trigger)
+
+        AutomationLogger.info(
+            "product_search_collection_progress " +
+                "candidateLimit=$candidateLimit uniqueCandidateCount=$accumulatedUniqueCandidateCount " +
+                "dumpCount=${SearchInspectionStore.searchResultDumpCount()} " +
+                "scrollAttemptCount=$searchResultScrollAttemptCount " +
+                "noProgressCount=$searchResultNoProgressCount " +
+                "scrollChanged=${lastSearchResultScrollChanged}"
+        )
+
+        if (accumulatedUniqueCandidateCount >= candidateLimit) {
+            finishProductSearchSoon(
+                reason = "candidate_limit_reached " +
+                    "candidateLimit=$candidateLimit uniqueCandidateCount=$accumulatedUniqueCandidateCount"
+            )
+            return
+        }
+
+        if (searchResultScrollAttemptCount > 0 && searchResultNoProgressCount >= searchResultNoProgressLimit) {
+            finishProductSearchSoon(
+                reason = "search_result_no_progress " +
+                    "uniqueCandidateCount=$accumulatedUniqueCandidateCount " +
+                    "noProgressCount=$searchResultNoProgressCount " +
+                    "scrollAttemptCount=$searchResultScrollAttemptCount"
+            )
+            return
+        }
+
+        AutomationTaskStore.updateCurrentStep(AutomationContract.Step.SCROLL_SEARCH_RESULTS)
+        scheduleProcessTick(700L, "after_search_result_dump")
+    }
+
+    private fun updateSearchResultScrollProgress(
+        snapshot: SearchInspectionSnapshot,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        val fingerprint = searchResultFingerprint(snapshot, filteredNodes)
+        val previousFingerprint = lastSearchResultFingerprint
+        val isAfterScroll = trigger == "tick:after_search_result_scroll" ||
+            (trigger == "tick:waiting_search_result_settle" && searchResultScrollAttemptCount > 0)
+        val scrollChanged = previousFingerprint != null && previousFingerprint != fingerprint
+
+        if (isAfterScroll && previousFingerprint != null) {
+            if (scrollChanged) {
+                searchResultNoProgressCount = 0
+            } else {
+                searchResultNoProgressCount += 1
+            }
+            lastSearchResultScrollChanged = scrollChanged
+        } else if (previousFingerprint == null) {
+            lastSearchResultScrollChanged = null
+        }
+
+        lastSearchResultFingerprint = fingerprint
+        AutomationLogger.info(
+            "search_result_scroll_fingerprint " +
+                "trigger=$trigger fingerprint=$fingerprint " +
+                "previousFingerprint=${previousFingerprint.orEmpty()} " +
+                "scrollChanged=${lastSearchResultScrollChanged} " +
+                "noProgressCount=$searchResultNoProgressCount"
+        )
+    }
+
+    private fun searchResultFingerprint(
+        snapshot: SearchInspectionSnapshot,
+        filteredNodes: List<UiNode>
+    ): String {
+        val productSource = snapshot.productCandidates
+            .map { candidate ->
+                listOf(
+                    normalizeSearchTarget(candidate.productName.orEmpty()),
+                    candidate.price?.toString().orEmpty(),
+                    candidate.centerY?.toString().orEmpty(),
+                    candidate.bounds?.let { bounds ->
+                        "${bounds.left},${bounds.top},${bounds.right},${bounds.bottom}"
+                    }.orEmpty()
+                ).joinToString(":")
+            }
+            .filter { text -> text.isNotBlank() }
+
+        val fingerprintSource = if (productSource.isNotEmpty()) {
+            productSource
+        } else {
+            filteredNodes
+                .filter { node -> node.visibleToUser }
+                .filter { node -> node.boundsBottom > 260 && node.boundsTop < 2300 }
+                .sortedWith(compareBy<UiNode> { it.boundsTop }.thenBy { it.boundsLeft })
+                .map { node ->
+                    "${node.boundsTop}:${node.boundsBottom}:${sanitizeDiagnosticText(node.primaryText())}"
+                }
+                .filter { text -> text.isNotBlank() }
+                .take(80)
+        }
+        return fingerprintSource.joinToString("|").hashCode().toUInt().toString(16)
+    }
+
+    private fun finishProductSearchSoon(reason: String) {
+        AutomationLogger.info(
+            "product_search_finish_requested reason=$reason " +
+                "scrollAttemptCount=$searchResultScrollAttemptCount " +
+                "noProgressCount=$searchResultNoProgressCount"
+        )
+        AutomationTaskStore.updateCurrentStep(AutomationContract.Step.FINISH_PRODUCT_SEARCH)
+        scheduleProcessTick(200L, "product_search_finish")
+    }
+
+    private fun completeProductSearchCollection(
+        task: AutomationTask,
+        trigger: String,
+        reason: String
+    ) {
+        val products = SearchInspectionStore.platformSearchProductMaps(task.platform)
+        AutomationTaskStore.markCompleted(
+            trigger = trigger,
+            message = "Product search collection completed reason=$reason productCount=${products.size}",
+            resultType = AutomationContract.ResultType.PRODUCT_SEARCH_COLLECTED,
+            payload = mapOf(
+                "query" to task.searchKeyword,
+                "platform" to task.platform,
+                "products" to products,
+                "productCount" to products.size,
+                "candidateLimitPerPlatform" to productSearchCandidateLimit(task),
+                "searchResultDumpCount" to SearchInspectionStore.searchResultDumpCount(),
+                "searchResultScrollAttemptCount" to searchResultScrollAttemptCount,
+                "searchResultNoProgressCount" to searchResultNoProgressCount,
+                "searchResultLastScrollChanged" to lastSearchResultScrollChanged,
+                "searchId" to task.metadata["searchId"],
+            )
+        )
+    }
+
+    private fun productSearchCandidateLimit(task: AutomationTask): Int {
+        val rawValue = task.metadata["candidateLimitPerPlatform"]
+            ?: task.metadata["candidateLimit"]
+            ?: task.metadata["targetProductCandidateCount"]
+            ?: task.metadata["limit"]
+        val parsedValue = when (rawValue) {
+            is Int -> rawValue
+            is Long -> rawValue.toInt()
+            is Number -> rawValue.toInt()
+            is String -> rawValue.toIntOrNull()
+            else -> null
+        }
+        return parsedValue
+            ?.takeIf { value -> value > 0 }
+            ?: defaultProductSearchCandidateLimitPerPlatform
+    }
+
+    override fun onInterrupt() {
+        AutomationLogger.warn("service interrupted")
+    }
+
+    override fun onDestroy() {
+        if (activeService === this) {
+            activeService = null
+        }
+        pendingTickReasons.clear()
+        purchaseHistoryCanonicalResetCounts.clear()
+        coupangCanonicalNavigationTaskIds.clear()
+        coupangInitialOrderHistoryResetTaskIds.clear()
+        if (::vlmFallbackRuntime.isInitialized) {
+            vlmFallbackRuntime.cancel()
+        }
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    private fun scheduleTaskStartedTicks() {
+        scheduleProcessTick(700L, "task_started")
+        scheduleProcessTick(1700L, "task_started_retry_1")
+        scheduleProcessTick(3000L, "task_started_retry_2")
+    }
+
+    private fun scheduleAfterSuccessfulAction(actionPlan: ActionPlan) {
+        when (actionPlan.reasonCode) {
+            RuleReasonCode.MY_KURLY.value,
+            RuleReasonCode.MY_COUPANG.value -> {
+                suppressPurchaseHistoryNavigationNormalizeUntilMs = System.currentTimeMillis() + 900L
+                scheduleProcessTick(900L, "after_navigation")
+            }
+            RuleReasonCode.ORDER_HISTORY.value -> {
+                // 주문내역 진입 직후 로딩 이벤트가 retry count를 빨리 소모하지 않도록 잠깐 기다린다.
+                suppressOrderHistoryGuardUntilMs = System.currentTimeMillis() + 1200L
+                scheduleProcessTick(1200L, "after_order_history_navigation")
+            }
+            RuleReasonCode.PURCHASE_HISTORY_SCROLL.value -> {
+                purchaseHistoryScrollAttemptCount += 1
+                AutomationLogger.info(
+                    "purchase_history_scroll_attempted count=$purchaseHistoryScrollAttemptCount"
+                )
+                suppressExtractUntilMs = System.currentTimeMillis() + 1200L
+                suppressOrderHistoryScreenGuardUntilMs = System.currentTimeMillis() + 1600L
+                scheduleProcessTick(1300L, "after_scroll")
+            }
+            RuleReasonCode.PURCHASE_HISTORY_DUMP.value -> scheduleProcessTick(700L, "after_dump")
+            RuleReasonCode.POPUP_DISMISS.value -> scheduleProcessTick(700L, "after_popup_dismiss")
+            RuleReasonCode.SEARCH_ENTRY.value -> scheduleProcessTick(900L, "after_search_entry")
+            RuleReasonCode.SEARCH_INPUT_FOCUS_RETRY.value -> scheduleProcessTick(500L, "search_input_focus_retry")
+            RuleReasonCode.SEARCH_INPUT.value -> {
+                suppressSearchSubmitUntilMs = System.currentTimeMillis() + 700L
+                scheduleProcessTick(700L, "after_search_input")
+            }
+            RuleReasonCode.SEARCH_BUTTON.value,
+            RuleReasonCode.KEYBOARD_SEARCH.value -> {
+                suppressSearchResultDumpUntilMs = System.currentTimeMillis() + 1400L
+                scheduleProcessTick(1400L, "after_search_submit")
+            }
+            RuleReasonCode.SEARCH_RESULT_SCROLL.value -> {
+                searchResultScrollAttemptCount += 1
+                AutomationLogger.info(
+                    "search_result_scroll_attempted count=$searchResultScrollAttemptCount"
+                )
+                suppressSearchResultDumpUntilMs = System.currentTimeMillis() + 900L
+                scheduleProcessTick(900L, "after_search_result_scroll")
+            }
+            RuleReasonCode.PRODUCT_CARD.value -> scheduleProcessTick(1200L, "after_product_card")
+            RuleReasonCode.CART_BUTTON.value -> {
+                suppressAddToCartResultUntilMs = System.currentTimeMillis() + 1000L
+                scheduleProcessTick(1000L, "after_cart_button")
+            }
+            RuleReasonCode.OPTION_SELECT.value -> scheduleProcessTick(600L, "after_option_select")
+            RuleReasonCode.OPTION_CONFIRM.value -> scheduleProcessTick(800L, "after_option_confirm")
+            RuleReasonCode.OPTION_ADD.value -> scheduleProcessTick(700L, "after_option_add")
+        }
+    }
+
+    private fun handleWaitProductDetail(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        if (isProductDetailScreen(filteredNodes, task.targetProductName)) {
+            AutomationLogger.info(
+                "product_detail_ready targetProductName=${task.targetProductName} trigger=$trigger"
+            )
+            AutomationTaskStore.updateCurrentStep(AutomationContract.Step.CLICK_DETAIL_ADD_TO_CART)
+            scheduleProcessTick(200L, "product_detail_ready")
+            return
+        }
+
+        val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger,
+            reasonCode = "product_detail_not_ready",
+            message = "Waiting for Kurly product detail screen"
+        )
+        if (shouldRetry) {
+            scheduleProcessTick(900L, "waiting_product_detail")
+        } else {
+            AutomationTaskStore.stopTask(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                screenType = "product_detail_not_ready",
+                reasonCode = "product_detail_not_ready",
+                message = "Product detail screen was not detected after target click"
+            )
+        }
+    }
+
+    private fun handleWaitOptionOrCartResult(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        when (val resultType = classifyAfterAddToCartClick(filteredNodes, task)) {
+            "cart_added" -> {
+                val payload = cartAddedPayload(
+                    task = task,
+                    filteredNodes = filteredNodes,
+                    observedQuantity = null,
+                    quantityVerificationSource = "cart_added_confirmation_only"
+                )
+                if (handleCheckoutCartItemCompleted(task, payload, trigger)) {
+                    return
+                }
+                AutomationTaskStore.markCompleted(
+                    trigger = trigger,
+                    message = "Product added to cart",
+                    resultType = AutomationContract.ResultType.CART_ADDED,
+                    payload = payload
+                )
+            }
+            "option_required" -> {
+                AutomationLogger.info("option_required optionName=${task.optionName} trigger=$trigger")
+                AutomationTaskStore.updateCurrentStep(AutomationContract.Step.SELECT_OPTION)
+                scheduleProcessTick(200L, "option_required")
+            }
+            "quantity_required" -> {
+                AutomationLogger.info("quantity_required trigger=$trigger")
+                AutomationTaskStore.updateCurrentStep(AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART)
+                scheduleProcessTick(300L, "quantity_required")
+            }
+            "sold_out",
+            "login_required",
+            "sensitive_screen" -> {
+                AutomationTaskStore.stopTask(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    screenType = resultType,
+                    reasonCode = resultType,
+                    message = "Automation stopped after add-to-cart click: $resultType"
+                )
+            }
+            else -> {
+                val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    reasonCode = "unknown_after_add_click",
+                    message = "Waiting for option sheet or cart-added result"
+                )
+                if (shouldRetry) {
+                    scheduleProcessTick(800L, "waiting_after_add_click")
+                } else {
+                    AutomationTaskStore.stopTask(
+                        packageName = currentPackageName,
+                        currentStep = task.currentStep,
+                        rawNodeCount = rawNodeCount,
+                        filteredNodeCount = filteredNodes.size,
+                        trigger = trigger,
+                        screenType = "unknown_after_add_click",
+                        reasonCode = "unknown_after_add_click",
+                        message = "Could not classify screen after add-to-cart click"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun handleVerifyCartAdded(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        val resultType = classifyAfterAddToCartClick(filteredNodes, task)
+        if (resultType == "cart_added") {
+            val observedQuantity = AutomationTaskStore.lastObservedOptionQuantity()
+            val payload = cartAddedPayload(
+                task = task,
+                filteredNodes = filteredNodes,
+                observedQuantity = observedQuantity,
+                quantityVerificationSource = "option_number_view"
+            )
+            if (handleCheckoutCartItemCompleted(task, payload, trigger)) {
+                return
+            }
+            AutomationTaskStore.markCompleted(
+                trigger = trigger,
+                message = "Product option added to cart",
+                resultType = AutomationContract.ResultType.CART_ADDED,
+                payload = payload
+            )
+            return
+        }
+
+        val shouldRetry = AutomationTaskStore.recordWaitingForRetry(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger,
+            reasonCode = "cart_added_not_verified",
+            message = "Waiting for cart-added confirmation"
+        )
+        if (shouldRetry) {
+            scheduleProcessTick(800L, "waiting_cart_added")
+        } else {
+            AutomationTaskStore.stopTask(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                screenType = "cart_added_not_verified",
+                reasonCode = "cart_added_not_verified",
+                message = "Cart-added confirmation was not detected"
+            )
+        }
+    }
+
+    private fun handleWaitOptionSelected(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ) {
+        val selectedQuantity = selectedOptionQuantity(filteredNodes, task.optionName)
+        if (selectedQuantity != null && selectedQuantity > 0) {
+            AutomationTaskStore.recordObservedOptionQuantity(selectedQuantity)
+            AutomationLogger.info(
+                "option_selected optionName=${task.optionName} quantity=$selectedQuantity trigger=$trigger"
+            )
+            AutomationTaskStore.updateCurrentStep(AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART)
+            scheduleProcessTick(200L, "option_selected")
+            return
+        }
+
+        if (AutomationTaskStore.tryReserveOptionSelectNoEffectRetry()) {
+            val optionNode = findOptionNameNode(filteredNodes, task.optionName)
+            if (optionNode != null) {
+                val safeTapX = (optionNode.boundsLeft + 120).coerceAtMost(optionNode.boundsRight - 24)
+                val safeTapY = optionNode.centerY
+                val actionResult = actionExecutor.executeCoordinateTap(
+                    x = safeTapX,
+                    y = safeTapY,
+                    reason = "option_text_safe_area"
+                )
+                AutomationLogger.info(
+                    "option_text_safe_area_retry optionName=${task.optionName} " +
+                        "tap=$safeTapX,$safeTapY success=${actionResult.success} " +
+                        "observedQuantity=${selectedQuantity ?: 0}"
+                )
+                AutomationTaskStore.recordAction(
+                    actionPlan = ActionPlan(
+                        actionType = AutomationActionType.CLICK.value,
+                        targetNodeId = optionNode.id,
+                        textToInput = null,
+                        reasonCode = "option_text_safe_area",
+                        confidence = 0.5
+                    ),
+                    actionResult = actionResult,
+                    selectedNode = optionNode
+                )
+                scheduleProcessTick(700L, "after_option_text_safe_area_retry")
+                return
+            }
+        }
+
+        AutomationTaskStore.recordWaitingForRetry(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger,
+            reasonCode = "option_increase_click_no_effect",
+            message = "Option increase click did not change quantity"
+        )
+        AutomationTaskStore.stopTask(
+            packageName = currentPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodes.size,
+            trigger = trigger,
+            screenType = "possible_overlay_occlusion",
+            reasonCode = "possible_overlay_occlusion",
+            message = "Option node exists, but quantity did not change after click. Floating overlay may be intercepting touch.",
+            failedAction = "click_increase_button",
+            expectedState = "option quantity changes from 0 to 1",
+            observedState = "option quantity still ${selectedQuantity ?: 0}"
+        )
+    }
+
+    private fun scheduleProcessTick(delayMs: Long, reason: String) {
+        if (!pendingTickReasons.add(reason)) {
+            AutomationLogger.info("scheduleProcessTick skipped duplicate reason=$reason")
+            return
+        }
+        AutomationLogger.info("scheduleProcessTick delayMs=$delayMs reason=$reason")
+        handler.postDelayed({
+            pendingTickReasons.remove(reason)
+            processCurrentRoot("tick:$reason")
+        }, delayMs)
+    }
+
+    private fun maybeRequestStepEntryVisualSentinel(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rootAvailable: Boolean,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (isVlmUnavailableRecoveryTick(trigger)) {
+            logVisualSentinelSkip(task, currentPackageName, rootAvailable, trigger, "vlm_unavailable_reobserve")
+            return false
+        }
+        if (isOwnAppForeground(currentPackageName)) {
+            AutomationLogger.info(
+                "visual_sentinel_skip reason=own_app_foreground " +
+                    "taskId=${task.taskId} taskType=${task.taskType} platform=${task.platform} " +
+                    "currentStep=${task.currentStep} foregroundPackage=${currentPackageName.orEmpty()} " +
+                    "rootAvailable=$rootAvailable trigger=$trigger"
+            )
+            return false
+        }
+        if (isNonTargetForeground(task, currentPackageName)) {
+            logVisualSentinelSkip(task, currentPackageName, rootAvailable, trigger, "non_target_foreground")
+            return false
+        }
+        if (isRuleFirstSearchStep(task)) {
+            AutomationLogger.info(
+                "search_rule_first step=${task.currentStep} taskId=${task.taskId} " +
+                    "reason=step_entry_vlm_skipped"
+            )
+            return false
+        }
+        if (!isVisualSentinelStep(task)) {
+            logVisualSentinelSkip(task, currentPackageName, rootAvailable, trigger, "step_not_eligible")
+            return false
+        }
+        if (!::vlmFallbackRuntime.isInitialized) {
+            logVisualSentinelSkip(task, currentPackageName, rootAvailable, trigger, "runtime_not_initialized")
+            return false
+        }
+        if (task.metadata["backendBaseUrl"]?.toString()?.trim().isNullOrEmpty()) {
+            logVisualSentinelSkip(task, currentPackageName, rootAvailable, trigger, "backendBaseUrl_missing")
+            return false
+        }
+        if (rootAvailable && containsAnyText(filteredNodes, sensitiveKeywords())) {
+            logVisualSentinelSkip(task, currentPackageName, rootAvailable, trigger, "sensitive_screen")
+            return false
+        }
+        val deterministicPlan = deterministicRulePlanBeforeVisualSentinel(task, filteredNodes)
+        if (deterministicPlan != null) {
+            AutomationLogger.info(
+                "visual_sentinel_skip reason=deterministic_rule_available " +
+                    "taskId=${task.taskId} taskType=${task.taskType} platform=${task.platform} " +
+                    "currentStep=${task.currentStep} actionType=${deterministicPlan.actionType} " +
+                    "reasonCode=${deterministicPlan.reasonCode} " +
+                    "targetNodeId=${deterministicPlan.targetNodeId ?: -1} trigger=$trigger"
+            )
+            return false
+        }
+
+        val sentinelKey = "${task.taskId}:${task.currentStep}:step_entry"
+        if (trigger == "tick:after_vlm_recovery" || trigger == "tick:after_vlm_wait") {
+            visualSentinelCompletedKeys.remove(sentinelKey)
+        }
+        if (visualSentinelCompletedKeys.contains(sentinelKey)) {
+            return false
+        }
+        val nextAttemptCount = (visualSentinelAttemptCounts[sentinelKey] ?: 0) + 1
+
+        val reasonCode = if (rootAvailable) {
+            "visual_sentinel_step_entry"
+        } else {
+            "visual_sentinel_step_entry_root_unavailable"
+        }
+        val screenType = if (rootAvailable) {
+            visualSentinelScreenType(task, filteredNodes)
+        } else {
+            "root_unavailable"
+        }
+        val observedState = buildString {
+            append("rootAvailable=$rootAvailable")
+            append(", foregroundPackage=${currentPackageName.orEmpty()}")
+            append(", screenType=$screenType")
+            append(", rawNodeCount=$rawNodeCount")
+            append(", filteredNodeCount=${filteredNodes.size}")
+            if (!rootAvailable) {
+                append(", rootUnavailableCount=$rootUnavailableCount")
+            }
+        }
+
+        AutomationLogger.info(
+                "visual_sentinel_step_entry taskId=${task.taskId} taskType=${task.taskType} " +
+                "platform=${task.platform} currentStep=${task.currentStep} " +
+                "foregroundPackage=${currentPackageName.orEmpty()} rootAvailable=$rootAvailable " +
+                "reason=$reasonCode action=request confidence= sentinelAttemptCount=$nextAttemptCount"
+        )
+        if (!rootAvailable) {
+            AutomationLogger.info(
+                "visual_sentinel_screenshot_only taskId=${task.taskId} taskType=${task.taskType} " +
+                    "platform=${task.platform} currentStep=${task.currentStep} " +
+                    "foregroundPackage=${currentPackageName.orEmpty()} rootAvailable=false " +
+                    "reason=$reasonCode action=request confidence= sentinelAttemptCount=$nextAttemptCount"
+            )
+        }
+
+        return when (vlmFallbackRuntime.requestRecovery(
+            task = task,
+            packageName = currentPackageName,
+            rawNodeCount = rawNodeCount,
+            filteredNodes = filteredNodes,
+            rootAvailable = rootAvailable,
+            trigger = trigger,
+            screenType = screenType,
+            recoveryGoal = null,
+            reasonCode = reasonCode,
+            expectedState = expectedStateForVisualSentinel(task),
+            observedState = observedState
+        )) {
+            RecoveryRequestResult.STARTED -> {
+                visualSentinelCompletedKeys.add(sentinelKey)
+                visualSentinelAttemptCounts[sentinelKey] = nextAttemptCount
+                true
+            }
+            RecoveryRequestResult.ALREADY_IN_FLIGHT -> true
+            RecoveryRequestResult.SKIPPED_POLICY,
+            RecoveryRequestResult.UNAVAILABLE -> false
+        }
+    }
+
+    private fun maybeRequestVisualSentinelRetry(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String,
+        actionPlan: ActionPlan?
+    ): Boolean {
+        if (isVlmUnavailableRecoveryTick(trigger)) {
+            logVisualSentinelSkip(task, currentPackageName, true, trigger, "retry_vlm_unavailable_reobserve")
+            return false
+        }
+        if (isOwnAppForeground(currentPackageName)) {
+            AutomationLogger.info(
+                "visual_sentinel_skip reason=own_app_foreground " +
+                    "taskId=${task.taskId} taskType=${task.taskType} platform=${task.platform} " +
+                    "currentStep=${task.currentStep} foregroundPackage=${currentPackageName.orEmpty()} " +
+                    "rootAvailable=true trigger=$trigger"
+            )
+            return false
+        }
+        if (isNonTargetForeground(task, currentPackageName)) {
+            logVisualSentinelSkip(task, currentPackageName, true, trigger, "retry_non_target_foreground")
+            return false
+        }
+        if (!isVisualSentinelStep(task)) {
+            logVisualSentinelSkip(task, currentPackageName, true, trigger, "retry_step_not_eligible")
+            return false
+        }
+        if (!::vlmFallbackRuntime.isInitialized) {
+            logVisualSentinelSkip(task, currentPackageName, true, trigger, "retry_runtime_not_initialized")
+            return false
+        }
+        if (task.metadata["backendBaseUrl"]?.toString()?.trim().isNullOrEmpty()) {
+            logVisualSentinelSkip(task, currentPackageName, true, trigger, "retry_backendBaseUrl_missing")
+            return false
+        }
+        if (containsAnyText(filteredNodes, sensitiveKeywords())) {
+            logVisualSentinelSkip(task, currentPackageName, true, trigger, "retry_sensitive_screen")
+            return false
+        }
+        val deterministicPlan = actionPlan
+            ?.takeIf { plan -> shouldPreferRulePlanOverVisualSentinel(task, plan) }
+            ?: deterministicRulePlanBeforeVisualSentinel(task, filteredNodes)
+        if (deterministicPlan != null) {
+            AutomationLogger.info(
+                "visual_sentinel_skip reason=retry_deterministic_rule_available " +
+                    "taskId=${task.taskId} taskType=${task.taskType} platform=${task.platform} " +
+                    "currentStep=${task.currentStep} actionType=${deterministicPlan.actionType} " +
+                    "reasonCode=${deterministicPlan.reasonCode} " +
+                    "targetNodeId=${deterministicPlan.targetNodeId ?: -1} trigger=$trigger"
+            )
+            return false
+        }
+
+        val screenType = visualSentinelScreenType(task, filteredNodes)
+        val recoveryGoal = recoveryGoalForPurchaseHistory(task, screenType)
+        if (hasReachedPurchaseHistoryRecoveryGoal(recoveryGoal, screenType)) {
+            AutomationLogger.info(
+                "visual_sentinel_recovery_goal_reached taskId=${task.taskId} " +
+                    "currentStep=${task.currentStep} screenType=$screenType recoveryGoal=$recoveryGoal " +
+                    "trigger=$trigger"
+            )
+            return false
+        }
+        val smallAccessibilityTree = rawNodeCount <= 12 || filteredNodes.size <= 6
+        val ruleCouldNotFindTarget =
+            actionPlan?.actionType == AutomationActionType.NO_TARGET_FOUND.value
+        val unexpectedScreen = isUnexpectedVisualSentinelScreen(task, screenType)
+
+        if (!smallAccessibilityTree && !ruleCouldNotFindTarget && !unexpectedScreen) {
+            return false
+        }
+
+        val reasonCode = when {
+            ruleCouldNotFindTarget -> "visual_sentinel_rule_target_missing"
+            unexpectedScreen -> "visual_sentinel_unexpected_screen"
+            else -> "visual_sentinel_small_tree"
+        }
+        val requestKey = "${task.taskId}:${task.currentStep}:retry:$reasonCode"
+        val nextAttemptCount = (visualSentinelAttemptCounts[requestKey] ?: 0) + 1
+        if (nextAttemptCount > 3) {
+            return maybeCanonicalResetPurchaseHistory(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                screenType = screenType,
+                recoveryGoal = recoveryGoal,
+                reason = "visual_sentinel_retry_limit"
+            )
+        }
+
+        val expectedState = expectedStateForVisualSentinel(task)
+        val observedState = buildString {
+            append("rootAvailable=true")
+            append(", foregroundPackage=${currentPackageName.orEmpty()}")
+            append(", screenType=$screenType")
+            append(", rawNodeCount=$rawNodeCount")
+            append(", filteredNodeCount=${filteredNodes.size}")
+            if (actionPlan != null) {
+                append(", ruleAction=${actionPlan.actionType}")
+                append(", ruleReason=${actionPlan.reasonCode}")
+                append(", ruleTargetNodeId=${actionPlan.targetNodeId ?: -1}")
+            }
+        }
+        AutomationLogger.info(
+            "visual_sentinel_retry taskId=${task.taskId} taskType=${task.taskType} " +
+                "platform=${task.platform} currentStep=${task.currentStep} " +
+                "foregroundPackage=${currentPackageName.orEmpty()} rootAvailable=true " +
+                "reason=$reasonCode action=request confidence= sentinelAttemptCount=$nextAttemptCount"
+        )
+        return when (vlmFallbackRuntime.requestRecovery(
+            task = task,
+            packageName = currentPackageName,
+            rawNodeCount = rawNodeCount,
+            filteredNodes = filteredNodes,
+            rootAvailable = true,
+            trigger = trigger,
+            screenType = screenType,
+            recoveryGoal = recoveryGoal,
+            reasonCode = reasonCode,
+            expectedState = expectedState,
+            observedState = observedState
+        )) {
+            RecoveryRequestResult.STARTED -> {
+                visualSentinelAttemptCounts[requestKey] = nextAttemptCount
+                true
+            }
+            RecoveryRequestResult.ALREADY_IN_FLIGHT -> true
+            RecoveryRequestResult.SKIPPED_POLICY -> false
+            RecoveryRequestResult.UNAVAILABLE -> maybeCanonicalResetPurchaseHistory(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                screenType = screenType,
+                recoveryGoal = recoveryGoal,
+                reason = "vlm_unavailable"
+            )
+        }
+    }
+
+    private fun logVisualSentinelSkip(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rootAvailable: Boolean,
+        trigger: String,
+        reason: String
+    ) {
+        AutomationLogger.warn(
+            "visual_sentinel_skip reason=$reason taskId=${task.taskId} taskType=${task.taskType} " +
+                "platform=${task.platform} currentStep=${task.currentStep} " +
+            "foregroundPackage=${currentPackageName.orEmpty()} rootAvailable=$rootAvailable trigger=$trigger"
+        )
+    }
+
+    private fun isOwnAppForeground(currentPackageName: String?): Boolean {
+        return currentPackageName == applicationContext.packageName
+    }
+
+    private fun isNonTargetForeground(task: AutomationTask, currentPackageName: String?): Boolean {
+        val targetPackageName = task.effectivePackageName()
+        if (targetPackageName.isNullOrBlank()) return false
+        if (currentPackageName.isNullOrBlank()) return false
+        return currentPackageName != targetPackageName
+    }
+
+    private fun isVlmUnavailableRecoveryTick(trigger: String): Boolean {
+        return trigger == "tick:after_vlm_unavailable"
+    }
+
+    private fun isRuleFirstSearchStep(task: AutomationTask): Boolean {
+        if (!isSearchAutomationTask(task)) return false
+        return task.currentStep == AutomationContract.Step.OPEN_SEARCH ||
+            task.currentStep == AutomationContract.Step.SEARCH_INPUT ||
+            task.currentStep == AutomationContract.Step.SEARCH_SUBMIT ||
+            task.currentStep == AutomationContract.Step.ENSURE_RECOMMENDED_SORT
+    }
+
+    private fun deterministicRulePlanBeforeVisualSentinel(
+        task: AutomationTask,
+        filteredNodes: List<UiNode>
+    ): ActionPlan? {
+        if (!isRuleFirstVisualSentinelStep(task)) return null
+        val actionPlan = ruleBasedPlanner.plan(filteredNodes, task)
+        return actionPlan.takeIf { plan -> shouldPreferRulePlanOverVisualSentinel(task, plan) }
+    }
+
+    private fun shouldPreferRulePlanOverVisualSentinel(
+        task: AutomationTask,
+        actionPlan: ActionPlan
+    ): Boolean {
+        if (!isRuleFirstVisualSentinelStep(task)) return false
+        return when (actionPlan.actionType) {
+            AutomationActionType.CLICK.value,
+            AutomationActionType.INPUT_TEXT.value,
+            AutomationActionType.PRESS_KEYBOARD_SEARCH.value -> true
+            else -> false
+        }
+    }
+
+    private fun isRuleFirstVisualSentinelStep(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.OPEN_MY_KURLY ||
+            task.currentStep == AutomationContract.Step.OPEN_MY_COUPANG ||
+            task.currentStep == AutomationContract.Step.OPEN_ORDER_HISTORY ||
+            task.currentStep == AutomationContract.Step.OPEN_SEARCH ||
+            task.currentStep == AutomationContract.Step.SEARCH_INPUT ||
+            task.currentStep == AutomationContract.Step.SEARCH_SUBMIT ||
+            task.currentStep == AutomationContract.Step.ENSURE_RECOMMENDED_SORT
+    }
+
+    private fun isSearchSubmitAction(task: AutomationTask, actionPlan: ActionPlan): Boolean {
+        if (task.currentStep != AutomationContract.Step.SEARCH_SUBMIT) return false
+        return actionPlan.reasonCode == RuleReasonCode.SEARCH_BUTTON.value ||
+            actionPlan.reasonCode == RuleReasonCode.KEYBOARD_SEARCH.value
+    }
+
+    private fun isVisualSentinelStep(task: AutomationTask): Boolean {
+        return when (task.currentStep) {
+            AutomationContract.Step.OPEN_MY_KURLY,
+            AutomationContract.Step.OPEN_MY_COUPANG,
+            AutomationContract.Step.OPEN_ORDER_HISTORY,
+            AutomationContract.Step.DUMP_PURCHASE_HISTORY,
+            AutomationContract.Step.EXTRACT_PURCHASE_HISTORY,
+            AutomationContract.Step.SCROLL_PURCHASE_HISTORY,
+            AutomationContract.Step.OPEN_SEARCH,
+            AutomationContract.Step.SEARCH_INPUT,
+            AutomationContract.Step.SEARCH_SUBMIT,
+            AutomationContract.Step.ENSURE_RECOMMENDED_SORT,
+            AutomationContract.Step.SELECT_PRODUCT,
+            AutomationContract.Step.CLICK_DETAIL_ADD_TO_CART,
+            AutomationContract.Step.SELECT_OPTION,
+            AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART -> true
+            else -> false
+        }
+    }
+
+    private fun visualSentinelScreenType(task: AutomationTask, filteredNodes: List<UiNode>): String {
+        return when (task.platform) {
+            AutomationContract.Platform.KURLY -> classifyKurlyScreen(filteredNodes).value
+            AutomationContract.Platform.COUPANG -> classifyCoupangScreen(filteredNodes).value
+            else -> "unknown"
+        }
+    }
+
+    private fun recoveryGoalForPurchaseHistory(task: AutomationTask, screenType: String): String? {
+        if (task.taskType != AutomationContract.TaskType.PURCHASE_HISTORY) return null
+
+        return when (task.platform) {
+            AutomationContract.Platform.KURLY -> when (task.currentStep) {
+                AutomationContract.Step.OPEN_MY_KURLY ->
+                    if (isKurlyShoppingSurfaceScreenType(screenType) || screenType == KurlyScreenType.UNKNOWN.value) {
+                        KurlyScreenType.MY_KURLY.value
+                    } else {
+                        null
+                    }
+                AutomationContract.Step.OPEN_ORDER_HISTORY ->
+                    if (isKurlyShoppingSurfaceScreenType(screenType) || screenType == KurlyScreenType.UNKNOWN.value) {
+                        KurlyScreenType.MY_KURLY.value
+                    } else {
+                        null
+                    }
+                AutomationContract.Step.DUMP_PURCHASE_HISTORY,
+                AutomationContract.Step.EXTRACT_PURCHASE_HISTORY,
+                AutomationContract.Step.SCROLL_PURCHASE_HISTORY ->
+                    if (isKurlyShoppingSurfaceScreenType(screenType) || screenType == KurlyScreenType.UNKNOWN.value) {
+                        KurlyScreenType.ORDER_HISTORY.value
+                    } else {
+                        null
+                    }
+                else -> null
+            }
+            AutomationContract.Platform.COUPANG -> when (task.currentStep) {
+                AutomationContract.Step.OPEN_MY_COUPANG ->
+                    if (isCoupangShoppingSurfaceScreenType(screenType) || screenType == CoupangScreenType.UNKNOWN.value) {
+                        CoupangScreenType.MY_COUPANG.value
+                    } else {
+                        null
+                    }
+                AutomationContract.Step.OPEN_ORDER_HISTORY ->
+                    if (isCoupangShoppingSurfaceScreenType(screenType) || screenType == CoupangScreenType.UNKNOWN.value) {
+                        CoupangScreenType.MY_COUPANG.value
+                    } else {
+                        null
+                    }
+                AutomationContract.Step.DUMP_PURCHASE_HISTORY,
+                AutomationContract.Step.EXTRACT_PURCHASE_HISTORY,
+                AutomationContract.Step.SCROLL_PURCHASE_HISTORY ->
+                    if (isCoupangShoppingSurfaceScreenType(screenType) || screenType == CoupangScreenType.UNKNOWN.value) {
+                        CoupangScreenType.ORDER_HISTORY.value
+                    } else {
+                        null
+                    }
+                else -> null
+            }
+            else -> null
+        }
+    }
+
+    private fun isKurlyShoppingSurfaceScreenType(screenType: String): Boolean {
+        return screenType == KurlyScreenType.SEARCH_RESULTS.value ||
+            screenType == KurlyScreenType.PRODUCT_DETAIL.value ||
+            screenType == KurlyScreenType.CART.value
+    }
+
+    private fun isCoupangShoppingSurfaceScreenType(screenType: String): Boolean {
+        return screenType == CoupangScreenType.SEARCH_RESULTS.value ||
+            screenType == CoupangScreenType.PRODUCT_DETAIL.value ||
+            screenType == CoupangScreenType.CART.value
+    }
+
+    private fun hasReachedPurchaseHistoryRecoveryGoal(
+        recoveryGoal: String?,
+        screenType: String
+    ): Boolean {
+        if (recoveryGoal.isNullOrBlank()) return false
+        return recoveryGoal == screenType ||
+            (
+                recoveryGoal == KurlyScreenType.ORDER_HISTORY.value &&
+                    screenType == KurlyScreenType.MY_KURLY.value
+                ) ||
+            (
+                recoveryGoal == CoupangScreenType.ORDER_HISTORY.value &&
+                    screenType == CoupangScreenType.MY_COUPANG.value
+                )
+    }
+
+    private fun maybeCanonicalResetPurchaseHistory(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodeCount: Int,
+        trigger: String,
+        screenType: String,
+        recoveryGoal: String?,
+        reason: String
+    ): Boolean {
+        if (recoveryGoal.isNullOrBlank()) return false
+        if (task.taskType != AutomationContract.TaskType.PURCHASE_HISTORY) return false
+
+        val resetKey = "${task.taskId}:${task.currentStep}:$screenType:$recoveryGoal"
+        val resetCount = (purchaseHistoryCanonicalResetCounts[resetKey] ?: 0) + 1
+        purchaseHistoryCanonicalResetCounts[resetKey] = resetCount
+
+        if (resetCount > 2) {
+            AutomationTaskStore.stopTask(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodeCount,
+                trigger = trigger,
+                screenType = screenType,
+                reasonCode = "purchase_history_recovery_no_progress",
+                message = "Purchase history recovery did not reach canonical screen " +
+                    "recoveryGoal=$recoveryGoal reason=$reason"
+            )
+            return true
+        }
+
+        val success = performGlobalAction(GLOBAL_ACTION_BACK)
+        AutomationLogger.info(
+            "purchase_history_canonical_reset taskId=${task.taskId} platform=${task.platform} " +
+                "currentStep=${task.currentStep} screenType=$screenType recoveryGoal=$recoveryGoal " +
+                "reason=$reason resetCount=$resetCount action=back success=$success trigger=$trigger"
+        )
+        scheduleProcessTick(900L, "purchase_history_canonical_reset")
+        return true
+    }
+
+    private fun isUnexpectedVisualSentinelScreen(task: AutomationTask, screenType: String): Boolean {
+        if (isSearchAutomationTask(task)) {
+            return isUnexpectedSearchAutomationScreen(task, screenType)
+        }
+        if (task.taskType != AutomationContract.TaskType.PURCHASE_HISTORY) return false
+        return when (task.platform) {
+            AutomationContract.Platform.KURLY -> when (task.currentStep) {
+                AutomationContract.Step.OPEN_MY_KURLY ->
+                    screenType == KurlyScreenType.UNKNOWN.value ||
+                        isKurlyShoppingSurfaceScreenType(screenType)
+                AutomationContract.Step.OPEN_ORDER_HISTORY ->
+                    screenType == KurlyScreenType.UNKNOWN.value ||
+                        isKurlyShoppingSurfaceScreenType(screenType)
+                AutomationContract.Step.DUMP_PURCHASE_HISTORY,
+                AutomationContract.Step.EXTRACT_PURCHASE_HISTORY,
+                AutomationContract.Step.SCROLL_PURCHASE_HISTORY ->
+                    screenType == KurlyScreenType.UNKNOWN.value ||
+                        isKurlyShoppingSurfaceScreenType(screenType)
+                else -> false
+            }
+            AutomationContract.Platform.COUPANG -> when (task.currentStep) {
+                AutomationContract.Step.OPEN_MY_COUPANG ->
+                    screenType == CoupangScreenType.UNKNOWN.value ||
+                        isCoupangShoppingSurfaceScreenType(screenType)
+                AutomationContract.Step.OPEN_ORDER_HISTORY ->
+                    screenType == CoupangScreenType.UNKNOWN.value ||
+                        isCoupangShoppingSurfaceScreenType(screenType)
+                AutomationContract.Step.DUMP_PURCHASE_HISTORY,
+                AutomationContract.Step.EXTRACT_PURCHASE_HISTORY,
+                AutomationContract.Step.SCROLL_PURCHASE_HISTORY ->
+                    screenType == CoupangScreenType.UNKNOWN.value ||
+                        isCoupangShoppingSurfaceScreenType(screenType)
+                else -> false
+            }
+            else -> false
+        }
+    }
+
+    private fun isSearchAutomationTask(task: AutomationTask): Boolean {
+        return task.taskType == AutomationContract.TaskType.PRODUCT_SEARCH ||
+            task.taskType == AutomationContract.TaskType.SEARCH_AND_ADD_TO_CART ||
+            task.taskType == AutomationContract.TaskType.CHECKOUT_PLATFORM_CART ||
+            task.taskType == AutomationContract.TaskType.INSPECT_SEARCH_FLOW
+    }
+
+    private fun isUnexpectedSearchAutomationScreen(task: AutomationTask, screenType: String): Boolean {
+        return when (task.platform) {
+            AutomationContract.Platform.KURLY -> when (task.currentStep) {
+                AutomationContract.Step.OPEN_SEARCH ->
+                    screenType == KurlyScreenType.UNKNOWN.value ||
+                        isKurlyShoppingSurfaceScreenType(screenType) ||
+                        screenType == KurlyScreenType.MY_KURLY.value ||
+                        screenType == KurlyScreenType.ORDER_HISTORY.value
+                AutomationContract.Step.SEARCH_INPUT,
+                AutomationContract.Step.SEARCH_SUBMIT,
+                AutomationContract.Step.ENSURE_RECOMMENDED_SORT,
+                AutomationContract.Step.SELECT_PRODUCT,
+                AutomationContract.Step.CLICK_DETAIL_ADD_TO_CART,
+                AutomationContract.Step.SELECT_OPTION,
+                AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART ->
+                    screenType == KurlyScreenType.UNKNOWN.value
+                else -> false
+            }
+            AutomationContract.Platform.COUPANG -> when (task.currentStep) {
+                AutomationContract.Step.OPEN_SEARCH ->
+                    screenType == CoupangScreenType.UNKNOWN.value ||
+                        isCoupangShoppingSurfaceScreenType(screenType) ||
+                        screenType == CoupangScreenType.MY_COUPANG.value ||
+                        screenType == CoupangScreenType.ORDER_HISTORY.value
+                AutomationContract.Step.SEARCH_INPUT,
+                AutomationContract.Step.SEARCH_SUBMIT,
+                AutomationContract.Step.ENSURE_RECOMMENDED_SORT,
+                AutomationContract.Step.SELECT_PRODUCT,
+                AutomationContract.Step.CLICK_DETAIL_ADD_TO_CART,
+                AutomationContract.Step.SELECT_OPTION,
+                AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART ->
+                    screenType == CoupangScreenType.UNKNOWN.value
+                else -> false
+            }
+            else -> false
+        }
+    }
+
+    private fun expectedStateForVisualSentinel(task: AutomationTask): String {
+        return when (task.currentStep) {
+            AutomationContract.Step.OPEN_MY_KURLY -> "Kurly home or My Kurly tab is visible without a blocking overlay"
+            AutomationContract.Step.OPEN_MY_COUPANG -> "Coupang home or My Coupang tab is visible without a blocking overlay"
+            AutomationContract.Step.OPEN_ORDER_HISTORY -> "Order history entry or order history screen is visible"
+            AutomationContract.Step.DUMP_PURCHASE_HISTORY,
+            AutomationContract.Step.EXTRACT_PURCHASE_HISTORY,
+            AutomationContract.Step.SCROLL_PURCHASE_HISTORY -> "Order history content is visible and scrollable"
+            AutomationContract.Step.OPEN_SEARCH -> "Search entry is visible without a blocking overlay"
+            AutomationContract.Step.SEARCH_INPUT -> "Search input is visible and editable"
+            AutomationContract.Step.SEARCH_SUBMIT -> "Search input contains the expected keyword and submit is available"
+            AutomationContract.Step.ENSURE_RECOMMENDED_SORT -> "Recommended sort is visible or search results are ready"
+            AutomationContract.Step.SELECT_PRODUCT -> "Target product card is visible"
+            AutomationContract.Step.CLICK_DETAIL_ADD_TO_CART,
+            AutomationContract.Step.SELECT_OPTION,
+            AutomationContract.Step.CONFIRM_OPTION_ADD_TO_CART -> "Cart or option controls are visible and not covered"
+            else -> "Current automation step can proceed without a blocking overlay"
+        }
+    }
+
+    private fun shouldGuardKurlyOrderHistory(task: AutomationTask): Boolean {
+        if (task.platform != AutomationContract.Platform.KURLY) return false
+        return task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+    }
+
+    private fun shouldGuardCoupangOrderHistory(task: AutomationTask): Boolean {
+        if (task.platform != AutomationContract.Platform.COUPANG) return false
+        return task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+    }
+
+    private fun shouldGuardPurchaseHistory(task: AutomationTask, filteredNodes: List<UiNode>): Boolean {
+        return when (task.platform) {
+            AutomationContract.Platform.KURLY ->
+                shouldGuardKurlyOrderHistory(task) && !isKurlyOrderHistoryScreen(filteredNodes)
+            AutomationContract.Platform.COUPANG ->
+                shouldGuardCoupangOrderHistory(task) && !isCoupangOrderHistoryScreen(filteredNodes)
+            else -> false
+        }
+    }
+
+    private fun shouldWaitForPurchaseHistoryScreenTree(
+        task: AutomationTask,
+        rawNodeCount: Int,
+        filteredNodeCount: Int
+    ): Boolean {
+        if (task.taskType != AutomationContract.TaskType.PURCHASE_HISTORY) return false
+        if (!isPurchaseHistoryNavigationStep(task)) return false
+        return rawNodeCount <= 2 || filteredNodeCount == 0
+    }
+
+    private fun isPurchaseHistoryNavigationStep(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.OPEN_MY_KURLY ||
+            task.currentStep == AutomationContract.Step.OPEN_MY_COUPANG ||
+            task.currentStep == AutomationContract.Step.OPEN_ORDER_HISTORY ||
+            task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+    }
+
+    private fun shouldAvoidBackRecoveryDuringPurchaseHistoryNavigation(task: AutomationTask): Boolean {
+        if (task.taskType != AutomationContract.TaskType.PURCHASE_HISTORY) return false
+        return isPurchaseHistoryNavigationStep(task)
+    }
+
+    private fun shouldLogPurchaseHistoryScrollDiagnostic(task: AutomationTask): Boolean {
+        return task.platform == AutomationContract.Platform.KURLY &&
+            (
+                task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+                    task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+                    task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+                )
+    }
+
+    private fun shouldDelayExtractAfterScroll(task: AutomationTask, trigger: String): Boolean {
+        if (task.currentStep != AutomationContract.Step.EXTRACT_PURCHASE_HISTORY) return false
+        if (trigger == "tick:after_scroll") return false
+
+        return System.currentTimeMillis() < suppressExtractUntilMs ||
+            trigger == "event" ||
+            trigger == "tick:after_dump"
+    }
+
+    private fun shouldDelayOrderHistoryGuard(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY &&
+            System.currentTimeMillis() < suppressOrderHistoryGuardUntilMs
+    }
+
+    private fun shouldDelayOrderHistoryScreenGuard(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY &&
+            System.currentTimeMillis() < suppressOrderHistoryScreenGuardUntilMs
+    }
+
+    private fun finishPurchaseHistorySoon(reason: String) {
+        AutomationLogger.info(
+            "purchase_history_finish_requested reason=$reason " +
+                "scrollAttemptCount=$purchaseHistoryScrollAttemptCount"
+        )
+        AutomationTaskStore.updateCurrentStep(AutomationContract.Step.FINISH_PURCHASE_HISTORY)
+        scheduleProcessTick(200L, "purchase_history_finish")
+    }
+
+    private fun targetPurchaseHistoryCount(task: AutomationTask): Int? {
+        val rawValue = task.metadata["targetPurchaseHistoryCount"]
+            ?: task.metadata["targetHistoryCount"]
+            ?: task.metadata["limit"]
+        val parsedValue = when (rawValue) {
+            is Int -> rawValue
+            is Long -> rawValue.toInt()
+            is Number -> rawValue.toInt()
+            is String -> rawValue.toIntOrNull()
+            else -> null
+        }
+        return parsedValue?.takeIf { value -> value > 0 }
+    }
+
+    private fun shouldDelaySearchResultDumpAfterSubmit(task: AutomationTask): Boolean {
+        val waitsForSearchResultSettle = task.currentStep == AutomationContract.Step.DUMP_SEARCH_RESULTS ||
+            task.currentStep == AutomationContract.Step.ENSURE_RECOMMENDED_SORT
+        return waitsForSearchResultSettle &&
+            System.currentTimeMillis() < suppressSearchResultDumpUntilMs
+    }
+
+    private fun shouldDelaySearchSubmitAfterInput(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.SEARCH_SUBMIT &&
+            System.currentTimeMillis() < suppressSearchSubmitUntilMs
+    }
+
+    private fun verifySearchInputBeforeSubmit(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (task.currentStep != AutomationContract.Step.SEARCH_SUBMIT) return false
+
+        val expectedSearchKeyword = task.searchKeyword.ifBlank { task.targetProductName }.trim()
+        if (expectedSearchKeyword.isBlank()) return false
+
+        val searchInputNode = findCurrentSearchInputNode(filteredNodes)
+        val actualSearchText = searchInputNode?.text
+            ?.takeIf { text -> text.isNotBlank() }
+            ?: searchInputNode?.contentDescription.orEmpty()
+        val trimmedActualSearchText = actualSearchText.trim()
+        val expectedNormalized = normalizeSearchTarget(expectedSearchKeyword)
+        val actualNormalized = normalizeSearchTarget(trimmedActualSearchText)
+
+        AutomationLogger.info(
+            "verify_search_input_before_submit expected=$expectedSearchKeyword " +
+                "actual=$trimmedActualSearchText nodeId=${searchInputNode?.id ?: -1} trigger=$trigger"
+        )
+
+        val keywordMatches = searchInputNode != null &&
+            actualNormalized.isNotBlank() &&
+            (actualNormalized == expectedNormalized || actualNormalized.contains(expectedNormalized))
+        if (keywordMatches) {
+            return false
+        }
+
+        val blockedReasonCode = if (searchInputNode == null) {
+            "search_submit_blocked_input_not_found"
+        } else {
+            "search_submit_blocked_keyword_mismatch"
+        }
+        val blockedMessage = if (searchInputNode == null) {
+            "Search input node was not found before submit"
+        } else {
+            "Search submit blocked because input text does not match expected keyword"
+        }
+        if (AutomationTaskStore.tryReserveSearchInputTextRetry()) {
+            val expectedState = "search input text contains $expectedSearchKeyword"
+            val observedState = if (searchInputNode == null) {
+            "search input node not found"
+        } else {
+            "search input text is $trimmedActualSearchText"
+        }
+            AutomationTaskStore.recordWaitingForRetry(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                reasonCode = blockedReasonCode,
+                message = blockedMessage
+            )
+            AutomationTaskStore.recordSearchInputTextMismatch(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                reasonCode = blockedReasonCode,
+                message = blockedMessage,
+                expectedState = expectedState,
+                observedState = observedState
+            )
+            AutomationTaskStore.updateCurrentStep(AutomationContract.Step.SEARCH_INPUT)
+            scheduleProcessTick(300L, "retry_search_input_text")
+        } else {
+            val finalReasonCode = "search_input_text_not_applied"
+            AutomationTaskStore.stopTask(
+                packageName = currentPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = rawNodeCount,
+                filteredNodeCount = filteredNodes.size,
+                trigger = trigger,
+                screenType = finalReasonCode,
+                reasonCode = finalReasonCode,
+                message = "Search input text did not match expected keyword after retries",
+                failedAction = "verify_search_input_before_submit",
+                expectedState = "search input text contains $expectedSearchKeyword",
+                observedState = if (searchInputNode == null) {
+                    "search input node not found"
+                } else {
+                    "search input text is $trimmedActualSearchText"
+                }
+            )
+        }
+        return true
+    }
+
+    private fun shouldDelayAddToCartResultAfterClick(task: AutomationTask, trigger: String): Boolean {
+        return task.currentStep == AutomationContract.Step.WAIT_OPTION_OR_CART_RESULT &&
+            System.currentTimeMillis() < suppressAddToCartResultUntilMs
+    }
+
+    private fun findCurrentSearchInputNode(filteredNodes: List<UiNode>): UiNode? {
+        return filteredNodes
+            .filter { node -> node.enabled }
+            .filter { node -> node.editable || node.role == "input" || isEditText(node) }
+            .maxByOrNull { node ->
+                var score = 0.0
+                if (node.editable) score += 0.55
+                if (node.role == "input") score += 0.25
+                if (isEditText(node)) score += 0.25
+                if (node.boundsTop in 0..420) score += 0.15
+                score
+            }
+    }
+
+    private fun isEditText(node: UiNode): Boolean {
+        return node.className.orEmpty().contains("EditText", ignoreCase = true)
+    }
+
+    private fun isSearchResultsScreenReady(
+        task: AutomationTask,
+        filteredNodes: List<UiNode>
+    ): Boolean {
+        val ready = when (task.platform) {
+            AutomationContract.Platform.KURLY -> isKurlySearchResultsScreenReady(filteredNodes)
+            AutomationContract.Platform.COUPANG -> isCoupangSearchResultsScreenReady(filteredNodes)
+            else -> false
+        }
+        AutomationLogger.info(
+            "search_results_ready_check platform=${task.platform} ready=$ready"
+        )
+        return ready
+    }
+
+    private fun isKurlySearchResultsScreenReady(filteredNodes: List<UiNode>): Boolean {
+        val hasProductAction = containsAnyText(filteredNodes, listOf("담기", "장바구니"))
+        val hasPriceText = filteredNodes.any { node ->
+            Regex("""\d[\d,]*\s*원""").containsMatchIn(node.primaryText())
+        }
+        val hasResultSortOrTab = containsAnyText(filteredNodes, listOf("추천순", "인기순", "상품", "가격"))
+        return (hasProductAction && hasPriceText) || (hasResultSortOrTab && hasPriceText)
+    }
+
+    private fun isCoupangSearchResultsScreenReady(filteredNodes: List<UiNode>): Boolean {
+        val hasPriceText = filteredNodes.any { node ->
+            Regex("""\d[\d,]*\s*원""").containsMatchIn(node.primaryText())
+        }
+        val hasResultSignal = containsAnyText(
+            filteredNodes,
+            listOf("검색결과", "필터", "정렬", "로켓배송", "무료배송")
+        )
+        val hasProductSignal = filteredNodes.any { node ->
+            isCoupangSearchResultProductSignalNode(node)
+        }
+        val hasDetailSignal = isLikelyCoupangProductDetailScreen(filteredNodes)
+        val ready = hasPriceText && (hasResultSignal || hasProductSignal) && !hasDetailSignal
+
+        AutomationLogger.info(
+            "search_results_ready_check platform=${AutomationContract.Platform.COUPANG} " +
+                "ready=$ready hasPrice=$hasPriceText hasResultSignal=$hasResultSignal " +
+                "hasProductSignal=$hasProductSignal hasDetailSignal=$hasDetailSignal"
+        )
+        return ready
+    }
+
+    private fun isCoupangSearchResultProductSignalNode(node: UiNode): Boolean {
+        if (!node.visibleToUser || !node.enabled) return false
+        if (node.editable || node.role == "input" || isEditText(node)) return false
+
+        val text = node.primaryText().trim()
+        if (text.length < 4) return false
+        if (Regex("""^\d[\d,]*\s*원$""").matches(text)) return false
+        if (Regex("""^\d+%?$""").matches(text)) return false
+        if (text.contains("검색어 입력") || text.contains("검색")) return false
+
+        return Regex("""[가-힣A-Za-z]""").containsMatchIn(text)
+    }
+
+    private fun isLikelyCoupangProductDetailScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasBuyAction = containsAnyText(filteredNodes, listOf("바로구매", "구매하기"))
+        val hasDetailTab = containsAnyText(filteredNodes, listOf("상품상세", "상세정보"))
+        val hasReviewOrQuestion = containsAnyText(filteredNodes, listOf("상품평", "상품문의"))
+        val hasResultSignal = containsAnyText(filteredNodes, listOf("검색결과", "필터", "정렬"))
+        return hasBuyAction && hasDetailTab && hasReviewOrQuestion && !hasResultSignal
+    }
+
+    private fun shouldRetrySearchSubmitAfterResultWait(): Boolean {
+        val resultWaitRetryCount = AutomationTaskStore.currentRetryCountForStep(
+            AutomationContract.Step.DUMP_SEARCH_RESULTS
+        )
+        return resultWaitRetryCount >= 2 && AutomationTaskStore.tryReserveSearchSubmitRetry()
+    }
+
+    private fun isSearchInspectionScreenReady(rawNodeCount: Int, filteredNodeCount: Int): Boolean {
+        return rawNodeCount >= 10 && filteredNodeCount >= 4
+    }
+
+    private fun normalizeKurlyPurchaseHistoryStart(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (!shouldNormalizeKurlyPurchaseHistory(task)) return false
+
+        val screenType = classifyKurlyScreen(filteredNodes)
+        AutomationTaskStore.recordScreenClassification(screenType.value, trigger)
+        AutomationLogger.info(
+            "kurly screen classification screenType=${screenType.value} " +
+                "currentStep=${task.currentStep} trigger=$trigger"
+        )
+
+        when (screenType) {
+            KurlyScreenType.SENSITIVE -> {
+                AutomationLogger.warn("sensitive Kurly screen detected during normalization")
+                AutomationTaskStore.stopTask(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    screenType = screenType.value,
+                    reasonCode = "sensitive_screen",
+                    message = "Sensitive Kurly screen detected. Automation stopped."
+                )
+                return true
+            }
+            KurlyScreenType.ORDER_HISTORY -> {
+                if (shouldResetKurlyOrderHistoryResume(task)) {
+                    AutomationLogger.info(
+                        "kurly order history visible. " +
+                            "normalize currentStep=${task.currentStep} nextStep=${AutomationContract.Step.DUMP_PURCHASE_HISTORY} " +
+                            "trigger=$trigger"
+                    )
+                    AutomationTaskStore.updateCurrentStep(AutomationContract.Step.DUMP_PURCHASE_HISTORY)
+                    scheduleProcessTick(500L, "kurly_order_history_ready")
+                    return true
+                }
+                return false
+            }
+            KurlyScreenType.MY_KURLY -> {
+                if (task.currentStep != AutomationContract.Step.OPEN_ORDER_HISTORY) {
+                    AutomationLogger.info(
+                        "kurly my page visible. " +
+                            "normalize currentStep=${task.currentStep} nextStep=${AutomationContract.Step.OPEN_ORDER_HISTORY}"
+                    )
+                    AutomationTaskStore.updateCurrentStep(AutomationContract.Step.OPEN_ORDER_HISTORY)
+                    scheduleProcessTick(100L, "normalized_my_kurly")
+                    return true
+                }
+                return false
+            }
+            KurlyScreenType.KURLY_HOME -> {
+                if (task.currentStep != AutomationContract.Step.OPEN_MY_KURLY) {
+                    AutomationLogger.info(
+                        "kurly home visible. " +
+                            "normalize currentStep=${task.currentStep} nextStep=${AutomationContract.Step.OPEN_MY_KURLY}"
+                    )
+                    AutomationTaskStore.updateCurrentStep(AutomationContract.Step.OPEN_MY_KURLY)
+                    scheduleProcessTick(100L, "normalized_kurly_home")
+                    return true
+                }
+                return false
+            }
+            KurlyScreenType.SEARCH_RESULTS,
+            KurlyScreenType.PRODUCT_DETAIL,
+            KurlyScreenType.CART -> {
+                if (task.currentStep == AutomationContract.Step.OPEN_MY_KURLY) {
+                    AutomationLogger.info(
+                        "kurly shopping surface visible while opening My Kurly. " +
+                            "screenType=${screenType.value} " +
+                            "continue to planner currentStep=${task.currentStep} trigger=$trigger"
+                    )
+                    return false
+                }
+                if (shouldDelayOrderHistoryScreenGuard(task)) {
+                    AutomationLogger.info(
+                        "skip unexpected Kurly screen guard after purchase history scroll " +
+                            "currentStep=${task.currentStep} trigger=$trigger"
+                    )
+                    return true
+                }
+                if (shouldWaitForKurlyOrderHistoryContent(task)) {
+                    AutomationLogger.info(
+                        "kurly unexpected screen ignored while waiting for order history. " +
+                            "currentStep=${task.currentStep} trigger=$trigger"
+                    )
+                    return false
+                }
+                if (shouldAvoidBackRecoveryDuringPurchaseHistoryNavigation(task)) {
+                    AutomationLogger.info(
+                        "skip BACK recovery during Kurly purchase history navigation " +
+                            "screenType=${screenType.value} currentStep=${task.currentStep} trigger=$trigger"
+                    )
+                    scheduleProcessTick(900L, "wait_unexpected_kurly_screen")
+                    return true
+                }
+                val success = performGlobalAction(GLOBAL_ACTION_BACK)
+                val shouldContinue = AutomationTaskStore.recordRecoveryAttempt(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    screenType = screenType.value,
+                    success = success
+                )
+                if (shouldContinue) {
+                    scheduleProcessTick(900L, "recover_from_unexpected_screen")
+                } else {
+                    AutomationTaskStore.stopTask(
+                        packageName = currentPackageName,
+                        currentStep = task.currentStep,
+                        rawNodeCount = rawNodeCount,
+                        filteredNodeCount = filteredNodes.size,
+                        trigger = trigger,
+                        screenType = screenType.value,
+                        reasonCode = "recovery_limit_exceeded",
+                        message = "Recovery limit exceeded for unexpected Kurly screen"
+                    )
+                }
+                return true
+            }
+            KurlyScreenType.UNKNOWN -> {
+                return false
+            }
+        }
+    }
+
+    private fun shouldResetKurlyOrderHistoryResume(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.OPEN_MY_KURLY ||
+            task.currentStep == AutomationContract.Step.OPEN_ORDER_HISTORY
+    }
+
+    private fun shouldWaitForKurlyOrderHistoryContent(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+    }
+
+    private fun shouldNormalizeKurlyPurchaseHistory(task: AutomationTask): Boolean {
+        if (task.platform != AutomationContract.Platform.KURLY) return false
+        return task.currentStep == AutomationContract.Step.OPEN_MY_KURLY ||
+            task.currentStep == AutomationContract.Step.OPEN_ORDER_HISTORY ||
+            task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+    }
+
+    private fun normalizeCoupangPurchaseHistoryStart(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (!shouldNormalizeCoupangPurchaseHistory(task)) return false
+
+        val screenType = classifyCoupangScreen(filteredNodes)
+        AutomationTaskStore.recordScreenClassification(screenType.value, trigger)
+        AutomationLogger.info(
+            "coupang screen classification screenType=${screenType.value} " +
+                "currentStep=${task.currentStep} trigger=$trigger"
+        )
+
+        if (
+            task.currentStep == AutomationContract.Step.OPEN_ORDER_HISTORY &&
+            isCoupangCashGiftCardPage(filteredNodes)
+        ) {
+            val success = performGlobalAction(GLOBAL_ACTION_BACK)
+            AutomationLogger.info(
+                "purchase_history_normalize_start platform=coupang " +
+                    "taskId=${task.taskId} currentScreen=coupang_cash_gift_card " +
+                    "currentStep=${task.currentStep} action=back success=$success " +
+                    "reason=unexpected_coupang_subpage_during_order_history trigger=$trigger"
+            )
+            scheduleProcessTick(900L, "after_coupang_cash_gift_card_back")
+            return true
+        }
+
+        if (
+            coupangInitialOrderHistoryResetTaskIds.contains(task.taskId) &&
+            screenType != CoupangScreenType.ORDER_HISTORY
+        ) {
+            coupangInitialOrderHistoryResetTaskIds.remove(task.taskId)
+            if (
+                screenType == CoupangScreenType.MY_COUPANG &&
+                task.currentStep == AutomationContract.Step.OPEN_ORDER_HISTORY
+            ) {
+                markCoupangCanonicalNavigationStarted(task)
+            }
+            AutomationLogger.info(
+                "purchase_history_normalize_complete platform=coupang " +
+                    "taskId=${task.taskId} screenType=${screenType.value} " +
+                    "currentStep=${task.currentStep} trigger=$trigger"
+            )
+        }
+
+        if (shouldDelayCoupangPurchaseHistoryNavigationNormalize(task, screenType)) {
+            AutomationLogger.info(
+                "skip Coupang purchase history navigation normalization during settle " +
+                    "screenType=${screenType.value} currentStep=${task.currentStep} trigger=$trigger"
+            )
+            return true
+        }
+
+        when (screenType) {
+            CoupangScreenType.SENSITIVE -> {
+                AutomationLogger.warn("sensitive Coupang screen detected during normalization")
+                AutomationTaskStore.stopTask(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    screenType = screenType.value,
+                    reasonCode = "sensitive_screen",
+                    message = "Sensitive Coupang screen detected. Automation stopped."
+                )
+                return true
+            }
+            CoupangScreenType.ORDER_HISTORY -> {
+                if (shouldResetCoupangOrderHistoryResume(task)) {
+                    AutomationLogger.info(
+                        "coupang order history visible. " +
+                            "normalize currentStep=${task.currentStep} nextStep=${AutomationContract.Step.DUMP_PURCHASE_HISTORY} " +
+                            "trigger=$trigger"
+                    )
+                    AutomationTaskStore.updateCurrentStep(AutomationContract.Step.DUMP_PURCHASE_HISTORY)
+                    scheduleProcessTick(500L, "coupang_order_history_ready")
+                    return true
+                }
+                return false
+            }
+            CoupangScreenType.MY_COUPANG -> {
+                if (task.currentStep != AutomationContract.Step.OPEN_ORDER_HISTORY) {
+                    markCoupangCanonicalNavigationStarted(task)
+                    AutomationLogger.info(
+                        "coupang my page visible. " +
+                            "normalize currentStep=${task.currentStep} nextStep=${AutomationContract.Step.OPEN_ORDER_HISTORY}"
+                    )
+                    AutomationTaskStore.updateCurrentStep(AutomationContract.Step.OPEN_ORDER_HISTORY)
+                    scheduleProcessTick(100L, "normalized_my_coupang")
+                    return true
+                }
+                return false
+            }
+            CoupangScreenType.COUPANG_HOME -> {
+                if (task.currentStep != AutomationContract.Step.OPEN_MY_COUPANG) {
+                    AutomationLogger.info(
+                        "coupang home visible. " +
+                            "normalize currentStep=${task.currentStep} nextStep=${AutomationContract.Step.OPEN_MY_COUPANG}"
+                    )
+                    AutomationTaskStore.updateCurrentStep(AutomationContract.Step.OPEN_MY_COUPANG)
+                    scheduleProcessTick(100L, "normalized_coupang_home")
+                    return true
+                }
+                return false
+            }
+            CoupangScreenType.SEARCH_RESULTS,
+            CoupangScreenType.PRODUCT_DETAIL,
+            CoupangScreenType.CART -> {
+                if (task.currentStep == AutomationContract.Step.OPEN_MY_COUPANG) {
+                    AutomationLogger.info(
+                        "coupang shopping surface visible while opening My Coupang. " +
+                            "screenType=${screenType.value} " +
+                            "continue to planner currentStep=${task.currentStep} trigger=$trigger"
+                    )
+                    return false
+                }
+                if (shouldDelayOrderHistoryScreenGuard(task)) {
+                    AutomationLogger.info(
+                        "skip unexpected Coupang screen guard after purchase history scroll " +
+                            "currentStep=${task.currentStep} trigger=$trigger"
+                    )
+                    return true
+                }
+                if (shouldWaitForCoupangOrderHistoryContent(task)) {
+                    AutomationLogger.info(
+                        "coupang unexpected screen ignored while waiting for order history. " +
+                            "currentStep=${task.currentStep} trigger=$trigger"
+                    )
+                    return false
+                }
+                if (shouldAvoidBackRecoveryDuringPurchaseHistoryNavigation(task)) {
+                    AutomationLogger.info(
+                        "skip BACK recovery during Coupang purchase history navigation " +
+                            "screenType=${screenType.value} currentStep=${task.currentStep} trigger=$trigger"
+                    )
+                    scheduleProcessTick(900L, "wait_unexpected_coupang_screen")
+                    return true
+                }
+                val success = performGlobalAction(GLOBAL_ACTION_BACK)
+                val shouldContinue = AutomationTaskStore.recordRecoveryAttempt(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    screenType = screenType.value,
+                    success = success
+                )
+                if (shouldContinue) {
+                    scheduleProcessTick(900L, "recover_from_unexpected_coupang_screen")
+                } else {
+                    AutomationTaskStore.stopTask(
+                        packageName = currentPackageName,
+                        currentStep = task.currentStep,
+                        rawNodeCount = rawNodeCount,
+                        filteredNodeCount = filteredNodes.size,
+                        trigger = trigger,
+                        screenType = screenType.value,
+                        reasonCode = "recovery_limit_exceeded",
+                        message = "Recovery limit exceeded for unexpected Coupang screen"
+                    )
+                }
+                return true
+            }
+            CoupangScreenType.UNKNOWN -> return false
+        }
+    }
+
+    private fun shouldNormalizeCoupangPurchaseHistory(task: AutomationTask): Boolean {
+        if (task.platform != AutomationContract.Platform.COUPANG) return false
+        return task.currentStep == AutomationContract.Step.OPEN_MY_COUPANG ||
+            task.currentStep == AutomationContract.Step.OPEN_ORDER_HISTORY ||
+            task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+    }
+
+    private fun shouldResetCoupangOrderHistoryResume(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.OPEN_MY_COUPANG ||
+            task.currentStep == AutomationContract.Step.OPEN_ORDER_HISTORY
+    }
+
+    private fun markCoupangCanonicalNavigationStarted(task: AutomationTask) {
+        if (
+            task.taskType == AutomationContract.TaskType.PURCHASE_HISTORY &&
+            task.platform == AutomationContract.Platform.COUPANG
+        ) {
+            coupangCanonicalNavigationTaskIds.add(task.taskId)
+        }
+    }
+
+    private fun hasCoupangCanonicalNavigationStarted(task: AutomationTask): Boolean {
+        return coupangCanonicalNavigationTaskIds.contains(task.taskId)
+    }
+
+    private fun shouldWaitForCoupangOrderHistoryContent(task: AutomationTask): Boolean {
+        return task.currentStep == AutomationContract.Step.DUMP_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.EXTRACT_PURCHASE_HISTORY ||
+            task.currentStep == AutomationContract.Step.SCROLL_PURCHASE_HISTORY
+    }
+
+    private fun shouldDelayCoupangPurchaseHistoryNavigationNormalize(
+        task: AutomationTask,
+        screenType: CoupangScreenType
+    ): Boolean {
+        if (task.currentStep != AutomationContract.Step.OPEN_ORDER_HISTORY) return false
+        if (System.currentTimeMillis() >= suppressPurchaseHistoryNavigationNormalizeUntilMs) return false
+        return screenType == CoupangScreenType.COUPANG_HOME ||
+            isCoupangShoppingSurfaceScreenType(screenType.value) ||
+            screenType == CoupangScreenType.UNKNOWN
+    }
+
+    private fun classifyKurlyScreen(filteredNodes: List<UiNode>): KurlyScreenType {
+        if (containsAnyText(filteredNodes, sensitiveKeywords())) {
+            return KurlyScreenType.SENSITIVE
+        }
+        if (isKurlyOrderHistoryScreen(filteredNodes)) {
+            return KurlyScreenType.ORDER_HISTORY
+        }
+        if (isKurlyHomeScreen(filteredNodes)) {
+            return KurlyScreenType.KURLY_HOME
+        }
+        if (isKurlyMyPageScreen(filteredNodes)) {
+            return KurlyScreenType.MY_KURLY
+        }
+        if (isKurlyCartScreen(filteredNodes)) {
+            return KurlyScreenType.CART
+        }
+        if (isKurlyProductDetailScreen(filteredNodes)) {
+            return KurlyScreenType.PRODUCT_DETAIL
+        }
+        if (isKurlySearchResultsScreen(filteredNodes)) {
+            return KurlyScreenType.SEARCH_RESULTS
+        }
+        return KurlyScreenType.UNKNOWN
+    }
+
+    private fun classifyCoupangScreen(filteredNodes: List<UiNode>): CoupangScreenType {
+        if (containsAnyText(filteredNodes, sensitiveKeywords())) {
+            return CoupangScreenType.SENSITIVE
+        }
+        if (isCoupangOrderHistoryScreen(filteredNodes)) {
+            return CoupangScreenType.ORDER_HISTORY
+        }
+        if (isCoupangHomeScreen(filteredNodes)) {
+            return CoupangScreenType.COUPANG_HOME
+        }
+        if (isCoupangMyPageScreen(filteredNodes)) {
+            return CoupangScreenType.MY_COUPANG
+        }
+        if (isCoupangCartScreen(filteredNodes)) {
+            return CoupangScreenType.CART
+        }
+        if (isCoupangProductDetailScreen(filteredNodes)) {
+            return CoupangScreenType.PRODUCT_DETAIL
+        }
+        if (isCoupangSearchResultsScreen(filteredNodes)) {
+            return CoupangScreenType.SEARCH_RESULTS
+        }
+        return CoupangScreenType.UNKNOWN
+    }
+
+    private fun isKurlyOrderHistoryScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasOrderHistoryTitle = filteredNodes.any { node ->
+            node.searchableText().contains("주문 내역")
+        }
+        val hasOrderNumber = filteredNodes.any { node ->
+            val text = node.searchableText()
+            text.contains("주문번호")
+        }
+        val hasDeliverySignal = filteredNodes.any { node ->
+            val text = node.searchableText()
+            text.contains("배송완료") ||
+                text.contains("배송 완료") ||
+                text.contains("샛별배송") ||
+                text.contains("하루배송") ||
+                text.contains("택배배송")
+        }
+        val hasOrderAction = containsAnyText(
+            filteredNodes,
+            listOf("총", "주문 펼쳐보기", "주문 펼치기", "배송조회", "반품 접수", "후기 작성")
+        )
+        val hasPriceText = filteredNodes.any { node ->
+            Regex("""\d{1,3}(,\d{3})*원""").containsMatchIn(node.primaryText())
+        }
+        return (hasOrderHistoryTitle && (hasOrderNumber || hasDeliverySignal || hasOrderAction)) ||
+            hasOrderNumber ||
+            (hasDeliverySignal && hasPriceText && hasOrderAction)
+    }
+
+    private fun isCoupangOrderHistoryScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasOrderTitle = containsAnyText(filteredNodes, listOf("주문목록", "주문내역", "주문 내역"))
+        val hasDate = filteredNodes.any { node ->
+            Regex("""\b\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\b""").containsMatchIn(node.primaryText())
+        }
+        val hasDeliverySignal = containsAnyText(
+            filteredNodes,
+            listOf("배송완료", "배송중", "배송 준비중", "주문완료", "반품완료", "취소완료", "도착")
+        )
+        val hasProductPriceAndQuantity = filteredNodes.any { node ->
+            val text = node.searchableText()
+            Regex("""\d{1,3}(,\d{3})*\s*원""").containsMatchIn(text) &&
+                Regex("""\d+\s*개""").containsMatchIn(text)
+        }
+        val hasOrderManagement = containsAnyText(filteredNodes, listOf("배송 · 주문 관리", "배송 주문 관리"))
+
+        return (hasOrderTitle && (hasDate || hasDeliverySignal || hasProductPriceAndQuantity || hasOrderManagement)) ||
+            (hasDate && (hasDeliverySignal || hasProductPriceAndQuantity || hasOrderManagement)) ||
+            (hasDeliverySignal && hasProductPriceAndQuantity)
+    }
+
+    private fun isKurlyMyPageScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasMyPageGreeting = containsAnyText(filteredNodes, listOf("반가워요"))
+        val hasMyPageAccountInfo = containsAnyText(filteredNodes, listOf("적립금", "컬리캐시", "매일혜택 포인트"))
+        val hasMyPageAction = containsAnyText(filteredNodes, listOf("주문 내역", "배송지 관리", "찜", "후기"))
+        return hasMyPageGreeting || (hasMyPageAccountInfo && hasMyPageAction)
+    }
+
+    private fun isCoupangMyPageScreen(filteredNodes: List<UiNode>): Boolean {
+        if (isCoupangCashGiftCardPage(filteredNodes)) return false
+
+        val hasMyCoupangTitle = containsAnyText(filteredNodes, listOf("마이쿠팡"))
+        val hasMyPageAction = containsAnyText(
+            filteredNodes,
+            listOf(
+                "주문목록",
+                "주문/배송",
+                "취소/반품",
+                "리뷰관리",
+                "와우 멤버십",
+                "찜한상품",
+                "최근본상품"
+            )
+        )
+        return hasMyCoupangTitle && hasMyPageAction
+    }
+
+    private fun isCoupangCashGiftCardPage(filteredNodes: List<UiNode>): Boolean {
+        val hasCashPageTitle = containsAnyText(filteredNodes, listOf("쿠팡캐시·기프트카드", "제휴포인트"))
+        val hasBackButton = containsAnyText(filteredNodes, listOf("뒤로가기"))
+        return hasCashPageTitle && hasBackButton
+    }
+
+    private fun isKurlyHomeScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasKurlyTab = containsAnyText(filteredNodes, listOf("마켓컬리", "뷰티컬리"))
+        val hasBottomNavigation = containsAnyText(filteredNodes, listOf("홈", "카테고리", "검색", "마이컬리"))
+        val hasHomeContent = containsAnyText(filteredNodes, listOf("컬리추천", "베스트", "알뜰쇼핑", "특가", "페스타"))
+        return hasKurlyTab && hasBottomNavigation && hasHomeContent
+    }
+
+    private fun isCoupangHomeScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasBottomNavigation = containsAnyText(
+            filteredNodes,
+            listOf("쿠팡 홈", "전체 카테고리", "검색", "마이쿠팡", "장바구니")
+        )
+        val hasHomeContent = containsAnyText(
+            filteredNodes,
+            listOf("로켓배송", "쿠팡추천", "오늘의 발견", "쿠팡플레이", "골드박스")
+        )
+        val hasSearchEntry = containsAnyText(filteredNodes, listOf("쿠팡에서 검색", "찾고 싶은 상품"))
+        return hasBottomNavigation && (hasHomeContent || hasSearchEntry)
+    }
+
+    private fun isKurlySearchResultsScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasSortOrResultSignal = containsAnyText(
+            filteredNodes,
+            listOf("추천순", "인기순", "판매량순", "낮은 가격순", "높은 가격순", "상품명으로 검색")
+        )
+        val priceTextCount = priceTextCount(filteredNodes)
+        val hasProductAction = containsAnyText(filteredNodes, listOf("담기", "장바구니 담기"))
+        return hasSortOrResultSignal && (priceTextCount >= 2 || hasProductAction)
+    }
+
+    private fun isKurlyProductDetailScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasBuyOrCartAction = containsAnyText(filteredNodes, listOf("담기", "장바구니 담기"))
+        val hasDetailSignal = containsAnyText(
+            filteredNodes,
+            listOf("상품설명", "상품 설명", "상세정보", "상세 정보", "후기", "문의", "배송")
+        )
+        val hasPriceText = priceTextCount(filteredNodes) >= 1
+        val hasSearchResultSignal = containsAnyText(filteredNodes, listOf("추천순", "인기순", "판매량순"))
+        return hasBuyOrCartAction && hasDetailSignal && hasPriceText && !hasSearchResultSignal
+    }
+
+    private fun isKurlyCartScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasCartTitle = filteredNodes.any { node ->
+            normalizeSearchTarget(node.primaryText()) == "장바구니"
+        }
+        val hasCartStructure = containsAnyText(
+            filteredNodes,
+            listOf("선택상품", "전체선택", "주문하기", "결제하기", "수량", "삭제")
+        )
+        val hasOrderTotal = containsAnyText(filteredNodes, listOf("상품금액", "결제예정금액", "총 상품금액"))
+        return hasCartTitle && (hasCartStructure || hasOrderTotal)
+    }
+
+    private fun isCoupangSearchResultsScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasResultSignal = containsAnyText(
+            filteredNodes,
+            listOf("검색결과", "필터", "정렬", "로켓배송", "무료배송")
+        )
+        val priceTextCount = priceTextCount(filteredNodes)
+        val hasProductSignal = filteredNodes.any { node ->
+            isCoupangSearchResultProductSignalNode(node)
+        }
+        val hasDetailSignal = isCoupangProductDetailScreen(filteredNodes)
+        return hasResultSignal && priceTextCount >= 1 && hasProductSignal && !hasDetailSignal
+    }
+
+    private fun isCoupangProductDetailScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasBuyAction = containsAnyText(filteredNodes, listOf("바로구매", "구매하기"))
+        val hasCartAction = containsAnyText(filteredNodes, listOf("장바구니 담기", "장바구니에 담기"))
+        val hasDetailTab = containsAnyText(filteredNodes, listOf("상품상세", "상세정보"))
+        val hasReviewOrQuestion = containsAnyText(filteredNodes, listOf("상품평", "상품문의", "리뷰"))
+        val hasPriceText = priceTextCount(filteredNodes) >= 1
+        val hasSearchResultSignal = containsAnyText(filteredNodes, listOf("검색결과", "필터", "정렬"))
+        return (hasBuyAction || hasCartAction) &&
+            (hasDetailTab || hasReviewOrQuestion) &&
+            hasPriceText &&
+            !hasSearchResultSignal
+    }
+
+    private fun isCoupangCartScreen(filteredNodes: List<UiNode>): Boolean {
+        val hasCartTitle = filteredNodes.any { node ->
+            normalizeSearchTarget(node.primaryText()) == "장바구니"
+        }
+        val hasCartStructure = containsAnyText(
+            filteredNodes,
+            listOf("선택상품", "전체선택", "주문하기", "구매하기", "수량", "삭제", "품절상품")
+        )
+        val hasOrderTotal = containsAnyText(filteredNodes, listOf("총 상품금액", "결제예정금액", "예상 결제금액"))
+        return hasCartTitle && (hasCartStructure || hasOrderTotal)
+    }
+
+    private fun priceTextCount(filteredNodes: List<UiNode>): Int {
+        return filteredNodes.count { node ->
+            Regex("""\d[\d,]*\s*원""").containsMatchIn(node.primaryText())
+        }
+    }
+
+    private fun isProductDetailScreen(filteredNodes: List<UiNode>, targetProductName: String): Boolean {
+        val hasTargetSignal = containsTargetProductSignal(filteredNodes, targetProductName)
+        val hasPriceText = filteredNodes.any { node ->
+            Regex("""\d{1,3}(,\d{3})*원""").containsMatchIn(node.primaryText())
+        }
+        val hasAddToCartAction = containsAnyText(filteredNodes, listOf("담기", "장바구니 담기"))
+        val hasDetailSignal = containsAnyText(
+            filteredNodes,
+            listOf("상품설명", "상품 설명", "상세정보", "상세 정보", "후기", "문의", "배송")
+        )
+        return hasTargetSignal && hasPriceText && (hasAddToCartAction || hasDetailSignal)
+    }
+
+    private fun classifyAfterAddToCartClick(
+        filteredNodes: List<UiNode>,
+        task: AutomationTask
+    ): String {
+        if (containsAnyText(filteredNodes, sensitiveKeywords())) return "sensitive_screen"
+        if (containsAnyText(filteredNodes, listOf("로그인이 필요", "로그인 후", "로그인해주세요"))) {
+            return "login_required"
+        }
+        if (containsAnyText(filteredNodes, listOf("품절", "일시품절", "재입고", "판매 종료"))) {
+            return "sold_out"
+        }
+        if (containsAnyText(filteredNodes, listOf("장바구니에 담겼습니다", "담겼습니다", "장바구니 보기"))) {
+            return "cart_added"
+        }
+        val normalizedOptionName = normalizeSearchTarget(task.optionName)
+        val hasRequestedOption = normalizedOptionName.isNotBlank() &&
+            filteredNodes.any { node -> normalizeSearchTarget(node.searchableText()).contains(normalizedOptionName) }
+        if (hasRequestedOption || containsAnyText(filteredNodes, listOf("옵션", "옵션 선택", "상품 선택"))) {
+            return "option_required"
+        }
+        if (containsAnyText(filteredNodes, listOf("수량", "수량 선택", "개수"))) {
+            return "quantity_required"
+        }
+        return "unknown_after_add_click"
+    }
+
+    private fun cartAddedPayload(
+        task: AutomationTask,
+        filteredNodes: List<UiNode>,
+        observedQuantity: Int?,
+        quantityVerificationSource: String
+    ): Map<String, Any?> {
+        val requestedQuantity = task.quantity
+        return mapOf(
+            "requestedProductName" to task.targetProductName,
+            "requestedSearchKeyword" to task.searchKeyword,
+            "requestedOptionName" to task.optionName.ifBlank { null },
+            "requestedQuantity" to requestedQuantity,
+            "observedProductName" to task.targetProductName.takeIf { it.isNotBlank() },
+            "observedOptionName" to task.optionName.takeIf { it.isNotBlank() },
+            "observedQuantity" to observedQuantity,
+            "quantityMatchesRequest" to (observedQuantity?.let { it == requestedQuantity }),
+            "quantityVerificationSource" to quantityVerificationSource,
+            "cartConfirmationText" to cartAddedConfirmationText(filteredNodes),
+            "platform" to task.platform,
+            "packageName" to task.effectivePackageName(),
+            "cartItemId" to task.cartItemId,
+            "orderId" to task.orderId,
+            "paymentId" to task.paymentId,
+        ).filterValues { it != null }
+    }
+
+    private fun handleCheckoutCartItemCompleted(
+        task: AutomationTask,
+        itemOutcome: Map<String, Any?>,
+        trigger: String
+    ): Boolean {
+        if (task.taskType != AutomationContract.TaskType.CHECKOUT_PLATFORM_CART) {
+            return false
+        }
+        val nextTask = AutomationTaskStore.advanceCheckoutItemOrComplete(
+            trigger = trigger,
+            itemOutcome = itemOutcome
+        )
+        if (nextTask != null) {
+            nextTask.effectivePackageName()?.let { packageName ->
+                launchPackage(packageName)
+            }
+            scheduleProcessTick(1200L, "checkout_next_item")
+        }
+        return true
+    }
+
+    private fun launchPackage(packageName: String): Boolean {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: return false
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(launchIntent)
+        AutomationLogger.info("launchPackage packageName=$packageName")
+        return true
+    }
+
+    private fun handleRootUnavailable(
+        task: AutomationTask?,
+        trigger: String,
+        foregroundPackageName: String?
+    ): Boolean {
+        if (task == null) {
+            rootUnavailableTaskId = null
+            rootUnavailableCount = 0
+            AutomationLogger.warn("rootInActiveWindow unavailable trigger=$trigger")
+            return false
+        }
+
+        if (rootUnavailableTaskId != task.taskId) {
+            rootUnavailableTaskId = task.taskId
+            rootUnavailableCount = 0
+        }
+        rootUnavailableCount += 1
+
+        AutomationLogger.warn(
+            "rootInActiveWindow unavailable trigger=$trigger " +
+                "taskId=${task.taskId} step=${task.currentStep} count=$rootUnavailableCount " +
+                "foregroundPackage=${foregroundPackageName.orEmpty()}"
+        )
+
+        if (
+            rootUnavailableCount >= 12 &&
+            isSystemInterruptionPackage(foregroundPackageName)
+        ) {
+            AutomationTaskStore.requireUserAction(
+                packageName = foregroundPackageName,
+                currentStep = task.currentStep,
+                rawNodeCount = 0,
+                filteredNodeCount = 0,
+                trigger = trigger,
+                reasonCode = "system_interruption_blocking",
+                message = "System screen is blocking ${task.platform} automation",
+                payload = mapOf(
+                    "reason" to "system_interruption_blocking",
+                    "foregroundPackage" to foregroundPackageName,
+                    "targetPackage" to task.effectivePackageName(),
+                    "currentStep" to task.currentStep,
+                    "message" to "쇼핑 앱 위에 시스템 권한/설정 화면이 떠 있어요. 먼저 처리해 주세요.",
+                ).filterValues { it != null },
+            )
+            return true
+        }
+
+        // 앱 전환 직후 root가 잠깐 비는 것은 정상일 수 있다. 다만 여러 번 연속되면
+        // 대상 앱이 foreground로 제대로 올라오지 않은 상태일 수 있어 한 번 다시 띄운다.
+        if (rootUnavailableCount == 3) {
+            task.effectivePackageName()?.let { packageName ->
+                val launched = launchPackage(packageName)
+                AutomationLogger.info(
+                    "root_unavailable_relaunch packageName=$packageName success=$launched"
+                )
+            }
+        }
+        return false
+    }
+
+    private fun handleSystemInterruption(
+        task: AutomationTask,
+        foregroundPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (!isSystemInterruptionPackage(foregroundPackageName)) return false
+        if (tryDismissNotificationPermissionDialog(task, foregroundPackageName, filteredNodes, trigger)) {
+            return true
+        }
+        AutomationTaskStore.requireUserAction(
+            packageName = foregroundPackageName,
+            currentStep = task.currentStep,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodeCount,
+            trigger = trigger,
+            reasonCode = "system_interruption_blocking",
+            message = "System screen is blocking ${task.platform} automation",
+            payload = mapOf(
+                "reason" to "system_interruption_blocking",
+                "foregroundPackage" to foregroundPackageName,
+                "targetPackage" to task.effectivePackageName(),
+                "currentStep" to task.currentStep,
+                "message" to "쇼핑 앱 위에 시스템 권한/설정 화면이 떠 있어요. 먼저 처리해 주세요.",
+            ).filterValues { it != null },
+        )
+        return true
+    }
+
+    private fun tryDismissNotificationPermissionDialog(
+        task: AutomationTask,
+        foregroundPackageName: String?,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (!isPermissionControllerPackage(foregroundPackageName)) return false
+        if (!isNotificationPermissionDialog(filteredNodes)) return false
+
+        val denyNode = findNotificationPermissionDenyNode(filteredNodes)
+        if (denyNode == null) {
+            AutomationLogger.warn(
+                "notification_permission_dismiss_failed taskId=${task.taskId} " +
+                    "reason=deny_button_not_found foregroundPackage=${foregroundPackageName.orEmpty()}"
+            )
+            return false
+        }
+
+        val actionPlan = ActionPlan(
+            actionType = AutomationActionType.CLICK.value,
+            targetNodeId = denyNode.id,
+            textToInput = null,
+            reasonCode = "notification_permission_deny",
+            confidence = 0.99
+        )
+        val actionResult = actionExecutor.execute(actionPlan, filteredNodes)
+        AutomationLogger.info(
+            "notification_permission_deny taskId=${task.taskId} " +
+                "nodeId=${denyNode.id} text=${denyNode.primaryText()} " +
+                "success=${actionResult.success} method=${actionResult.method} trigger=$trigger"
+        )
+
+        if (actionResult.success) {
+            scheduleProcessTick(900L, "after_notification_permission_deny")
+            return true
+        }
+        return false
+    }
+
+    private fun isPermissionControllerPackage(packageName: String?): Boolean {
+        return packageName == "com.google.android.permissioncontroller" ||
+            packageName == "com.android.permissioncontroller" ||
+            packageName == "com.android.systemui"
+    }
+
+    private fun isNotificationPermissionDialog(filteredNodes: List<UiNode>): Boolean {
+        val combinedText = filteredNodes.joinToString(" ") { node -> node.searchableText() }
+        val hasNotificationSignal = combinedText.contains("알림") ||
+            combinedText.contains("notification") ||
+            combinedText.contains("notifications")
+        val hasPermissionSignal = combinedText.contains("허용") ||
+            combinedText.contains("allow") ||
+            combinedText.contains("permission")
+        return hasNotificationSignal && hasPermissionSignal
+    }
+
+    private fun findNotificationPermissionDenyNode(filteredNodes: List<UiNode>): UiNode? {
+        val denyKeywords = listOf(
+            "허용 안함",
+            "허용하지 않음",
+            "거부",
+            "deny",
+            "don't allow",
+            "don’t allow",
+            "not allow"
+        )
+        return filteredNodes
+            .filter { node -> node.enabled }
+            .filter { node ->
+                val text = node.searchableText()
+                denyKeywords.any { keyword -> text.contains(keyword) }
+            }
+            .maxByOrNull { node ->
+                var score = 0
+                if (node.clickable) score += 4
+                if (node.boundsBottom > 0) score += 1
+                if (node.width > 80 && node.height > 32) score += 1
+                score
+            }
+    }
+
+    private fun isSystemInterruptionPackage(packageName: String?): Boolean {
+        return packageName == "com.google.android.permissioncontroller" ||
+            packageName == "com.android.permissioncontroller" ||
+            packageName == "com.android.settings" ||
+            packageName == "com.android.systemui"
+    }
+
+    private fun cartAddedConfirmationText(filteredNodes: List<UiNode>): String? {
+        return filteredNodes
+            .map { node -> node.searchableText().trim() }
+            .firstOrNull { text ->
+                text.contains("장바구니에 담겼습니다") ||
+                    text.contains("담겼습니다") ||
+                    text.contains("장바구니 보기")
+            }
+    }
+
+    private fun selectedOptionQuantity(filteredNodes: List<UiNode>, optionName: String): Int? {
+        val optionNode = findOptionNameNode(filteredNodes, optionName)
+            ?: return null
+
+        return filteredNodes
+            .filter { node -> node.viewIdResourceName.orEmpty().endsWith("numberView") }
+            .filter { node -> kotlin.math.abs(node.centerY - optionNode.centerY) <= 180 }
+            .mapNotNull { node -> node.primaryText().trim().toIntOrNull() }
+            .maxOrNull()
+    }
+
+    private fun findOptionNameNode(filteredNodes: List<UiNode>, optionName: String): UiNode? {
+        val normalizedOptionName = normalizeSearchTarget(optionName)
+        if (normalizedOptionName.isBlank()) return null
+
+        return filteredNodes
+            .filter { node -> node.primaryText().isNotBlank() || node.contentDescription.orEmpty().isNotBlank() }
+            .filter { node -> normalizeSearchTarget(node.searchableText()).contains(normalizedOptionName) }
+            .minByOrNull { node -> node.centerY }
+    }
+
+    private fun containsTargetProductSignal(filteredNodes: List<UiNode>, targetProductName: String): Boolean {
+        val normalizedTarget = normalizeSearchTarget(targetProductName)
+        if (normalizedTarget.isBlank()) return false
+        val combinedText = filteredNodes.joinToString(" ") { node -> normalizeSearchTarget(node.searchableText()) }
+        if (combinedText.contains(normalizedTarget)) return true
+
+        val targetTokens = normalizedTarget
+            .split(" ")
+            .filter { token -> token.length >= 2 }
+            .distinct()
+        if (targetTokens.isEmpty()) return false
+
+        val matchedTokenCount = targetTokens.count { token -> combinedText.contains(token) }
+        val requiredTokenCount = maxOf(2, (targetTokens.size * 2 + 2) / 3)
+        return matchedTokenCount >= requiredTokenCount
+    }
+
+    private fun containsAnyText(filteredNodes: List<UiNode>, keywords: List<String>): Boolean {
+        return filteredNodes.any { node ->
+            val text = node.searchableText()
+            keywords.any { keyword -> text.contains(keyword) }
+        }
+    }
+
+    private fun hasSafePopupDismissCandidate(
+        task: AutomationTask,
+        filteredNodes: List<UiNode>
+    ): Boolean {
+        val screenType = visualSentinelScreenType(task, filteredNodes)
+        return filteredNodes.any { node ->
+            ActionPolicy.isSafePopupDismissCandidate(
+                node = node,
+                filteredNodes = filteredNodes,
+                screenType = screenType
+            )
+        }
+    }
+
+    private fun sensitiveKeywords(): List<String> {
+        return listOf(
+            "로그인",
+            "비밀번호",
+            "결제 비밀번호",
+            "본인인증",
+            "인증번호",
+            "카드번호",
+            "cvc",
+            "CVC",
+            "주민등록번호",
+            "생체인증",
+            "공동인증서"
+        )
+    }
+
+    private fun findPurchaseHistoryCandidates(filteredNodes: List<UiNode>): List<UiNode> {
+        val purchaseHistoryKeywords = listOf(
+            "주문",
+            "주문일",
+            "결제",
+            "가격",
+            "원",
+            "재구매",
+            "다시 구매",
+            "배송조회",
+            "배송",
+            "배송완료",
+            "배송 완료",
+            "주문완료",
+            "주문 완료",
+            "결제완료",
+            "결제 완료",
+            "결제금액",
+            "장바구니",
+            "장바구니 담기",
+            "재구매",
+            "다시구매",
+            "다시 구매",
+            "담기"
+        )
+
+        return filteredNodes
+            .filter { node ->
+                val nodeText = node.searchableText()
+                purchaseHistoryKeywords.any { keyword -> nodeText.contains(keyword.lowercase()) }
+            }
+            .take(80)
+    }
+
+    private fun findKurlyOrderExpandNodes(task: AutomationTask, filteredNodes: List<UiNode>): List<UiNode> {
+        if (task.platform != AutomationContract.Platform.KURLY) return emptyList()
+        val expandRegex = Regex("""총\s*\d+\s*건.*(주문|상품)?.*(펼쳐보기|펼치기|더보기)""")
+        return filteredNodes
+            .filter { node -> node.enabled }
+            .filter { node ->
+                val text = node.primaryText()
+                text.contains("펼쳐보기") ||
+                    text.contains("펼치기") ||
+                    expandRegex.containsMatchIn(text)
+            }
+            .sortedByDescending { node ->
+                var score = 0.0
+                if (node.clickable || node.role == "button") score += 0.5
+                if (node.centerY in 450..1900) score += 0.25
+                if (node.primaryText().contains("총")) score += 0.15
+                if (node.primaryText().contains("주문")) score += 0.1
+                score
+            }
+    }
+
+    private fun handlePurchaseHistoryPeriodFilterIfNeeded(
+        task: AutomationTask,
+        filteredNodes: List<UiNode>
+    ): Boolean {
+        // 마켓컬리 기간 필터는 드롭다운/바텀시트 옵션 선택 안정화가 더 필요해서 일단 비활성화한다.
+        // 나중에 옵션 UI tree를 다시 확인한 뒤 이 플래그를 켜서 재사용한다.
+        if (!purchaseHistoryPeriodFilterEnabled) return false
+        if (task.platform != AutomationContract.Platform.KURLY) return false
+        if (!AutomationTaskStore.shouldHandlePurchaseHistoryPeriodFilter()) return false
+
+        if (AutomationTaskStore.isPurchaseHistoryPeriodFilterOpened()) {
+            val maxPeriodNode = findKurlyMaxPeriodOptionNode(filteredNodes)
+            if (maxPeriodNode == null) {
+                AutomationTaskStore.markPurchaseHistoryPeriodFilterHandled("max_period_option_not_found")
+                return false
+            }
+
+            val selectPlan = ActionPlan(
+                actionType = AutomationActionType.CLICK.value,
+                targetNodeId = maxPeriodNode.id,
+                textToInput = null,
+                reasonCode = RuleReasonCode.PURCHASE_HISTORY_PERIOD_FILTER_SELECT.value,
+                confidence = 0.78
+            )
+            val selectResult = actionExecutor.execute(selectPlan, filteredNodes)
+            AutomationLogger.info(
+                "purchase_history_period_filter select " +
+                    "selectedNodeText=${maxPeriodNode.primaryText()} " +
+                    "success=${selectResult.success} method=${selectResult.method}"
+            )
+            AutomationTaskStore.recordAction(selectPlan, selectResult, maxPeriodNode)
+            AutomationTaskStore.markPurchaseHistoryPeriodFilterHandled(
+                if (selectResult.success) "max_period_selected" else "max_period_select_failed"
+            )
+            scheduleProcessTick(1000L, "after_purchase_history_period_select")
+            return true
+        }
+
+        val currentPeriodNode = findKurlyCurrentPeriodFilterNode(filteredNodes) ?: return false
+        if (isAlreadyMaxPurchaseHistoryPeriod(currentPeriodNode.primaryText())) {
+            AutomationTaskStore.markPurchaseHistoryPeriodFilterHandled("current_period_already_max")
+            return false
+        }
+        if (!AutomationTaskStore.tryOpenPurchaseHistoryPeriodFilter()) return false
+
+        val openPlan = ActionPlan(
+            actionType = AutomationActionType.CLICK.value,
+            targetNodeId = currentPeriodNode.id,
+            textToInput = null,
+            reasonCode = RuleReasonCode.PURCHASE_HISTORY_PERIOD_FILTER_OPEN.value,
+            confidence = 0.76
+        )
+        val openResult = actionExecutor.execute(openPlan, filteredNodes)
+        AutomationLogger.info(
+            "purchase_history_period_filter open " +
+                "selectedNodeText=${currentPeriodNode.primaryText()} " +
+                "success=${openResult.success} method=${openResult.method}"
+        )
+        AutomationTaskStore.recordAction(openPlan, openResult, currentPeriodNode)
+        if (!openResult.success) {
+            AutomationTaskStore.markPurchaseHistoryPeriodFilterHandled("period_filter_open_failed")
+        }
+        scheduleProcessTick(900L, "after_purchase_history_period_open")
+        return true
+    }
+
+    private fun findKurlyCurrentPeriodFilterNode(filteredNodes: List<UiNode>): UiNode? {
+        val currentPeriodRegex = Regex("""^(최근\s*)?(1|3|6)\s*개월$|^조회\s*기간$|^기간$""")
+        return filteredNodes
+            .filter { node -> node.visibleToUser && node.enabled }
+            .filter { node ->
+                val text = node.primaryText().replace(Regex("\\s+"), " ").trim()
+                currentPeriodRegex.containsMatchIn(text)
+            }
+            .maxByOrNull { node ->
+                var score = 0.0
+                if (node.clickable || node.role == "button") score += 0.45
+                if (node.centerY in 250..650) score += 0.35
+                if (node.primaryText().contains("개월")) score += 0.2
+                score
+            }
+    }
+
+    private fun findKurlyMaxPeriodOptionNode(filteredNodes: List<UiNode>): UiNode? {
+        return filteredNodes
+            .filter { node -> node.visibleToUser && node.enabled }
+            .mapNotNull { node ->
+                val score = purchaseHistoryPeriodOptionScore(node.primaryText())
+                if (score <= 0.0) null else node to score
+            }
+            .maxByOrNull { (node, score) ->
+                var adjustedScore = score
+                if (node.clickable || node.role == "button") adjustedScore += 0.2
+                if (node.centerY in 500..2100) adjustedScore += 0.1
+                adjustedScore
+            }
+            ?.first
+    }
+
+    private fun purchaseHistoryPeriodOptionScore(text: String): Double {
+        val normalizedText = text.replace(Regex("\\s+"), "").trim()
+        if (normalizedText.isBlank()) return 0.0
+        if (normalizedText.contains("전체")) return 100.0
+        if (normalizedText.contains("최대")) return 95.0
+        if (normalizedText.contains("3년")) return 90.0
+        if (normalizedText.contains("2년")) return 80.0
+        if (normalizedText.contains("1년")) return 70.0
+        if (normalizedText.contains("6개월")) return 60.0
+        return 0.0
+    }
+
+    private fun isAlreadyMaxPurchaseHistoryPeriod(text: String): Boolean {
+        return purchaseHistoryPeriodOptionScore(text) >= 70.0
+    }
+
+    private fun purchaseHistoryExpandKey(expandNode: UiNode, filteredNodes: List<UiNode>): String {
+        val orderNumberRegex = Regex("""주문번호\s*([0-9]+)""")
+        val nearestOrderNumber = filteredNodes
+            .filter { node -> node.boundsTop <= expandNode.boundsTop }
+            .mapNotNull { node ->
+                val orderNumber = orderNumberRegex.find(node.primaryText())?.groupValues?.getOrNull(1)
+                    ?: return@mapNotNull null
+                orderNumber to kotlin.math.abs(expandNode.centerY - node.centerY)
+            }
+            .minByOrNull { (_, distance) -> distance }
+            ?.first
+
+        return nearestOrderNumber ?: "${expandNode.primaryText()}@${expandNode.boundsTop}-${expandNode.boundsBottom}"
+    }
+
+    private fun logPurchaseHistoryScrollDiagnostic(
+        task: AutomationTask,
+        trigger: String,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>
+    ) {
+        val orderNumbers = visiblePurchaseHistoryOrderNumbers(filteredNodes)
+        val expandButtons = findKurlyOrderExpandNodes(task, filteredNodes).map { node ->
+            val key = purchaseHistoryExpandKey(node, filteredNodes)
+            "${sanitizeDiagnosticText(node.primaryText())}@$key/y=${node.centerY}"
+        }
+        val meaningfulTexts = purchaseHistoryMeaningfulTexts(filteredNodes)
+        val topVisibleText = meaningfulTexts.firstOrNull().orEmpty()
+        val bottomVisibleText = meaningfulTexts.lastOrNull().orEmpty()
+        val fingerprint = purchaseHistoryScrollFingerprint(meaningfulTexts)
+        val previousFingerprint = lastPurchaseHistoryScrollFingerprint
+        val scrollChanged = previousFingerprint != null && previousFingerprint != fingerprint
+        lastPurchaseHistoryScrollFingerprint = fingerprint
+        lastPurchaseHistoryScrollChanged = scrollChanged
+
+        AutomationLogger.info(
+            "purchase_history_scroll_diagnostic " +
+                "step=${task.currentStep} trigger=$trigger rawNodeCount=$rawNodeCount " +
+                "filteredNodeCount=${filteredNodes.size} " +
+                "visibleOrderNumbers=${orderNumbers.joinToString(prefix = "[", postfix = "]")} " +
+                "visibleExpandButtons=${expandButtons.joinToString(prefix = "[", postfix = "]")} " +
+                "topVisibleText=$topVisibleText bottomVisibleText=$bottomVisibleText " +
+                "fingerprint=$fingerprint previousFingerprint=${previousFingerprint.orEmpty()} " +
+                "scrollChanged=$scrollChanged"
+        )
+    }
+
+    private fun visiblePurchaseHistoryOrderNumbers(filteredNodes: List<UiNode>): List<String> {
+        val orderNumberRegex = Regex("""(?:주문번호\s*)?([0-9]{10,})""")
+        return filteredNodes
+            .flatMap { node ->
+                listOf(node.text.orEmpty(), node.contentDescription.orEmpty(), node.primaryText())
+            }
+            .flatMap { text -> orderNumberRegex.findAll(text).map { match -> match.groupValues[1] }.toList() }
+            .distinct()
+    }
+
+    private fun purchaseHistoryMeaningfulTexts(filteredNodes: List<UiNode>): List<String> {
+        return filteredNodes
+            .filter { node -> node.visibleToUser }
+            .filter { node -> node.boundsBottom > 295 && node.boundsTop < 2295 }
+            .sortedWith(compareBy<UiNode> { it.boundsTop }.thenBy { it.boundsLeft })
+            .map { node -> sanitizeDiagnosticText(node.primaryText()) }
+            .filter { text -> text.isNotBlank() }
+            .filterNot { text -> text == "__next" || text.contains("route-announcer") }
+            .distinct()
+            .take(60)
+    }
+
+    private fun purchaseHistoryScrollFingerprint(meaningfulTexts: List<String>): String {
+        val fingerprintSource = meaningfulTexts.joinToString("|")
+        return fingerprintSource.hashCode().toUInt().toString(16)
+    }
+
+    private fun sanitizeDiagnosticText(text: String): String {
+        return text
+            .replace(Regex("\\s+"), " ")
+            .replace("[", "(")
+            .replace("]", ")")
+            .trim()
+            .take(80)
+    }
+
+    private fun attachPurchaseHistoryThumbnailsIfNeeded(
+        task: AutomationTask,
+        candidates: List<PurchaseHistoryCandidate>
+    ): List<PurchaseHistoryCandidate> {
+        if (candidates.isEmpty()) return candidates
+        if (task.platform.lowercase() != AutomationContract.Platform.COUPANG) return candidates
+        val screenshot = captureScreenshotBitmapBlocking() ?: return candidates
+
+        return try {
+            candidates.mapIndexed { index, candidate ->
+                val thumbnailPath = cropPurchaseHistoryCandidateThumbnail(
+                    screenshot = screenshot,
+                    task = task,
+                    candidate = candidate,
+                    index = index
+                )
+                if (thumbnailPath == null) {
+                    candidate
+                } else {
+                    candidate.copy(thumbnailPath = thumbnailPath)
+                }
+            }
+        } finally {
+            screenshot.recycle()
+        }
+    }
+
+    @SuppressLint("NewApi")
+    private fun captureScreenshotBitmapBlocking(): Bitmap? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            AutomationLogger.warn("purchase_history_thumbnail skipped reason=screenshot_api_unavailable")
+            return null
+        }
+
+        val executor = Executors.newSingleThreadExecutor()
+        val latch = CountDownLatch(1)
+        var screenshotBitmap: Bitmap? = null
+        var failureCode: Int? = null
+
+        try {
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                executor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                        try {
+                            val hardwareBitmap = Bitmap.wrapHardwareBuffer(
+                                screenshot.hardwareBuffer,
+                                screenshot.colorSpace
+                            )
+                            screenshotBitmap = hardwareBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                            screenshot.hardwareBuffer.close()
+                        } catch (error: Throwable) {
+                            AutomationLogger.warn(
+                                "purchase_history_thumbnail screenshot decode failed error=${error.message.orEmpty()}"
+                            )
+                        } finally {
+                            latch.countDown()
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        failureCode = errorCode
+                        latch.countDown()
+                    }
+                }
+            )
+
+            val completed = latch.await(1500L, TimeUnit.MILLISECONDS)
+            if (!completed) {
+                AutomationLogger.warn("purchase_history_thumbnail skipped reason=screenshot_timeout")
+                return null
+            }
+            if (failureCode != null) {
+                AutomationLogger.warn("purchase_history_thumbnail skipped reason=screenshot_failure code=$failureCode")
+                return null
+            }
+            return screenshotBitmap
+        } catch (error: Throwable) {
+            AutomationLogger.warn("purchase_history_thumbnail skipped reason=screenshot_error error=${error.message.orEmpty()}")
+            screenshotBitmap?.recycle()
+            return null
+        } finally {
+            executor.shutdown()
+        }
+    }
+
+    private fun cropPurchaseHistoryCandidateThumbnail(
+        screenshot: Bitmap,
+        task: AutomationTask,
+        candidate: PurchaseHistoryCandidate,
+        index: Int
+    ): String? {
+        val cropRect = purchaseHistoryCropRect(screenshot, candidate) ?: return null
+        return try {
+            val croppedBitmap = Bitmap.createBitmap(
+                screenshot,
+                cropRect.left,
+                cropRect.top,
+                cropRect.width(),
+                cropRect.height()
+            )
+            val thumbnailDirectory = File(cacheDir, "purchase_history_thumbnails").also { directory ->
+                directory.mkdirs()
+            }
+            val safeTaskId = task.taskId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val safeOrderNumber = candidate.orderNumber
+                ?.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                ?.takeIf { it.isNotBlank() }
+                ?: "order_$index"
+            val thumbnailFile = File(
+                thumbnailDirectory,
+                "${safeTaskId}_${safeOrderNumber}_${System.currentTimeMillis()}.jpg"
+            )
+            FileOutputStream(thumbnailFile).use { outputStream ->
+                croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 86, outputStream)
+            }
+            croppedBitmap.recycle()
+            AutomationLogger.info(
+                "purchase_history_thumbnail_saved platform=${candidate.platform} " +
+                    "orderNumber=${candidate.orderNumber.orEmpty()} path=${thumbnailFile.absolutePath} " +
+                    "rect=${cropRect.left},${cropRect.top},${cropRect.right},${cropRect.bottom}"
+            )
+            thumbnailFile.absolutePath
+        } catch (error: Throwable) {
+            AutomationLogger.warn(
+                "purchase_history_thumbnail crop failed orderNumber=${candidate.orderNumber.orEmpty()} " +
+                    "error=${error.message.orEmpty()}"
+            )
+            null
+        }
+    }
+
+    private fun purchaseHistoryCropRect(
+        screenshot: Bitmap,
+        candidate: PurchaseHistoryCandidate
+    ): Rect? {
+        val horizontalPadding = 32
+        val verticalPadding = 72
+        val left = (candidate.boundsLeft - horizontalPadding).coerceIn(0, screenshot.width - 1)
+        val top = (candidate.boundsTop - verticalPadding).coerceIn(0, screenshot.height - 1)
+        val right = (candidate.boundsRight + horizontalPadding).coerceIn(left + 1, screenshot.width)
+        val bottom = (candidate.boundsBottom + verticalPadding).coerceIn(top + 1, screenshot.height)
+        val rect = Rect(left, top, right, bottom)
+        if (rect.width() < 80 || rect.height() < 80) {
+            AutomationLogger.warn(
+                "purchase_history_thumbnail skipped reason=crop_rect_too_small " +
+                    "rect=${rect.left},${rect.top},${rect.right},${rect.bottom}"
+            )
+            return null
+        }
+        return rect
+    }
+
+    private fun purchaseHistoryExtractorFor(platform: String): PurchaseHistoryExtractor {
+        return when (platform.lowercase()) {
+            "kurly" -> kurlyPurchaseHistoryExtractor
+            "coupang" -> coupangPurchaseHistoryExtractor
+            else -> object : PurchaseHistoryExtractor {
+                override fun extract(filteredNodes: List<UiNode>): List<PurchaseHistoryCandidate> {
+                    return emptyList()
+                }
+            }
+        }
+    }
+}

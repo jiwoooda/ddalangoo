@@ -2,14 +2,17 @@ from fastapi import APIRouter, Depends, Response, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.agent import ShoppingRequest, MessageRequest, ConfirmRequest, PromptRequest, AgentResponse
-from app.schemas.payment import WebviewResultRequest
-from app.services import (
-    agent_progress_service,
-    agent_service,
-    payment_service,
-    webview_progress_service,
+from app.schemas.agent import (
+    AgentResponse,
+    AutomationResultRequest,
+    AutomationVlmPlanRequest,
+    AutomationVlmPlanResponse,
+    ShoppingRequest,
+    MessageRequest,
+    ConfirmRequest,
 )
+from app.schemas.payment import WebviewResultRequest
+from app.services import agent_service, automation_vlm_service, payment_service, webview_progress_service
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 
@@ -37,9 +40,17 @@ async def confirm_action(
 ):
     return await agent_service.confirm_action(db, conversationId, req)
 
-@router.post("/prompts", response_model=AgentResponse)
-async def prompt_response(req: PromptRequest):
-    return await agent_service.generate_prompt_response(req)
+@router.post("/conversations/{conversationId}/automation-result", response_model=AgentResponse)
+async def automation_result(
+    conversationId: int,
+    req: AutomationResultRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await agent_service.handle_automation_result(db, conversationId, req)
+
+@router.post("/automation/vlm-fallback-plan", response_model=AutomationVlmPlanResponse)
+async def automation_vlm_fallback_plan(req: AutomationVlmPlanRequest):
+    return await automation_vlm_service.plan_vlm_recovery(req)
 
 @router.post("/conversations/{conversationId}/payments/webview-result")
 async def webview_result(
@@ -60,8 +71,10 @@ async def cancel_conversation(conversationId: int):
     운영 확장 시 Redis/pubsub 같은 외부 cancel store로 바꿔야 한다.
     """
     from src.tools.webview_tool import request_cancel
+
     request_cancel()
     return {"ok": True}
+
 
 @router.websocket("/conversations/{conversationId}/webview")
 async def webview_progress(conversationId: int, websocket: WebSocket):
@@ -71,16 +84,6 @@ async def webview_progress(conversationId: int, websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         webview_progress_service.disconnect(conversationId, websocket)
-
-
-@router.websocket("/progress/{channelId}")
-async def agent_progress(channelId: str, websocket: WebSocket):
-    await agent_progress_service.connect(channelId, websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        agent_progress_service.disconnect(channelId, websocket)
 
 
 @router.get("/conversations/{conversationId}/webview/status")

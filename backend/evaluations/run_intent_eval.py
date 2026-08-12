@@ -54,33 +54,19 @@ def eval_intent_match(run, example):
 
 
 def eval_keyword_f1(run, example):
-    """
-    검색 쿼리 기준 토큰 F1.
-    키워드 리스트를 공백으로 합쳐 실제 검색 쿼리로 비교하므로
-    ["강아지", "간식"] vs ["강아지 간식"] → 동일 토큰 집합 → 1.0
-    """
-    predicted_list = (run.outputs or {}).get("keywords", [])
-    expected_list = (example.outputs or {}).get("keywords", [])
-
-    predicted_tokens = set(" ".join(predicted_list).lower().split())
-    expected_tokens = set(" ".join(expected_list).lower().split())
-
-    if not expected_tokens and not predicted_tokens:
+    """정답 키워드 대비 F1 점수 (0~1)."""
+    predicted = set((run.outputs or {}).get("keywords", []))
+    expected = set((example.outputs or {}).get("keywords", []))
+    if not expected and not predicted:
         return {"key": "keyword_f1", "score": 1.0}
-    if not expected_tokens:
-        return {"key": "keyword_f1", "score": 1.0 if not predicted_tokens else 0.5}
-    if not predicted_tokens:
-        return {"key": "keyword_f1", "score": 0.0, "comment": f"expected={sorted(expected_tokens)}, got=[]"}
-
-    overlap = predicted_tokens & expected_tokens
-    precision = len(overlap) / len(predicted_tokens)
-    recall = len(overlap) / len(expected_tokens)
+    if not expected:
+        return {"key": "keyword_f1", "score": 1.0 if not predicted else 0.5}
+    if not predicted:
+        return {"key": "keyword_f1", "score": 0.0}
+    precision = len(predicted & expected) / len(predicted)
+    recall = len(predicted & expected) / len(expected)
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-    return {
-        "key": "keyword_f1",
-        "score": round(f1, 4),
-        "comment": f"expected={sorted(expected_tokens)}, got={sorted(predicted_tokens)}",
-    }
+    return {"key": "keyword_f1", "score": round(f1, 4)}
 
 
 def eval_condition_match(run, example):

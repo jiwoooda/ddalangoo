@@ -1,0 +1,1 @@
+{"type": "webview_progress", "conversationId": 999007, "step": "searching_product", "message": "컬리에서 상품을 찾고 있어요.", "status": "running", "updatedAt": "2026-06-24T04:10:54.156776+00:00", "flow": "payment", "screenshotUrl": "/api/agent/conversations/999007/webview/screenshot", "meta": {"orderId": 79, "paymentId": 90, "platform": "kurly"}}

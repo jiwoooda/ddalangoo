@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">딸랑구 테스트용 접근성 자동화 서비스</string>
+</resources>

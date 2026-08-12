@@ -60,18 +60,27 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
     """Async connection 안에서 실제 Alembic migration을 실행한다."""
+    import sys
+
+    print("[DEBUG] do_run_migrations: start", flush=True)
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
     )
+    print("[DEBUG] do_run_migrations: context.configure done", flush=True)
 
     with context.begin_transaction():
+        print("[DEBUG] do_run_migrations: begin_transaction entered", flush=True)
         context.run_migrations()
+        print("[DEBUG] do_run_migrations: run_migrations done", flush=True)
+    print("[DEBUG] do_run_migrations: transaction closed", flush=True)
+    sys.stdout.flush()
 
 
 async def run_async_migrations() -> None:
     """SQLAlchemy Async Engine으로 online migration을 실행한다."""
+    print("[DEBUG] run_async_migrations: start", flush=True)
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = _database_url()
 
@@ -80,11 +89,15 @@ async def run_async_migrations() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    print("[DEBUG] run_async_migrations: engine created", flush=True)
 
     async with connectable.connect() as connection:
+        print("[DEBUG] run_async_migrations: connection established", flush=True)
         await connection.run_sync(do_run_migrations)
+        print("[DEBUG] run_async_migrations: run_sync returned", flush=True)
 
     await connectable.dispose()
+    print("[DEBUG] run_async_migrations: disposed", flush=True)
 
 
 def run_migrations_online() -> None:

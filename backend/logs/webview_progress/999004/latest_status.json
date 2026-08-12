@@ -1,0 +1,1 @@
+{"type": "webview_progress", "conversationId": 999004, "step": "payment_ready", "message": "주문 준비가 완료되었습니다.", "status": "waiting_user_action", "updatedAt": "2026-06-24T04:10:54.148856+00:00", "flow": "payment", "screenshotUrl": "/api/agent/conversations/999004/webview/screenshot"}

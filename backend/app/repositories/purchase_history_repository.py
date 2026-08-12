@@ -1,7 +1,7 @@
+from datetime import UTC, datetime
 import json
 import os
 from typing import Optional, List
-from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -150,22 +150,69 @@ async def get_history_by_keyword_db(
 async def get_histories_by_keywords_db(
     db: AsyncSession,
     user_id: int,
+    *,
     keywords: list[str],
-    limit: int = 10,
+    limit: int = 5,
 ) -> list[dict]:
-    """재구매 검색용: 여러 키워드 중 하나라도 일치하는 구매이력을 DB 레벨에서 조회한다."""
-    stmt = select(PurchaseHistory).where(PurchaseHistory.user_id == user_id)
-    if keywords:
-        conditions = []
-        for kw in keywords:
-            pattern = f"%{kw}%"
-            conditions.append(PurchaseHistory.keyword.ilike(pattern))
-            conditions.append(PurchaseHistory.product_name_snapshot.ilike(pattern))
-            conditions.append(PurchaseHistory.category_snapshot.ilike(pattern))
-        stmt = stmt.where(or_(*conditions))
-    stmt = stmt.order_by(PurchaseHistory.purchased_at.desc()).limit(limit)
+    """Agent 재구매 검색용으로 여러 keyword에 맞는 구매이력을 조회한다."""
+    normalized_keywords = [keyword.strip() for keyword in keywords if keyword and keyword.strip()]
+    if not normalized_keywords:
+        return await get_histories_by_user_id_db(db, user_id, limit=limit)
+
+    conditions = []
+    for keyword in normalized_keywords:
+        keyword_pattern = f"%{keyword}%"
+        conditions.extend(
+            [
+                PurchaseHistory.keyword.ilike(keyword_pattern),
+                PurchaseHistory.product_name_snapshot.ilike(keyword_pattern),
+                PurchaseHistory.brand_snapshot.ilike(keyword_pattern),
+                PurchaseHistory.category_snapshot.ilike(keyword_pattern),
+                PurchaseHistory.option_snapshot.ilike(keyword_pattern),
+            ]
+        )
+
+    stmt = (
+        select(PurchaseHistory)
+        .where(PurchaseHistory.user_id == user_id)
+        .where(or_(*conditions))
+        .order_by(PurchaseHistory.purchased_at.desc())
+        .limit(limit)
+    )
     result = await db.execute(stmt)
-    return [_history_to_dict(h) for h in result.scalars().all()]
+    return [_history_to_dict(history) for history in result.scalars().all()]
+
+
+async def get_external_history_db(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    platform: str | None,
+    external_order_id: str | None = None,
+    external_product_order_id: str | None = None,
+    product_name: str | None = None,
+    purchased_at: datetime | None = None,
+) -> Optional[dict]:
+    """외부 플랫폼에서 수집한 구매이력 중복 여부를 확인한다."""
+    stmt = select(PurchaseHistory).where(PurchaseHistory.user_id == user_id)
+    if platform:
+        stmt = stmt.where(PurchaseHistory.platform == platform)
+
+    if external_order_id and external_product_order_id:
+        stmt = stmt.where(PurchaseHistory.external_order_id == external_order_id)
+        stmt = stmt.where(PurchaseHistory.external_product_order_id == external_product_order_id)
+    elif external_order_id and product_name:
+        stmt = stmt.where(PurchaseHistory.external_order_id == external_order_id)
+        stmt = stmt.where(PurchaseHistory.product_name_snapshot == product_name)
+    elif product_name and purchased_at:
+        stmt = stmt.where(PurchaseHistory.product_name_snapshot == product_name)
+        stmt = stmt.where(PurchaseHistory.purchased_at == purchased_at)
+    else:
+        return None
+
+    result = await db.execute(stmt.limit(1))
+    history = result.scalars().first()
+    return _history_to_dict(history) if history else None
 
 
 async def get_history_by_order_item_db(
@@ -262,3 +309,76 @@ async def create_histories_from_order_db(
         await db.refresh(history)
 
     return existing_histories + [_history_to_dict(history) for history in created_histories]
+
+
+async def create_histories_from_accessibility_db(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    items: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """
+    Accessibility 자동화로 수집한 외부 플랫폼 구매이력을 purchase_histories에 저장한다.
+
+    product_id/order_id 없이도 Agent가 재구매 근거로 읽을 수 있도록 snapshot 필드만 채운다.
+    """
+    created_histories: list[PurchaseHistory] = []
+    created_history_dicts: list[dict] = []
+    skipped_items: list[dict] = []
+
+    for index, item in enumerate(items):
+        missing_fields = [
+            field_name
+            for field_name in ("platform", "product_name", "price_at_purchase", "quantity", "total_price", "purchased_at")
+            if item.get(field_name) in (None, "")
+        ]
+        if missing_fields:
+            skipped_items.append(
+                {
+                    "index": index,
+                    "reason": "missing_required_fields",
+                    "missingFields": missing_fields,
+                    "raw": item.get("raw") or {},
+                }
+            )
+            continue
+
+        existing = await get_external_history_db(
+            db,
+            user_id=user_id,
+            platform=item.get("platform"),
+            external_order_id=item.get("external_order_id"),
+            external_product_order_id=item.get("external_product_order_id"),
+            product_name=item.get("product_name"),
+            purchased_at=item.get("purchased_at"),
+        )
+        if existing:
+            continue
+
+        history = PurchaseHistory(
+            user_id=user_id,
+            external_order_id=item.get("external_order_id"),
+            external_product_order_id=item.get("external_product_order_id"),
+            platform=item.get("platform"),
+            keyword=item.get("keyword") or item.get("product_name"),
+            product_name_snapshot=item["product_name"],
+            option_snapshot=item.get("option_text"),
+            brand_snapshot=item.get("brand"),
+            category_snapshot=item.get("category"),
+            price_at_purchase=item["price_at_purchase"],
+            product_url_snapshot=item.get("product_url"),
+            selected_options=item.get("selected_options"),
+            quantity=item["quantity"],
+            total_price=item["total_price"],
+            purchased_at=item["purchased_at"],
+            memo=item.get("memo"),
+        )
+        db.add(history)
+        created_histories.append(history)
+
+    await db.commit()
+    for history in created_histories:
+        await db.refresh(history)
+        created_history_dicts.append(_history_to_dict(history))
+
+    return created_history_dicts, skipped_items

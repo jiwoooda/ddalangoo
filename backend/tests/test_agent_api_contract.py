@@ -10,7 +10,7 @@ from app.utils.product_url_contract import (
     fallback_product_fingerprint,
     is_kurly_goods_url,
 )
-from src.agents import product_agent as platform_agent
+from src.agents import platform_agent
 from src.tools import meta_mcp_client
 from src.tools import webview_tool
 
@@ -417,14 +417,11 @@ def test_webview_chromium_launch_options_include_railway_args():
     from src.tools import webview_tool
 
     original_browser = webview_tool.WEBVIEW_BROWSER
-    original_headless = webview_tool.WEBVIEW_HEADLESS
     try:
         webview_tool.WEBVIEW_BROWSER = "chromium"
-        webview_tool.WEBVIEW_HEADLESS = True
         launch_options = webview_tool._browser_launch_options()
     finally:
         webview_tool.WEBVIEW_BROWSER = original_browser
-        webview_tool.WEBVIEW_HEADLESS = original_headless
 
     assert launch_options["headless"] is True
     assert "--no-sandbox" in launch_options["args"]

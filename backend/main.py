@@ -1,25 +1,21 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     agent, user, address, product,
     purchase_history, recommendation, order, payment,
-    admin, dev, cart, voice, search
+    admin, dev, cart, voice
 )
 from app.agent import runtime
 from app.core.migrations import run_migrations
-from app.services import voice_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await run_migrations()
-    await voice_service.cleanup_tts_storage()
     await runtime.init()
     yield
     await runtime.shutdown()
@@ -47,8 +43,3 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(dev.router, prefix="/api")
 app.include_router(cart.router, prefix="/api")
 app.include_router(voice.router, prefix="/api")
-app.include_router(search.router, prefix="/api")
-
-_static_dir = Path(__file__).resolve().parent / "app" / "static"
-_static_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=_static_dir), name="static")

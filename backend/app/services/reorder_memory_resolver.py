@@ -6,19 +6,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-def _fetch_histories_from_db(
-    user_id: int,
-    keywords: list[str] | None = None,
-) -> list[dict[str, Any]] | None:
-    """PostgreSQL에서 구매이력 조회. keywords가 있으면 DB 레벨 필터링. 실패 시 None 반환."""
+def _fetch_histories_from_db(user_id: int) -> list[dict[str, Any]] | None:
+    """PostgreSQL에서 구매이력 조회. 실패 시 None 반환."""
     import asyncio
 
     async def _runner():
         from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-        from app.repositories.purchase_history_repository import (
-            get_histories_by_user_id_db,
-            get_histories_by_keywords_db,
-        )
+        from app.repositories.purchase_history_repository import get_histories_by_user_id_db
 
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
@@ -27,8 +21,6 @@ def _fetch_histories_from_db(
         factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
         try:
             async with factory() as session:
-                if keywords:
-                    return await get_histories_by_keywords_db(session, user_id, keywords=keywords)
                 return await get_histories_by_user_id_db(session, user_id)
         finally:
             await engine.dispose()
@@ -43,12 +35,9 @@ def _fetch_histories_from_db(
         return None
 
 
-def _get_histories(
-    user_id: int,
-    keywords: list[str] | None = None,
-) -> list[dict[str, Any]]:
+def _get_histories(user_id: int) -> list[dict[str, Any]]:
     """MVP 재구매 후보는 DB purchase_histories에서만 가져온다."""
-    result = _fetch_histories_from_db(user_id, keywords=keywords)
+    result = _fetch_histories_from_db(user_id)
     if result is not None:
         return result
     return []
@@ -128,8 +117,8 @@ def _search_candidates_sql(
     keywords: list[str],
     top_k: int,
 ) -> list[dict[str, Any]]:
+    histories = _get_histories(user_id)
     terms = _expand_terms(query, keywords)
-    histories = _get_histories(user_id, keywords=terms)
     scored: list[dict[str, Any]] = []
 
     for history in histories:

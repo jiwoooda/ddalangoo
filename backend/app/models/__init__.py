@@ -17,6 +17,7 @@ from app.models.product import (
     Product,
     ProductOption,
 )
+from app.models.product_search import ProductSearchExecution
 from app.models.purchase_history import PurchaseHistory
 from app.models.recommendation import Recommendation, RecommendationItem
 from app.models.platform_session import UserPlatformSession
@@ -41,6 +42,7 @@ __all__ = [
     "Payment",
     "Product",
     "ProductOption",
+    "ProductSearchExecution",
     "PurchaseHistory",
     "Recommendation",
     "RecommendationItem",

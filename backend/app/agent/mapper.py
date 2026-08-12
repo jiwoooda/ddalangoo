@@ -198,19 +198,6 @@ def _last_assistant_message(state: dict) -> str:
         content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
         if role in ("ai", "assistant"):
             return content
-
-    pending_action = state.get("pending_action") or {}
-    pending_message = pending_action.get("message")
-    if isinstance(pending_message, str) and pending_message.strip():
-        return pending_message.strip()
-
-    if state.get("needs_clarification") or state.get("intent") == "unclear":
-        return (
-            state.get("clarification_reason")
-            or state.get("immediate_response")
-            or "잘 못 들었어요. 구매하고 싶은 상품 이름을 다시 말씀해주세요."
-        )
-
     return "무엇을 도와드릴까요?"
 
 
@@ -331,7 +318,6 @@ def state_to_response(state: dict, conversation_id: int) -> AgentResponse:
         status=_stage_to_status(stage),
         stage=stage,
         assistantMessage=_last_assistant_message(state),
-        message=_last_assistant_message(state),
         recommendationId=state.get("recommendation_id") or state.get("recommendationId"),
         recommendations=[_map_product(p) for p in candidates[:2]],
         selectedProduct=state.get("selected_product"),
