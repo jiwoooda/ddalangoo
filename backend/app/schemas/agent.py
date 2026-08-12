@@ -73,16 +73,23 @@ class AutomationVlmPlanRequest(BaseModel):
     currentStep: str
     platform: str
     packageName: Optional[str] = None
+    currentScreen: Optional[str] = None
+    recoveryGoal: Optional[str] = None
     fallbackReasonCode: str
     expectedState: Optional[str] = None
     observedState: Optional[str] = None
     uiTreeSummary: str
+    recentActions: List[Any] = []
     screenshot: str
 
 class AutomationVlmPlanResponse(BaseModel):
-    action: Literal["tap", "wait", "abort"]
+    action: Literal["tap", "tap_coordinate", "tap_node", "back", "swipe", "wait", "abort", "none"]
+    targetDescription: Optional[str] = None
+    nodeId: Optional[int] = None
     x: Optional[float] = None
     y: Optional[float] = None
+    direction: Optional[Literal["up", "down", "left", "right"]] = None
+    distance: Optional[float] = None
     confidence: float = 0.0
     reason: str
 

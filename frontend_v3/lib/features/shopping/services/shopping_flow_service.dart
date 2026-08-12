@@ -253,10 +253,26 @@ class ShoppingFlowService {
       'status=${result['status']}',
     );
     final request = AutomationResultRequest.fromRuntimeResult(result);
-    return _agentRepository.sendAutomationResult(
+    final updatedResponse = await _agentRepository.sendAutomationResult(
       conversationId: conversationId,
       result: request.toJson(),
     );
+    if (_shouldReturnAfterProductSearch(result)) {
+      final returned = await AccessibilityAutomationService.instance
+          .returnToDdalangooApp();
+      debugPrint(
+        'AutomationResult taskId=${result['taskId']} returnToDdalangoo '
+        'success=$returned',
+      );
+    }
+    return updatedResponse;
+  }
+
+  bool _shouldReturnAfterProductSearch(Map<String, dynamic> result) {
+    return result['status']?.toString() == 'completed' &&
+        result['taskType']?.toString() ==
+            AccessibilityAutomationTaskType.productSearch &&
+        result['resultType']?.toString() == 'product_search_collected';
   }
 
   ShoppingFlowViewStage inferViewStage(AgentResponse? response) {

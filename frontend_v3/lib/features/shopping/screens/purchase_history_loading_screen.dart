@@ -16,6 +16,7 @@ import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/primary_button.dart';
+import 'analysis_intro_screen.dart';
 import '../services/purchase_history_loading_service.dart';
 import '../widgets/purchase_history_thumbnail_card.dart';
 
@@ -457,7 +458,15 @@ class _PurchaseHistoryLoadingScreenState
       return;
     }
 
-    Navigator.of(context).pushReplacementNamed(widget.nextRouteName);
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => AnalysisIntroScreen(
+          userName: _resolvedUserName,
+          useMockFlow: widget.useMockFlow,
+          nextRouteName: widget.nextRouteName,
+        ),
+      ),
+    );
   }
 
   List<PurchaseHistoryPreviewItem> _previewsFromAccumulated(
@@ -863,9 +872,7 @@ class _PurchaseHistoryProgressBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chipColor = isLoading
-        ? AppColors.primaryPinkDark
-        : AppColors.success;
+    final chipColor = isLoading ? AppColors.primaryPinkDark : AppColors.success;
 
     return Container(
       width: double.infinity,
@@ -884,11 +891,7 @@ class _PurchaseHistoryProgressBanner extends StatelessWidget {
               color: chipColor.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              Icons.receipt_long_rounded,
-              color: chipColor,
-              size: 24,
-            ),
+            child: Icon(Icons.receipt_long_rounded, color: chipColor, size: 24),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(

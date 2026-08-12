@@ -18,10 +18,8 @@ import '../../../shared/widgets/voice_input_button.dart';
 import '../../../shared/widgets/voice_panel.dart';
 import '../../platform_check/screens/platform_check_screen.dart';
 
-/// 딸랑구가 인사말을 건네는 화면. 이 화면은 사용자 응답이 필요 없는
-/// 일방향 안내 구간이라, 딸랑구의 TTS가 끝나면 곧바로 다음 화면(플랫폼
-/// 확인)으로 자동 전환한다. 그래서 하단 음성 패널은 항상 비활성(회색)
-/// 상태로만 보여주고 마이크 입력을 받지 않는다.
+/// 이름 입력 이후 LangGraph smalltalk_agent와 이어서 대화하는 화면.
+/// 구매이력 자동화는 백엔드가 uiCommand로 명시적으로 요청할 때만 시작한다.
 class AgentSmallTalkScreen extends StatefulWidget {
   const AgentSmallTalkScreen({
     super.key,
@@ -41,10 +39,15 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
   final VoiceService _voiceService = VoiceService.instance;
 
   AgentResponse? _response;
+  int? _conversationId;
   bool _isLoading = true;
   bool _isSpeaking = false;
+  bool _isRecording = false;
+  bool _isSubmitting = false;
   bool _isNavigatingToPurchaseHistory = false;
+  int _mockReplyCount = 0;
   String? _errorMessage;
+  String? _transcriptPreview;
 
   @override
   void initState() {
@@ -54,6 +57,7 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
 
   @override
   void dispose() {
+    unawaited(_voiceService.cancelRecording());
     unawaited(_voiceService.stopSpeaking());
     super.dispose();
   }
@@ -85,11 +89,7 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
         return;
       }
 
-      setState(() {
-        _response = response;
-        _isLoading = false;
-      });
-      await _speakThenContinue(response);
+      await _handleAgentResponse(response);
     } catch (error) {
       if (!mounted) {
         return;
@@ -107,7 +107,29 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
       status: 'smalltalk',
       stage: 'idle',
       assistantMessage:
-          '${widget.userName}님 반가워요. 오늘 편하게 쇼핑하실 수 있게 먼저 구매 이력을 살펴볼게요.',
+          '${widget.userName}님 반가워요. 바로 구매이력부터 보기 전에, 어제는 어떤 음식 드셨어요?',
+    );
+  }
+
+  AgentResponse _mockSmallTalkReply(String userMessage) {
+    _mockReplyCount += 1;
+    final shouldStartPurchaseHistory = _mockReplyCount >= 1;
+    final assistantMessage = shouldStartPurchaseHistory
+        ? '좋아요. ${widget.userName}님의 취향을 조금 알았어요. 이제 쇼핑 앱과 구매 이력을 확인해볼게요.'
+        : '좋아요. 조금만 더 물어볼게요. 요즘 자주 먹고 싶은 메뉴가 있어요?';
+
+    return AgentResponse(
+      conversationId: -1,
+      status: 'smalltalk',
+      stage: shouldStartPurchaseHistory ? 'purchase_history_ready' : 'idle',
+      assistantMessage: assistantMessage,
+      uiCommand: shouldStartPurchaseHistory
+          ? <String, dynamic>{
+              'type': 'start_purchase_history_collection',
+              'reason': 'mock_onboarding_complete',
+              'lastUserMessage': userMessage,
+            }
+          : null,
     );
   }
 
@@ -128,11 +150,138 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
     }
   }
 
-  // 이 화면은 사용자 응답을 받지 않는 일방향 안내라, 딸랑구가 말을 끝내면
-  // (uiCommand 여부와 상관없이) 항상 바로 다음 화면으로 넘어간다.
-  Future<void> _speakThenContinue(AgentResponse response) async {
+  Future<void> _handleAgentResponse(AgentResponse response) async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _response = response;
+      _conversationId = response.conversationId;
+      _isLoading = false;
+      _isSubmitting = false;
+      _errorMessage = null;
+    });
     await _speak(response.assistantMessage);
-    _continueToPurchaseHistory();
+    if (_shouldStartPurchaseHistory(response)) {
+      _continueToPurchaseHistory();
+    }
+  }
+
+  bool _shouldStartPurchaseHistory(AgentResponse response) {
+    final uiCommand = response.uiCommand;
+    if (uiCommand is! Map) {
+      return false;
+    }
+    return uiCommand['type']?.toString() == 'start_purchase_history_collection';
+  }
+
+  VoiceInputState get _voiceInputState {
+    if (_isRecording) {
+      return VoiceInputState.listening;
+    }
+    if (_isLoading ||
+        _isSpeaking ||
+        _isSubmitting ||
+        _isNavigatingToPurchaseHistory) {
+      return VoiceInputState.inactive;
+    }
+    return VoiceInputState.active;
+  }
+
+  Future<void> _toggleRecording() async {
+    if (_isLoading ||
+        _isSpeaking ||
+        _isSubmitting ||
+        _isNavigatingToPurchaseHistory) {
+      return;
+    }
+
+    if (_isRecording) {
+      await _stopRecordingAndSendMessage();
+      return;
+    }
+
+    setState(() {
+      _errorMessage = null;
+      _transcriptPreview = null;
+      _isRecording = true;
+    });
+
+    try {
+      await _voiceService.startRecording();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isRecording = false;
+        _errorMessage = '마이크를 시작하지 못했어요. 다시 한 번 말씀해주세요.';
+      });
+    }
+  }
+
+  Future<void> _stopRecordingAndSendMessage() async {
+    setState(() {
+      _errorMessage = null;
+      _isRecording = false;
+    });
+
+    try {
+      final transcript = await _voiceService.stopRecordingAndTranscribe();
+      final trimmed = transcript.trim();
+      if (!mounted) {
+        return;
+      }
+      if (trimmed.isEmpty) {
+        setState(() {
+          _errorMessage = '말씀을 잘 듣지 못했어요. 한 번 더 말해줄래요?';
+        });
+        return;
+      }
+
+      setState(() => _transcriptPreview = trimmed);
+      await _sendSmallTalkMessage(trimmed);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = '음성 인식 중 문제가 생겼어요. 다시 한 번 말씀해주세요.';
+      });
+    }
+  }
+
+  Future<void> _sendSmallTalkMessage(String message) async {
+    final conversationId = _conversationId;
+    if (conversationId == null && !widget.useMockFlow) {
+      setState(() {
+        _errorMessage = '대화 정보를 찾지 못했어요. 처음부터 다시 시작해주세요.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = widget.useMockFlow
+          ? _mockSmallTalkReply(message)
+          : await _agentRepository.sendMessage(
+              conversationId: conversationId!,
+              message: message,
+            );
+      await _handleAgentResponse(response);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSubmitting = false;
+        _errorMessage = '딸랑구에게 답변을 전달하지 못했어요. 다시 한 번 말씀해주세요.';
+      });
+    }
   }
 
   void _continueToPurchaseHistory() {
@@ -157,6 +306,7 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
   @override
   Widget build(BuildContext context) {
     final message = _response?.assistantMessage.trim();
+    final transcriptPreview = _transcriptPreview?.trim();
 
     return ScreenFrame(
       preset: LayoutPreset.conversation,
@@ -209,15 +359,18 @@ class _AgentSmallTalkScreenState extends State<AgentSmallTalkScreen> {
             ),
             const SizedBox(height: AppSpacing.md),
           ],
-          // 사용자 응답이 필요 없는 구간이라 음성 패널은 항상 비활성(회색)
-          // 상태로만 보여준다. 딸랑구 TTS가 끝나면 자동으로 다음 화면으로
-          // 넘어간다.
-          IgnorePointer(
-            child: VoicePanel(
-              state: VoiceInputState.inactive,
-              onPressed: () {},
+          if (transcriptPreview != null && transcriptPreview.isNotEmpty) ...[
+            Text(
+              '내 답변: $transcriptPreview',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.body2.copyWith(
+                color: AppColors.textMuted,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          VoicePanel(state: _voiceInputState, onPressed: _toggleRecording),
           const SizedBox(height: AppSpacing.md),
           EndConversationButton(
             fullWidth: true,

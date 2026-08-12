@@ -26,6 +26,7 @@ enum class RuleReasonCode(val value: String) {
     SEARCH_INPUT_NODE_NOT_FOUND("search_input_node_not_found"),
     SEARCH_BUTTON("search_button"),
     KEYBOARD_SEARCH("keyboard_search"),
+    RECOMMENDED_SORT("recommended_sort"),
     SEARCH_RESULT_DUMP("search_result_dump"),
     SEARCH_RESULT_SCROLL("search_result_scroll"),
     SEARCH_RESULT_FINISH("search_result_finish"),
@@ -70,7 +71,6 @@ class RuleBasedPlanner {
     private val cartAddedKeywords = listOf("장바구니에 담겼습니다", "담겼습니다", "장바구니 보기")
     private val confirmOptionKeywords = listOf("장바구니 담기", "담기", "확인", "선택완료", "선택 완료")
     private val unavailableOptionKeywords = listOf("품절", "재입고", "선택불가", "선택 불가", "일시품절")
-    private val popupDismissKeywords = listOf("닫기", "확인", "취소", "나중에 하기", "오늘 하루 보지 않기", "건너뛰기")
     private val myCoupangKeywords = listOf("마이쿠팡")
     private val myKurlyKeywords = listOf("마이컬리", "마이 컬리", "MY컬리", "MY 컬리")
     private val orderHistoryKeywords = listOf(
@@ -114,7 +114,8 @@ class RuleBasedPlanner {
             AutomationContract.Step.CLICK_REORDER -> planReorder(filteredNodes)
             AutomationContract.Step.OPEN_SEARCH -> planOpenSearch(filteredNodes)
             AutomationContract.Step.SEARCH_INPUT -> planSearchInput(filteredNodes, task)
-            AutomationContract.Step.SEARCH_SUBMIT -> planSearchButton(filteredNodes)
+            AutomationContract.Step.SEARCH_SUBMIT -> planSearchButton(filteredNodes, task)
+            AutomationContract.Step.ENSURE_RECOMMENDED_SORT -> planRecommendedSortCheck(filteredNodes, task)
             AutomationContract.Step.DUMP_SEARCH_RESULTS -> planSearchResultsDump()
             AutomationContract.Step.SCROLL_SEARCH_RESULTS -> planSearchResultsScroll(filteredNodes)
             AutomationContract.Step.FINISH_SEARCH_RESULTS -> planSearchResultsFinish()
@@ -252,7 +253,11 @@ class RuleBasedPlanner {
         }
     }
 
-    private fun planSearchButton(filteredNodes: List<UiNode>): ActionPlan {
+    private fun planSearchButton(filteredNodes: List<UiNode>, task: AutomationTask): ActionPlan {
+        if (shouldSubmitFilledCoupangSearchInput(filteredNodes, task)) {
+            return keyboardSearchPlan(confidence = 0.78)
+        }
+
         val searchButtonNode = filteredNodes
             .filter { node ->
                 (containsAny(node, listOf("검색")) || node.searchableText().contains("search icon")) &&
@@ -261,13 +266,7 @@ class RuleBasedPlanner {
             .maxByOrNull { node -> if (node.clickable) 0.92 else 0.72 }
 
         return searchButtonNode?.let { clickPlan(it, RuleReasonCode.SEARCH_BUTTON, 0.9) }
-            ?: ActionPlan(
-                actionType = AutomationActionType.PRESS_KEYBOARD_SEARCH.value,
-                targetNodeId = null,
-                textToInput = null,
-                reasonCode = RuleReasonCode.KEYBOARD_SEARCH.value,
-                confidence = 0.62
-            )
+            ?: keyboardSearchPlan(confidence = 0.62)
     }
 
     private fun planSearchResultsDump(): ActionPlan {
@@ -278,6 +277,56 @@ class RuleBasedPlanner {
             reasonCode = RuleReasonCode.SEARCH_RESULT_DUMP.value,
             confidence = 1.0
         )
+    }
+
+    private fun planRecommendedSortCheck(filteredNodes: List<UiNode>, task: AutomationTask): ActionPlan {
+        if (shouldSubmitFilledCoupangSearchInput(filteredNodes, task)) {
+            return keyboardSearchPlan(confidence = 0.76)
+        }
+
+        val hasRecommendedSortSignal = filteredNodes.any { node ->
+            val text = node.searchableText()
+            text.contains("추천순") || text.contains("추천")
+        }
+        return ActionPlan(
+            actionType = AutomationActionType.DUMP_SEARCH_RESULTS.value,
+            targetNodeId = null,
+            textToInput = null,
+            reasonCode = RuleReasonCode.RECOMMENDED_SORT.value,
+            confidence = if (hasRecommendedSortSignal) 0.82 else 0.45
+        )
+    }
+
+    private fun keyboardSearchPlan(confidence: Double): ActionPlan {
+        return ActionPlan(
+            actionType = AutomationActionType.PRESS_KEYBOARD_SEARCH.value,
+            targetNodeId = null,
+            textToInput = null,
+            reasonCode = RuleReasonCode.KEYBOARD_SEARCH.value,
+            confidence = confidence
+        )
+    }
+
+    private fun shouldSubmitFilledCoupangSearchInput(
+        filteredNodes: List<UiNode>,
+        task: AutomationTask
+    ): Boolean {
+        if (task.platform != AutomationContract.Platform.COUPANG) return false
+
+        val expectedKeyword = normalize(task.searchKeyword.ifBlank { task.targetProductName })
+        if (expectedKeyword.isBlank()) return false
+
+        val searchInputNode = filteredNodes
+            .filter { node ->
+                node.enabled &&
+                    (node.editable || node.role == "input" || isEditText(node))
+            }
+            .maxByOrNull { node -> searchInputScore(node) }
+            ?: return false
+
+        val actualKeyword = normalize(searchInputNode.primaryText())
+        return actualKeyword.isNotBlank() &&
+            (actualKeyword == expectedKeyword || actualKeyword.contains(expectedKeyword))
     }
 
     private fun planSearchResultsFinish(): ActionPlan {
@@ -396,9 +445,14 @@ class RuleBasedPlanner {
     }
 
     private fun findPopupDismissButton(filteredNodes: List<UiNode>): UiNode? {
-        return filteredNodes.firstOrNull { node ->
-            containsAny(node, popupDismissKeywords) && (node.clickable || node.role == "button")
+        val safeDismissCandidates = filteredNodes.filter { node ->
+            ActionPolicy.isSafePopupDismissCandidate(node, filteredNodes, screenType = null)
         }
+        return safeDismissCandidates.firstOrNull { node ->
+            ActionPolicy.isNotificationOptInDeclineCandidate(node, filteredNodes)
+        } ?: safeDismissCandidates.firstOrNull { node ->
+            ActionPolicy.isPopupCloseCandidate(node, filteredNodes, screenType = null)
+        } ?: safeDismissCandidates.firstOrNull()
     }
 
     private fun clickPlan(node: UiNode, reasonCode: RuleReasonCode, confidence: Double): ActionPlan {
@@ -434,11 +488,8 @@ class RuleBasedPlanner {
         return filteredNodes
             .filter { node -> !containsAny(node, searchInputExcludedKeywords) }
             .filter { node ->
-                isEditText(node) ||
-                    node.editable ||
-                    node.role == "input" ||
-                    containsAny(node, listOf("검색어를 입력", "검색어", "검색")) ||
-                    (node.clickable && isNearTopSearchArea(node))
+                node.enabled &&
+                    (node.editable || node.role == "input" || isEditText(node))
             }
             .maxByOrNull { node -> searchInputFocusCandidateScore(node) }
     }

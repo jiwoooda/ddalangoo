@@ -27,6 +27,9 @@ class ActionExecutor(private val service: AccessibilityService) {
         val targetNode = actionPlan.targetNodeId?.let { targetNodeId ->
             nodes.firstOrNull { node -> node.id == targetNodeId }
         }
+        validateRecoveryAction(actionPlan, targetNode, nodes)?.let { blockedResult ->
+            return blockedResult
+        }
 
         return when (actionPlan.actionType) {
             AutomationActionType.CLICK.value -> executeClick(targetNode)
@@ -165,6 +168,74 @@ class ActionExecutor(private val service: AccessibilityService) {
         )
     }
 
+    fun executeBack(reason: String): ActionResult {
+        val success = service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        return if (success) {
+            ActionResult(
+                success = true,
+                method = ActionExecutionMethod.NONE.value,
+                errorCode = null,
+                message = "Performed global back reason=$reason"
+            )
+        } else {
+            ActionResult(
+                success = false,
+                method = ActionExecutionMethod.NONE.value,
+                errorCode = "BACK_FAILED",
+                message = "Failed to perform global back reason=$reason"
+            )
+        }
+    }
+
+    fun executeCoordinateSwipe(direction: String, distance: Float, reason: String): ActionResult {
+        val displayMetrics = service.resources.displayMetrics
+        val centerX = displayMetrics.widthPixels * 0.5f
+        val centerY = displayMetrics.heightPixels * 0.5f
+        val clampedDistance = distance.coerceIn(0.15f, 0.8f)
+        val verticalDistance = displayMetrics.heightPixels * clampedDistance
+        val horizontalDistance = displayMetrics.widthPixels * clampedDistance
+
+        val (startX, startY, endX, endY) = when (direction.lowercase()) {
+            "up" -> listOf(centerX, centerY + verticalDistance / 2, centerX, centerY - verticalDistance / 2)
+            "down" -> listOf(centerX, centerY - verticalDistance / 2, centerX, centerY + verticalDistance / 2)
+            "left" -> listOf(centerX + horizontalDistance / 2, centerY, centerX - horizontalDistance / 2, centerY)
+            "right" -> listOf(centerX - horizontalDistance / 2, centerY, centerX + horizontalDistance / 2, centerY)
+            else -> {
+                return ActionResult(
+                    success = false,
+                    method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                    errorCode = "INVALID_SWIPE_DIRECTION",
+                    message = "Unsupported swipe direction=$direction reason=$reason"
+                )
+            }
+        }
+
+        val swipePath = Path().apply {
+            moveTo(startX, startY)
+            lineTo(endX, endY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(swipePath, 0L, 520L))
+            .build()
+
+        val dispatched = service.dispatchGesture(gesture, null, null)
+        return if (dispatched) {
+            ActionResult(
+                success = true,
+                method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                errorCode = null,
+                message = "Dispatched coordinate swipe direction=$direction distance=$clampedDistance reason=$reason"
+            )
+        } else {
+            ActionResult(
+                success = false,
+                method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                errorCode = "SWIPE_FAILED",
+                message = "Failed to dispatch coordinate swipe direction=$direction reason=$reason"
+            )
+        }
+    }
+
     private fun dispatchTapAt(x: Int, y: Int, message: String): ActionResult {
         val tapPath = Path().apply {
             moveTo(x.toFloat(), y.toFloat())
@@ -269,6 +340,31 @@ class ActionExecutor(private val service: AccessibilityService) {
             method = ActionExecutionMethod.NONE.value,
             errorCode = "TARGET_NODE_MISSING",
             message = "Target node is missing"
+        )
+    }
+
+    private fun validateRecoveryAction(
+        actionPlan: ActionPlan,
+        targetNode: UiNode?,
+        nodes: List<UiNode>
+    ): ActionResult? {
+        if (actionPlan.reasonCode != RuleReasonCode.POPUP_DISMISS.value) return null
+        if (
+            targetNode != null &&
+            ActionPolicy.isSafePopupDismissCandidate(
+                node = targetNode,
+                filteredNodes = nodes,
+                screenType = null
+            )
+        ) {
+            return null
+        }
+
+        return ActionResult(
+            success = false,
+            method = ActionExecutionMethod.NONE.value,
+            errorCode = ActionPolicy.UNSAFE_RECOVERY_ACTION_ERROR,
+            message = "Blocked unsafe popup dismiss target=${targetNode?.searchableText().orEmpty()}"
         )
     }
 }

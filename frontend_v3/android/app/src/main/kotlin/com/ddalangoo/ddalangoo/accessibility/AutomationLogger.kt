@@ -68,6 +68,7 @@ object AutomationLogger {
         candidateNodes.forEach { node ->
             info(
                 "purchase_history_candidate nodeId=${node.id} " +
+                    "parentId=${node.parentId ?: ""} depth=${node.depth} childCount=${node.childCount} " +
                     "text=${node.primaryText()} role=${node.role.orEmpty()} " +
                     "clickable=${node.clickable} " +
                     "bounds=${node.boundsLeft},${node.boundsTop},${node.boundsRight},${node.boundsBottom} " +
@@ -90,6 +91,8 @@ object AutomationLogger {
         snapshot.candidates.forEach { candidate ->
             info(
                 "search_inspection_candidate nodeId=${candidate.nodeId} " +
+                    "parentId=${candidate.parentId ?: ""} depth=${candidate.depth} " +
+                    "childCount=${candidate.childCount} " +
                     "text=${candidate.previewText()} className=${candidate.className} " +
                     "clickable=${candidate.clickable} editable=${candidate.editable} " +
                     "focusable=${candidate.focusable} price=${candidate.hasPricePattern} " +

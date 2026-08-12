@@ -468,17 +468,32 @@ def _normalize(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result = []
     for p in products:
         delivery_info = p.get("delivery_info", "일반배송")
+        platform = p.get("platform", "")
+        product_name = p.get("name", "")
+        product_url = p.get("product_url") or p.get("execution_url") or p.get("url", "")
+        is_app_search_candidate = bool(
+            p.get("app_search_candidate")
+            or p.get("appSearchCandidate")
+            or p.get("execution_strategy") == "platform_search"
+            or (not product_url and platform in ("kurly", "coupang") and product_name)
+        )
         result.append({
-            "product_name": p.get("name", ""),
+            "product_name": product_name,
             "price": p.get("price", 0),
             "rating": None,
             "review_count": None,
             "delivery": delivery_info,
+            "delivery_info": delivery_info,
             "delivery_fee": 0 if any(k in delivery_info for k in ("로켓", "무료")) else None,
-            "platform": p.get("platform", ""),
+            "platform": platform,
             "image_url": p.get("image_url"),
-            "product_url": p.get("product_url") or p.get("execution_url") or p.get("url", ""),
-            "execution_url": p.get("execution_url") or p.get("product_url") or p.get("url", ""),
+            "product_url": product_url,
+            "execution_url": product_url,
+            "execution_strategy": p.get("execution_strategy") or (
+                "platform_search" if is_app_search_candidate else "url"
+            ),
+            "app_search_candidate": is_app_search_candidate,
+            "search_keyword": p.get("search_keyword") or p.get("query") or product_name,
             "source_url": p.get("source_url"),
             "is_sold_out": False,
             "brand": p.get("brand"),

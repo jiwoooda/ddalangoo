@@ -5,6 +5,7 @@ import org.json.JSONObject
 
 data class SearchInspectionCandidate(
     val nodeId: Int,
+    val parentId: Int?,
     val text: String,
     val contentDescription: String,
     val className: String,
@@ -18,6 +19,8 @@ data class SearchInspectionCandidate(
     val boundsBottom: Int,
     val centerX: Int,
     val centerY: Int,
+    val depth: Int,
+    val childCount: Int,
     val hasAddToCartKeyword: Boolean,
     val hasPricePattern: Boolean,
     val hasUnitPattern: Boolean
@@ -33,6 +36,7 @@ data class SearchInspectionCandidate(
 
 data class SearchInspectionSnapshot(
     val step: String,
+    val platform: String,
     val rawNodeCount: Int,
     val filteredNodeCount: Int,
     val candidates: List<SearchInspectionCandidate>,
@@ -53,6 +57,7 @@ object SearchInspectionStore {
     @Synchronized
     fun inspect(
         step: String,
+        platform: String,
         rawNodeCount: Int,
         filteredNodes: List<UiNode>
     ): SearchInspectionSnapshot {
@@ -75,6 +80,7 @@ object SearchInspectionStore {
         val fallbackReasonCode = fallbackReasonCodeFor(step, candidates, productCandidates)
         val snapshot = SearchInspectionSnapshot(
             step = step,
+            platform = platform,
             rawNodeCount = rawNodeCount,
             filteredNodeCount = filteredNodes.size,
             candidates = candidates,
@@ -100,6 +106,7 @@ object SearchInspectionStore {
             "rawProductNodeCandidateCount" to (resultsSnapshot?.candidates?.size ?: 0),
             "productCandidateCount" to (resultsSnapshot?.productCandidates?.size ?: 0),
             "accumulatedProductCandidateCount" to accumulatedProductCandidatesByKey.size,
+            "platformSearchProductCount" to platformSearchProducts().size,
             "searchResultDumpCount" to searchResultDumpCount,
             "searchInspectionPreview" to latestSnapshot?.previewText(),
             "aiFallbackSuggested" to (latestSnapshot?.aiFallbackSuggested ?: false),
@@ -121,6 +128,13 @@ object SearchInspectionStore {
                 "accumulatedProductCandidates",
                 ProductCandidateJsonSerializer.toJsonArray(accumulatedProductCandidatesByKey.values.toList())
             )
+            .put(
+                "platformSearchProducts",
+                ProductCandidateJsonSerializer.toPlatformSearchProductJsonArray(
+                    platformForSearchProducts(),
+                    platformSearchProducts()
+                )
+            )
             .put("snapshots", jsonSnapshots)
             .toString(2)
     }
@@ -140,6 +154,14 @@ object SearchInspectionStore {
     @Synchronized
     fun accumulatedProductCandidateCount(): Int {
         return accumulatedProductCandidatesByKey.size
+    }
+
+    @Synchronized
+    fun platformSearchProductMaps(platform: String? = null): List<Map<String, Any?>> {
+        return ProductCandidateJsonSerializer.toPlatformSearchProductMapList(
+            platform ?: platformForSearchProducts(),
+            platformSearchProducts()
+        )
     }
 
     @Synchronized
@@ -240,6 +262,7 @@ object SearchInspectionStore {
         val searchableText = searchableText()
         return SearchInspectionCandidate(
             nodeId = id,
+            parentId = parentId,
             text = text.orEmpty(),
             contentDescription = contentDescription.orEmpty(),
             className = className.orEmpty(),
@@ -253,6 +276,8 @@ object SearchInspectionStore {
             boundsBottom = boundsBottom,
             centerX = centerX,
             centerY = centerY,
+            depth = depth,
+            childCount = childCount,
             hasAddToCartKeyword = searchableText.contains("담기"),
             hasPricePattern = priceRegex.containsMatchIn(primaryText),
             hasUnitPattern = unitRegex.containsMatchIn(primaryText)
@@ -262,6 +287,7 @@ object SearchInspectionStore {
     private fun SearchInspectionSnapshot.toJsonObject(): JSONObject {
         return JSONObject()
             .put("step", step)
+            .put("platform", platform)
             .put("rawNodeCount", rawNodeCount)
             .put("filteredNodeCount", filteredNodeCount)
             .put("candidateCount", candidates.size)
@@ -283,6 +309,7 @@ object SearchInspectionStore {
     private fun SearchInspectionCandidate.toJsonObject(): JSONObject {
         return JSONObject()
             .put("nodeId", nodeId)
+            .put("parentId", parentId ?: JSONObject.NULL)
             .put("text", text)
             .put("contentDescription", contentDescription)
             .put("className", className)
@@ -303,6 +330,8 @@ object SearchInspectionStore {
             )
             .put("centerX", centerX)
             .put("centerY", centerY)
+            .put("depth", depth)
+            .put("childCount", childCount)
     }
 
     private fun SearchInspectionSnapshot.previewText(): String? {
@@ -324,5 +353,23 @@ object SearchInspectionStore {
             val key = "$productName:${candidate.price ?: ""}"
             accumulatedProductCandidatesByKey.putIfAbsent(key, candidate)
         }
+    }
+
+    private fun platformSearchProducts(): List<ProductCandidate> {
+        return accumulatedProductCandidatesByKey.values
+            .filter { candidate ->
+                !candidate.productName.isNullOrBlank() && candidate.price != null
+            }
+            .sortedWith(
+                compareByDescending<ProductCandidate> { candidate -> candidate.confidence }
+                    .thenBy { candidate -> candidate.centerY ?: Int.MAX_VALUE }
+            )
+    }
+
+    private fun platformForSearchProducts(): String {
+        return snapshotsByStep.values
+            .lastOrNull { snapshot -> snapshot.platform.isNotBlank() }
+            ?.platform
+            ?: AutomationContract.Platform.UNKNOWN
     }
 }

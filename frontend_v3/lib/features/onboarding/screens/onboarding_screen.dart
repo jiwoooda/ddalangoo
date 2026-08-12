@@ -36,6 +36,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   int _currentIndex = 0;
   bool _isAccessibilityEnabled = false;
   bool _accessibilitySettingsOpened = false;
+  bool _isEnteringApp = false;
 
   // "이제 딸랑구와 함께 편하게 쇼핑해보세요" 페이지를 접근성 권한 페이지보다
   // 앞에 두고, 접근성 권한 페이지를 맨 마지막으로 옮겼다. 이제 "시작하기"는
@@ -104,25 +105,26 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     if (!mounted) {
       return;
     }
-    final wasEnabled = _isAccessibilityEnabled;
     setState(() => _isAccessibilityEnabled = enabled);
-    _advanceIfJustEnabled(wasEnabled: wasEnabled);
+    _advanceIfAccessibilityReady();
   }
 
-  /// 접근성 권한은 필수라 건너뛰기 버튼이 없다 — 권한이 막 켜진 걸 확인하면
-  /// 사용자가 따로 누를 것 없이 자동으로 다음으로 넘어간다. 접근성 페이지가
-  /// 이제 마지막 페이지라 "다음"은 곧 온보딩을 마치고 앱으로 들어가는 것이다.
-  void _advanceIfJustEnabled({required bool wasEnabled}) {
-    if (wasEnabled || !_isAccessibilityEnabled) {
+  /// 접근성 권한은 필수라 건너뛰기 버튼이 없다. 권한이 방금 켜진 경우뿐 아니라
+  /// 이미 켜진 상태로 마지막 접근성 페이지에 도착한 경우도 앱으로 진입시킨다.
+  void _advanceIfAccessibilityReady() {
+    if (_isEnteringApp || !_isAccessibilityEnabled) {
       return;
     }
     if (_currentIndex != _accessibilityPageIndex) {
       return;
     }
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted || _currentIndex != _accessibilityPageIndex) {
+      if (!mounted ||
+          _isEnteringApp ||
+          _currentIndex != _accessibilityPageIndex) {
         return;
       }
+      _isEnteringApp = true;
       if (_isLastPage) {
         _enterApp();
       } else {
@@ -134,9 +136,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   Future<void> _handleOpenAccessibilitySettings() async {
     _accessibilitySettingsOpened = true;
     if (widget.useMockFlow) {
-      final wasEnabled = _isAccessibilityEnabled;
       setState(() => _isAccessibilityEnabled = true);
-      _advanceIfJustEnabled(wasEnabled: wasEnabled);
+      _advanceIfAccessibilityReady();
       return;
     }
     await _accessibilityService.openAccessibilitySettings();
@@ -160,6 +161,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       return;
     }
     setState(() => _currentIndex = index);
+    _advanceIfAccessibilityReady();
   }
 
   /// 접근성 권한이 필요한 페이지에 머무르는 동안(그리고 권한이 꺼져있는 동안)엔
@@ -276,7 +278,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 /// 다음 페이지로 넘어간다. 이 위젯은 그 전환 직전 짧은 순간의 확인 표시만 보여준다.
 class _AccessibilityPermissionCta extends StatelessWidget {
   const _AccessibilityPermissionCta({
-    super.key,
     required this.isEnabled,
     required this.onOpenSettings,
   });

@@ -215,6 +215,83 @@ object AutomationTaskStore {
         )
     }
 
+    @Synchronized
+    fun requireUserAction(
+        packageName: String?,
+        currentStep: String,
+        rawNodeCount: Int,
+        filteredNodeCount: Int,
+        trigger: String,
+        reasonCode: String,
+        message: String,
+        payload: Map<String, Any?> = emptyMap()
+    ) {
+        val task = currentTask
+        AutomationLogger.warn(
+            "task requires_user_action taskId=${task?.taskId.orEmpty()} reason=$reasonCode " +
+                "trigger=$trigger message=$message"
+        )
+        if (task != null) {
+            pendingResult = AutomationResult(
+                taskId = task.taskId,
+                taskType = task.taskType,
+                status = AutomationContract.ResultStatus.REQUIRES_USER_ACTION,
+                platform = task.platform,
+                packageName = task.effectivePackageName(),
+                currentStep = currentStep,
+                resultType = AutomationContract.ResultType.USER_CONFIRMATION_REQUIRED,
+                payload = payload,
+                errorCode = reasonCode,
+                errorMessage = message,
+                metadata = mapOf(
+                    "trigger" to trigger,
+                    "foregroundPackage" to packageName,
+                ).filterValues { it != null },
+            )
+            AutomationLogger.info(
+                "AutomationResult taskId=${task.taskId} " +
+                    "status=${AutomationContract.ResultStatus.REQUIRES_USER_ACTION} 생성 " +
+                    "reason=$reasonCode currentStep=$currentStep"
+            )
+        }
+        currentTask = null
+        retryCountsByStep.clear()
+        purchaseHistoryFinishHandled = false
+        purchaseHistoryExpandKeys.clear()
+        purchaseHistoryPeriodFilterOpened = false
+        purchaseHistoryPeriodFilterHandled = false
+        recoveryCount = 0
+        searchInputFocusRetryCount = 0
+        searchSubmitRetryCount = 0
+        searchInputTextRetryCount = 0
+        optionSelectNoEffectRetryCount = 0
+        lastObservedOptionQuantity = null
+        checkoutItemOutcomes.clear()
+        runtimeStatus = runtimeStatus.copy(
+            lastPackageName = packageName,
+            lastStep = currentStep,
+            lastTrigger = trigger,
+            currentRetryCount = 0,
+            currentRecoveryCount = 0,
+            rawNodeCount = rawNodeCount,
+            filteredNodeCount = filteredNodeCount,
+            lastActionType = null,
+            lastReasonCode = reasonCode,
+            lastTargetNodeId = null,
+            lastSelectedNodeText = null,
+            lastActionSuccess = false,
+            lastActionMethod = null,
+            lastErrorCode = reasonCode.uppercase(),
+            lastMessage = message,
+            aiFallbackSuggested = false,
+            fallbackType = null,
+            fallbackReasonCode = null,
+            failedAction = null,
+            expectedState = "User resolves the blocking system screen",
+            observedState = "foregroundPackage=${packageName.orEmpty()}"
+        )
+    }
+
     private fun fallbackTypeFor(reasonCode: String): String {
         return when (reasonCode) {
             "possible_overlay_occlusion",
@@ -513,8 +590,9 @@ object AutomationTaskStore {
             RuleReasonCode.SEARCH_ENTRY.value -> AutomationContract.Step.SEARCH_INPUT
             RuleReasonCode.SEARCH_INPUT_FOCUS_RETRY.value -> AutomationContract.Step.SEARCH_INPUT
             RuleReasonCode.SEARCH_INPUT.value -> AutomationContract.Step.SEARCH_SUBMIT
-            RuleReasonCode.SEARCH_BUTTON.value -> AutomationContract.Step.DUMP_SEARCH_RESULTS
-            RuleReasonCode.KEYBOARD_SEARCH.value -> AutomationContract.Step.DUMP_SEARCH_RESULTS
+            RuleReasonCode.SEARCH_BUTTON.value -> AutomationContract.Step.ENSURE_RECOMMENDED_SORT
+            RuleReasonCode.KEYBOARD_SEARCH.value -> AutomationContract.Step.ENSURE_RECOMMENDED_SORT
+            RuleReasonCode.RECOMMENDED_SORT.value -> AutomationContract.Step.DUMP_SEARCH_RESULTS
             RuleReasonCode.SEARCH_RESULT_DUMP.value -> AutomationContract.Step.SCROLL_SEARCH_RESULTS
             RuleReasonCode.SEARCH_RESULT_SCROLL.value -> AutomationContract.Step.DUMP_SEARCH_RESULTS
             RuleReasonCode.SEARCH_RESULT_FINISH.value -> AutomationContract.Step.COMPLETED

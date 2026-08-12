@@ -242,7 +242,7 @@ class PurchaseHistoryLoadingService {
 
   Future<PurchaseHistoryListResponse> fetchUserHistories({
     required int userId,
-    int limit = 8,
+    int? limit,
   }) {
     return _purchaseHistoryRepository.getUserHistories(
       userId: userId,

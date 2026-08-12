@@ -2,6 +2,7 @@ import os
 import re
 import threading
 import logging
+import time
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -24,11 +25,12 @@ from app.repositories import (
     external_api_log_repository,
     order_repository,
     payment_repository,
+    product_search_execution_repository,
     recommendation_repository,
     user_repository,
 )
 from app.agent import runtime, mapper, actions, product_data_layer, recommendation_sync
-from app.services import webview_progress_service
+from app.services import recommendation_scoring_service, webview_progress_service
 from app.utils.product_url_contract import is_kurly_goods_url
 
 logger = logging.getLogger(__name__)
@@ -1710,6 +1712,367 @@ def _package_name_for_platform(platform: str | None) -> str | None:
     }.get((platform or "").lower())
 
 
+def _product_search_task_from_execution(execution: dict) -> AutomationTaskInAgent | None:
+    """DB product_search execution의 현재 플랫폼을 Android 실행 task로 변환한다."""
+    platform = execution.get("current_platform")
+    if not platform:
+        return None
+    query = execution.get("query") or ""
+    search_id = execution.get("search_id") or f"{execution.get('conversation_id')}-{query}"
+    return AutomationTaskInAgent(
+        contractVersion=1,
+        taskId=f"product-search-{search_id}-{platform}",
+        taskType="product_search",
+        conversationId=execution.get("conversation_id"),
+        userId=execution.get("user_id"),
+        platform=platform,
+        packageName=_package_name_for_platform(platform),
+        currentStep="open_search",
+        targetProductName=query,
+        searchKeyword=query,
+        quantity=1,
+        metadata={
+            "source": "product_search_orchestrator",
+            "searchId": search_id,
+            "candidateLimitPerPlatform": 10,
+            "platformQueue": execution.get("platform_queue") or [],
+            "currentPlatformIndex": execution.get("current_platform_index") or 0,
+            "preferredPlatform": execution.get("preferred_platform"),
+        },
+    )
+
+
+def _product_search_query_from_state(state: dict) -> str | None:
+    """LangGraph state에서 Android 앱 검색에 넘길 대표 검색어를 만든다."""
+    keywords = [
+        str(keyword).strip()
+        for keyword in (state.get("keywords") or [])
+        if str(keyword).strip()
+    ]
+    if keywords:
+        return " ".join(keywords)
+    selected_product = state.get("selected_product") or {}
+    product_name = selected_product.get("product_name") or selected_product.get("name")
+    if product_name:
+        return str(product_name).strip()
+    return None
+
+
+def _preferred_platform_from_state(state: dict) -> str | None:
+    """LangGraph 판단 결과에 선호 플랫폼이 있으면 product_search queue의 첫 순서로 쓴다."""
+    recommendation_context = state.get("recommendation_context") or {}
+    preference_context = recommendation_context.get("preference_context") or {}
+    preferred_platform = (
+        preference_context.get("preferred_platform")
+        or state.get("preferred_platform")
+        or state.get("selected_platform")
+    )
+    return str(preferred_platform).lower().strip() if preferred_platform else None
+
+
+def _product_search_fallback_decision(state: dict) -> tuple[bool, str]:
+    """
+    서버/MCP 후보 검색이 비었을 때 Android 앱 직접 검색으로 넘길지 판단한다.
+
+    이전 구현처럼 error 문자열 하나에만 의존하면 Product Agent가 자연어 실패 메시지만
+    만든 경우를 놓칠 수 있다. 그래서 "상품 요청인데 추천 후보가 없다"는 결과 상태를
+    1순위로 보고, error는 보조 신호로만 사용한다.
+    """
+    query = _product_search_query_from_state(state)
+    if not query:
+        return False, "missing_query"
+
+    if state.get("recommended_products") or state.get("search_results"):
+        return False, "server_candidates_exist"
+
+    selected_product = state.get("selected_product")
+    if isinstance(selected_product, dict) and selected_product:
+        return False, "selected_product_exists"
+
+    pending_action = state.get("pending_action") or {}
+    pending_type = pending_action.get("type") if isinstance(pending_action, dict) else None
+    if pending_type == "waiting_product_search":
+        return False, "already_waiting_product_search"
+
+    stage = state.get("stage")
+    if stage == "product_searching":
+        return False, "already_product_searching"
+
+    intent = state.get("intent")
+    product_intents = {"buy", "reorder", "refine", "compare_platforms", "product_search"}
+    product_errors = {"no_candidates", "no_relevant_products", "invalid_keywords"}
+    last_agent = state.get("last_agent")
+    has_product_request_signal = (
+        intent in product_intents
+        or state.get("error") in product_errors
+        or last_agent == "product_agent"
+        or (pending_type == "clarification" and bool(query))
+    )
+    if not has_product_request_signal:
+        return False, "no_product_intent"
+
+    return True, "start_product_search"
+
+
+async def _record_product_search_result_and_next_task(
+    db: AsyncSession,
+    *,
+    conversation_id: int,
+    req: AutomationResultRequest,
+    payload: dict,
+) -> tuple[AutomationTaskInAgent | None, dict | None]:
+    """플랫폼별 product_search 결과를 DB에 저장하고 다음 플랫폼 task를 만든다."""
+    search_id = (
+        payload.get("searchId")
+        or req.metadata.get("searchId")
+        or None
+    )
+    execution = None
+    if search_id:
+        execution = await product_search_execution_repository.get_product_search_execution_by_search_id_db(
+            db,
+            str(search_id),
+        )
+    if execution is None:
+        execution = await product_search_execution_repository.get_product_search_execution_for_task_id_db(
+            db,
+            req.taskId,
+        )
+    if execution is None:
+        logger.warning(
+            "product search execution not found taskId=%s searchId=%s",
+            req.taskId,
+            search_id,
+        )
+        return None, None
+
+    platform = (req.platform or payload.get("platform") or execution.get("current_platform") or "").lower()
+    products = payload.get("products")
+    if not isinstance(products, list):
+        products = []
+
+    updated_execution = await product_search_execution_repository.record_platform_products_db(
+        db,
+        search_id=execution["search_id"],
+        platform=platform,
+        products=[product for product in products if isinstance(product, dict)],
+    )
+    if updated_execution is None:
+        return None, None
+
+    next_task = _product_search_task_from_execution(updated_execution)
+    logger.info(
+        "productSearchResult 저장 searchId=%s platform=%s productCount=%s status=%s nextPlatform=%s",
+        updated_execution["search_id"],
+        platform,
+        len(products),
+        updated_execution["status"],
+        updated_execution.get("current_platform"),
+    )
+    return next_task, updated_execution
+
+
+async def _state_patch_from_completed_product_search(
+    db: AsyncSession,
+    *,
+    conversation_id: int,
+    user_id: int,
+    state: dict,
+    search_execution: dict,
+) -> dict:
+    """수집 완료된 platformSearchProducts를 추천 후보 state로 변환한다."""
+    try:
+        from src.tools.meta_mcp_client import _normalize as normalize_platform_products
+    except ImportError:
+        normalize_platform_products = None
+
+    raw_products = search_execution.get("merged_products") or []
+    if normalize_platform_products:
+        candidates = normalize_platform_products(raw_products)
+    else:
+        candidates = raw_products
+
+    if not candidates:
+        return {
+            "stage": "idle",
+            "error": "no_candidates",
+            "pending_action": {
+                "type": "clarification",
+                "message": "쇼핑 앱에서도 상품 후보를 찾지 못했어요. 다른 상품명을 말씀해 주세요.",
+            },
+            "messages": _assistant_message_patch(
+                "쇼핑 앱에서도 상품 후보를 찾지 못했어요. 다른 상품명을 말씀해 주세요."
+            ),
+        }
+
+    ranked_candidates = await recommendation_scoring_service.rank_candidates(
+        candidates,
+        keywords=[str(keyword) for keyword in (state.get("keywords") or [])],
+        intent=state.get("intent") or "product_search",
+        condition=state.get("condition"),
+        purchase_histories=(state.get("recommendation_context") or {}).get("keyword_results"),
+        preference_context=(state.get("recommendation_context") or {}).get("preference_context"),
+    )
+    top_product = ranked_candidates[0]
+    product_name = top_product.get("product_name") or top_product.get("name") or "상품"
+    product_price = top_product.get("price") or 0
+    hydrated_state = await recommendation_sync.persist_and_attach_ids_db(
+        db,
+        {
+            **state,
+            "stage": "searching",
+            "error": None,
+            "search_results": ranked_candidates,
+            "recommended_products": ranked_candidates,
+            "selected_product": top_product,
+            "current_product_index": 0,
+            "pending_action": {
+                "type": "product_confirm",
+                "message": f"{product_name}, {product_price:,}원이에요. 이 상품을 담을까요?",
+                "payload": {
+                    "actions": ["order_now", "add_to_cart", "reject"],
+                    "source": "platform_product_search",
+                    "searchId": search_execution.get("search_id"),
+                },
+            },
+            "messages": _assistant_message_patch(
+                f"{product_name}, {product_price:,}원이에요. 이 상품을 담을까요?"
+            ),
+        },
+        user_id,
+        conversation_id,
+    )
+    return {
+        "stage": hydrated_state.get("stage"),
+        "error": hydrated_state.get("error"),
+        "search_results": hydrated_state.get("search_results") or [],
+        "recommended_products": hydrated_state.get("recommended_products") or [],
+        "selected_product": hydrated_state.get("selected_product"),
+        "current_product_index": hydrated_state.get("current_product_index") or 0,
+        "pending_action": hydrated_state.get("pending_action"),
+        "messages": hydrated_state.get("messages"),
+    }
+
+
+async def _create_product_search_automation_task(
+    db: AsyncSession,
+    *,
+    conversation_id: int,
+    user_id: int,
+    query: str,
+    preferred_platform: str | None = None,
+    platforms: list[str] | None = None,
+) -> AutomationTaskInAgent | None:
+    """
+    Android 앱 검색이 필요한 경우 DB execution을 만들고 첫 플랫폼 task를 반환한다.
+
+    LangGraph는 비즈니스 판단을 담당하고, 실제 플랫폼 방문 순서와 taskId 관리는
+    backend orchestration 책임으로 둔다.
+    """
+    query_slug = re.sub(r"[^0-9a-zA-Z가-힣]+", "-", query).strip("-") or "search"
+    existing_execution = await product_search_execution_repository.get_running_product_search_execution_db(
+        db,
+        conversation_id=conversation_id,
+        query=query,
+    )
+    if existing_execution:
+        task = _product_search_task_from_execution(existing_execution)
+        if task:
+            logger.info(
+                "automationTask taskId=%s 재사용 taskType=product_search query=%s platform=%s",
+                task.taskId,
+                query,
+                task.platform,
+            )
+        return task
+
+    search_id = f"{conversation_id}-{query_slug}-{int(time.time() * 1000)}"
+    execution = await product_search_execution_repository.create_product_search_execution_db(
+        db,
+        search_id=search_id,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        query=query,
+        preferred_platform=preferred_platform,
+        platforms=platforms,
+    )
+    task = _product_search_task_from_execution(execution)
+    if task:
+        logger.info(
+            "automationTask taskId=%s 생성 taskType=product_search query=%s platform=%s queue=%s",
+            task.taskId,
+            query,
+            task.platform,
+            task.metadata.get("platformQueue"),
+        )
+    return task
+
+
+async def _response_or_product_search_task(
+    db: AsyncSession,
+    *,
+    conversation_id: int,
+    user_id: int,
+    state: dict,
+) -> AgentResponse | None:
+    """서버 검색 실패 상태이면 앱 product_search task를 내려보내고 이번 턴을 종료한다."""
+    query = _product_search_query_from_state(state)
+    should_start, decision_reason = _product_search_fallback_decision(state)
+    logger.info(
+        "[ProductSearchFallback] conversationId=%s query=%s state.error=%s "
+        "intent=%s stage=%s pendingType=%s recommendedCount=%s searchResultCount=%s "
+        "selectedProduct=%s decision=%s reason=%s",
+        conversation_id,
+        query,
+        state.get("error"),
+        state.get("intent"),
+        state.get("stage"),
+        (state.get("pending_action") or {}).get("type") if isinstance(state.get("pending_action"), dict) else None,
+        len(state.get("recommended_products") or []),
+        len(state.get("search_results") or []),
+        bool(state.get("selected_product")),
+        "start" if should_start else "skip",
+        decision_reason,
+    )
+    if not should_start:
+        return None
+
+    if not query:
+        return None
+
+    automation_task = await _create_product_search_automation_task(
+        db,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        query=query,
+        preferred_platform=_preferred_platform_from_state(state),
+    )
+    if automation_task is None:
+        return None
+
+    waiting_patch = {
+        "stage": "product_searching",
+        "error": None,
+        "pending_action": {
+            "type": "waiting_product_search",
+            "message": "쇼핑 앱에서 직접 상품을 찾아볼게요.",
+            "payload": {
+                "query": query,
+                "taskId": automation_task.taskId,
+                "platform": automation_task.platform,
+                "source": "product_search_orchestrator",
+            },
+        },
+        "messages": _assistant_message_patch("쇼핑 앱에서 직접 상품을 찾아볼게요."),
+    }
+    updated_state = await runtime.update_state(conversation_id, waiting_patch)
+    response = _state_to_agent_response(updated_state, conversation_id)
+    return _response_with_automation_contract(
+        response,
+        automation_task=automation_task,
+    )
+
+
 async def _prepare_checkout_automation_from_active_cart(
     db: AsyncSession,
     *,
@@ -1869,6 +2232,14 @@ async def start_shopping(db: AsyncSession, req: ShoppingRequest) -> AgentRespons
         stage_before="idle",
         pending_action_before=None,
     )
+    product_search_response = await _response_or_product_search_task(
+        db,
+        conversation_id=conv["id"],
+        user_id=req.userId,
+        state=state,
+    )
+    if product_search_response is not None:
+        return product_search_response
     return _state_to_agent_response(state, conv["id"])
 
 
@@ -1909,6 +2280,21 @@ async def handle_automation_result(
             "executionSucceeded": True,
             "checkoutAutomationCompleted": True,
         })
+    if normalized_status == "completed" and req.resultType == "product_search_collected":
+        next_task, search_execution = await _record_product_search_result_and_next_task(
+            db,
+            conversation_id=conversation_id,
+            req=req,
+            payload=result_payload,
+        )
+        if search_execution:
+            result_payload.update({
+                "searchId": search_execution["search_id"],
+                "searchStatus": search_execution["status"],
+                "mergedProductCount": len(search_execution.get("merged_products") or []),
+                "platformQueue": search_execution.get("platform_queue") or [],
+                "productsByPlatform": search_execution.get("products_by_platform") or {},
+            })
 
     automation_result = {
         "contractVersion": req.contractVersion,
@@ -1952,6 +2338,32 @@ async def handle_automation_result(
                     "쇼핑 앱 장바구니에 상품을 모두 담았어요. 배송지를 확인할게요."
                 ),
             })
+        elif req.resultType == "product_search_collected":
+            current_state = (await runtime.get_graph().aget_state(runtime._config(conversation_id))).values
+            if search_execution and search_execution.get("status") == "collected":
+                state_patch.update(
+                    await _state_patch_from_completed_product_search(
+                        db,
+                        conversation_id=conversation_id,
+                        user_id=conversation["user_id"],
+                        state=current_state,
+                        search_execution=search_execution,
+                    )
+                )
+            else:
+                state_patch.update({
+                    "stage": "product_searching",
+                    "pending_action": None,
+                    "error": None,
+                    "automation_outcome": {
+                        "taskId": req.taskId,
+                        "resultType": req.resultType,
+                        "payload": result_payload,
+                    },
+                    "messages": _assistant_message_patch(
+                        "쇼핑 앱에서 상품 후보를 확인하고 있어요."
+                    ),
+                })
         else:
             state_patch["stage"] = "cart_shopping"
             state_patch["pending_action"] = None
@@ -1984,6 +2396,28 @@ async def handle_automation_result(
         req.currentStep,
     )
     state = await runtime.update_state(conversation_id, state_patch)
+    if normalized_status == "completed" and req.resultType == "product_search_collected":
+        response = _state_to_agent_response(state, conversation_id)
+        if next_task is not None:
+            logger.info(
+                "automationTask taskId=%s 생성 taskType=product_search platform=%s",
+                next_task.taskId,
+                next_task.platform,
+            )
+            return _response_with_automation_contract(
+                response,
+                automation_task=next_task,
+                automation_result=AutomationResultInAgent(**automation_result),
+            )
+        logger.info(
+            "product search queue completed searchId=%s mergedProductCount=%s",
+            result_payload.get("searchId"),
+            result_payload.get("mergedProductCount"),
+        )
+        return _response_with_automation_contract(
+            response,
+            automation_result=AutomationResultInAgent(**automation_result),
+        )
     if normalized_status == "completed" and req.resultType == "cart_added":
         logger.info(
             "cart outcome translated taskId=%s executionSucceeded=%s "
@@ -2150,6 +2584,14 @@ async def send_message(db: AsyncSession, conversation_id: int, req: MessageReque
         stage_before=snapshot.values.get("stage"),
         pending_action_before=pending_action_before,
     )
+    product_search_response = await _response_or_product_search_task(
+        db,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        state=state,
+    )
+    if product_search_response is not None:
+        return product_search_response
     if _should_create_order_from_message(state, pending_action_before, req.message):
         state = await _prepare_checkout_automation_from_active_cart(
             db,

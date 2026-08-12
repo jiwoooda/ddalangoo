@@ -8,6 +8,7 @@ import java.util.IdentityHashMap
 
 data class UiNode(
     val id: Int,
+    val parentId: Int?,
     val text: String?,
     val contentDescription: String?,
     val className: String?,
@@ -25,6 +26,7 @@ data class UiNode(
     val centerX: Int,
     val centerY: Int,
     val depth: Int,
+    val childCount: Int,
     val role: String? = null,
     val sourceNode: AccessibilityNodeInfo? = null
 ) {
@@ -51,27 +53,42 @@ class UiTreeCollector(
     private val maxDepth: Int = 40,
     private val maxNodes: Int = 600
 ) {
+    private data class QueueEntry(
+        val node: AccessibilityNodeInfo,
+        val depth: Int,
+        val parentId: Int?
+    )
+
     fun collect(root: AccessibilityNodeInfo?): List<UiNode> {
         if (root == null) return emptyList()
 
         val collectedNodes = mutableListOf<UiNode>()
         val visitedNodes = Collections.newSetFromMap(IdentityHashMap<AccessibilityNodeInfo, Boolean>())
-        val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
-        queue.add(root to 0)
+        val queue = ArrayDeque<QueueEntry>()
+        queue.add(QueueEntry(root, depth = 0, parentId = null))
 
         // 화면 UI Tree를 너비 우선으로 순회하되, 깊이와 개수를 제한해서 과도한 탐색을 막는다.
         while (queue.isNotEmpty() && collectedNodes.size < maxNodes) {
-            val (currentNode, depth) = queue.removeFirst()
+            val entry = queue.removeFirst()
+            val currentNode = entry.node
+            val depth = entry.depth
             if (depth > maxDepth || visitedNodes.contains(currentNode)) continue
             visitedNodes.add(currentNode)
 
-            collectedNodes.add(currentNode.toUiNode(collectedNodes.size, depth))
+            val nodeId = collectedNodes.size
+            collectedNodes.add(
+                currentNode.toUiNode(
+                    id = nodeId,
+                    parentId = entry.parentId,
+                    depth = depth
+                )
+            )
 
             val childCount = currentNode.childCount
             for (childIndex in 0 until childCount) {
                 val childNode = runCatching { currentNode.getChild(childIndex) }.getOrNull()
                 if (childNode != null) {
-                    queue.add(childNode to depth + 1)
+                    queue.add(QueueEntry(childNode, depth = depth + 1, parentId = nodeId))
                 }
             }
         }
@@ -79,7 +96,8 @@ class UiTreeCollector(
         AutomationLogger.info("ui_tree rawNodeCount=${collectedNodes.size}")
         collectedNodes.take(20).forEach { node ->
             AutomationLogger.debug(
-                "raw_node id=${node.id} depth=${node.depth} class=${node.className.orEmpty()} " +
+                "raw_node id=${node.id} parentId=${node.parentId ?: ""} " +
+                    "depth=${node.depth} childCount=${node.childCount} class=${node.className.orEmpty()} " +
                     "text=${node.text.orEmpty()} desc=${node.contentDescription.orEmpty()} " +
                     "viewId=${node.viewIdResourceName.orEmpty()} clickable=${node.clickable} " +
                     "editable=${node.editable} bounds=${node.boundsLeft},${node.boundsTop}," +
@@ -90,12 +108,13 @@ class UiTreeCollector(
         return collectedNodes
     }
 
-    private fun AccessibilityNodeInfo.toUiNode(id: Int, depth: Int): UiNode {
+    private fun AccessibilityNodeInfo.toUiNode(id: Int, parentId: Int?, depth: Int): UiNode {
         val bounds = Rect()
         getBoundsInScreen(bounds)
 
         return UiNode(
             id = id,
+            parentId = parentId,
             text = text?.toString(),
             contentDescription = contentDescription?.toString(),
             className = className?.toString(),
@@ -113,6 +132,7 @@ class UiTreeCollector(
             centerX = bounds.centerX(),
             centerY = bounds.centerY(),
             depth = depth,
+            childCount = childCount,
             sourceNode = this
         )
     }

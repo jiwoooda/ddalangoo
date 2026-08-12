@@ -33,6 +33,7 @@ class UiNodeSerializer {
             jsonNodes.put(
                 JSONObject()
                     .put("id", node.id)
+                    .put("parentId", node.parentId ?: JSONObject.NULL)
                     .put("text", node.text.orEmpty())
                     .put("contentDescription", node.contentDescription.orEmpty())
                     .put("className", node.className.orEmpty())
@@ -53,6 +54,7 @@ class UiNodeSerializer {
                     .put("centerX", node.centerX)
                     .put("centerY", node.centerY)
                     .put("depth", node.depth)
+                    .put("childCount", node.childCount)
                     .put("role", node.role.orEmpty())
             )
         }

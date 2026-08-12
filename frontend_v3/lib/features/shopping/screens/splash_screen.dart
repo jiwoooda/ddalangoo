@@ -21,6 +21,8 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
+  Timer? _navigationTimer;
+
   late final AnimationController _fadeController = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 700),
@@ -37,16 +39,21 @@ class _SplashScreenState extends State<SplashScreen>
     _scheduleNavigation();
   }
 
-  Future<void> _scheduleNavigation() async {
-    await Future<void>.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed(
-      widget.useMockFlow ? AppRoutes.onboardingMock : AppRoutes.onboarding,
-    );
+  void _scheduleNavigation() {
+    // 테스트/빠른 화면 전환 중 SplashScreen이 dispose되면 예약된 이동도
+    // 함께 취소되어야 한다. Future.delayed는 취소할 수 없어서 Timer로 둔다.
+    _navigationTimer?.cancel();
+    _navigationTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed(
+        widget.useMockFlow ? AppRoutes.onboardingMock : AppRoutes.onboarding,
+      );
+    });
   }
 
   @override
   void dispose() {
+    _navigationTimer?.cancel();
     _fadeController.dispose();
     super.dispose();
   }

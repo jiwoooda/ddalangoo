@@ -15,7 +15,7 @@ import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
-import '../../shopping/screens/analysis_intro_screen.dart';
+import '../../shopping/screens/purchase_history_loading_screen.dart';
 import '../services/platform_check_service.dart';
 
 class PlatformCheckScreen extends StatefulWidget {
@@ -243,9 +243,7 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     } catch (_) {
       // TTS는 화면 진행 보조라 초기화 실패가 플로우를 막으면 안 된다.
     }
-    await _speakMessage(
-      '$_resolvedUserName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요.',
-    );
+    await _speakMessage('$_resolvedUserName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요.');
   }
 
   void _handleCompleted() {
@@ -264,15 +262,13 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     }
 
     if (widget.userName?.trim().isNotEmpty == true || widget.useMockFlow) {
-      // 구매 이력을 불러오기 직전에 "이제 취향을 분석해볼게요" 안내를 한 번
-      // 들려준다(AnalysisIntroScreen). 그 화면이 말이 끝나면 알아서
-      // PurchaseHistoryLoadingScreen으로 넘어간다.
+      // 쇼핑 앱 확인이 끝나면 바로 구매 이력 로딩 화면으로 들어간다.
+      // 취향 분석 안내는 구매 이력 저장/불러오기가 끝난 뒤에 들려준다.
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
-          builder: (_) => AnalysisIntroScreen(
+          builder: (_) => PurchaseHistoryLoadingScreen(
             userName: _resolvedUserName,
             useMockFlow: widget.useMockFlow,
-            nextRouteName: widget.nextRouteName,
           ),
         ),
       );
@@ -356,26 +352,13 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
           )
           .toList(growable: false);
       _automationLastMessage = '쇼핑 앱 확인이 거의 끝났어요.';
-      _lastDetectedPlatformLabel = '네이버';
-      _scannedAppCount = 31;
-      _detectedShoppingAppCount = 3;
-      _statusHint = '3개의 쇼핑 앱이 확인되었어요.';
-    });
-    await _speakMessage('34개 앱 중 3개의 쇼핑 앱이 확인되었어요.');
-
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _automationLastMessage = '사용 가능한 쇼핑 앱을 정리했어요.';
       _lastDetectedPlatformLabel = '컬리';
       _scannedAppCount = 34;
       _detectedShoppingAppCount = 3;
       _isScanning = false;
+      _statusHint = '3개의 쇼핑 앱이 확인되었어요.';
     });
-    await _speakMessage('쇼핑 앱 확인이 끝났어요. 다음 화면으로 넘어갈게요.');
+    await _speakMessage('34개 앱 중 3개의 쇼핑 앱이 확인되었어요.');
 
     _scheduleCompletionWithMinimumDisplay();
   }
@@ -425,12 +408,20 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
     unawaited(
       _speakMessage(
         installedCount > 0
-            ? '$_resolvedUserName님이 사용 중인 쇼핑 앱을 확인했어요. $installedCount개가 확인되었어요.'
-            : '$_resolvedUserName님이 사용 중인 쇼핑 앱을 확인하고 있어요. 확인된 쇼핑 앱은 아직 없어요.',
+            ? _installedAppCountSpeech(installedCount)
+            : '확인된 쇼핑 앱은 아직 없어요.',
       ),
     );
 
     _scheduleCompletionWithMinimumDisplay();
+  }
+
+  String _installedAppCountSpeech(int installedCount) {
+    final totalInstalledAppCount = _totalInstalledAppCount;
+    if (totalInstalledAppCount != null && totalInstalledAppCount > 0) {
+      return '$totalInstalledAppCount개 앱 중 $installedCount개의 쇼핑 앱이 확인되었어요.';
+    }
+    return '$installedCount개의 쇼핑 앱이 확인되었어요.';
   }
 
   void _startStatusPolling() {

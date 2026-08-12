@@ -53,6 +53,7 @@ object AutomationContract {
 
     object TaskType {
         const val SEARCH_AND_ADD_TO_CART = "search_and_add_to_cart"
+        const val PRODUCT_SEARCH = "product_search"
         const val PURCHASE_HISTORY = "purchase_history"
         const val PURCHASE_HISTORY_VALIDATION = "purchase_history_validation"
         const val INSPECT_SEARCH_FLOW = "inspect_search_flow"
@@ -69,6 +70,7 @@ object AutomationContract {
     object ResultType {
         const val CART_ADDED = "cart_added"
         const val CHECKOUT_PLATFORM_CART_COMPLETED = "checkout_platform_cart_completed"
+        const val PRODUCT_SEARCH_COLLECTED = "product_search_collected"
         const val PURCHASE_HISTORY_COLLECTED = "purchase_history_collected"
         const val USER_CONFIRMATION_REQUIRED = "user_confirmation_required"
         const val AUTOMATION_ERROR = "automation_error"
@@ -98,6 +100,7 @@ object AutomationContract {
         const val OPEN_SEARCH = "open_search"
         const val SEARCH_INPUT = "search_input"
         const val SEARCH_SUBMIT = "search_submit"
+        const val ENSURE_RECOMMENDED_SORT = "ensure_recommended_sort"
         const val SELECT_PRODUCT = "select_product"
         const val WAIT_PRODUCT_DETAIL = "wait_product_detail"
         const val CLICK_DETAIL_ADD_TO_CART = "click_detail_add_to_cart"
@@ -109,6 +112,7 @@ object AutomationContract {
         const val DUMP_SEARCH_INPUT = "dump_search_input"
         const val DUMP_SEARCH_RESULTS = "dump_search_results"
         const val SCROLL_SEARCH_RESULTS = "scroll_search_results"
+        const val FINISH_PRODUCT_SEARCH = "finish_product_search"
         const val FINISH_SEARCH_RESULTS = "finish_search_results"
         const val ADD_TO_CART = "add_to_cart"
         const val SELECT_OPTION = "select_option"
@@ -133,6 +137,7 @@ object AutomationContract {
                 else -> Step.OPEN_ORDER_HISTORY
             }
             TaskType.SEARCH_AND_ADD_TO_CART,
+            TaskType.PRODUCT_SEARCH,
             TaskType.CHECKOUT_PLATFORM_CART,
             TaskType.INSPECT_SEARCH_FLOW -> Step.OPEN_SEARCH
             else -> Step.OPEN_SEARCH

@@ -31,6 +31,7 @@ class InstalledShoppingPlatform {
 
 abstract final class AccessibilityAutomationTaskType {
   static const searchAndAddToCart = 'search_and_add_to_cart';
+  static const productSearch = 'product_search';
   static const purchaseHistory = 'purchase_history';
   static const purchaseHistoryValidation = 'purchase_history_validation';
   static const inspectSearchFlow = 'inspect_search_flow';
@@ -163,6 +164,12 @@ class AccessibilityAutomationService {
     // Android native runtime은 Dio 설정을 직접 알 수 없으므로,
     // 모든 AutomationTask가 MethodChannel을 건너기 직전에 backend 주소를 보강한다.
     metadata.putIfAbsent('backendBaseUrl', () => ApiClient.baseUrl);
+    final backendBaseUrl = metadata['backendBaseUrl'];
+    debugPrint(
+      'AutomationTask runtime metadata '
+      'taskId=${task.taskId} '
+      'backendBaseUrl=$backendBaseUrl',
+    );
     arguments['metadata'] = metadata;
     return arguments;
   }
@@ -340,9 +347,6 @@ class AccessibilityAutomationService {
         },
       ),
     );
-    if (effectivePackageName != null) {
-      await launchPlatformApp(effectivePackageName);
-    }
   }
 
   Future<void> startCoupangPurchaseHistoryDumpInspection() async {

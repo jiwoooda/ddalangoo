@@ -14,13 +14,9 @@ import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/voice_input_button.dart';
 import '../../../shared/widgets/voice_panel.dart';
-import 'purchase_history_loading_screen.dart';
 
-/// 플랫폼 확인이 끝난 뒤, 구매 이력을 불러오기 직전에 "이제 취향을
-/// 분석해볼게요"라고 안내하는 일방향 화면. agent_smalltalk_screen과 같은
-/// 패턴으로, 사용자 응답이 필요 없어서 딸랑구 TTS가 끝나면 자동으로 구매
-/// 이력 화면으로 넘어간다. 그래서 하단 음성 패널은 항상 비활성(회색)
-/// 상태로만 보여주고 마이크 입력을 받지 않는다.
+/// 구매 이력 저장/불러오기가 끝난 뒤, 취향 분석이 이어진다고 안내하는
+/// 일방향 화면. 사용자 응답은 받지 않고 TTS가 끝나면 다음 화면으로 간다.
 class AnalysisIntroScreen extends StatefulWidget {
   const AnalysisIntroScreen({
     super.key,
@@ -43,9 +39,7 @@ class _AnalysisIntroScreenState extends State<AnalysisIntroScreen> {
   bool _isSpeaking = false;
   bool _isNavigating = false;
 
-  static const String _message =
-      '이제 분석을 해볼게요! 분석이 완료되면 바로가기에서 확인하실 수 있어요. '
-      '이제 구매 이력을 불러와볼게요!';
+  static const String _message = '이제 분석을 해볼게요! 분석이 완료되면 바로가기에서 확인하실 수 있어요.';
 
   @override
   void initState() {
@@ -75,24 +69,16 @@ class _AnalysisIntroScreenState extends State<AnalysisIntroScreen> {
         setState(() => _isSpeaking = false);
       }
     }
-    _continueToPurchaseHistory();
+    _continueToNextScreen();
   }
 
-  void _continueToPurchaseHistory() {
+  void _continueToNextScreen() {
     if (_isNavigating || !mounted) {
       return;
     }
     setState(() => _isNavigating = true);
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(
-        builder: (_) => PurchaseHistoryLoadingScreen(
-          userName: widget.userName,
-          useMockFlow: widget.useMockFlow,
-          nextRouteName: widget.nextRouteName,
-        ),
-      ),
-    );
+    Navigator.of(context).pushReplacementNamed(widget.nextRouteName);
   }
 
   @override
@@ -105,7 +91,7 @@ class _AnalysisIntroScreenState extends State<AnalysisIntroScreen> {
           DialogueBubble(
             text: _message,
             cyclePages: true,
-            highlightedWords: const ['분석', '바로가기', '구매 이력'],
+            highlightedWords: const ['분석', '바로가기'],
             minHeight: 172,
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.lg,
@@ -146,9 +132,9 @@ class _AnalysisIntroScreenState extends State<AnalysisIntroScreen> {
             fullWidth: true,
             variant: EndConversationButtonVariant.dark,
             label: _isNavigating
-                ? '구매이력으로 이동 중...'
+                ? '홈으로 이동 중...'
                 : (_isSpeaking ? '딸랑구가 말하고 있어요' : '대화 종료'),
-            onPressed: _continueToPurchaseHistory,
+            onPressed: _continueToNextScreen,
           ),
         ],
       ),

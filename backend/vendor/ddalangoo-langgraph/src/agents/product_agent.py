@@ -258,7 +258,7 @@ def _filter_results(
     for p in products:
         if p.get("is_sold_out"):
             continue
-        if not p.get("product_url"):
+        if not _has_executable_product_identity(p):
             continue
         if p.get("price") is None:
             continue
@@ -270,6 +270,25 @@ def _filter_results(
             continue
         filtered.append(p)
     return filtered
+
+
+def _has_executable_product_identity(product: dict[str, Any]) -> bool:
+    """
+    웹 URL이 있는 후보는 그대로 실행 가능하다.
+    Accessibility 기반 앱 검색 후보는 URL을 못 얻을 수 있으므로,
+    플랫폼과 상품명이 있으면 나중에 앱에서 다시 검색해 실행 가능한 후보로 본다.
+    """
+    if product.get("product_url"):
+        return True
+
+    platform = str(product.get("platform") or "").lower()
+    product_name = str(product.get("product_name") or product.get("name") or "").strip()
+    if not product_name:
+        return False
+
+    if product.get("execution_strategy") == "platform_search":
+        return True
+    return bool(product.get("app_search_candidate") and platform in {"kurly", "coupang"})
 
 
 def _baseline_rank(candidates: list[dict[str, Any]], keywords: list[str]) -> list[dict[str, Any]]:

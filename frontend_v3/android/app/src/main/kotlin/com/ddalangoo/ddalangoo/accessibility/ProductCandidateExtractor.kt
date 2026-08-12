@@ -263,6 +263,28 @@ object ProductCandidateJsonSerializer {
         }
     }
 
+    fun toPlatformSearchProductJsonArray(
+        platform: String,
+        candidates: List<ProductCandidate>
+    ): JSONArray {
+        return JSONArray().also { jsonCandidates ->
+            toPlatformSearchProductMapList(platform, candidates).forEach { product ->
+                jsonCandidates.put(JSONObject(product))
+            }
+        }
+    }
+
+    fun toPlatformSearchProductMapList(
+        platform: String,
+        candidates: List<ProductCandidate>
+    ): List<Map<String, Any?>> {
+        return candidates.mapNotNull { candidate ->
+            val productName = candidate.productName?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val price = candidate.price ?: return@mapNotNull null
+            candidate.toPlatformSearchProductMap(platform, productName, price)
+        }
+    }
+
     private fun ProductCandidate.toJsonObject(): JSONObject {
         return JSONObject()
             .put("productName", productName.orEmpty())
@@ -285,5 +307,43 @@ object ProductCandidateJsonSerializer {
                         .put("bottom", rect.bottom)
                 } ?: JSONObject.NULL
             )
+    }
+
+    private fun ProductCandidate.toPlatformSearchProductMap(
+        platform: String,
+        productName: String,
+        price: Int
+    ): Map<String, Any?> {
+        return mapOf(
+            "platform" to platform,
+            "name" to productName,
+            "price" to price,
+            "price_formatted" to "%,d원".format(price),
+            "delivery_info" to defaultDeliveryInfo(platform),
+            "url" to "",
+            "image_url" to "",
+            "shop_name" to defaultShopName(platform),
+            "execution_strategy" to "platform_search",
+            "app_search_candidate" to true,
+            "confidence" to confidence,
+            "reasonCode" to reasonCode,
+            "raw" to toJsonObject().toString()
+        )
+    }
+
+    private fun defaultDeliveryInfo(platform: String): String {
+        return when (platform.lowercase()) {
+            AutomationContract.Platform.KURLY -> "샛별배송"
+            AutomationContract.Platform.COUPANG -> "로켓배송"
+            else -> "일반배송"
+        }
+    }
+
+    private fun defaultShopName(platform: String): String {
+        return when (platform.lowercase()) {
+            AutomationContract.Platform.KURLY -> "마켓컬리"
+            AutomationContract.Platform.COUPANG -> "쿠팡"
+            else -> platform
+        }
     }
 }
