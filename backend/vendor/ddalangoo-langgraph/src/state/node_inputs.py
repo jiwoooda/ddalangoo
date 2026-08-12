@@ -91,6 +91,11 @@ class SmalltalkAgentInput(TypedDict):
     user_id: str
     messages: list
     onboarding_started_at: Optional[str]
+    recent_patterns_used: list[str]
+    recent_episodes_used: list[str]
+    name_greeting_pending: bool
+    consecutive_question_turns: int
+    already_asked_topics: list[str]
 
 
 class PaymentAgentInput(TypedDict):
@@ -230,6 +235,11 @@ class SmalltalkAgentUpdate(TypedDict, total=False):
     failure_stage: Optional[str]
     degradation_reason: Optional[str]
     onboarding_started_at: Optional[str]
+    recent_patterns_used: list[str]
+    recent_episodes_used: list[str]
+    name_greeting_pending: bool
+    consecutive_question_turns: int
+    already_asked_topics: list[str]
 
 
 class PaymentAgentUpdate(TypedDict, total=False):
