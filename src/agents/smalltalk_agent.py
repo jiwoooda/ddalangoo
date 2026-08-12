@@ -661,7 +661,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             profile_field_guide=SMALLTALK_PROFILE_FIELD_GUIDE,
             order_handoff_rule=SMALLTALK_ORDER_HANDOFF_RULE,
             safety_field_note=SMALLTALK_SAFETY_FIELD_NOTE,
-            user_input=user_input or "(아직 사용자 발화 전 — 딸랑구가 먼저 인사를 시작할 차례)",
+            user_input=user_input or "없음",
         )
         past_cap = False
     else:

@@ -4,11 +4,6 @@ from src.state.node_inputs import RespondNodeInput, CancelNodeInput
 from src.utils.agent_logger import agent_logger
 
 
-def session_start_node(state: ShoppingState) -> dict:
-    """새 그래프 세션의 최초 진입점. 실제 분기는 route_session_start가 맡는다."""
-    return {}
-
-
 def wait_for_input_node(state: ShoppingState) -> dict:
     """
     사용자 입력 대기 노드.
