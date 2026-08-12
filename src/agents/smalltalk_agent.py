@@ -36,6 +36,7 @@ select_style_pattern이 SMALLTALK_STYLE_PATTERNS 중 최근 2~3턴에 안 쓴
 """
 import random
 import re
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -61,6 +62,7 @@ from src.prompts.smalltalk_prompt import (
     SMALLTALK_SAFETY_FIELD_NOTE,
     SMALLTALK_STYLE_PATTERNS,
     SMALLTALK_TOPIC_GUIDE,
+    SMALLTALK_TOPIC_PIVOT_HINT,
 )
 from src.tools import db_client
 from src.utils.agent_logger import agent_logger
@@ -322,10 +324,18 @@ def _strip_trailing_question(reply: str) -> str:
     return " ".join(sentences)
 
 
-def select_style_pattern(recent_patterns_used: list[str]) -> tuple[str, str]:
+def select_style_pattern(
+    recent_patterns_used: list[str], is_thin_reply: bool = False
+) -> tuple[str, str]:
     """같은 화법이 연속으로 반복되지 않도록, 최근 2~3턴에 안 쓴 패턴 중에서
     무작위로 하나 고른다. 전부 최근에 썼으면(4개뿐이라 3턴 안에 다 소진될
     수 있음) 전체 풀에서 다시 고른다."""
+    if is_thin_reply:
+        preferred = [k for k in ("guess", "balance") if k not in recent_patterns_used]
+        if preferred:
+            chosen_key = random.choice(preferred)
+            return chosen_key, SMALLTALK_STYLE_PATTERNS[chosen_key]
+
     available = [k for k in SMALLTALK_STYLE_PATTERNS if k not in recent_patterns_used]
     if not available:
         available = list(SMALLTALK_STYLE_PATTERNS.keys())
@@ -341,6 +351,46 @@ def select_episode(recent_episodes_used: list[str]) -> tuple[str, str]:
         available = list(SMALLTALK_EPISODE_BANK.keys())
     chosen_key = random.choice(available)
     return chosen_key, SMALLTALK_EPISODE_BANK[chosen_key]
+
+
+def is_thin_reply(user_input: str, newly_extracted_fields: dict) -> bool:
+    """코드로 판별 가능한 짧은 맞장구인지 확인한다."""
+    return len(user_input.strip()) <= 6 and not newly_extracted_fields
+
+
+def _next_name_greeting_pending(
+    *,
+    was_pending: bool,
+    greeting_consumed: bool,
+    extracted_name: Optional[str],
+    previous_name: Optional[str],
+) -> bool:
+    """이름 인지 힌트는 실제 사용된 다음 반드시 끄는 일회성 상태다.
+
+    질문 억제 등 더 높은 우선순위 때문에 힌트를 쓰지 못했다면 유지하고,
+    평소에는 이번 턴에 이름이 처음 생겼거나 실제로 바뀐 경우에만 켠다.
+    LLM이 대화 이력의 기존 이름을 반복 추출하는 것은 새 이름으로 보지 않는다.
+    """
+    if greeting_consumed:
+        return False
+    if was_pending:
+        return True
+    if not extracted_name:
+        return False
+    return extracted_name.strip() != (previous_name or "").strip()
+
+
+def check_episode_verbatim_copy(
+    reply: str, episode_text: str, threshold: float = 0.6
+) -> bool:
+    """에피소드 원문의 과도한 재사용(연속 10자 또는 높은 유사도)을 찾는다."""
+    normalized_reply = re.sub(r"\s+", " ", reply).strip()
+    normalized_episode = re.sub(r"\s+", " ", episode_text).strip()
+    if not normalized_reply or not normalized_episode:
+        return False
+    matcher = SequenceMatcher(None, normalized_reply, normalized_episode)
+    longest_match = max((block.size for block in matcher.get_matching_blocks()), default=0)
+    return longest_match >= 10 or matcher.ratio() > threshold
 
 
 def get_wrap_up_instruction(is_timeout: bool, is_field_complete: bool) -> str:
@@ -598,6 +648,8 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
     chosen_pattern_key: Optional[str] = None
     chosen_episode_key: Optional[str] = None
     enforce_no_question = False  # wrap-up/질문억제 턴에서만 True — B-5 후처리 게이트
+    name_greeting_consumed = False
+    previous_preferred_name: Optional[str] = None
 
     if is_first_greeting:
         onboarding_started_at = datetime.now(timezone.utc).isoformat()
@@ -609,7 +661,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             profile_field_guide=SMALLTALK_PROFILE_FIELD_GUIDE,
             order_handoff_rule=SMALLTALK_ORDER_HANDOFF_RULE,
             safety_field_note=SMALLTALK_SAFETY_FIELD_NOTE,
-            user_input=user_input or "없음",
+            user_input=user_input or "(아직 사용자 발화 전 — 딸랑구가 먼저 인사를 시작할 차례)",
         )
         past_cap = False
     else:
@@ -621,36 +673,54 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         agent_logger.log(f"[smalltalk_agent] 진입 | user_id={user_id} (온보딩 {user_turns}턴째, {elapsed_minutes:.1f}분 경과)")
         conversation_so_far = _format_conversation(messages[:-1]) or "(없음)"
         profile_before = db_client.get_profile(user_id) or {}
+        previous_preferred_name = profile_before.get("preferred_name")
         collected_so_far = format_smalltalk_profile(profile_before)
         wrap_up_instruction = get_wrap_up_instruction(
             is_timeout=past_cap,
             is_field_complete=_required_fields_filled(profile_before),
         )
         suppress_question = consecutive_question_turns >= _MAX_CONSECUTIVE_QUESTION_TURNS
+        thin_reply = is_thin_reply(user_input, {})
+        name_greeting_hint = (
+            SMALLTALK_NAME_GREETING_HINT.format(name=profile_before.get("preferred_name") or "어르신")
+            if name_greeting_pending
+            else ""
+        )
+
+        # 조건부 조각 우선순위: wrap-up/질문억제는 질문 생성 조각을 제거하고,
+        # 이름 인지 턴은 화법·에피소드·화제전환과 배타적이다. 얇은 답변 전환은
+        # 위 세 조건이 없을 때만 일반 화법/에피소드와 함께 활성화된다.
+        topic_pivot_hint = ""
+        episode_hint = ""
         if wrap_up_instruction:
             # 화법 예시가 질문으로 끝나는 few-shot이라, "이 지시가 우선합니다"
             # 같은 override 문구만으로는 실제로 안 이겨서(실측 확인됨) —
             # 마무리 턴엔 아예 화법 패턴을 안 보여줘서 경쟁 신호 자체를 없앤다.
             chosen_pattern_key = None
             style_pattern = "(이번 턴은 마무리 턴이라 화법 예시를 생략합니다 — 아래 마무리 지시를 그대로 따르세요.)"
+            name_greeting_hint = ""
         elif suppress_question:
             # 최근 연속으로 질문 턴이 이어졌을 때도 같은 원리로, 화법 예시를
             # 억제 문구로 완전히 교체한다(단순히 "질문하지 마세요"를 덧붙이는
             # 것만으론 few-shot을 못 이긴다는 게 wrap-up에서 이미 확인됨).
             chosen_pattern_key = None
             style_pattern = _QUESTION_SUPPRESSION_STYLE_OVERRIDE
+            name_greeting_hint = ""
             agent_logger.log(
                 f"[smalltalk_agent] 질문 연속 {consecutive_question_turns}턴 — 이번 턴 질문 강제 생략"
             )
+        elif name_greeting_hint:
+            chosen_pattern_key = None
+            style_pattern = ""
+            name_greeting_consumed = True
         else:
-            chosen_pattern_key, style_pattern = select_style_pattern(recent_patterns_used)
+            chosen_pattern_key, style_pattern = select_style_pattern(
+                recent_patterns_used, is_thin_reply=thin_reply
+            )
+            chosen_episode_key, episode_hint = select_episode(recent_episodes_used)
+            if thin_reply:
+                topic_pivot_hint = SMALLTALK_TOPIC_PIVOT_HINT
         enforce_no_question = bool(wrap_up_instruction) or suppress_question
-        chosen_episode_key, episode_hint = select_episode(recent_episodes_used)
-        name_greeting_hint = (
-            SMALLTALK_NAME_GREETING_HINT.format(name=profile_before.get("preferred_name") or "어르신")
-            if name_greeting_pending
-            else ""
-        )
         # wrap-up이 이미 질문을 금지하므로, wrap-up 턴엔 중복으로 넣지 않는다.
         question_suppression_instruction = (
             _QUESTION_SUPPRESSION_INSTRUCTION if (suppress_question and not wrap_up_instruction) else ""
@@ -663,6 +733,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             safety_field_note=SMALLTALK_SAFETY_FIELD_NOTE,
             style_pattern=style_pattern,
             episode_hint=episode_hint,
+            topic_pivot_hint=topic_pivot_hint,
             name_greeting_hint=name_greeting_hint,
             already_asked_topics=", ".join(already_asked_topics_in) or "(없음)",
             collected_so_far=collected_so_far,
@@ -696,6 +767,15 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
                 f"before={result.reply!r} after={stripped_reply!r}"
             )
             result.reply = stripped_reply
+
+    if chosen_episode_key and check_episode_verbatim_copy(
+        result.reply, SMALLTALK_EPISODE_BANK[chosen_episode_key]
+    ):
+        # 음성 응답 레이턴시 때문에 재생성하지 않고 관측 가능한 경고로 남긴다.
+        agent_logger.log(
+            "[smalltalk_agent] episode_hint 원문 과다 재사용 감지 | "
+            f"episode={chosen_episode_key} reply={result.reply!r}"
+        )
 
     # B-1: 안전 필드 교차검증 — food_dislikes에 의학적 키워드가 섞여 있으면
     # new_diet_restrictions로 재분류(LLM 판단만 믿지 않음).
@@ -775,7 +855,12 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         # "방금 이름을 막 알게 됐는지"를 LLM의 대화 이력 추론에 맡기지 않고,
         # 이번 턴에 preferred_name이 실제로 채워졌는지로 결정적으로 판단한다
         # (모듈 docstring 참고) — 다음 턴 CHAT_PROMPT에 안부 힌트를 주입할지를 정한다.
-        new_name_greeting_pending = bool(result.preferred_name)
+        new_name_greeting_pending = _next_name_greeting_pending(
+            was_pending=name_greeting_pending,
+            greeting_consumed=name_greeting_consumed,
+            extracted_name=result.preferred_name,
+            previous_name=previous_preferred_name,
+        )
         # B-3: 이번 턴 reply가 새로 물은 화제를 추가하고, merged_profile에서
         # 이미 채워진 화제는 뺀다.
         new_already_asked_topics = _update_already_asked_topics(
