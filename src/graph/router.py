@@ -1,5 +1,11 @@
 from datetime import datetime, timezone
 from typing import Callable, Literal
+
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
+
+from configs.llm_config import get_llm
 from src.agents.intent_agent import _BUY_TRIGGERS, _REORDER_SIGNALS
 from src.state.schema import ShoppingState
 from src.utils.agent_logger import agent_logger, _ptype
@@ -142,11 +148,63 @@ def _extract_last_user_text(state: ShoppingState) -> str:
     return ""
 
 
-def _looks_like_order_request(text: str) -> bool:
-    """route_entry 전용 순수 키워드 휴리스틱(LLM 판단 아님) — intent_agent가
-    사후 교정에 쓰는 트리거 세트(_BUY_TRIGGERS/_REORDER_SIGNALS)를 그대로
-    재사용해서, 이 발화가 주문 요청처럼 보이는지만 값싸게 체크한다."""
+def _looks_like_order_request_fallback(text: str) -> bool:
+    """_classify_order_request의 LLM 호출이 실패했을 때만 쓰는 최후 폴백.
+    intent_agent가 사후 교정에 쓰는 트리거 세트(_BUY_TRIGGERS/_REORDER_SIGNALS)를
+    재사용한 순수 키워드 매칭 — "계란 있어?"처럼 트리거 단어가 없는 명확한
+    요청은 못 잡지만, LLM 호출 자체가 죽었을 때 아예 판단을 못 하는 것보다는 낫다."""
     return any(t in text for t in _BUY_TRIGGERS) or any(t in text for t in _REORDER_SIGNALS)
+
+
+class _OrderRequestCheck(BaseModel):
+    is_order_request: bool = Field(
+        description="이 발화가 상품 구매/조회 등 명확한 쇼핑 요청이면 true, "
+        "인사·잡담·일상 대화면 false. 애매하면 false."
+    )
+
+
+_ORDER_GATE_PROMPT = """\
+아래 사용자 발화 하나만 보고 판단하세요: 이게 상품 구매/조회 등 쇼핑 관련
+명확한 요청인가요, 아니면 인사/잡담/일상 대화인가요?
+
+명확한 요청의 예: "우유 사줘", "계란 있어?", "딸기 얼마예요?", "저번에 산 거
+다시 주문해줘", "사과 좀 찾아줘"
+잡담의 예: "안녕하세요", "요즘 소화가 잘 안돼요", "혼자 살아요", "몰라", "ㅇㅇ"
+
+애매하면 잡담(false)으로 판단하세요 — 확신 없이 요청으로 잘못 판단하면
+온보딩 대화가 너무 빨리 끊깁니다.
+
+발화: {text}
+"""
+
+_order_gate_llm: BaseChatModel | None = None
+
+
+def _get_order_gate_llm() -> BaseChatModel:
+    global _order_gate_llm
+    if _order_gate_llm is None:
+        # "context" 모델 슬롯 재사용 — smalltalk_agent와 동일한 저비용 모델
+        # 티어라, route_entry 전용 새 환경변수를 따로 안 늘려도 된다.
+        _order_gate_llm = get_llm("context", temperature=0, max_tokens=20, retry_owner="application")
+    return _order_gate_llm
+
+
+def _classify_order_request(text: str) -> bool:
+    """route_entry 전용 경량 이진 분류 — intent_agent의 14-way 분류/슬롯
+    추출과는 완전히 분리된, 훨씬 단순하고 값싼 별도 LLM 호출이다("intent가
+    관여 안 함" 원칙은 그대로 유지). LLM 호출이 실패하면 키워드 휴리스틱으로
+    폴백한다."""
+    if not text:
+        return False
+    try:
+        structured = _get_order_gate_llm().with_structured_output(_OrderRequestCheck, method="json_schema")
+        result = structured.invoke([HumanMessage(content=_ORDER_GATE_PROMPT.format(text=text))])
+        if not isinstance(result, _OrderRequestCheck):
+            raise ValueError("structured output 파싱 실패")
+        return result.is_order_request
+    except Exception as e:
+        agent_logger.log(f"[route_entry] 주문요청 판단 LLM 실패, 키워드 폴백: {e}")
+        return _looks_like_order_request_fallback(text)
 
 
 def route_entry(state: ShoppingState) -> Literal["smalltalk_agent", "intent_agent"]:
@@ -161,15 +219,22 @@ def route_entry(state: ShoppingState) -> Literal["smalltalk_agent", "intent_agen
     - 구매이력 존재: onboarded_at 플래그가 생기기 전부터 이미 구매 이력이 있던
       기존 유저를 신규유저로 오판하지 않기 위한 하위호환 신호.
 
-    예외: 위 조건상 아직 온보딩 중이라도, 이번 발화가 _looks_like_order_request로
-    명확한 주문 요청이면 smalltalk을 건너뛰고 바로 intent_agent로 보낸다.
-    smalltalk_agent를 거치면 확인 질문만 하고 onboarding_complete=true로
-    끝내는데, 이때 실제 요청 키워드("된장찌개 재료" 등)는 어디에도 안 남아서
-    다음 턴엔 "네" 같은 짧은 답만 남고 원래 요청이 사라지는 문제가 실측
-    테스트로 확인됐다 — 그래서 이 경우엔 아예 그 턴에 intent_agent가 원문
-    그대로 받아 처리하게 한다. 이미 쇼핑 의사를 명확히 보였으므로 온보딩도
-    여기서 끝난 걸로 보고 onboarded_at을 남긴다(안 그러면 다음 idle 턴에
-    다시 온보딩 게이트에 걸린다).
+    예외: 위 조건상 아직 온보딩 중이라도, 이번 발화가 _classify_order_request로
+    명확한 쇼핑 요청("우유 사줘"뿐 아니라 "계란 있어?" 같은 질문형도 포함)이라고
+    판단되면 smalltalk을 건너뛰고 바로 intent_agent로 보낸다. smalltalk_agent를
+    거치면 확인 질문만 하고 onboarding_complete=true로 끝내는데, 이때 실제
+    요청 키워드("된장찌개 재료" 등)는 어디에도 안 남아서 다음 턴엔 "네" 같은
+    짧은 답만 남고 원래 요청이 사라지는 문제가 실측 테스트로 확인됐다 —
+    그래서 이 경우엔 아예 그 턴에 intent_agent가 원문 그대로 받아 처리하게
+    한다. 이미 쇼핑 의사를 명확히 보였으므로 온보딩도 여기서 끝난 걸로 보고
+    onboarded_at을 남긴다(안 그러면 다음 idle 턴에 다시 온보딩 게이트에 걸린다).
+
+    이 판단은 키워드 매칭이 아니라 경량 LLM 분류다(_classify_order_request) —
+    "우유 사줘"류 트리거 단어가 없는 "계란 있어?", "딸기 얼마예요?" 같은
+    질문형 요청도 잡아야 해서, 순수 키워드 매칭만으로는 재현율이 부족했다.
+    다만 intent_agent의 14-way 분류/슬롯 추출과는 완전히 별개의, 훨씬 단순한
+    이진 분류 호출이라 "intent가 온보딩에 관여하지 않는다"는 원칙은 그대로
+    유지된다.
     """
     if state.get("stage", "idle") != "idle":
         return "intent_agent"
@@ -183,7 +248,7 @@ def route_entry(state: ShoppingState) -> Literal["smalltalk_agent", "intent_agen
     if already_onboarded or has_purchase_history:
         return "intent_agent"
 
-    if _looks_like_order_request(_extract_last_user_text(state)):
+    if _classify_order_request(_extract_last_user_text(state)):
         merged = dict(profile or {})
         merged["onboarded_at"] = datetime.now(timezone.utc).isoformat()
         db_client.save_profile(user_id, merged)

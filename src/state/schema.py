@@ -164,6 +164,37 @@ class ShoppingState(TypedDict):
     # 쓰이지 않는다.
     onboarding_started_at: Optional[str]
 
+    # ── 스몰토크 화법 패턴 로테이션 ── 최근 2~3턴에 쓴 SMALLTALK_STYLE_PATTERNS
+    # 키를 기록해서, 같은 화법이 연속으로 반복되지 않게 한다(select_style_pattern
+    # 참고). 온보딩이 끝나면 더 이상 안 쓰인다.
+    recent_patterns_used: list[str]
+
+    # ── 스몰토크 에피소드 소재 로테이션 ── 최근 2~3턴에 쓴
+    # SMALLTALK_EPISODE_BANK 키를 기록해서, 같은 자기고백 소재가 연속으로
+    # 반복되지 않게 한다(select_episode 참고). recent_patterns_used와 동일한
+    # 원리, 별도 풀이라 별도 필드로 추적한다.
+    recent_episodes_used: list[str]
+
+    # ── 스몰토크: 이름 직후 안부 힌트 ── 직전 턴에 preferred_name이 새로
+    # 채워졌는지를 코드가 감지해서 다음 턴에만 True로 세팅한다. "방금 이름을
+    # 알게 됐는지"를 LLM이 대화 이력을 훑어 추론하게 두면 대화가 길어질수록
+    # 오판 가능성이 커지므로, 결정적으로 판단해서 SMALLTALK_NAME_GREETING_HINT
+    # 주입 여부를 코드가 정한다. 힌트를 소비한 다음 턴엔 다시 False로 리셋.
+    name_greeting_pending: bool
+
+    # ── 스몰토크: 질문 연속 턴 카운터 ── reply에 물음표가 있었던 턴이 연속
+    # 몇 번째인지 기록한다. 임계치(_MAX_CONSECUTIVE_QUESTION_TURNS)에 닿으면
+    # 다음 턴엔 질문 없이 리액션만 하도록 프롬프트로 강제한다 — "질문 없는
+    # 턴도 괜찮다"는 권장 문구만으로는 실측에서 매번 무시됐기 때문.
+    consecutive_question_turns: int
+
+    # ── 스몰토크: 이미 물었지만 아직 답을 못 들은 화제 ── 매 턴 LLM에게
+    # 대화 전체를 다시 훑어서 중복 질문인지 판단하게 하는 대신, reply에
+    # 어떤 화제 키워드가 있었는지 코드로 감지해서 여기 누적한다(해당
+    # profile 필드가 채워지면 자동으로 빠진다). 토큰 절감 + 대화가 길어질
+    # 때의 판단 정확도 개선이 목적.
+    already_asked_topics: list[str]
+
 # ══════════════════════════════════════════════
 # 2. MemoryState
 # ══════════════════════════════════════════════
@@ -241,4 +272,9 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "checkout_session": None,
         "payment_idempotency_key": None,
         "onboarding_started_at": None,
+        "recent_patterns_used": [],
+        "recent_episodes_used": [],
+        "name_greeting_pending": False,
+        "consecutive_question_turns": 0,
+        "already_asked_topics": [],
     }
