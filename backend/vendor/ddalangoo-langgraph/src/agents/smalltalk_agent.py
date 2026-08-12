@@ -11,10 +11,12 @@ Smalltalk Agent Node.
 결과로 따라오는 부산물이다(SMALLTALK_PERSONA) — 그래서 LLM이 스스로 반환한
 onboarding_complete를 무조건 신뢰하지 않고, check_completion_gate로 이중
 검증한다: REQUIRED_FIELDS(food_dislikes/delivery_priority/household_size/
-value_priority)가 다 채워졌을 때만 LLM의 종료 판단을 그대로 받아들이고,
-아니면 false로 override해서 대화를 한 턴 더 이어간다. 예외 둘 — 타임아웃
-(무한루프 방지)과 주문 핸드오프(사용자가 명확한 구매 요청을 했을 때, 정보
-수집보다 요청 처리가 우선)는 필드 미충족이어도 즉시 종료를 허용한다.
+value_priority) 4개 중 _REQUIRED_FIELD_MIN_FILLED(3)개 이상 채워졌을 때만
+LLM의 종료 판단을 그대로 받아들이고, 아니면 false로 override해서 대화를
+한 턴 더 이어간다(4개를 다 요구했더니 애매한 발화 하나 때문에 자연 완료가
+거의 안 열리는 문제가 실측으로 확인돼서 완화함). 예외 둘 — 타임아웃(무한루프
+방지)과 주문 핸드오프(사용자가 명확한 구매 요청을 했을 때, 정보 수집보다
+요청 처리가 우선)는 필드 미충족이어도 즉시 종료를 허용한다.
 
 대화가 너무 길어지는 걸 막는 안전장치로 온보딩 시작 시각
 (state.onboarding_started_at, 1턴째에 기록)부터 _MAX_ONBOARDING_MINUTES가
@@ -93,7 +95,7 @@ class SmalltalkOutput(BaseModel):
     )
 
 
-_MAX_ONBOARDING_MINUTES = 30
+_MAX_ONBOARDING_MINUTES = 20
 
 _WRAP_UP_INSTRUCTION_NATURAL = """\
 # ⚠️ 지금은 마무리 턴입니다 — 아래 규칙이 다른 모든 지시보다 우선합니다
@@ -131,6 +133,20 @@ reply는 아래 틀을 그대로 참고해서, 지금까지 나온 이야기에 
 뚝 끊지 말고 이 흐름 그대로 자연스럽게 마무리하세요.
 """
 
+# 마무리 트리거가 된 발화가 "네"/"맞아요" 같은 짧은 맞장구일 때(is_thin_reply)
+# 추가되는 조각 — 위 두 템플릿 모두 "방금 나온 이야기"를 반영하라고 하는데,
+# 맞장구 자체엔 반영할 내용이 없어서 모델이 직전 봇 발화(질문)의 소재를
+# 억지로 다시 꺼내 "~궁금해요"처럼 물음표 없는 암묵적 질문을 던지고 바로
+# 마무리 문장을 붙이는 부자연스러운 패턴이 실측에서 나왔다(B-5는 리터럴
+# "?"만 잘라내므로 이 경우를 못 잡는다).
+_WRAP_UP_THIN_REPLY_ADDENDUM = """
+규칙 4. 방금 사용자 발화는 "네", "맞아요" 같은 짧은 맞장구라 새로 나온
+이야기가 없습니다. 이걸 억지로 반영하려 하지 말고, 지금까지의 대화 전체
+에서 인상 깊었던 것 한두 가지를 골라 마무리 인사에 자연스럽게 녹이세요.
+"궁금해요", "~는지 궁금하네요"처럼 물음표 없이도 답을 기다리는 듯한
+표현은 물음표만큼 피하세요 — 끝까지 완전한 평서문으로 마무리하세요.
+"""
+
 # 최근 이만큼 연속으로 reply가 물음표로 끝났으면, 다음 턴은 질문을 강제로
 # 생략시킨다 — "질문 없는 턴도 괜찮다"는 권장 문구만으론 실측에서 매 턴
 # 질문이 반복됐다(8턴 전부 물음표로 끝남).
@@ -164,14 +180,23 @@ reply는 아래 틀을 그대로 참고해서, 지금까지 나온 이야기에 
 소재를 반영한 한 문장, 마지막은 평서문으로.)"
 """
 
-# 필수로 채워지길 기대하는 필드 — 이게 다 안 채워졌으면 LLM이
+# 필수로 채워지길 기대하는 필드 — 이 중 일정 비율 이상 안 채워졌으면 LLM이
 # onboarding_complete=true를 반환해도 check_completion_gate가 override한다
 # (타임아웃/주문 핸드오프는 예외).
 REQUIRED_FIELDS = {"food_dislikes", "delivery_priority", "household_size", "value_priority"}
 
+# 4개를 전부 다 채워야만 완료를 허용했더니, "자극적인 건 피하려고 해요" 같은
+# 애매한 발화가 health_notes로만 분류되고 food_dislikes엔 끝까지 안 들어가는
+# 케이스에서 자연 완료가 실측으로 거의 안 열렸다(항상 타임아웃까지 감) —
+# 그래서 80~90%만 채워져도 마무리하도록 완화했다. 4개뿐이라 정확히
+# 80~90%를 만들 수는 없어(3/4=75%, 4/4=100%), 가장 가까운 정수 임계치인
+# "4개 중 3개 이상"을 채택했다.
+_REQUIRED_FIELD_MIN_FILLED = 3
+
 
 def _required_fields_filled(profile: dict) -> bool:
-    return all(profile.get(f) not in (None, [], "") for f in REQUIRED_FIELDS)
+    filled = sum(1 for f in REQUIRED_FIELDS if profile.get(f) not in (None, [], ""))
+    return filled >= _REQUIRED_FIELD_MIN_FILLED
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -254,6 +279,13 @@ _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
     "장보는 곳": ("어디서 사", "어디서 장", "장 보실 때", "어디서 주문"),
     "불편했던 점": ("불편했", "힘드셨", "불편한 점", "불편하신"),
     "건강": ("건강은", "몸은 어떠", "지병", "소화는", "어디 신경"),
+    # "오늘 식사는 하셨어요?" 류는 SMALLTALK_NAME_GREETING_HINT의 예시
+    # 안부 질문이자 화법 여러 개가 공통으로 즐겨 쓰는 필러 질문이라, 위
+    # 5개 화제 어디에도 안 걸려서 같은 질문이 여러 턴에 반복되는 게
+    # 실측으로 확인됐다 — profile 필드가 없는 잡담용 질문이라
+    # _TOPIC_ANSWERED_FIELD에도 None으로 등록해, 한 번 물으면 온보딩
+    # 내내 다시 안 묻게 한다(필드 충족으로 자동 해제되는 다른 화제와 다름).
+    "식사여부": ("식사는 하셨", "식사하셨", "밥은 드셨", "밥 드셨"),
 }
 _TOPIC_ANSWERED_FIELD = {
     "이름": "preferred_name",
@@ -261,6 +293,7 @@ _TOPIC_ANSWERED_FIELD = {
     "장보는 곳": "usual_order_platform",
     "불편했던 점": "inconveniences",
     "건강": "health_notes",
+    "식사여부": None,
 }
 
 
@@ -272,13 +305,23 @@ def _field_filled(merged: dict, field: str) -> bool:
     return merged.get(field) not in (None, [], "")
 
 
+def _topic_still_pending(topic: str, merged_profile: dict) -> bool:
+    field = _TOPIC_ANSWERED_FIELD[topic]
+    if field is None:
+        # 연결된 profile 필드가 없는 화제(예: "식사여부")는 필드 충족으로
+        # 자동 해제되지 않는다 — 한 번 물으면 온보딩이 끝날 때까지 계속
+        # "이미 물음" 상태로 남는다.
+        return True
+    return not _field_filled(merged_profile, field)
+
+
 def _update_already_asked_topics(
     pending: list[str], reply: str, reply_has_question: bool, merged_profile: dict
 ) -> list[str]:
     topics = set(pending)
     if reply_has_question:
         topics |= _detect_asked_topics(reply)
-    topics = {t for t in topics if not _field_filled(merged_profile, _TOPIC_ANSWERED_FIELD[t])}
+    topics = {t for t in topics if _topic_still_pending(t, merged_profile)}
     return sorted(topics)
 
 
@@ -302,26 +345,51 @@ def _filter_hallucinated_items(items: list[str], source_text: str) -> tuple[list
     return kept, dropped
 
 
-# B-5: 물음표 금지 후처리 안전판. wrap-up/질문억제 지시를 프롬프트에 넣어도
-# 모델이 확률적으로 안 따르는 사례가 실측에서 나왔다(생성 자체를 막을 수는
-# 없으므로) — 그래서 B-1/B-2/B-4와 같은 패턴으로, reply를 다 받은 뒤
-# 마지막 문장이 물음표로 끝나면 그 문장만 통째로 제거한다. 재생성(추가 LLM
-# 호출)은 음성 에이전트의 레이턴시 민감도 때문에 쓰지 않는다 — 결과를 자르는
-# 것만으로 충분하다. 남는 문장이 없으면(질문 하나뿐인 reply) 무손실을
-# 우선해 원본을 그대로 둔다.
-def _strip_trailing_question(reply: str) -> str:
+# B-5: 물음표 개수 제한 후처리 안전판. "물음표 최대 1개"(일반 턴)/"물음표
+# 금지"(wrap-up·질문억제 턴) 지시를 프롬프트에 넣어도 모델이 확률적으로
+# 안 따르는 사례가 실측에서 반복적으로 나왔다(예: 한 reply에 물음표가 2개
+# 들어가는 경우, 생성 자체를 프롬프트만으로 막을 수는 없음) — 그래서
+# B-1/B-2/B-4와 같은 패턴으로, reply를 다 받은 뒤 허용치를 넘는 물음표
+# 문장을 코드로 제거한다. 초과분은 등장 순서상 앞쪽부터 제거하고 마지막
+# 질문(들)을 남긴다 — 보통 마지막 질문이 진짜 이어가고 싶은 질문이고, 앞선
+# 것들은 리액션 도중 곁가지로 붙은 경우가 많기 때문. 재생성(추가 LLM 호출)은
+# 음성 에이전트의 레이턴시 민감도 때문에 쓰지 않는다. 문장이 하나만 남게
+# 되면 더 지우지 않는다(무손실 우선).
+#
+# "물음표"만 세면 안 된다 — "어제는 뭐 드셨는지 궁금해요"처럼 물음표 없이도
+# 사실상 질문인 문장이 실측에서 나왔다(reply 하나에 "궁금해요"형 암묵적
+# 질문 + 물음표 있는 명시적 질문이 같이 들어가 총 2개의 질문 의도가 생김).
+# 그래서 리터럴 "?" 외에 "궁금" 어간이 있는 문장도 질문으로 카운트한다.
+_IMPLICIT_QUESTION_MARKERS = ("궁금",)
+
+
+def _is_question_sentence(sentence: str) -> bool:
+    return "?" in sentence or "？" in sentence or any(m in sentence for m in _IMPLICIT_QUESTION_MARKERS)
+
+
+def _limit_questions(reply: str, max_questions: int) -> str:
     sentences = [s for s in re.split(r"(?<=[.!?？])\s+", reply.strip()) if s]
     if not sentences:
         return reply
-    original_count = len(sentences)
-    # 뒤에서부터 물음표 문장을 계속 떼어낸다(질문이 마지막에 연달아 여러
-    # 개일 수도 있으므로 1개만 떼면 부족할 수 있다) — 문장이 하나만 남으면
-    # 더 떼지 않는다(무손실 우선, 통째로 질문 하나뿐인 reply는 그대로 둔다).
-    while len(sentences) > 1 and ("?" in sentences[-1] or "？" in sentences[-1]):
-        sentences.pop()
-    if len(sentences) == original_count:
+    question_positions = [i for i, s in enumerate(sentences) if _is_question_sentence(s)]
+    if len(question_positions) <= max_questions:
         return reply
-    return " ".join(sentences)
+    drop: set[int] = set()
+    remaining_questions = list(question_positions)
+    for idx in question_positions:
+        if len(remaining_questions) <= max_questions:
+            break
+        if len(sentences) - len(drop) <= 1:
+            break
+        drop.add(idx)
+        remaining_questions.remove(idx)
+    if not drop:
+        return reply
+    return " ".join(s for i, s in enumerate(sentences) if i not in drop)
+
+
+def _strip_trailing_question(reply: str) -> str:
+    return _limit_questions(reply, max_questions=0)
 
 
 def select_style_pattern(
@@ -393,12 +461,14 @@ def check_episode_verbatim_copy(
     return longest_match >= 10 or matcher.ratio() > threshold
 
 
-def get_wrap_up_instruction(is_timeout: bool, is_field_complete: bool) -> str:
+def get_wrap_up_instruction(is_timeout: bool, is_field_complete: bool, is_thin_reply: bool = False) -> str:
     if is_timeout:
-        return _WRAP_UP_INSTRUCTION_TIMEOUT
-    if is_field_complete:
-        return _WRAP_UP_INSTRUCTION_NATURAL
-    return ""
+        base = _WRAP_UP_INSTRUCTION_TIMEOUT
+    elif is_field_complete:
+        base = _WRAP_UP_INSTRUCTION_NATURAL
+    else:
+        return ""
+    return base + _WRAP_UP_THIN_REPLY_ADDENDUM if is_thin_reply else base
 
 
 def check_completion_gate(
@@ -675,12 +745,13 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         profile_before = db_client.get_profile(user_id) or {}
         previous_preferred_name = profile_before.get("preferred_name")
         collected_so_far = format_smalltalk_profile(profile_before)
+        thin_reply = is_thin_reply(user_input, {})
         wrap_up_instruction = get_wrap_up_instruction(
             is_timeout=past_cap,
             is_field_complete=_required_fields_filled(profile_before),
+            is_thin_reply=thin_reply,
         )
         suppress_question = consecutive_question_turns >= _MAX_CONSECUTIVE_QUESTION_TURNS
-        thin_reply = is_thin_reply(user_input, {})
         name_greeting_hint = (
             SMALLTALK_NAME_GREETING_HINT.format(name=profile_before.get("preferred_name") or "어르신")
             if name_greeting_pending
@@ -757,16 +828,19 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             raise  # NODE_RETRY_POLICY가 노드 재실행, 소진되면 smalltalk_error_handler로 이동
         return _degraded_smalltalk_result(fc, e, is_first_greeting, onboarding_started_at)
 
-    # B-5: 물음표 금지 후처리 — wrap-up/질문억제 지시를 프롬프트로 줬는데도
-    # 모델이 확률적으로 안 따른 경우를 코드로 결정론적으로 막는다.
-    if enforce_no_question:
-        stripped_reply = _strip_trailing_question(result.reply)
-        if stripped_reply != result.reply:
-            agent_logger.log(
-                f"[smalltalk_agent] 마무리/질문억제 턴에서 후행 질문 문장 제거 | "
-                f"before={result.reply!r} after={stripped_reply!r}"
-            )
-            result.reply = stripped_reply
+    # B-5: 물음표 개수 제한 후처리 — "물음표 최대 1개"(일반/인사 턴) 또는
+    # "물음표 금지"(wrap-up/질문억제 턴) 지시를 프롬프트로 줬는데도 모델이
+    # 확률적으로 안 따른 경우(예: 한 reply에 물음표 2개)를 코드로 결정론적
+    # 으로 막는다. GREETING_PROMPT에도 같은 "최대 1개" 규칙이 있으므로
+    # 인사 턴 포함 모든 턴에 적용한다.
+    max_questions = 0 if enforce_no_question else 1
+    limited_reply = _limit_questions(result.reply, max_questions)
+    if limited_reply != result.reply:
+        agent_logger.log(
+            f"[smalltalk_agent] 물음표 초과({max_questions}개 제한)로 문장 제거 | "
+            f"before={result.reply!r} after={limited_reply!r}"
+        )
+        result.reply = limited_reply
 
     if chosen_episode_key and check_episode_verbatim_copy(
         result.reply, SMALLTALK_EPISODE_BANK[chosen_episode_key]
@@ -831,7 +905,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         onboarding_complete = True
 
     _save_profile_signals(user_id, result, merged_profile, changed, mark_onboarded=onboarding_complete)
-    reply_has_question = ("?" in result.reply) or ("？" in result.reply)
+    reply_has_question = _is_question_sentence(result.reply)
     agent_logger.log(
         f"[smalltalk_agent] 응답: {result.reply} "
         f"(onboarding_complete={onboarding_complete}, style_pattern={chosen_pattern_key}, "
