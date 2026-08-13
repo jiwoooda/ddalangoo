@@ -127,7 +127,10 @@ explicit_exclusion과 안전 관련 신호는 이 제한에 포함되지 않습�
 - health_notes: food_dislikes와 동일하게 취급 — 상품명/재료명에 나타날
   단순 키워드로 바꿀 수 있는 위험도 있는 건강 정보면(예: "당뇨라서 단 거
   조심해야 해" → "설탕") explicit_exclusion 우선 고려, 애매하면
-  soft_preference.
+  soft_preference. 위 [retrieval 판단 기준]을 만족하면(상품명에 통상
+  나타나는 구체어로 번역 가능) explicit_exclusion과 별개로 retrieval도
+  함께 뽑으세요 — "유당불내증" → retrieval("락토프리 우유")와 동일한
+  패턴으로, "당뇨라서 단 거 못 먹음" → retrieval("저당")도 같이 냅니다.
 - value_priority/delivery_priority/cooking_frequency/household_notes/
   favorite_foods/usual_order_platform/inconveniences/additional_signals:
   soft_preference 우선 고려 (배제 근거로 쓰기엔 확신이 없는 성향 정보 —

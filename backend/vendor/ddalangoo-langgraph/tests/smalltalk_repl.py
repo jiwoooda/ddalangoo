@@ -118,6 +118,11 @@ def main() -> None:
     )
     parser.add_argument("--user", default=None, help="mock 프로필 사용자 ID")
     parser.add_argument("--debug", action="store_true", help="매 턴 내부 상태 출력")
+    parser.add_argument(
+        "--temperature", type=float, default=None,
+        help="모든 에이전트 LLM 호출의 temperature를 강제 지정(예: 0으로 결정론적 재현). "
+        "생략하면 각 에이전트 기본값(스몰톡은 0.3) 그대로 사용.",
+    )
     args = parser.parse_args()
 
     # 프로젝트 .env의 CONTEXT_MODEL이 Claude로 설정돼 있어도 이 독립 REPL은
@@ -125,6 +130,10 @@ def main() -> None:
     os.environ["LLM_BACKEND"] = "api"
     os.environ["CONTEXT_MODEL"] = args.model
     os.environ["DB_MODE"] = "mock"
+    if args.temperature is not None:
+        # configs.llm_config.get_llm이 이 값이 세팅돼 있으면 에이전트별
+        # 하드코딩된 temperature를 전부 덮어쓴다(population eval 러너와 동일 메커니즘).
+        os.environ["LLM_TEMPERATURE_OVERRIDE"] = str(args.temperature)
 
     if args.model.startswith("gpt") and not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY가 설정되지 않았습니다. .env를 확인하세요.")
@@ -144,6 +153,7 @@ def main() -> None:
     print("  Smalltalk Agent REPL — 실제 LLM과 온보딩 대화")
     print(f"  model={args.model} | user={user_id} | DB=mock")
     print(f"  provider={'OpenAI' if args.model.startswith('gpt') else 'Anthropic'}")
+    print(f"  temperature={'기본값(에이전트별 상이)' if args.temperature is None else args.temperature}")
     print("  /status  /profile  /save  /reset  /quit")
     print("=" * 64)
 

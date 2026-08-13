@@ -61,7 +61,10 @@ recipe_dish: 재료를 구매하려는 요리명. 요리/음식 이름이 포함
   예: "딸기 사줘" → recipe_dish=null (직접 상품)
   예: "시판 된장찌개 사줘" → recipe_dish=null (완제품)
 recipe_people: 언급된 인원수. "4인 가족" → 4, "두 명" → 2, 없으면 null.
-keywords: 검색할 상품명, 카테고리, 브랜드
+keywords: 검색할 상품명, 카테고리, 브랜드. "저번에", "그거", "그것", "샀던 거"처럼
+  실제 상품명이 아닌 시간/지시 표현은 keywords에 절대 넣지 마세요 — 상품명이
+  전혀 없으면 keywords=[](빈 리스트)로 둡니다. 이 단어들을 keywords에 넣으면
+  재구매 모호 판정(needs_clarification 규칙 참고)이 깨집니다.
 exclude_keywords: 제외할 브랜드/플랫폼/상품명
 negative_constraints: 자연어 제외 조건
 quantity: 명시적으로 언급된 수량만 (없으면 반드시 null, 절대 1로 추측 금지)
@@ -84,6 +87,11 @@ needs_clarification=true:
 - "그거 다시 시켜줘", "지난번에 주문한 거 똑같이"처럼 재구매 의도는 명확하지만 상품명이 없으면 intent="reorder", needs_clarification=true로 둔다
 - idle 상태에서 조건만 있고 상품명 없는 경우
 - pending_action 없이 확인/거절만 말한 경우
+
+예: "저번에 샀던 거 사줘" → intent="reorder", keywords=[](빈 리스트 — "저번에"/
+"샀던"은 상품명이 아니므로 keywords에 넣지 않음), needs_clarification=true.
+keywords에 ["저번에", "샀던"]처럼 넣으면 안 됨 — 실제 상품명이 하나도 없는
+문장이므로 반드시 빈 리스트.
 
 # confidence 규칙
 0.0~1.0 사이 실수. 명확하면 0.9 이상, 모호하면 0.5~0.8, 불분명하면 0.3 이하

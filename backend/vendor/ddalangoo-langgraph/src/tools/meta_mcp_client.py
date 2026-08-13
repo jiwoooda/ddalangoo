@@ -540,7 +540,7 @@ def search_products(
         "query": query,
         "platforms": valid_platforms,
         "sort": SORT_MAP.get(condition, "price_low"),
-        "limit": 5,
+        "limit": 10,
     }
     if budget_max is not None:
         params["max_price"] = budget_max
