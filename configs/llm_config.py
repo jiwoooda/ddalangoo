@@ -31,11 +31,18 @@ def clear_eval_callbacks() -> None:
 
 _DEFAULT_MODELS: dict[str, dict[str, str]] = {
     "api": {
-        "intent":   "claude-haiku-4-5-20251001",
-        "product":  "claude-sonnet-4-6",
-        "response": "claude-sonnet-4-6",
-        "context":  "claude-haiku-4-5-20251001",
-        "recipe":   "claude-haiku-4-5-20251001",
+        # OpenAI를 기본으로 통일 — Anthropic 계정 크레딧이 자주 바닥나서
+        # (예: intent_agent가 "credit balance too low"로 실패) 별도
+        # *_MODEL 환경변수 지정 없이도 항상 OpenAI가 쓰이게 했다. gpt-4o는
+        # 예전 claude-sonnet(product/response) 자리를, gpt-4o-mini는
+        # claude-haiku(intent/context/recipe) 자리를 대신한다. Anthropic로
+        # 되돌리려면 해당 *_MODEL 환경변수에 claude-* 모델명을 지정하면 된다
+        # (아래 model.startswith("gpt") 분기 참고).
+        "intent":   "gpt-4o-mini",
+        "product":  "gpt-4o",
+        "response": "gpt-4o",
+        "context":  "gpt-4o-mini",
+        "recipe":   "gpt-4o-mini",
     },
     "ollama": {
         # A후보 기본값. B후보는 --model 옵션으로 오버라이드.
@@ -113,11 +120,11 @@ def get_llm(agent: str, *, retry_owner: str = "sdk", **kwargs) -> BaseChatModel:
             **kwargs,
         )
 
-    # 기본은 전부 Anthropic로 통일. 에이전트별 *_MODEL 환경변수에 gpt* 모델명을
-    # 지정하면 그 에이전트만 OpenAI로 전환된다 — 원래는 intent만 이 분기를 탔는데
-    # (gpt-4o-mini 할당량 없을 때 대비), Anthropic 계정에 크레딧이 없고 OpenAI
-    # 계정만 있는 경우 등 다른 에이전트도 같은 방식으로 전환할 수 있어야 해서
-    # agent 조건을 없앴다. 아무 *_MODEL도 gpt*로 안 바꾸면 기존 동작과 동일.
+    # 기본은 전부 OpenAI로 통일(_DEFAULT_MODELS["api"] 참고). 에이전트별
+    # *_MODEL 환경변수에 claude* 모델명을 지정하면 그 에이전트만 Anthropic로
+    # 전환된다 — model 문자열이 "gpt"로 시작하는지만 보고 분기하므로, 기본값
+    # 자체를 바꾸거나(위 딕셔너리) 환경변수로 개별 오버라이드하거나 둘 다
+    # 같은 방식으로 동작한다.
     if model.startswith("gpt"):
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(model=model, **kwargs)
