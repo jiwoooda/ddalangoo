@@ -4,9 +4,13 @@ UserPreference 캐시 레포지토리.
 운영에서는 user_preference_cache DB 테이블을 사용한다.
 이번 MVP에서는 app/mock_data/user_preferences.json fallback을 사용하지 않는다.
 """
+import logging
 import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 _GENERAL_TTL_HOURS = 24
@@ -253,6 +257,20 @@ def invalidate_all_preferences(user_id: int) -> None:
         _delete_cache_rows(user_id)
     except Exception:
         return
+
+
+def invalidate_purchase_derived_preferences(user_id: int) -> None:
+    """구매내역에서 계산한 캐시만 삭제하고 영구 profile은 보존한다."""
+    if not _can_try_database():
+        return
+    try:
+        _delete_cache_rows(user_id, preference_type="general")
+        _delete_cache_rows(user_id, preference_type="keyword")
+    except Exception:
+        logger.exception(
+            "Failed to invalidate purchase-derived preferences for user_id=%s", user_id
+        )
+        raise
 
 
 def invalidate_general_preference(user_id: int) -> None:

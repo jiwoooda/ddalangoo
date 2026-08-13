@@ -255,7 +255,7 @@ def test_build_preference_context_intent_overrides_exclusion(monkeypatch):
 
 # ── context_agent_node: state.keywords/exclude_keywords 병합 ──────────────
 
-def test_context_agent_node_merges_keywords_and_exclude(monkeypatch):
+def test_context_agent_node_keeps_context_retrieval_out_of_search_keywords(monkeypatch):
     fake_recommendation_context = {
         "purchase_count": 1,
         "retrieval_mode": "keyword_collective",
@@ -277,8 +277,31 @@ def test_context_agent_node_merges_keywords_and_exclude(monkeypatch):
 
     result = context_agent_node(state)
 
-    assert result["keywords"] == ["계란", "저당"]
+    assert result["keywords"] == ["계란"]
     assert set(result["exclude_keywords"]) == {"품절", "유정란", "우유"}
+
+
+def test_context_agent_does_not_mix_unrelated_profile_product_into_query(monkeypatch):
+    fake_recommendation_context = {
+        "purchase_count": 0,
+        "retrieval_mode": "keyword_collective",
+        "preference_context": {
+            "keyword_additions": ["락토프리 우유"],
+            "exclude_additions": [],
+            "safety_constraints": [],
+            "soft_preferences": [],
+        },
+    }
+    monkeypatch.setattr(
+        context_agent, "get_recommendation_context", lambda **kwargs: fake_recommendation_context
+    )
+    state = get_default_shopping_state("1", "sess")
+    state.update(intent="buy", keywords=["브라질산 커피 원두"], exclude_keywords=[])
+
+    result = context_agent_node(state)
+
+    assert result["keywords"] == ["브라질산 커피 원두"]
+    assert result["recommendation_context"]["preference_context"]["keyword_additions"] == ["락토프리 우유"]
 
 
 def test_context_agent_node_no_duplicate_on_repeat(monkeypatch):
