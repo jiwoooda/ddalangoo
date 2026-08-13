@@ -474,6 +474,9 @@ def _normalize(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "source_url": p.get("source_url"),
             "is_sold_out": False,
             "brand": p.get("brand"),
+            "external_product_id": p.get("external_product_id"),
+            "category_name": p.get("category_name"),
+            "impression_url": p.get("impression_url"),
             # 실제 영양성분 API 연동 전까지는 값 없음 — mock 모드처럼 채워넣지 않음
             # (mcp 모드에서 nutrition_info가 비어있으면 tier1 필터가 이 사실 자체를 반영해야 함)
             "nutrition_info": p.get("nutrition_info"),
