@@ -12,6 +12,8 @@ object AutomationTaskStore {
     private var recoveryCount = 0
     private var searchInputFocusRetryCount = 0
     private var searchSubmitRetryCount = 0
+    private var searchSubmitObservationDeadlineMs = 0L
+    private var forceKeyboardSearchTapForNextSubmit = false
     private var searchInputTextRetryCount = 0
     private var optionSelectNoEffectRetryCount = 0
     private var lastObservedOptionQuantity: Int? = null
@@ -35,6 +37,8 @@ object AutomationTaskStore {
         recoveryCount = 0
         searchInputFocusRetryCount = 0
         searchSubmitRetryCount = 0
+        searchSubmitObservationDeadlineMs = 0L
+        forceKeyboardSearchTapForNextSubmit = false
         searchInputTextRetryCount = 0
         optionSelectNoEffectRetryCount = 0
         lastObservedOptionQuantity = null
@@ -97,6 +101,8 @@ object AutomationTaskStore {
         recoveryCount = 0
         searchInputFocusRetryCount = 0
         searchSubmitRetryCount = 0
+        searchSubmitObservationDeadlineMs = 0L
+        forceKeyboardSearchTapForNextSubmit = false
         searchInputTextRetryCount = 0
         optionSelectNoEffectRetryCount = 0
         lastObservedOptionQuantity = null
@@ -185,6 +191,8 @@ object AutomationTaskStore {
         recoveryCount = 0
         searchInputFocusRetryCount = 0
         searchSubmitRetryCount = 0
+        searchSubmitObservationDeadlineMs = 0L
+        forceKeyboardSearchTapForNextSubmit = false
         searchInputTextRetryCount = 0
         optionSelectNoEffectRetryCount = 0
         lastObservedOptionQuantity = null
@@ -344,6 +352,11 @@ object AutomationTaskStore {
         }
         if (nextStep == AutomationContract.Step.OPEN_SEARCH || nextStep == AutomationContract.Step.SEARCH_INPUT) {
             searchSubmitRetryCount = 0
+            searchSubmitObservationDeadlineMs = 0L
+            forceKeyboardSearchTapForNextSubmit = false
+        }
+        if (nextStep != AutomationContract.Step.SEARCH_SUBMIT) {
+            searchSubmitObservationDeadlineMs = 0L
         }
         if (nextStep == AutomationContract.Step.OPEN_SEARCH) {
             searchInputTextRetryCount = 0
@@ -622,6 +635,11 @@ object AutomationTaskStore {
         }
         if (nextStep == AutomationContract.Step.OPEN_SEARCH || nextStep == AutomationContract.Step.SEARCH_INPUT) {
             searchSubmitRetryCount = 0
+            searchSubmitObservationDeadlineMs = 0L
+            forceKeyboardSearchTapForNextSubmit = false
+        }
+        if (nextStep != AutomationContract.Step.SEARCH_SUBMIT) {
+            searchSubmitObservationDeadlineMs = 0L
         }
         if (nextStep == AutomationContract.Step.OPEN_SEARCH) {
             searchInputTextRetryCount = 0
@@ -936,6 +954,65 @@ object AutomationTaskStore {
         }
         searchSubmitRetryCount += 1
         AutomationLogger.info("search_submit_retry reserved count=$searchSubmitRetryCount")
+        return true
+    }
+
+    @Synchronized
+    fun markSearchSubmitActionAccepted(actionMethod: String) {
+        searchSubmitObservationDeadlineMs = System.currentTimeMillis() + 1400L
+        runtimeStatus = runtimeStatus.copy(
+            lastMessage = "Search submit action accepted by Android; waiting for platform search results",
+            expectedState = "platform-specific search results screen",
+            observedState = "submit action accepted method=$actionMethod"
+        )
+        AutomationLogger.info(
+            "search_submit_observation_wait started method=$actionMethod " +
+                "deadlineMs=$searchSubmitObservationDeadlineMs"
+        )
+    }
+
+    @Synchronized
+    fun isWaitingForSearchSubmitObservation(): Boolean {
+        return searchSubmitObservationDeadlineMs > 0L
+    }
+
+    @Synchronized
+    fun isSearchSubmitObservationSettling(): Boolean {
+        return searchSubmitObservationDeadlineMs > 0L &&
+            System.currentTimeMillis() < searchSubmitObservationDeadlineMs
+    }
+
+    @Synchronized
+    fun clearSearchSubmitObservation(reason: String) {
+        if (searchSubmitObservationDeadlineMs > 0L) {
+            AutomationLogger.info("search_submit_observation_cleared reason=$reason")
+        }
+        searchSubmitObservationDeadlineMs = 0L
+    }
+
+    @Synchronized
+    fun switchToNextSearchSubmitStrategy(reason: String): Boolean {
+        searchSubmitObservationDeadlineMs = 0L
+        if (!tryReserveSearchSubmitRetry()) {
+            return false
+        }
+        forceKeyboardSearchTapForNextSubmit = true
+        runtimeStatus = runtimeStatus.copy(
+            lastMessage = "Search submit accepted but did not change screen; switching strategy",
+            expectedState = "platform-specific search results screen",
+            observedState = reason
+        )
+        AutomationLogger.info(
+            "search_submit_strategy_switch next=keyboard_search_tap reason=$reason"
+        )
+        return true
+    }
+
+    @Synchronized
+    fun consumeForceKeyboardSearchTapForNextSubmit(): Boolean {
+        if (!forceKeyboardSearchTapForNextSubmit) return false
+        forceKeyboardSearchTapForNextSubmit = false
+        AutomationLogger.info("search_submit_strategy using=keyboard_search_tap")
         return true
     }
 

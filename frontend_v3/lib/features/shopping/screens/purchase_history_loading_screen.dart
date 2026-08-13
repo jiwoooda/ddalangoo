@@ -688,7 +688,7 @@ class _PurchaseHistoryLoadingScreenState
                             fit: BoxFit.contain,
                           ),
                           const SizedBox(height: AppSpacing.sm),
-                          _PurchaseHistoryProgressBanner(
+                          PurchaseHistoryProgressBanner(
                             statusMessage: _statusMessage,
                             helperMessage: _helperMessage,
                             progressLabel: _progressLabel,
@@ -857,8 +857,9 @@ class _PreviewGrid extends StatelessWidget {
 /// 진행 상황 카드. 하단 오버레이 패널 안에서 statusMessage/helperMessage/
 /// progressLabel을 그대로 보여줘 백그라운드 자동화 진행 상황과 항상
 /// 일치하게 한다.
-class _PurchaseHistoryProgressBanner extends StatelessWidget {
-  const _PurchaseHistoryProgressBanner({
+class PurchaseHistoryProgressBanner extends StatelessWidget {
+  const PurchaseHistoryProgressBanner({
+    super.key,
     required this.statusMessage,
     required this.helperMessage,
     required this.progressLabel,

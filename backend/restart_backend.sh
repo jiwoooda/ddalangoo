@@ -33,7 +33,7 @@ fi
 if [ "$BACKEND_MODE" = "foreground" ]; then
   echo "[restart] starting uvicorn in foreground on port ${PORT}"
   echo "[restart] foreground mode keeps the server attached to this terminal"
-  exec .venv/bin/uvicorn main:app --host "$HOST" --port "$PORT" --lifespan off
+  exec .venv/bin/uvicorn main:app --host "$HOST" --port "$PORT"
 fi
 
 if [ "$BACKEND_MODE" != "detached" ]; then
@@ -42,7 +42,7 @@ if [ "$BACKEND_MODE" != "detached" ]; then
 fi
 
 echo "[restart] starting uvicorn in detached mode on port ${PORT}"
-nohup .venv/bin/uvicorn main:app --host "$HOST" --port "$PORT" --lifespan off > "$LOG_FILE" 2>&1 &
+nohup .venv/bin/uvicorn main:app --host "$HOST" --port "$PORT" > "$LOG_FILE" 2>&1 &
 SERVER_PID="$!"
 echo "$SERVER_PID" > "$PID_FILE"
 echo "[restart] pid=${SERVER_PID}"

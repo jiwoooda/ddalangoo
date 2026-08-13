@@ -9,6 +9,9 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +69,20 @@ def _entry_from_row(row: Any) -> dict[str, Any]:
         **preference_data,
         "computed_at": row.computed_at.isoformat(),
     }
+
+
+async def get_general_preference_db(db: AsyncSession, user_id: int) -> Optional[dict[str, Any]]:
+    """DB에서 일반 선호도 캐시를 조회한다. 화면 표시용이라 stale 캐시도 반환한다."""
+    from app.models.user_preference import UserPreferenceCache
+
+    stmt = select(UserPreferenceCache).where(
+        UserPreferenceCache.user_id == user_id,
+        UserPreferenceCache.preference_type == "general",
+        UserPreferenceCache.keywords_key == "",
+    )
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    return _entry_from_row(row) if row else None
 
 
 def _get_cache_row(

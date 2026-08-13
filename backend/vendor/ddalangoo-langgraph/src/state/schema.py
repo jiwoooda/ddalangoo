@@ -98,6 +98,7 @@ class ShoppingState(TypedDict):
 
     # ── 검색 조건 ──
     keywords: list[str]
+    search_query: Optional[str]
     exclude_keywords: list[str]
     negative_constraints: list[str]
     quantity: Optional[int]
@@ -253,6 +254,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "needs_clarification": False,
         "clarification_reason": None,
         "keywords": [],
+        "search_query": None,
         "exclude_keywords": [],
         "negative_constraints": [],
         "quantity": None,

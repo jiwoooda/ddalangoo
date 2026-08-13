@@ -35,7 +35,7 @@ class ActionExecutor(private val service: AccessibilityService) {
         return when (actionPlan.actionType) {
             AutomationActionType.CLICK.value -> executeClick(targetNode)
             AutomationActionType.INPUT_TEXT.value -> executeInputText(targetNode, actionPlan.textToInput.orEmpty())
-            AutomationActionType.PRESS_KEYBOARD_SEARCH.value -> executeKeyboardSearch()
+            AutomationActionType.PRESS_KEYBOARD_SEARCH.value -> executeKeyboardSearch(nodes)
             AutomationActionType.SCROLL.value -> executeScroll(targetNode, actionPlan.reasonCode)
             AutomationActionType.DUMP_PURCHASE_HISTORY.value -> ActionResult(
                 success = true,
@@ -299,7 +299,11 @@ class ActionExecutor(private val service: AccessibilityService) {
         }
     }
 
-    private fun executeKeyboardSearch(): ActionResult {
+    private fun executeKeyboardSearch(nodes: List<UiNode>): ActionResult {
+        if (AutomationTaskStore.consumeForceKeyboardSearchTapForNextSubmit()) {
+            return dispatchKeyboardSearchTapAfterOpeningInput(nodes)
+        }
+
         executeImeEnterOnFocusedInput()?.let { imeEnterResult ->
             if (imeEnterResult.success) {
                 return imeEnterResult
@@ -307,6 +311,61 @@ class ActionExecutor(private val service: AccessibilityService) {
         }
 
         return dispatchKeyboardSearchTap()
+    }
+
+    private fun dispatchKeyboardSearchTapAfterOpeningInput(nodes: List<UiNode>): ActionResult {
+        val inputNode = findCurrentSearchInputNode(nodes)
+            ?: return dispatchKeyboardSearchTap()
+
+        inputNode.sourceNode?.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        inputNode.sourceNode?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+
+        val displayMetrics = service.resources.displayMetrics
+        val inputTapPath = Path().apply {
+            moveTo(inputNode.centerX.toFloat(), inputNode.centerY.toFloat())
+        }
+        val keyboardSearchTapPath = Path().apply {
+            moveTo(displayMetrics.widthPixels * 0.92f, displayMetrics.heightPixels * 0.88f)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(inputTapPath, 0L, 80L))
+            .addStroke(GestureDescription.StrokeDescription(keyboardSearchTapPath, 420L, 80L))
+            .build()
+
+        val dispatched = service.dispatchGesture(gesture, null, null)
+        return if (dispatched) {
+            ActionResult(
+                success = true,
+                method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                errorCode = null,
+                message = "Focused search input then dispatched keyboard search tap"
+            )
+        } else {
+            ActionResult(
+                success = false,
+                method = ActionExecutionMethod.DISPATCH_GESTURE.value,
+                errorCode = "KEYBOARD_SEARCH_FAILED",
+                message = "Failed to focus search input before keyboard search tap"
+            )
+        }
+    }
+
+    private fun findCurrentSearchInputNode(nodes: List<UiNode>): UiNode? {
+        return nodes
+            .filter { node -> node.enabled }
+            .filter { node -> node.editable || node.role == "input" || isEditText(node) }
+            .maxByOrNull { node ->
+                var score = 0.0
+                if (node.editable) score += 0.55
+                if (node.role == "input") score += 0.25
+                if (isEditText(node)) score += 0.25
+                if (node.boundsTop in 0..420) score += 0.15
+                score
+            }
+    }
+
+    private fun isEditText(node: UiNode): Boolean {
+        return node.className.orEmpty().contains("EditText", ignoreCase = true)
     }
 
     private fun executeImeEnterOnFocusedInput(): ActionResult? {

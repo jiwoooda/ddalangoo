@@ -469,6 +469,7 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
 
     if not candidates:
         return {
+            "search_query": query,
             "stage": "idle",
             "error": "no_candidates",
             "last_agent": "product_agent",
@@ -482,6 +483,7 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
     top_product = ranked_products[0] if ranked_products else None
     if not top_product:
         return {
+            "search_query": query,
             "stage": "idle",
             "error": "no_relevant_products",
             "last_agent": "product_agent",
@@ -494,6 +496,7 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
     )
     return {
         "search_results": candidates,
+        "search_query": query,
         "selected_product": top_product,
         "product_url": top_product.get("product_url"),
         "recommended_products": ranked_products,

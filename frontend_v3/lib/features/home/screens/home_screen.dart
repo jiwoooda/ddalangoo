@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -7,6 +9,7 @@ import '../../../app/theme/app_radii.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_surface_styles.dart';
 import '../../../app/theme/app_text_styles.dart';
+import '../../../core/services/voice_service.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../data/repositories/agent_repository.dart';
 import '../../../shared/layout/layout_presets.dart';
@@ -25,14 +28,32 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final UserRepository _userRepository = UserRepository();
+  final VoiceService _voiceService = VoiceService.instance;
   static const Color _temporaryDebugColor = Color(0xFF1E9E4A);
 
   String? _userName;
+  Future<void> _speechQueue = Future<void>.value();
+  int _speechRunId = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadHomeData();
+    unawaited(_loadHomeDataAndSpeakGreeting());
+  }
+
+  @override
+  void dispose() {
+    _speechRunId += 1;
+    unawaited(_voiceService.stopSpeaking());
+    super.dispose();
+  }
+
+  Future<void> _loadHomeDataAndSpeakGreeting() async {
+    await _loadHomeData();
+    if (!mounted) {
+      return;
+    }
+    unawaited(_speakGreetingSentences());
   }
 
   Future<void> _loadHomeData() async {
@@ -78,10 +99,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // 말풍선 문구를 한 문장씩 순서대로 보여준다. DialogueBubble의
-  // cyclePages 기능이 문장을 나누고 순환시키는 걸 알아서 처리해서, 화면마다
-  // 따로 Timer를 관리하던 코드를 걷어냈다. 다만 이 화면에는 TTS 음성 재생이
-  // 연결되어 있지 않아 실제 음성과 싱크는 맞지 않는다 — 필요하면
-  // VoiceService.speak 연동을 별도로 추가해야 한다.
+  // cyclePages 기능과 같은 기준('\n')으로 TTS도 한 문장씩 백엔드에 보내서,
+  // 화면 텍스트와 실제로 말하는 내용이 같은 순서로 흘러가게 맞춘다.
   String get _greetingText {
     final trimmed = _userName?.trim();
     if (trimmed == null || trimmed.isEmpty) {
@@ -97,6 +116,34 @@ class _HomeScreenState extends State<HomeScreen> {
   List<String> get _greetingHighlightedWords {
     final trimmed = _userName?.trim();
     return [if (trimmed != null && trimmed.isNotEmpty) trimmed, '딸랑구'];
+  }
+
+  List<String> get _greetingSentences {
+    return _greetingText
+        .split('\n')
+        .map((sentence) => sentence.trim())
+        .where((sentence) => sentence.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  Future<void> _speakGreetingSentences() {
+    final runId = ++_speechRunId;
+    final sentences = _greetingSentences;
+    _speechQueue = _speechQueue.then((_) async {
+      try {
+        await _voiceService.init();
+        await _voiceService.stopSpeaking();
+        for (final sentence in sentences) {
+          if (!mounted || runId != _speechRunId) {
+            return;
+          }
+          await _voiceService.speak(sentence);
+        }
+      } catch (_) {
+        // 홈 인사 TTS는 보조 기능이라 실패해도 화면 진입을 막지 않는다.
+      }
+    });
+    return _speechQueue;
   }
 
   @override
