@@ -10,7 +10,7 @@ additional_signals는 고정 필드 밖의 새로운 선호도를 담는 탈출�
 자유롭게 붙여서 여기 넣는다. 카테고리를 미리 제한하지 않는다.
 """
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AdditionalSignal(BaseModel):
@@ -64,6 +64,27 @@ class SmalltalkProfileSchema(BaseModel):
         default_factory=list, description="기존 장보기/배달 경험에서 불편했던 점",
     )
     additional_signals: list[AdditionalSignal] = Field(default_factory=list)
+
+
+class PersistedSmalltalkProfile(SmalltalkProfileSchema):
+    """DB의 preference_type=profile JSON 전체를 검증하는 영구 프로필 계약."""
+
+    model_config = ConfigDict(extra="allow")
+
+    preferred_name: Optional[str] = None
+    allergens: list[str] = Field(default_factory=list)
+    diet_restrictions: list[str] = Field(default_factory=list)
+    onboarded_at: Optional[str] = None
+    computed_at: Optional[str] = None
+
+
+def validate_persisted_profile(profile: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """저장·조회 경계에서 프로필 타입을 검증하고 JSON 호환 dict로 정규화한다."""
+    if not profile:
+        return {}
+    return PersistedSmalltalkProfile.model_validate(profile).model_dump(
+        exclude_none=True, exclude_unset=True
+    )
 
 
 SMALLTALK_PROFILE_FIELDS = (

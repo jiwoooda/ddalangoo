@@ -575,9 +575,9 @@ def get_wrap_up_instruction(is_timeout: bool, is_field_complete: bool, is_thin_r
 
 def check_completion_gate(
     llm_says_complete: bool,
-    collected_fields: dict,
     is_timeout: bool,
     is_order_handoff: bool = False,
+    was_field_complete_before_turn: bool = False,
 ) -> bool:
     """LLM이 onboarding_complete=true를 반환해도, 필수 필드가 안 채워졌으면
     이를 오버라이드하여 false로 되돌린다. 예외 둘:
@@ -587,12 +587,23 @@ def check_completion_gate(
       있고, 이 경로가 route_entry의 주문요청 우회와 함께 실측 테스트로
       검증된 흐름이라 필수 필드 게이트로 막으면 안 된다(스펙에 없던 파라미터를
       추가한 이유 — 필수 필드 게이트를 문자 그대로 적용하면 이 기존 동작이
-      깨진다)."""
+      깨진다).
+
+    필드 기반 완료는 collected_fields(이번 턴에 막 채워진 값 포함)가 아니라
+    was_field_complete_before_turn(이번 턴 시작 "전" 이미 충족돼 있었는지)을
+    본다 — 실측에서, 이번 턴 안에서 막 3/4 문턱을 넘긴 경우까지 즉시 완료를
+    허용했더니 get_wrap_up_instruction이 이번 턴엔 아직 "필드 충족 전"으로
+    보고 wrap-up 지시를 안 줘서, reply가 마무리 톤도 아니고 물음표도 안
+    걸러진 채(B-5가 wrap-up 턴에만 적용됨) 갑자기 온보딩이 끝나버리는
+    문제가 있었다. 그래서 "턴 시작 전부터 이미 충족돼 있었을 때"만 필드
+    기반 완료를 허용한다 — 막 채워진 턴은 자연스럽게 한 턴 더 이어가고,
+    바로 다음 턴은 profile_before가 이제 충족 상태라 wrap-up 지시가 정상
+    발동해 깨끗하게 마무리된다."""
     if is_timeout or is_order_handoff:
         return True
     if not llm_says_complete:
         return False
-    return _required_fields_filled(collected_fields)
+    return was_field_complete_before_turn
 
 
 def _count_user_turns(messages: list) -> int:
@@ -697,7 +708,9 @@ def _build_merged_profile(user_id: str, result: SmalltalkOutput) -> tuple[dict, 
         merged["household_size"] = p.household_size
         changed = True
     if p.household_notes:
-        merged["household_notes"] = list(profile.get("household_notes") or []) + p.household_notes
+        merged["household_notes"] = db_client.merge_list_field(
+            profile.get("household_notes"), p.household_notes
+        )
         changed = True
     if p.cooking_frequency:
         merged["cooking_frequency"] = p.cooking_frequency
@@ -716,10 +729,20 @@ def _build_merged_profile(user_id: str, result: SmalltalkOutput) -> tuple[dict, 
         changed = True
     if p.additional_signals:
         existing = profile.get("additional_signals") or []
-        merged["additional_signals"] = existing + [s.model_dump() for s in p.additional_signals]
+        additions = [s.model_dump() for s in p.additional_signals]
+        seen = {(str(s.get("label")), str(s.get("value"))) for s in existing if isinstance(s, dict)}
+        unique_additions = []
+        for signal in additions:
+            key = (signal["label"], signal["value"])
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_additions.append(signal)
+        merged["additional_signals"] = list(existing) + unique_additions
         changed = True
 
-    return merged, changed
+    # 동일한 신호를 다시 추출한 경우 불필요한 DB write/computed_at 갱신을 막는다.
+    return merged, merged != profile
 
 
 def _save_profile_signals(
@@ -1034,9 +1057,9 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
     is_order_handoff = _looks_like_order_request_fallback(user_input)
     onboarding_complete = check_completion_gate(
         llm_says_complete=result.onboarding_complete,
-        collected_fields=merged_profile,
         is_timeout=past_cap,
         is_order_handoff=is_order_handoff,
+        was_field_complete_before_turn=_required_fields_filled(profile_before),
     )
     if result.onboarding_complete and not onboarding_complete:
         agent_logger.log(

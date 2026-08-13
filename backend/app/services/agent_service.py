@@ -1754,7 +1754,9 @@ def _product_search_query_from_state(state: dict) -> str | None:
         if str(keyword).strip()
     ]
     if keywords:
-        return " ".join(keywords)
+        from src.utils.search_keywords import build_search_query
+
+        return build_search_query(keywords) or None
     selected_product = state.get("selected_product") or {}
     product_name = selected_product.get("product_name") or selected_product.get("name")
     if product_name:

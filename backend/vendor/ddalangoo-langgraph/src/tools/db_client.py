@@ -11,10 +11,16 @@ SEARCH_MODE와 동일한 패턴). context_agent.py/reorder_agent.py가 DB에
 기본 mode는 DB_MODE 환경변수(mock|real, 기본값 mock)로 결정된다.
 """
 import asyncio
+import logging
 import os
 import sys
 from datetime import datetime, UTC
 from typing import Any, Literal
+
+from pydantic import ValidationError
+from src.state.smalltalk_schema import validate_persisted_profile
+
+logger = logging.getLogger(__name__)
 
 from src.tools.mock_tools import (
     mock_get_user,
@@ -150,28 +156,40 @@ def get_profile(user_id: str, mode: DbMode | None = None) -> dict[str, Any] | No
     재시작하면 비어있다 — 필요하면 save_profile로 다시 채워야 한다.
     """
     if (mode or _default_db_mode()) == "mock":
-        return _mock_profile_store.get(str(user_id))
+        profile = _mock_profile_store.get(str(user_id))
+        return validate_persisted_profile(profile) if profile else None
     try:
         from app.repositories import user_preference_repository
-        return user_preference_repository.get_profile(int(user_id))
-    except Exception:
+        profile = user_preference_repository.get_profile(int(user_id))
+        return validate_persisted_profile(profile) if profile else None
+    except (ValidationError, ValueError, TypeError) as exc:
+        logger.error("invalid stored profile user_id=%s: %s", user_id, exc)
+        return None
+    except Exception as exc:
+        logger.exception("profile read failed user_id=%s: %s", user_id, exc)
         return None
 
 
 def save_profile(user_id: str, profile: dict[str, Any], mode: DbMode | None = None) -> None:
+    try:
+        validated = validate_persisted_profile(profile)
+    except (ValidationError, ValueError, TypeError) as exc:
+        logger.error("profile validation failed user_id=%s: %s", user_id, exc)
+        raise
     if (mode or _default_db_mode()) == "mock":
         # real 모드(user_preference_repository)는 computed_at을 자동으로
         # 붙여준다 — mock도 맞춰서 붙인다. RoutedSignal의 general_context
         # timestamp가 이 값을 쓴다 (context_agent._enrich_signals 참고).
-        stamped = dict(profile)
+        stamped = dict(validated)
         stamped["computed_at"] = datetime.now(UTC).isoformat()
         _mock_profile_store[str(user_id)] = stamped
         return
     try:
         from app.repositories import user_preference_repository
-        user_preference_repository.save_profile(int(user_id), profile)
-    except Exception:
-        pass
+        user_preference_repository.save_profile(int(user_id), validated)
+    except Exception as exc:
+        logger.exception("profile save failed user_id=%s: %s", user_id, exc)
+        raise
 
 
 def merge_list_field(existing: list[str] | None, new: list[str]) -> list[str]:
@@ -214,6 +232,7 @@ def invalidate_purchase_derived_preferences(user_id: str, mode: DbMode | None = 
         return
     try:
         from app.repositories import user_preference_repository
-        user_preference_repository.invalidate_all_preferences(int(user_id))
-    except Exception:
-        pass
+        user_preference_repository.invalidate_purchase_derived_preferences(int(user_id))
+    except Exception as exc:
+        logger.exception("purchase preference invalidation failed user_id=%s: %s", user_id, exc)
+        raise

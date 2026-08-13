@@ -22,6 +22,7 @@ from src.state.node_inputs import ProductAgentInput, ProductAgentUpdate
 from src.tools.mock_search import search_products
 from src.prompts.scoring_prompt import SCORING_PROMPT
 from src.utils.agent_logger import agent_logger
+from src.utils.search_keywords import build_search_query
 from src.utils.aggregator import aggregate, normalize_fixed_axes, normalize_weights
 from src.utils.retry import classify_failure, retry_call
 
@@ -449,7 +450,7 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
         }
 
     # ── 전체 플랫폼 동시 검색 ──
-    query = " ".join(keywords)
+    query = build_search_query(keywords)
     effective_condition, preferred_platform = _derive_search_params(condition, preference_context)
     sort = CONDITION_MAP.get(effective_condition, "relevance") if effective_condition else "relevance"
 
