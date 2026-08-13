@@ -10,6 +10,7 @@ import '../../../core/services/voice_service.dart';
 import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
+import '../../../shared/services/spoken_sentence_player.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/voice_input_button.dart';
@@ -35,20 +36,27 @@ class AnalysisIntroScreen extends StatefulWidget {
 
 class _AnalysisIntroScreenState extends State<AnalysisIntroScreen> {
   final VoiceService _voiceService = VoiceService.instance;
+  final SpokenSentencePlayer _sentencePlayer = SpokenSentencePlayer();
 
   bool _isSpeaking = false;
   bool _isNavigating = false;
+  String? _currentSentence;
 
   static const String _message = '이제 분석을 해볼게요! 분석이 완료되면 바로가기에서 확인하실 수 있어요.';
+  static final List<String> _sentences = SpokenSentencePlayer.splitSentences(
+    _message,
+  );
 
   @override
   void initState() {
     super.initState();
+    _currentSentence = _sentences.isEmpty ? _message : _sentences.first;
     unawaited(_speakThenContinue());
   }
 
   @override
   void dispose() {
+    _sentencePlayer.cancel();
     unawaited(_voiceService.stopSpeaking());
     super.dispose();
   }
@@ -61,7 +69,19 @@ class _AnalysisIntroScreenState extends State<AnalysisIntroScreen> {
     }
     setState(() => _isSpeaking = true);
     try {
-      await _voiceService.speak(_message);
+      // 예전엔 두 문장을 한 번에 speak()로 넘기면서 DialogueBubble의
+      // cyclePages(고정 타이머)가 따로 문장을 순환해 화면 텍스트와 실제
+      // TTS 재생 타이밍이 서로 어긋났다. 이제 SpokenSentencePlayer가 문장
+      // 표시와 TTS 재생 완료를 같이 맞춘다.
+      await _sentencePlayer.play(
+        _sentences,
+        isMounted: () => mounted,
+        onSentence: (sentence) {
+          if (mounted) {
+            setState(() => _currentSentence = sentence);
+          }
+        },
+      );
     } catch (_) {
       // TTS 재생이 실패해도 다음 단계 이동은 막지 않는다.
     } finally {
@@ -89,8 +109,10 @@ class _AnalysisIntroScreenState extends State<AnalysisIntroScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           DialogueBubble(
-            text: _message,
-            cyclePages: true,
+            contentKey: ValueKey(_currentSentence ?? _message),
+            animateTextChanges: true,
+            text: _currentSentence ?? _message,
+            cyclePages: false,
             highlightedWords: const ['분석', '바로가기'],
             minHeight: 172,
             padding: const EdgeInsets.symmetric(

@@ -12,6 +12,7 @@ import '../../../data/repositories/agent_repository.dart';
 import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
+import '../../../shared/services/spoken_sentence_player.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
 import '../../../shared/widgets/voice_input_button.dart';
@@ -46,6 +47,7 @@ class SmallTalkScreen extends StatefulWidget {
 class _SmallTalkScreenState extends State<SmallTalkScreen> {
   final VoiceService _voiceService = VoiceService.instance;
   final UserRepository _userRepository = UserRepository();
+  final SpokenSentencePlayer _sentencePlayer = SpokenSentencePlayer();
 
   int _currentIndex = 0;
   bool _isRecording = false;
@@ -54,6 +56,7 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
   bool _didAutoAdvanceGreeting = false;
   String? _errorMessage;
   String? _transcriptPreview;
+  String? _currentSpokenSentence;
 
   bool get _isLastMessage => _currentIndex == widget.messages.length - 1;
   VoiceInputState get _voiceInputState => _isRecording
@@ -70,6 +73,7 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
 
   @override
   void dispose() {
+    _sentencePlayer.cancel();
     unawaited(_voiceService.stopSpeaking());
     if (_isRecording) {
       unawaited(_voiceService.cancelRecording());
@@ -90,9 +94,31 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
       return;
     }
 
-    setState(() => _isSpeaking = true);
+    // 메시지 안의 '\n'이 이미 문장 경계다(예: 인사 두 문장). 예전엔 전체
+    // 문구를 한 번에 speak()로 넘기면서 화면(DialogueBubble의 cyclePages,
+    // 고정 타이머)만 따로 문장을 순환해서 화면과 음성이 서로 다른
+    // 타이밍으로 진행됐다. 이제 SpokenSentencePlayer가 "문장 표시 → 그
+    // 문장 TTS 완료까지 대기 → 다음 문장" 순서를 직접 맞춘다.
+    final sentences = message
+        .split('\n')
+        .map((sentence) => sentence.trim())
+        .where((sentence) => sentence.isNotEmpty)
+        .toList(growable: false);
+
+    setState(() {
+      _isSpeaking = true;
+      _currentSpokenSentence = sentences.isEmpty ? message : sentences.first;
+    });
     try {
-      await _voiceService.speak(message);
+      await _sentencePlayer.play(
+        sentences.isEmpty ? [message] : sentences,
+        isMounted: () => mounted,
+        onSentence: (sentence) {
+          if (mounted) {
+            setState(() => _currentSpokenSentence = sentence);
+          }
+        },
+      );
     } catch (_) {
       // Voice playback is best-effort.
     } finally {
@@ -328,10 +354,12 @@ class _SmallTalkScreenState extends State<SmallTalkScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               DialogueBubble(
-                contentKey: ValueKey('message-$_currentIndex'),
+                contentKey: ValueKey(
+                  'message-$_currentIndex-${_currentSpokenSentence ?? ''}',
+                ),
                 animateTextChanges: true,
-                cyclePages: true,
-                text: currentMessage.text,
+                cyclePages: false,
+                text: _currentSpokenSentence ?? currentMessage.text,
                 highlightedWords: currentMessage.highlightWords,
                 minHeight: bubbleMinHeight,
                 padding: EdgeInsets.symmetric(

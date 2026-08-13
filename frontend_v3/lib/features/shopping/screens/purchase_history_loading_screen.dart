@@ -14,6 +14,7 @@ import '../../../data/models/purchase_history_model.dart';
 import '../../../shared/layout/app_layout.dart';
 import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
+import '../../../shared/services/spoken_sentence_player.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/primary_button.dart';
 import 'analysis_intro_screen.dart';
@@ -74,6 +75,8 @@ class _PurchaseHistoryLoadingScreenState
   bool _isAccessibilityConnected = false;
   Future<void> _speechQueue = Future<void>.value();
   String? _lastSpokenMessage;
+  final SpokenSentencePlayer _sentencePlayer = SpokenSentencePlayer();
+  String? _currentSpokenSentence;
   List<PurchaseHistoryAutomationPlan> _automationPlans =
       const <PurchaseHistoryAutomationPlan>[];
   int _currentAutomationPlanIndex = 0;
@@ -105,6 +108,7 @@ class _PurchaseHistoryLoadingScreenState
   void dispose() {
     _statusPollTimer?.cancel();
     _completionTimer?.cancel();
+    _sentencePlayer.cancel();
     unawaited(_voiceService.stopSpeaking());
     _controller.dispose();
     super.dispose();
@@ -511,20 +515,26 @@ class _PurchaseHistoryLoadingScreenState
       return _speechQueue;
     }
 
-    // 화면에 보이는 말풍선/배너 텍스트가 실제 TTS로 말하는 내용과 항상
-    // 일치하게 setState로 갱신한다.
-    setState(() {
-      _lastSpokenMessage = normalized;
-    });
+    // dedupe는 전체 문구 기준으로 판단하고, 실제로 화면(말풍선)에 보이는
+    // 문장(_currentSpokenSentence)은 재생을 시작하는 시점에 한 문장씩
+    // 갱신한다. 여러 문장이 한 번에 speak()로 넘어가면서 화면은 전체
+    // 문구를 한꺼번에 보여주는 것과, 실제 말하는 타이밍이 어긋나는 문제를
+    // 막는다.
+    _lastSpokenMessage = normalized;
+    final sentences = SpokenSentencePlayer.splitSentences(normalized);
     _speechQueue = _speechQueue.then((_) async {
       if (!mounted) {
         return;
       }
-      try {
-        await _voiceService.speak(normalized);
-      } catch (_) {
-        // TTS playback is best-effort.
-      }
+      await _sentencePlayer.play(
+        sentences,
+        isMounted: () => mounted,
+        onSentence: (sentence) {
+          if (mounted) {
+            setState(() => _currentSpokenSentence = sentence);
+          }
+        },
+      );
     });
     return _speechQueue;
   }
@@ -671,6 +681,7 @@ class _PurchaseHistoryLoadingScreenState
                   _PurchaseHistoryBackground(
                     resolvedUserName: _resolvedUserName,
                     previewItems: _previewItems,
+                    currentSentence: _currentSpokenSentence,
                   ),
                   Align(
                     alignment: Alignment.bottomCenter,
@@ -746,10 +757,12 @@ class _PurchaseHistoryBackground extends StatelessWidget {
   const _PurchaseHistoryBackground({
     required this.resolvedUserName,
     required this.previewItems,
+    required this.currentSentence,
   });
 
   final String resolvedUserName;
   final List<PurchaseHistoryPreviewItem> previewItems;
+  final String? currentSentence;
 
   @override
   Widget build(BuildContext context) {
@@ -780,10 +793,18 @@ class _PurchaseHistoryBackground extends StatelessWidget {
             children: [
               // 다른 대화형 화면(스몰토크/에이전트 인사/메인 쇼핑 흐름)과 같은
               // 말풍선(DialogueBubble)을 써서 딸랑구가 말하는 부분의 모양을
-              // 통일했다.
+              // 통일했다. 실제로 지금 말하고 있는 문장(currentSentence)을
+              // 그대로 보여줘서, 화면 텍스트와 TTS가 항상 같이 간다.
               DialogueBubble(
-                text: '$resolvedUserName님의 지난 구매 이력을\n불러오는 중이에요',
-                cyclePages: true,
+                contentKey: ValueKey(
+                  currentSentence ??
+                      '$resolvedUserName님의 지난 구매 이력을 불러오는 중이에요',
+                ),
+                animateTextChanges: true,
+                text:
+                    currentSentence ??
+                    '$resolvedUserName님의 지난 구매 이력을\n불러오는 중이에요',
+                cyclePages: false,
                 highlightedWords: [resolvedUserName],
                 minHeight: 96,
                 style: AppTextStyles.title2.copyWith(

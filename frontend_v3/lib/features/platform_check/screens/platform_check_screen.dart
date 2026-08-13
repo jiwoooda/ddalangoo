@@ -13,6 +13,7 @@ import '../../../core/services/voice_service.dart';
 import '../../../shared/layout/app_layout.dart';
 import '../../../shared/layout/app_responsive.dart';
 import '../../../shared/layout/layout_presets.dart';
+import '../../../shared/services/spoken_sentence_player.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/end_conversation_button.dart';
 import '../../shopping/screens/purchase_history_loading_screen.dart';
@@ -106,6 +107,8 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
   bool _didScheduleCompletion = false;
   Future<void> _speechQueue = Future<void>.value();
   String? _lastSpokenMessage;
+  final SpokenSentencePlayer _sentencePlayer = SpokenSentencePlayer();
+  String? _currentSpokenSentence;
 
   String get _resolvedUserName {
     final trimmed = _resolvedUserNameValue?.trim() ?? widget.userName?.trim();
@@ -113,10 +116,14 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
   }
 
   // 말풍선에 표시할 문구. 아직 TTS가 한 번도 시작되지 않은 첫 프레임에는
-  // 기본 인사말을 보여주고, 이후로는 _speakMessage로 실제 말한(말하는)
-  // 내용을 그대로 보여줘서 화면 텍스트와 TTS 내용이 항상 일치하게 한다.
+  // 기본 인사말을 보여주고, 이후로는 실제로 지금 말하고 있는 문장
+  // (_currentSpokenSentence)을 그대로 보여줘서 화면 텍스트와 TTS 내용이
+  // 항상 일치하게 한다. 메시지가 여러 문장이면(예: "확인이 끝났어요. 다음
+  // 화면으로 넘어갈게요.") 한 문장씩 순서대로 갱신된다.
   String get _bubbleText =>
-      _lastSpokenMessage ?? '$_resolvedUserName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요';
+      _currentSpokenSentence ??
+      _lastSpokenMessage ??
+      '$_resolvedUserName님, 어떤 쇼핑 앱을 쓰시는지 확인할게요';
 
   int get _installedPlatformCount =>
       _platforms.where((platform) => platform.isInstalled).length;
@@ -217,6 +224,7 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
   void dispose() {
     _statusPollTimer?.cancel();
     _completionTimer?.cancel();
+    _sentencePlayer.cancel();
     unawaited(_voiceService.stopSpeaking());
     _controller.dispose();
     super.dispose();
@@ -519,20 +527,27 @@ class _PlatformCheckScreenState extends State<PlatformCheckScreen>
       return _speechQueue;
     }
 
-    // 화면에 보이는 말풍선 텍스트가 실제 TTS로 말하는 내용과 항상 일치하게
-    // setState로 갱신한다(예전엔 필드만 바뀌고 화면은 그대로였다).
-    setState(() {
-      _lastSpokenMessage = normalized;
-    });
+    // dedupe 판단은 전체 문구 기준으로 그대로 두되(같은 안내를 중복
+    // 재생하지 않기 위함), 화면에 보이는 텍스트(_currentSpokenSentence)는
+    // 이 문구가 실제로 재생을 시작하는 시점에 한 문장씩 갱신한다. 예전엔
+    // 여러 문장을 한 번에 speak()로 넘기면서 DialogueBubble의
+    // cyclePages(고정 타이머)가 따로 문장을 순환해 화면과 음성 타이밍이
+    // 어긋났다.
+    _lastSpokenMessage = normalized;
+    final sentences = SpokenSentencePlayer.splitSentences(normalized);
     _speechQueue = _speechQueue.then((_) async {
       if (!mounted) {
         return;
       }
-      try {
-        await _voiceService.speak(normalized);
-      } catch (_) {
-        // TTS playback is best-effort.
-      }
+      await _sentencePlayer.play(
+        sentences,
+        isMounted: () => mounted,
+        onSentence: (sentence) {
+          if (mounted) {
+            setState(() => _currentSpokenSentence = sentence);
+          }
+        },
+      );
     });
     return _speechQueue;
   }
@@ -768,7 +783,7 @@ class _MockSearchCard extends StatelessWidget {
       text: bubbleText,
       contentKey: ValueKey(bubbleText),
       animateTextChanges: true,
-      cyclePages: true,
+      cyclePages: false,
       highlightedWords: [userName],
       minHeight: 96,
       style: AppTextStyles.title2.copyWith(
