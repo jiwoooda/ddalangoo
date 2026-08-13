@@ -69,6 +69,15 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
   String? _automationResultPollingTaskId;
   String? _lastSpokenPromptKey;
   final Set<String> _startedAutomationTaskIds = <String>{};
+  // searchingProduct처럼 폴링으로 상태가 자동 전환되는 단계에서는, 이전
+  // 프롬프트가 아직 말하는 중(예: "OOO 상품을 찾고 있어요.")인데 새 응답이
+  // 도착해서 applyResponse가 또 _speakPromptIfNeeded를 부르는 경우가
+  // 있었다. 두 호출이 동시에 voiceService.speak()를 부르면서 먼저 말하던
+  // 문장이 끝까지 재생되지 못하고 잘렸다. 이제 모든 호출을 이 체인에
+  // 순서대로 이어 붙여서, 이전 문장의 재생이 끝난 뒤에만 다음 프롬프트가
+  // 말을 시작하게 한다.
+  Future<void> _speechChain = Future<void>.value();
+  int _speechRequestSeq = 0;
 
   ShoppingFlowService get service => _service;
 
@@ -665,11 +674,21 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
     switch (state.viewStage) {
       case ShoppingFlowViewStage.askProduct:
       case ShoppingFlowViewStage.searchingProduct:
+        // 위젯의 _spokenPromptText/_fallbackPromptSegments와 반드시 같은
+        // 문구여야 한다(안 그러면 화면에는 예시 문장이 포함된 긴 안내가
+        // 보이는데 TTS는 다른 짧은 문장을 말하는 불일치가 생긴다). 예시
+        // 문구도 위젯과 같은 소스(_service.quickRepliesFor)에서 가져와
+        // 서로 어긋나지 않게 한다.
         final name = state.resolvedUserName;
+        final example = _askProductExample;
         if (name != null && name.trim().isNotEmpty) {
-          return '$name님, 뭐가 필요하세요?';
+          return '$name님, 어떤게 필요하세요? '
+              '"$example" 처럼, 원하시는 상품을 말해주시면 '
+              '$name님을 위한 상품을 바로 찾아드릴게요!';
         }
-        return '뭐가 필요하세요?';
+        return '어떤게 필요하세요? '
+            '"$example" 처럼, 원하시는 상품을 말해주시면 '
+            '바로 찾아드릴게요!';
       case ShoppingFlowViewStage.quantitySelection:
         return '좋아요. 몇 개 담아드릴까요?';
       case ShoppingFlowViewStage.cartCompleted:
@@ -687,6 +706,11 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
       case ShoppingFlowViewStage.completed:
         return null;
     }
+  }
+
+  String get _askProductExample {
+    final replies = _service.quickRepliesFor(ShoppingFlowViewStage.askProduct);
+    return replies.isNotEmpty ? replies.first : '신선한 완숙 토마토 사고 싶어';
   }
 
   List<String> _sentencesForResponse(AgentResponse response) {
@@ -727,7 +751,26 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
     return _fallbackSplitSentences(prompt);
   }
 
-  Future<void> _speakPromptIfNeeded({bool force = false}) async {
+  Future<void> _speakPromptIfNeeded({bool force = false}) {
+    final requestId = ++_speechRequestSeq;
+    final next = _speechChain.then(
+      (_) => _runSpeakPrompt(requestId, force: force),
+    );
+    // 이전 요청이 실패해도(voice 에러 등) 체인이 끊기면 안 되므로 항상
+    // 새 Future로 이어 붙인다.
+    _speechChain = next.catchError((_) {});
+    return next;
+  }
+
+  Future<void> _runSpeakPrompt(int requestId, {bool force = false}) async {
+    // 이 호출이 체인에서 대기하는 동안 더 최신 요청이 들어왔으면(예: 검색
+    // 중이라는 안내가 채 시작도 못 했는데 실제 검색 결과가 벌써 도착),
+    // 낡은 프롬프트는 재생하지 않고 최신 요청에게 양보한다. 반대로 이미
+    // 재생을 시작한 문장은 이 체인 구조 덕분에 끝까지 끊기지 않는다.
+    if (!mounted || requestId != _speechRequestSeq) {
+      return;
+    }
+
     final prompt = _promptToSpeak?.trim();
     if (prompt == null || prompt.isEmpty || state.isRecording) {
       return;
@@ -747,16 +790,21 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
 
     try {
       for (final sentence in promptSentences) {
-        if (!mounted) {
+        if (!mounted || requestId != _speechRequestSeq) {
           return;
         }
         final normalizedSentence = sentence.trim();
         if (normalizedSentence.isEmpty) {
           continue;
         }
-        if (state.response?.assistantMessage.trim() == prompt) {
-          state = state.copyWith(visibleAssistantMessage: normalizedSentence);
-        }
+        // 예전엔 실제 백엔드 응답(state.response)과 일치하는 prompt일 때만
+        // visibleAssistantMessage를 갱신했다. 그러면 응답이 아직 없는
+        // 하드코딩된 안내(예: 첫 askProduct 화면)는 TTS는 문장 단위로
+        // 나눠 말하면서도 화면 텍스트는 갱신되지 않아, 화면에 보이는
+        // 문구와 실제로 말하는 문구가 서로 다른 채로 남는 문제가 있었다.
+        // 응답 유무와 상관없이 항상 갱신해서 "보이는 문장 = 지금 말하는
+        // 문장"이 항상 맞도록 한다.
+        state = state.copyWith(visibleAssistantMessage: normalizedSentence);
         await _voiceService.speak(normalizedSentence);
       }
     } catch (_) {

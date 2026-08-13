@@ -22,6 +22,16 @@ class MockShoppingFlowService extends ShoppingFlowService {
   int _nextConversationId = 7000;
   int _nextCartItemId = 40000;
 
+  // 실제 백엔드(LLM) 응답은 "상품명+가격" 한 문장, "추천 이유+담아볼까요?" 한
+  // 문장으로 정확히 2문장을 말하고 추천 이유는 절대 생략하지 않는다
+  // (response_prompt.py 참고). mock 서비스도 STT/접근성만 대체할 뿐 나머지
+  // 흐름은 실제와 동일하게 보여야 해서, 카드에만 있고 말풍선/TTS에는 없던
+  // 추천 이유를 여기서도 넣어 실제 응답 형식과 맞춘다.
+  String _productPitchMessage(_MockProduct product) {
+    return '${product.title}, ${formatPrice(product.price)}원이에요. '
+        '${product.reason} 담아볼까요?';
+  }
+
   @override
   Future<int> resolveUserId() async => _mockUserId;
 
@@ -105,7 +115,7 @@ class MockShoppingFlowService extends ShoppingFlowService {
             conversation.recommendations.length;
         return _showProductSelection(
           conversation,
-          assistantMessage: '이 상품은 어떠세요?',
+          assistantMessage: _productPitchMessage(conversation.selectedProduct),
         );
       case 'add_to_cart':
       case 'order_now':
@@ -224,8 +234,7 @@ class MockShoppingFlowService extends ShoppingFlowService {
 
     final recommendedResponse = _productSelectionResponse(
       conversation,
-      assistantMessage:
-          '${conversation.selectedProduct.title}부터 보여드릴게요. 괜찮으면 장바구니에 담아볼까요?',
+      assistantMessage: _productPitchMessage(conversation.selectedProduct),
     );
 
     return _setResponse(
@@ -247,7 +256,7 @@ class MockShoppingFlowService extends ShoppingFlowService {
           conversation.recommendations.length;
       return _showProductSelection(
         conversation,
-        assistantMessage: '다른 후보로 바꿔봤어요.',
+        assistantMessage: _productPitchMessage(conversation.selectedProduct),
       );
     }
     if (normalized.contains('담') ||

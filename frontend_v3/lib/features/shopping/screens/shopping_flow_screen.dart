@@ -32,6 +32,10 @@ const int _pinPadCrossAxisCount = 3;
 const int _pinPadRowCount = 4;
 const double _pinPadChildAspectRatio = 1.45;
 const double _baseDialogueSectionHeight = 148.0;
+// 비밀번호 화면은 안내 문구가 한 줄로 짧아서 말풍선을 기본 높이로 두면
+// 아래 PIN 키패드가 남은 공간을 다 못 쓰고 스크롤이 생겼다. 이 화면에서만
+// 말풍선 세로 길이를 줄여서 키패드에 공간을 더 넘겨준다.
+const double _passwordDialogueSectionHeight = 104.0;
 // 대화 종료 버튼을 오버레이 음성 패널 아래 하단 전체너비 버튼으로 옮기면서
 // 추가된 높이. _overlayBottomInsetFor 계산에도 반영해 스테이지 콘텐츠가
 // 버튼에 가려지지 않게 한다.
@@ -322,14 +326,18 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
 
   double _dialogueSectionHeightFor(BuildContext context) {
     final responsive = context.responsive;
+    final isPasswordStage = _viewStage == ShoppingFlowViewStage.paymentPassword;
+    final baseHeight = isPasswordStage
+        ? _passwordDialogueSectionHeight
+        : _baseDialogueSectionHeight;
     return responsive.bound(
       responsive.heightScaled(
-        _baseDialogueSectionHeight,
+        baseHeight,
         minFactor: 0.82,
         maxFactor: 1.0,
       ),
-      min: 122,
-      max: _baseDialogueSectionHeight,
+      min: isPasswordStage ? 88 : 122,
+      max: baseHeight,
     );
   }
 
@@ -783,11 +791,9 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
 
     switch (_viewStage) {
       case ShoppingFlowViewStage.askProduct:
-        return _EmptyStatePanel(
-          key: const ValueKey('ask-product'),
+        return const _EmptyStatePanel(
+          key: ValueKey('ask-product'),
           assetPath: 'assets/images/character/top/ddalangoo_standing_top.png',
-          title: '예시 문장을 눌러 바로 시작할 수도 있어요.',
-          caption: '예시 문장과 음성 요청은 같은 쇼핑 대화로 이어집니다.',
         );
       case ShoppingFlowViewStage.searchingProduct:
         // _StatusPanel이 내부적으로 남는 높이에 맞춰 스스로 크기를
@@ -823,6 +829,24 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
           ),
         );
       case ShoppingFlowViewStage.cartProcessing:
+        // 상품이 이미 정해진 상태라, 상품 확인/선택 화면과 같은 히어로
+        // 카드(배경 이미지 + 그라디언트) 스타일로 보여준다. 화면마다
+        // 스타일이 다르던 걸 통일했다.
+        if (selectedProduct != null) {
+          return _CartProcessingHeroPanel(
+            key: const ValueKey('cart-processing'),
+            title: _service.statusTitleFor(_viewStage),
+            message: _service.statusMessageFor(
+              _viewStage,
+              response: _response,
+              product: selectedProduct,
+              quantity: cartItems.firstOrNull?.quantity,
+            ),
+            progress: _service.progressValueFor(_viewStage),
+            product: selectedProduct!,
+            service: _service,
+          );
+        }
         return _StatusPanel(
           key: const ValueKey('cart-processing'),
           title: _service.statusTitleFor(_viewStage),
@@ -1076,13 +1100,13 @@ class _EmptyStatePanel extends StatelessWidget {
   const _EmptyStatePanel({
     super.key,
     required this.assetPath,
-    required this.title,
-    required this.caption,
+    this.title,
+    this.caption,
   });
 
   final String assetPath;
-  final String title;
-  final String caption;
+  final String? title;
+  final String? caption;
 
   @override
   Widget build(BuildContext context) {
@@ -1097,6 +1121,8 @@ class _EmptyStatePanel extends StatelessWidget {
             .toDouble();
         final titleSpacing = compact ? AppSpacing.md : AppSpacing.lg;
         final captionSpacing = compact ? AppSpacing.xs : AppSpacing.sm;
+        final title = this.title;
+        final caption = this.caption;
 
         return Scrollbar(
           thumbVisibility: true,
@@ -1115,20 +1141,24 @@ class _EmptyStatePanel extends StatelessWidget {
                     height: imageHeight,
                     fit: BoxFit.contain,
                   ),
-                  SizedBox(height: titleSpacing),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.body1.copyWith(
-                      fontWeight: FontWeight.w800,
+                  if (title != null) ...[
+                    SizedBox(height: titleSpacing),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.body1.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: captionSpacing),
-                  Text(
-                    caption,
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.body2,
-                  ),
+                  ],
+                  if (caption != null) ...[
+                    SizedBox(height: captionSpacing),
+                    Text(
+                      caption,
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.body2,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1243,6 +1273,131 @@ class _StatusPanel extends StatelessWidget {
                     ],
                   ],
                 ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// cartProcessing 단계에서 상품이 이미 정해진 경우 쓰는 패널.
+/// _HeroProductPanel과 같은 배경 이미지+그라디언트 스타일이라, 상품을
+/// 보여주는 다른 단계(상품 확인/선택)와 화면이 자연스럽게 이어진다.
+/// _StatusPanel처럼 스크롤 안전망(Scrollbar)에 기대는 대신, 이 화면도
+/// 히어로 카드와 동일하게 남는 높이를 그대로 채워서 스크롤 없이 항상 한
+/// 화면에 다 보이게 한다.
+class _CartProcessingHeroPanel extends StatelessWidget {
+  const _CartProcessingHeroPanel({
+    super.key,
+    required this.title,
+    required this.message,
+    required this.progress,
+    required this.product,
+    required this.service,
+  });
+
+  final String title;
+  final String message;
+  final double progress;
+  final ShoppingProductViewData product;
+  final ShoppingFlowService service;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final panelHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : constraints.minHeight > 0
+            ? constraints.minHeight
+            : 420.0;
+
+        return SizedBox(
+          width: double.infinity,
+          height: panelHeight,
+          child: Container(
+            decoration: AppSurfaceStyles.floatingCard(
+              radius: AppRadii.xl,
+              boxShadow: AppSurfaceStyles.featuredProductShadow,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadii.xl),
+              child: Stack(
+                children: [
+                  const Positioned.fill(child: ColoredBox(color: Colors.white)),
+                  Positioned.fill(
+                    child: _ProductArtwork(
+                      product: product,
+                      service: service,
+                      height: panelHeight,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.94),
+                            Colors.white.withValues(alpha: 0.64),
+                            Colors.white.withValues(alpha: 0.2),
+                            Colors.white.withValues(alpha: 0.6),
+                            Colors.white.withValues(alpha: 0.92),
+                          ],
+                          stops: const [0, 0.24, 0.5, 0.78, 1],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: AppTextStyles.caption.copyWith(
+                            fontSize: 14,
+                            color: AppColors.textMuted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(
+                          message,
+                          style: AppTextStyles.title2.copyWith(
+                            fontSize: 24,
+                            height: 1.3,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          product.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.body1.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textStrong,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: progress.clamp(0, 1),
+                            minHeight: 12,
+                            backgroundColor: AppColors.surfaceMuted,
+                            color: AppColors.primaryPink,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1455,7 +1610,10 @@ class _CartSummaryPanel extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: AppSurfaceStyles.emphasizedPanel(
+      // 진한 검정 테두리(emphasizedPanel) 대신, 카드가 배경에서 살짝 뜨는
+      // 그림자로 대비를 준다. 안쪽 상품 카드/searchingProduct 상태 패널과
+      // 같은 스타일로 통일했다.
+      decoration: AppSurfaceStyles.floatingCard(
         radius: AppRadii.xl,
         boxShadow: AppSurfaceStyles.raisedShadow,
       ),
@@ -1549,9 +1707,10 @@ class _AddressPanel extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: AppSurfaceStyles.emphasizedPanel(
+      // 진한 검정 테두리 + 회색 배경 대신, 장바구니 카드와 같은 흰 배경 +
+      // 은은한 그림자 스타일로 통일했다.
+      decoration: AppSurfaceStyles.floatingCard(
         radius: AppRadii.xl,
-        color: AppColors.surfaceMuted,
         boxShadow: AppSurfaceStyles.raisedShadow,
       ),
       child: Column(
@@ -1676,33 +1835,40 @@ class _PaymentSummaryPanel extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
-      decoration: AppSurfaceStyles.emphasizedPanel(
+      // 다른 화면의 장바구니/배송지 카드와 통일: 검정 테두리 대신 그림자로만
+      // 대비를 준다. '결제 전 확인' 타이틀은 굳이 없어도 아래 요약 문구로
+      // 맥락이 충분히 전달돼서 뺐다.
+      decoration: AppSurfaceStyles.floatingCard(
         radius: AppRadii.xl,
         boxShadow: AppSurfaceStyles.raisedShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('결제 전 확인', style: AppTextStyles.title2),
-          const SizedBox(height: AppSpacing.md),
           Text(
             items.isEmpty
                 ? '주문 금액을 확인하는 중이에요.'
-                : '${items.length}개 상품 · ${formatPrice(totalPrice)}원',
+                : '총 상품 ${items.length}개, 총 금액 ${formatPrice(totalPrice)}원',
             style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: AppSpacing.md),
+          // cartCompleted의 장바구니 카드와 동일하게 상품을 전부 보여준다
+          // (예전엔 take(2)로 2개만 남기고 나머지를 그냥 숨겼는데, 총 금액엔
+          // 전체가 반영되면서 화면엔 안 보이니 오히려 헷갈렸다). 카드가
+          // 길어지면 이 패널을 감싸는 _wrapStagePanel의 항상-보이는
+          // 스크롤바가 스크롤 가능함을 알려준다.
           if (items.isNotEmpty)
-            ...items.take(2).map((item) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            for (var index = 0; index < items.length; index++)
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == items.length - 1 ? 0 : AppSpacing.sm,
+                ),
                 child: _CartItemTile(
-                  item: item,
+                  item: items[index],
                   service: service,
                   compact: true,
                 ),
-              );
-            }),
+              ),
           if (address != null) ...[
             const SizedBox(height: AppSpacing.md),
             Container(
@@ -2037,68 +2203,77 @@ class _CartItemTile extends StatelessWidget {
               ),
             ),
           ),
-          Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? AppSpacing.sm : AppSpacing.md,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
+          // 예전엔 이 Padding이 Positioned.fill이 아니라서 Stack이 내용
+          // 높이만큼만 차지하고 카드 맨 위(top-left)에 붙어버렸다. 그래서
+          // 수량 스테퍼/가격이 카드 위쪽 테두리에 거의 닿을 듯 겹쳐
+          // 보였다. Positioned.fill로 카드 전체 높이를 채우게 하면 Row의
+          // 기본 세로 정렬(가운데)이 그대로 적용돼 항상 카드 한가운데에
+          // 온다.
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? AppSpacing.sm : AppSpacing.md,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.product.title,
+                          maxLines: compact ? 1 : 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.body2.copyWith(
+                            color: AppColors.textStrong,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (item.product.optionText?.trim().isNotEmpty ==
+                            true) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            item.product.optionText!.trim(),
+                            style: AppTextStyles.caption,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
+                      if (!compact &&
+                          (onDecrease != null || onIncrease != null))
+                        _CartQuantityStepper(
+                          quantity: item.quantity,
+                          isUpdating: isUpdatingQuantity,
+                          onDecrease: onDecrease,
+                          onIncrease: onIncrease,
+                        )
+                      else
+                        Text(
+                          '${item.quantity}개',
+                          style: AppTextStyles.body2.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      const SizedBox(height: AppSpacing.xs),
                       Text(
-                        item.product.title,
-                        maxLines: compact ? 1 : 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.body2.copyWith(
-                          color: AppColors.textStrong,
+                        item.displayTotalPrice,
+                        textAlign: TextAlign.right,
+                        style: AppTextStyles.caption.copyWith(
+                          color: AppColors.primaryPinkDark,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      if (item.product.optionText?.trim().isNotEmpty ==
-                          true) ...[
-                        const SizedBox(height: AppSpacing.xs),
-                        Text(
-                          item.product.optionText!.trim(),
-                          style: AppTextStyles.caption,
-                        ),
-                      ],
                     ],
                   ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (!compact && (onDecrease != null || onIncrease != null))
-                      _CartQuantityStepper(
-                        quantity: item.quantity,
-                        isUpdating: isUpdatingQuantity,
-                        onDecrease: onDecrease,
-                        onIncrease: onIncrease,
-                      )
-                    else
-                      Text(
-                        '${item.quantity}개',
-                        style: AppTextStyles.body2.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      item.displayTotalPrice,
-                      textAlign: TextAlign.right,
-                      style: AppTextStyles.caption.copyWith(
-                        color: AppColors.primaryPinkDark,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],

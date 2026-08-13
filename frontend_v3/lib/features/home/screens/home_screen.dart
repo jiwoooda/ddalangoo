@@ -15,6 +15,7 @@ import '../../../data/repositories/agent_repository.dart';
 import '../../../shared/layout/layout_presets.dart';
 import '../../../shared/layout/screen_frame.dart';
 import '../../../shared/layout/app_responsive.dart';
+import '../../../shared/services/spoken_sentence_player.dart';
 import '../../../shared/widgets/dialogue_bubble.dart';
 import '../../../shared/widgets/primary_button.dart';
 import '../../shopping/screens/shopping_flow_screen.dart';
@@ -34,6 +35,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _userName;
   Future<void> _speechQueue = Future<void>.value();
   int _speechRunId = 0;
+  final SpokenSentencePlayer _sentencePlayer = SpokenSentencePlayer();
+  String? _currentGreetingSentence;
 
   @override
   void initState() {
@@ -44,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _speechRunId += 1;
+    _sentencePlayer.cancel();
     unawaited(_voiceService.stopSpeaking());
     super.dispose();
   }
@@ -98,9 +102,13 @@ class _HomeScreenState extends State<HomeScreen> {
     ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
   }
 
-  // 말풍선 문구를 한 문장씩 순서대로 보여준다. DialogueBubble의
-  // cyclePages 기능과 같은 기준('\n')으로 TTS도 한 문장씩 백엔드에 보내서,
-  // 화면 텍스트와 실제로 말하는 내용이 같은 순서로 흘러가게 맞춘다.
+  // 말풍선 문구를 한 문장씩 순서대로 보여준다. 예전엔 DialogueBubble의
+  // cyclePages(고정 타이머로 문장을 순환하는 시각 효과)와 TTS 재생을 각자
+  // 따로 돌려서, 문장이 화면에 보이는 타이밍과 실제로 말하는 타이밍이
+  // 서로 어긋났다. 이제는 SpokenSentencePlayer가 "문장 표시 → 그 문장의
+  // TTS 재생 완료까지 대기 → 다음 문장" 순서를 직접 제어하고,
+  // DialogueBubble은 cyclePages:false로 그 결과(_currentGreetingSentence)를
+  // 그대로 보여주기만 한다.
   String get _greetingText {
     final trimmed = _userName?.trim();
     if (trimmed == null || trimmed.isEmpty) {
@@ -129,16 +137,24 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _speakGreetingSentences() {
     final runId = ++_speechRunId;
     final sentences = _greetingSentences;
+    setState(
+      () => _currentGreetingSentence = sentences.isEmpty
+          ? null
+          : sentences.first,
+    );
     _speechQueue = _speechQueue.then((_) async {
       try {
         await _voiceService.init();
         await _voiceService.stopSpeaking();
-        for (final sentence in sentences) {
-          if (!mounted || runId != _speechRunId) {
-            return;
-          }
-          await _voiceService.speak(sentence);
-        }
+        await _sentencePlayer.play(
+          sentences,
+          isMounted: () => mounted && runId == _speechRunId,
+          onSentence: (sentence) {
+            if (mounted) {
+              setState(() => _currentGreetingSentence = sentence);
+            }
+          },
+        );
       } catch (_) {
         // 홈 인사 TTS는 보조 기능이라 실패해도 화면 진입을 막지 않는다.
       }
@@ -303,8 +319,14 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               SizedBox(height: headerGap),
                               DialogueBubble(
-                                text: _greetingText,
-                                cyclePages: true,
+                                contentKey: ValueKey(
+                                  _currentGreetingSentence ?? _greetingText,
+                                ),
+                                animateTextChanges: true,
+                                text:
+                                    _currentGreetingSentence ??
+                                    _greetingSentences.first,
+                                cyclePages: false,
                                 highlightedWords: _greetingHighlightedWords,
                                 style: AppTextStyles.title2.copyWith(
                                   fontSize: responsive.bound(
