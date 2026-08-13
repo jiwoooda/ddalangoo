@@ -100,6 +100,16 @@ def chat(req: ChatRequest, authorization: Optional[str] = Header(default=None)):
         _graph.invoke(initial_state, config)
         _known_sessions.add(session_id)
 
+        proactive_reply, proactive_stage = _extract_reply(config)
+        if proactive_reply:
+            # session_start가 신규·미온보딩 유저로 판단해 딸랑구가 먼저 말을
+            # 걸었다(선제 인사). 이번 요청의 message를 바로 밀어넣고 또
+            # invoke하면 이 인사가 조용히 버려지고, 방금 보낸 message가
+            # 엉뚱하게 "그 인사에 대한 답"으로 처리돼버린다 — 그래서 이번
+            # 요청엔 선제 인사만 그대로 돌려주고, message는 다음 요청에서
+            # 자연스럽게 그 인사에 대한 답으로 처리되게 둔다.
+            return ChatResponse(session_id=session_id, reply=proactive_reply, stage=proactive_stage)
+
     _graph.update_state(config, {"messages": [{"role": "user", "content": req.message}]})
     try:
         _graph.invoke(None, config)
