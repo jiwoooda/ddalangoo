@@ -119,7 +119,9 @@ class SmalltalkOutput(BaseModel):
         "필드와 무관한 안부성 질문(예: '식사는 하셨어요?')이면 meal_check. 질문이 "
         "없었다면 null. 화제 반복 방지를 위해 코드가 이 값으로 추적하므로, 실제로 어떤 "
         "내용을 물었는지와 정확히 일치해야 한다(예: 좋아하는 음식을 물었으면 반드시 "
-        "favorite_foods, 다른 값을 쓰면 안 됨).",
+        "favorite_foods, 다른 값을 쓰면 안 됨). 리액션에 자연스럽게 얹힌 감탄형/수사적 "
+        "질문(예: '그럼 다음엔 또 뭘 드실지 궁금해지네요')처럼 실제로 그 정보를 알아내려는 "
+        "목적이 아니면 null로 두세요 — 진짜로 답을 듣고 싶어서 묻는 질문일 때만 채우세요.",
     )
 
 
@@ -175,10 +177,26 @@ _WRAP_UP_THIN_REPLY_ADDENDUM = """
 표현은 물음표만큼 피하세요 — 끝까지 완전한 평서문으로 마무리하세요.
 """
 
-# 최근 이만큼 연속으로 reply가 물음표로 끝났으면, 다음 턴은 질문을 강제로
-# 생략시킨다 — "질문 없는 턴도 괜찮다"는 권장 문구만으론 실측에서 매 턴
-# 질문이 반복됐다(8턴 전부 물음표로 끝남).
+# 최근 이만큼 연속으로 "정보요청형" 질문이 나왔으면, 다음 턴은 질문을
+# 강제로 생략시킨다 — "질문 없는 턴도 괜찮다"는 권장 문구만으론 실측에서
+# 매 턴 질문이 반복됐다(8턴 전부 물음표로 끝남). 처음엔 물음표 유무만
+# 봤는데, "그럼 다음엔 또 뭘 드실지 궁금해지네요"처럼 리액션에 자연스럽게
+# 얹힌 감탄형 질문까지 똑같이 카운트되면서, 실제로는 자연스럽게 이어가도
+# 되는 턴까지 억지로 평서문으로 끊어버리는 부작용이 있었다(사용자가 "할
+# 말이 없어진다"고 지적) — 그래서 카운트 대상을 asked_topic_field가 실제
+# 데이터 수집 필드일 때(_TRACKED_TOPIC_FIELDS에서 meal_check 제외 — 안부성
+# 질문이라 정보요청이 아님)로 좁혔다. 임계치 자체는 그대로 둔다: 이제
+# "정보요청형 질문 3연속"만 의미하므로 완화할 필요가 없다.
 _MAX_CONSECUTIVE_QUESTION_TURNS = 3
+
+# turns_without_progress(화제 정체 카운터)가 이 값 이상으로 극단적으로
+# 쌓이면, 정보요청형 질문 카운트와 무관하게 질문 억제를 강제한다 — 화제
+# 정체 강제개입(_TOPIC_STALL_TURN_THRESHOLD + _TOPIC_STALL_FORCE_AFTER_
+# IGNORED_TURNS = 4턴)까지 시도했는데도 안 풀리는 최후의 안전판. 정보요청형
+# 카운트를 좁힌 뒤에도 "필수 아닌 화제를 계속 캐묻는데 정체 카운터는 안
+# 오르는" 경우처럼 서로 다른 실패 모드를 잡으므로, 하나로 합치지 않고
+# OR로 결합한다.
+_QUESTION_SUPPRESSION_STALL_SAFETY_NET = 8
 
 # wrap-up과 같은 원리: 화법 few-shot 예시가 질문으로 끝나므로, 억제 문구를
 # "우선한다"고 덧붙이는 것만으론 못 이긴다(실측 확인됨) — 그래서 이번
@@ -303,6 +321,41 @@ def force_topic_pivot_reply(reply: str, target_field: str) -> str:
     without_question = _limit_questions(reply, max_questions=0).strip()
     pivot_question = _REQUIRED_FIELD_PIVOT_EXAMPLES[target_field].strip('"')
     return f"{without_question} {pivot_question}".strip()
+
+
+def force_repeat_avoidance_reply(
+    reply: str, merged_profile: dict, stalled_turns: int = 0
+) -> tuple[str, Optional[str]]:
+    """_is_cross_branch_repeat가 감지한 반복을 처리한다 — 미충족 필수
+    필드가 있으면 force_topic_pivot_reply로 그쪽으로 돌리고(반환값
+    asked_topic_field 갱신용), 없으면 질문만 제거한다."""
+    target = _topic_stall_target_field(merged_profile, stalled_turns)
+    if target:
+        return force_topic_pivot_reply(reply, target), target
+    return _limit_questions(reply, max_questions=0), None
+
+
+def _is_cross_branch_repeat(
+    *,
+    reply_has_question: bool,
+    asked_topic_field: Optional[str],
+    already_asked_topics: list[str],
+    health_followup_active: bool,
+    topic_stall_target: Optional[str],
+) -> bool:
+    """이번 턴이 어느 브랜치(wrap-up/건강확인/질문억제/이름안부/정상)에서
+    처리됐는지와 무관하게, 결과적으로 이미 물었던 화제를 또 물었는지만
+    본다 — avoid_repeat_instruction이 브랜치 배타 구조 때문에 정체 턴에는
+    아예 안 켜지는 사각지대(필수 필드 4개 밖의 화제)를 결정론적으로 잡는다.
+    건강 후속 확인 중엔 health_notes를 2턴 동안 다시 묻는 게 설계된
+    동작이라 예외 처리하고, 방금 화제 정체 강제개입이 이미 처리한 필드도
+    중복 개입하지 않는다."""
+    return (
+        reply_has_question
+        and asked_topic_field in already_asked_topics
+        and not health_followup_active
+        and asked_topic_field != topic_stall_target
+    )
 
 
 # 화제 반복 방지 — B-3(already_asked_topics)가 대화 중간 문단에서 "다시
@@ -1075,7 +1128,10 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             is_field_complete=_required_fields_filled(profile_before) and not health_followup_active,
             is_thin_reply=thin_reply,
         )
-        suppress_question = consecutive_question_turns >= _MAX_CONSECUTIVE_QUESTION_TURNS
+        suppress_question = (
+            consecutive_question_turns >= _MAX_CONSECUTIVE_QUESTION_TURNS
+            or stalled_turns_in >= _QUESTION_SUPPRESSION_STALL_SAFETY_NET
+        )
         name_greeting_hint = (
             SMALLTALK_NAME_GREETING_HINT.format(name=profile_before.get("preferred_name") or "어르신")
             if name_greeting_pending
@@ -1289,6 +1345,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
     # 채워졌으면), reply를 직접 고쳐서 그 질문을 강제로 붙인다. B-5와 같은
     # "지시만으론 안 되면 코드로" 원칙이지만, 여긴 지시 위반이 여러 턴
     # 반복될 때만 쓰는 마지막 수단이라 다른 B계열보다 개입 폭이 크다.
+    force_pivot_fired = False
     if (
         topic_stall_target
         and result.asked_topic_field != topic_stall_target
@@ -1303,6 +1360,34 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         result.reply = forced_reply
         result.asked_topic_field = topic_stall_target
         result.onboarding_complete = False
+        force_pivot_fired = True
+
+    # 브랜치 무관 화제 반복 감지 — avoid_repeat_instruction은 else(정상)
+    # 브랜치에서, 그것도 화제 정체가 아닐 때만 계산된다(topic_stall_
+    # instruction과 같은 턴에 "최우선" 블록 두 개를 넣으면 둘 다 무시되는
+    # dilution 문제 때문에 배타적으로 유지). 그런데 화제 정체(다른 화제로
+    # 전환하라는 지시)와 "이 화제는 이미 물었다"는 서로 다른 문제라, 정체
+    # 턴엔 후자를 감시할 지시 슬롯이 아예 없다 — 위 topic_stall_target이
+    # 커버하는 4개 필수 필드 밖의 화제(favorite_foods/usual_order_platform/
+    # inconveniences/health_notes/meal_check/preferred_name)가 반복돼도
+    # 어떤 브랜치가 그 턴을 처리했는지와 무관하게 걸러지도록, 최종 reply
+    # 결과만 보고 결정론적으로 재작성한다.
+    if not force_pivot_fired and _is_cross_branch_repeat(
+        reply_has_question=_is_question_sentence(result.reply),
+        asked_topic_field=result.asked_topic_field,
+        already_asked_topics=already_asked_topics_in,
+        health_followup_active=health_followup_active,
+        topic_stall_target=topic_stall_target,
+    ):
+        rewritten_reply, new_target = force_repeat_avoidance_reply(
+            result.reply, merged_profile, stalled_turns_in
+        )
+        agent_logger.log(
+            f"[smalltalk_agent] 브랜치 무관 화제 반복 감지 — 강제 개입 | "
+            f"field={result.asked_topic_field} before={result.reply!r} after={rewritten_reply!r}"
+        )
+        result.reply = rewritten_reply
+        result.asked_topic_field = new_target
 
     is_order_handoff = _looks_like_explicit_order_request(user_input)
     onboarding_complete = check_completion_gate(
@@ -1348,7 +1433,18 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         new_recent_episodes = (
             (recent_episodes_used + [chosen_episode_key])[-3:] if chosen_episode_key else recent_episodes_used
         )
-        new_consecutive_question_turns = consecutive_question_turns + 1 if reply_has_question else 0
+        # 물음표 유무가 아니라 "정보요청형" 질문인지로 카운트한다 —
+        # meal_check(안부성)와 null(리액션에 얹힌 감탄형)은 정보 수집이
+        # 목적이 아니므로 취조 피로도에 안 넣는다(모듈 상단 _MAX_
+        # CONSECUTIVE_QUESTION_TURNS 주석 참고).
+        is_information_seeking_question = (
+            reply_has_question
+            and result.asked_topic_field in _TRACKED_TOPIC_FIELDS
+            and result.asked_topic_field != "meal_check"
+        )
+        new_consecutive_question_turns = (
+            consecutive_question_turns + 1 if is_information_seeking_question else 0
+        )
         # "방금 이름을 막 알게 됐는지"를 LLM의 대화 이력 추론에 맡기지 않고,
         # 이번 턴에 preferred_name이 실제로 채워졌는지로 결정적으로 판단한다
         # (모듈 docstring 참고) — 다음 턴 CHAT_PROMPT에 안부 힌트를 주입할지를 정한다.
