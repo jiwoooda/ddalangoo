@@ -51,9 +51,11 @@ final shoppingFlowControllerProvider = StateNotifierProvider.autoDispose
 /// automation task/result 처리, 음성 녹음·재생, 카트 수량 변경, PIN 입력
 /// 같은 로직은 전부 여기 있다.
 class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
-  ShoppingFlowController({required ShoppingFlowService service, String? userName})
-    : _service = service,
-      super(ShoppingFlowState(resolvedUserName: userName?.trim())) {
+  ShoppingFlowController({
+    required ShoppingFlowService service,
+    String? userName,
+  }) : _service = service,
+       super(ShoppingFlowState(resolvedUserName: userName?.trim())) {
     unawaited(_bootstrapVoice());
     unawaited(_bootstrap());
   }
@@ -333,8 +335,12 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
   void applyResponse(AgentResponse response) {
     final nextStage = _service.inferViewStage(response);
     final previousConversationId = state.response?.conversationId;
+    final responseSentences = _sentencesForResponse(response);
     state = state.copyWith(
       response: response,
+      visibleAssistantMessage: responseSentences.isNotEmpty
+          ? responseSentences.first
+          : response.assistantMessage.trim(),
       viewStage: nextStage,
       inlineError: null,
       cartItemsOverride: previousConversationId != response.conversationId
@@ -407,7 +413,9 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
 
     _automationResultPollingTaskId = taskId;
     _automationResultPollTimer?.cancel();
-    _automationResultPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _automationResultPollTimer = Timer.periodic(const Duration(seconds: 2), (
+      _,
+    ) {
       unawaited(_consumeAutomationResult(conversationId: conversationId));
     });
   }
@@ -681,11 +689,50 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
     }
   }
 
+  List<String> _sentencesForResponse(AgentResponse response) {
+    if (response.messageSentences.isNotEmpty) {
+      return response.messageSentences;
+    }
+
+    final segmentSentences = response.speechSegments
+        .map((segment) => segment.text.trim())
+        .where((sentence) => sentence.isNotEmpty)
+        .toList(growable: false);
+    if (segmentSentences.isNotEmpty) {
+      return segmentSentences;
+    }
+
+    return _fallbackSplitSentences(response.assistantMessage);
+  }
+
+  List<String> _fallbackSplitSentences(String message) {
+    final normalized = message.trim();
+    if (normalized.isEmpty) {
+      return const <String>[];
+    }
+
+    final matches = RegExp(r'[^.!?。？！]+[.!?。？！]?').allMatches(normalized);
+    final sentences = matches
+        .map((match) => match.group(0)?.trim() ?? '')
+        .where((sentence) => sentence.isNotEmpty)
+        .toList(growable: false);
+    return sentences.isEmpty ? <String>[normalized] : sentences;
+  }
+
+  List<String> _promptSentencesToSpeak(String prompt) {
+    final response = state.response;
+    if (response != null && response.assistantMessage.trim() == prompt) {
+      return _sentencesForResponse(response);
+    }
+    return _fallbackSplitSentences(prompt);
+  }
+
   Future<void> _speakPromptIfNeeded({bool force = false}) async {
     final prompt = _promptToSpeak?.trim();
     if (prompt == null || prompt.isEmpty || state.isRecording) {
       return;
     }
+    final promptSentences = _promptSentencesToSpeak(prompt);
 
     final promptKey =
         '${state.response?.conversationId ?? 0}:${state.viewStage.name}:$prompt';
@@ -699,7 +746,19 @@ class ShoppingFlowController extends StateNotifier<ShoppingFlowState> {
     }
 
     try {
-      await _voiceService.speak(prompt);
+      for (final sentence in promptSentences) {
+        if (!mounted) {
+          return;
+        }
+        final normalizedSentence = sentence.trim();
+        if (normalizedSentence.isEmpty) {
+          continue;
+        }
+        if (state.response?.assistantMessage.trim() == prompt) {
+          state = state.copyWith(visibleAssistantMessage: normalizedSentence);
+        }
+        await _voiceService.speak(normalizedSentence);
+      }
     } catch (_) {
       // Voice playback is best-effort.
     } finally {

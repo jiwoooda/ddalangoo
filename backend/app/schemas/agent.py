@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Any, Literal
 
+from app.utils.sentence_segmentation import split_response_sentences
+
 class RecommendationItemInAgent(BaseModel):
     recommendationItemId: Optional[int] = None
     productId: int
@@ -93,11 +95,21 @@ class AutomationVlmPlanResponse(BaseModel):
     confidence: float = 0.0
     reason: str
 
+class SpeechSegmentInAgent(BaseModel):
+    index: int
+    text: str
+    audioUrl: Optional[str] = None
+    durationMs: Optional[int] = None
+
 class AgentResponse(BaseModel):
     conversationId: int
     status: str
     stage: str
     assistantMessage: str
+    message: Optional[str] = None
+    messageSentences: List[str] = Field(default_factory=list)
+    speechMode: Optional[str] = None
+    speechSegments: List[SpeechSegmentInAgent] = Field(default_factory=list)
     recommendationId: Optional[int] = None
     recommendations: List[RecommendationItemInAgent] = []
     selectedProduct: Optional[Any] = None
@@ -112,6 +124,19 @@ class AgentResponse(BaseModel):
     automationResult: Optional[AutomationResultInAgent] = None
     asyncStatus: Optional[Any] = None
     error: Optional[Any] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.message is None:
+            self.message = self.assistantMessage
+
+        if not self.messageSentences:
+            self.messageSentences = split_response_sentences(self.assistantMessage)
+
+        if not self.speechSegments:
+            self.speechSegments = [
+                SpeechSegmentInAgent(index=index, text=sentence)
+                for index, sentence in enumerate(self.messageSentences)
+            ]
 
 class ShoppingRequest(BaseModel):
     userId: int

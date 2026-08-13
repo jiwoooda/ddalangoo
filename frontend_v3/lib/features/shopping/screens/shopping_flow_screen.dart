@@ -45,8 +45,7 @@ class ShoppingFlowScreen extends ConsumerStatefulWidget {
   final ShoppingFlowService? service;
 
   @override
-  ConsumerState<ShoppingFlowScreen> createState() =>
-      _ShoppingFlowScreenState();
+  ConsumerState<ShoppingFlowScreen> createState() => _ShoppingFlowScreenState();
 }
 
 class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
@@ -81,11 +80,9 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
   bool get _isRecording => _flowState.isRecording;
   bool get _isSpeaking => _flowState.isSpeaking;
   bool get _isUpdatingCartQuantity => _flowState.isUpdatingCartQuantity;
-  int? get _userId => _flowState.userId;
   String? get _resolvedUserName => _flowState.resolvedUserName;
+  String? get _visibleAssistantMessage => _flowState.visibleAssistantMessage;
   ShoppingAddressViewData? get _fallbackAddress => _flowState.fallbackAddress;
-  List<ShoppingCartItemViewData>? get _cartItemsOverride =>
-      _flowState.cartItemsOverride;
 
   // 웹뷰 기반 결제 자동화는 이제 accessibility automationTask 경로로 대체돼서
   // 실질적으로 도달하지 않는 레거시 흐름이다. Navigator가 필요해서 컨트롤러로
@@ -107,7 +104,8 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
     );
   }
 
-  Future<void> _confirmAction(String action) => _controller.confirmAction(action);
+  Future<void> _confirmAction(String action) =>
+      _controller.confirmAction(action);
 
   Future<void> _toggleVoiceInput() => _controller.toggleVoiceInput();
 
@@ -123,6 +121,7 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
   ) {
     return _controller.changeCartItemQuantity(item, nextQuantity);
   }
+
   void _handlePendingWebviewTask() {
     final response = _response;
     if (!mounted || response == null) {
@@ -371,48 +370,6 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
         : VoiceInputState.inactive;
   }
 
-  String? get _spokenPromptText {
-    final assistantText = _assistantText;
-    if (assistantText != null && assistantText.isNotEmpty) {
-      return assistantText;
-    }
-
-    switch (_viewStage) {
-      case ShoppingFlowViewStage.askProduct:
-      case ShoppingFlowViewStage.searchingProduct:
-        // 예전엔 음성 버튼 옆에 예시 답변 칩("토마토 사고 싶어" 등)을 따로
-        // 보여줬는데, 데모에서는 그 칩을 없애기로 해서 같은 예시를 딸랑구
-        // 안내 멘트 자체에 자연스럽게 녹였다. quickRepliesFor와 같은
-        // 소스를 써서 칩 문구가 바뀌면 이 안내도 같이 바뀐다.
-        final askProductExample = _askProductExample;
-        if (_resolvedUserName != null && _resolvedUserName!.trim().isNotEmpty) {
-          final name = _resolvedUserName!;
-          return '$name님, 어떤게 필요하세요? '
-              '"$askProductExample" 처럼, 원하시는 상품을 말해주시면 '
-              '$name님을 위한 상품을 바로 찾아드릴게요!';
-        }
-        return '어떤게 필요하세요? '
-            '"$askProductExample" 처럼, 원하시는 상품을 말해주시면 '
-            '바로 찾아드릴게요!';
-      case ShoppingFlowViewStage.quantitySelection:
-        return '좋아요. 몇 개 담아드릴까요?';
-      case ShoppingFlowViewStage.cartCompleted:
-        return '장바구니에 담았어요. 이제 결제를 진행할까요?';
-      case ShoppingFlowViewStage.addressConfirmation:
-        return '배송지를 확인해주세요. 맞으면 네, 맞아요 라고 말씀해주세요.';
-      case ShoppingFlowViewStage.paymentConfirmation:
-        return '결제를 진행할까요? 맞으면 네, 진행해줘 라고 말씀해주세요.';
-      case ShoppingFlowViewStage.error:
-        return '조금만 다시 말씀해주시면 이어서 도와드릴게요.';
-      case ShoppingFlowViewStage.productSelection:
-      case ShoppingFlowViewStage.cartProcessing:
-      case ShoppingFlowViewStage.paymentPassword:
-      case ShoppingFlowViewStage.paymentProcessing:
-      case ShoppingFlowViewStage.completed:
-        return null;
-    }
-  }
-
   List<DialogueSegment>? get _fallbackPromptSegments {
     switch (_viewStage) {
       case ShoppingFlowViewStage.askProduct:
@@ -430,18 +387,14 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
           return [
             DialogueSegment(text: '$name님, ', emphasized: true),
             const DialogueSegment(text: '어떤게 필요하세요? '),
-            DialogueSegment(
-              text: '"$askProductExample" 처럼, 원하시는 상품을 말해주시면\n',
-            ),
+            DialogueSegment(text: '"$askProductExample" 처럼, 원하시는 상품을 말해주시면\n'),
             DialogueSegment(text: '$name님', emphasized: true),
             const DialogueSegment(text: '을 위한 상품을 바로 찾아드릴게요!'),
           ];
         }
         return [
           const DialogueSegment(text: '어떤게 필요하세요? '),
-          DialogueSegment(
-            text: '"$askProductExample" 처럼, 원하시는 상품을 말해주시면\n',
-          ),
+          DialogueSegment(text: '"$askProductExample" 처럼, 원하시는 상품을 말해주시면\n'),
           const DialogueSegment(text: '바로 찾아드릴게요!'),
         ];
       case ShoppingFlowViewStage.quantitySelection:
@@ -464,7 +417,8 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
   }
 
   String? get _assistantText {
-    final message = _response?.assistantMessage.trim();
+    final message =
+        _visibleAssistantMessage?.trim() ?? _response?.assistantMessage.trim();
     if (message != null && message.isNotEmpty) {
       return message;
     }
@@ -608,7 +562,7 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
         // 보여준다. 실제 백엔드 응답처럼 문장이 길어져도 말풍선 높이를
         // 고정으로 유지하면서 잘리지 않게 하고, 딸랑구가 실제로 한 문장씩
         // 말하는 듯한 느낌도 준다.
-        cyclePages: true,
+        cyclePages: false,
         borderColor: AppSurfaceStyles.emphasisOutlineColor,
         minHeight: dialogueSectionHeight - 8,
         scrollableContent: true,
@@ -698,7 +652,7 @@ class _ShoppingFlowScreenState extends ConsumerState<ShoppingFlowScreen> {
     switch (_viewStage) {
       case ShoppingFlowViewStage.askProduct:
         // 실제 서비스에서는 예시 답변 칩을 제거하고 같은 예시를 딸랑구
-        // 멘트(_fallbackPromptSegments/_spokenPromptText)로 옮겼다. 다만
+        // 멘트(_fallbackPromptSegments/컨트롤러 TTS prompt)로 옮겼다. 다만
         // 에뮬레이터에서 빠르게 흐름을 테스트할 수 있도록 mock flow에서는
         // 예시 답변 칩을 그대로 유지한다.
         if (_service is! MockShoppingFlowService) {
@@ -1935,7 +1889,6 @@ class _OverlayReplyOption {
   final String label;
   final VoidCallback? onTap;
 }
-
 
 class _QuickReplyChip extends StatelessWidget {
   const _QuickReplyChip({

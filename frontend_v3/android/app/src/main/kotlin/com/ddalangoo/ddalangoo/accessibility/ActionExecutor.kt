@@ -3,6 +3,7 @@ package com.ddalangoo.ddalangoo.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -299,6 +300,46 @@ class ActionExecutor(private val service: AccessibilityService) {
     }
 
     private fun executeKeyboardSearch(): ActionResult {
+        executeImeEnterOnFocusedInput()?.let { imeEnterResult ->
+            if (imeEnterResult.success) {
+                return imeEnterResult
+            }
+        }
+
+        return dispatchKeyboardSearchTap()
+    }
+
+    private fun executeImeEnterOnFocusedInput(): ActionResult? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+
+        val focusedNode = service.rootInActiveWindow
+            ?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: return null
+
+        val imeEnterActionId = AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
+        val actionSupported = focusedNode.actionList.any { action ->
+            action.id == imeEnterActionId
+        }
+        if (!actionSupported) return null
+
+        return if (focusedNode.performAction(imeEnterActionId)) {
+            ActionResult(
+                success = true,
+                method = ActionExecutionMethod.TARGET_ACTION.value,
+                errorCode = null,
+                message = "Performed IME enter on focused input"
+            )
+        } else {
+            ActionResult(
+                success = false,
+                method = ActionExecutionMethod.TARGET_ACTION.value,
+                errorCode = "IME_ENTER_FAILED",
+                message = "Failed to perform IME enter on focused input"
+            )
+        }
+    }
+
+    private fun dispatchKeyboardSearchTap(): ActionResult {
         val displayMetrics = service.resources.displayMetrics
         val tapPath = Path().apply {
             moveTo(displayMetrics.widthPixels * 0.92f, displayMetrics.heightPixels * 0.88f)
