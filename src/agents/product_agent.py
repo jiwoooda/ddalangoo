@@ -24,9 +24,50 @@ from src.prompts.scoring_prompt import SCORING_PROMPT
 from src.utils.agent_logger import agent_logger
 from src.utils.search_keywords import build_search_query
 from src.utils.aggregator import aggregate, normalize_fixed_axes, normalize_weights
+from src.utils.priority_resolver import _mentions_same_target
 from src.utils.retry import classify_failure, retry_call
 
 ALL_PLATFORMS = ["naver", "coupang", "kurly"]
+
+# tier1 안전필터 폴백용 — nutrition_info가 없는 상품(mcp 실API 등)에서
+# 라벨 자체가 상품명/카테고리에 그대로 안 나타나는 경우를 위한 구체어 확장.
+_SAFETY_KEYWORD_EXPANSIONS: dict[str, list[str]] = {
+    "유제품": ["우유", "치즈", "버터", "크림", "연유", "분유", "요거트", "요구르트", "유청", "카제인"],
+    "유당불내증": ["우유", "치즈", "버터", "크림", "연유", "분유", "유당"],
+    "계란": ["계란", "달걀", "난류", "마요네즈"],
+    "난류": ["계란", "달걀", "난류", "마요네즈"],
+    "땅콩": ["땅콩", "피넛"],
+    "견과류": ["땅콩", "호두", "아몬드", "캐슈넛", "잣", "견과"],
+    "밀": ["밀", "밀가루", "글루텐"],
+    "글루텐": ["밀", "밀가루", "글루텐"],
+    "대두": ["대두", "콩", "두유"],
+    "갑각류": ["새우", "게", "갑각류"],
+}
+
+# 상품명에 이 라벨이 있으면 해당 제약은 통과시킨다(예: "우유"가 걸려도
+# "락토프리"가 같이 적혀 있으면 유당불내증/유제품 제약은 통과). 성분을
+# 실제로 검증한 게 아니라 제조사가 표기한 상품명 문구를 신뢰하는
+# best-effort이므로, allergens/diet_restrictions 구분 없이 라벨 자체가
+# 곧 안전 근거다 — 정확한 알레르기 판정이 필요하면 nutrition_info 연동이
+# 별도로 필요하다.
+_SAFETY_SAFE_LABELS: dict[str, list[str]] = {
+    "유제품": ["락토프리", "무유당", "저유당", "소화가잘되는", "소화가 잘되는", "소화가 잘 되는"],
+    "유당불내증": ["락토프리", "무유당", "저유당", "소화가잘되는", "소화가 잘되는", "소화가 잘 되는"],
+    "설탕": ["무설탕", "저당", "제로", "무가당", "라이트"],
+    "당": ["무설탕", "저당", "제로", "무가당", "라이트"],
+}
+
+
+def _strip_spaces(text: str) -> str:
+    return re.sub(r"\s+", "", text)
+
+
+def _safety_fallback_keywords(label: str) -> list[str]:
+    return _SAFETY_KEYWORD_EXPANSIONS.get(label, [label])
+
+
+def _has_safe_label(label: str, haystack_no_space: str) -> bool:
+    return any(_strip_spaces(safe) in haystack_no_space for safe in _SAFETY_SAFE_LABELS.get(label, []))
 
 
 def _no_results_message(keywords: list[str]) -> str:
@@ -237,23 +278,61 @@ def _run_scoring_llm(
 def _fails_safety_constraints(product: dict[str, Any], safety_constraints: list[str]) -> bool:
     """
     tier1(알레르기/식이제약) binary 배제. nutrition_info.allergens에 실제로
-    태깅된 성분만 본다 — 상품명 substring 매칭이 아님 (오탐 줄이려는 목적).
-    nutrition_info가 아예 없는 상품(연동 전 mcp 결과 등)은 판단 불가이므로
-    안전 쪽으로 보수적으로 배제한다.
+    태깅된 성분이 있으면 그걸로 정확히 판정한다 (상품명 substring 매칭이
+    아님 — 오탐 줄이려는 목적).
+
+    nutrition_info가 아예 없는 상품(mcp 실API 등 성분표 연동 전 결과)은
+    상품명/카테고리/브랜드 텍스트를 _SAFETY_KEYWORD_EXPANSIONS로 확장한
+    구체어와 매칭하는 best-effort 폴백으로 대신한다 — 완전한 성분 검증은
+    아니지만, 예전처럼 nutrition_info 없다고 무조건 전체 차단하는 것보다는
+    실제로 위험해 보이는 카테고리만 걸러낸다.
+
+    단, 상품명에 _SAFETY_SAFE_LABELS(락토프리/무유당/소화가 잘되는 등)가
+    함께 적혀 있으면 그 제약에 한해 통과시킨다 — 제조사 표기를 신뢰하는
+    것이므로 완벽한 성분 검증은 아니다.
     """
     if not safety_constraints:
         return False
     nutrition = product.get("nutrition_info")
-    if not nutrition:
+    if nutrition:
+        allergens = set(nutrition.get("allergens") or [])
+        return bool(allergens & set(safety_constraints))
+
+    haystack = " ".join([
+        str(product.get("product_name") or ""),
+        str(product.get("category_name") or ""),
+        str(product.get("brand") or ""),
+    ]).lower()
+    haystack_no_space = _strip_spaces(haystack)
+    for label in safety_constraints:
+        if _has_safe_label(label, haystack_no_space):
+            continue
+        if any(_strip_spaces(kw.lower()) in haystack_no_space for kw in _safety_fallback_keywords(label)):
+            return True
+    return False
+
+
+def _matches_requested_keywords(product: dict[str, Any], requested_keywords: list[str]) -> bool:
+    """원 요청(state.keywords)과 실제로 관련 있는 후보인지 검증.
+
+    검색 쿼리에 keyword_additions("락토프리 우유" 등)를 붙이면 검색엔진이
+    "락토프리"만 보고 원 요청과 무관한 카테고리(예: 락토프리 단백질 보충제)를
+    끼워 넣을 수 있다 — 실측에서 "우유 사줘"가 유청 단백질 파우더로 새는
+    사례가 확인됐다. 원 키워드가 상품명/브랜드에 하나도 안 걸리면 애초에
+    "이번 요청에 대한 답"이 아니므로, 락토프리 같은 속성 매칭 이전에 걸러낸다.
+    """
+    if not requested_keywords:
         return True
-    allergens = set(nutrition.get("allergens") or [])
-    return bool(allergens & set(safety_constraints))
+    name = str(product.get("product_name") or "").lower()
+    brand = str(product.get("brand") or "").lower()
+    return any(kw.lower() in name or kw.lower() in brand for kw in requested_keywords if kw)
 
 
 def _filter_results(
     products: list[dict[str, Any]],
     exclude_keywords: list[str],
     safety_constraints: list[str] | None = None,
+    requested_keywords: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     filtered = []
     for p in products:
@@ -263,9 +342,17 @@ def _filter_results(
             continue
         if p.get("price") is None:
             continue
+        if not _matches_requested_keywords(p, requested_keywords or []):
+            continue
         name = p.get("product_name", "").lower()
         brand = str(p.get("brand") or "").lower()
-        if any(ex.lower() in name or ex.lower() in brand for ex in exclude_keywords):
+        name_no_space = _strip_spaces(name + " " + brand)
+        # "설탕" 배제가 "무설탕"까지 물어가는 negation-prefix 오탐 방지 —
+        # tier1과 동일하게 안전라벨이 붙어 있으면 그 배제는 통과시킨다.
+        if any(
+            _strip_spaces(ex.lower()) in name_no_space and not _has_safe_label(ex, name_no_space)
+            for ex in exclude_keywords
+        ):
             continue
         if _fails_safety_constraints(p, safety_constraints or []):
             continue
@@ -273,21 +360,40 @@ def _filter_results(
     return filtered
 
 
-def _baseline_rank(candidates: list[dict[str, Any]], keywords: list[str]) -> list[dict[str, Any]]:
+def _baseline_rank(
+    candidates: list[dict[str, Any]],
+    keywords: list[str],
+    exclude_keywords: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """LLM 스코어링 실패 시 결정론적 폴백(Graceful Degradation).
 
     candidates는 이미 _filter_results로 안전조건/명시적 제외를 통과한 상태이므로
     별도 안전 필터링 없이, 키워드 매치 개수 → 평점 → 리뷰 수 → product_url(안정적
-    tie-break) 순으로만 정렬한다. 동일 입력이면 항상 동일 순서가 나온다."""
+    tie-break) 순으로만 정렬한다. 동일 입력이면 항상 동일 순서가 나온다.
+
+    영양성분을 볼 수 없어 "설탕 없음"을 완벽히 검증할 방법이 없다 — exclude_keywords에
+    당분 관련 배제(설탕/당)가 있으면, 상품명에 _SAFETY_SAFE_LABELS로 안전 라벨(저당/
+    무설탕/제로 등)이 붙은 후보를 최우선으로 정렬해서 "그나마 가장 저당에 가까운" 걸
+    고른다 — 완벽한 필터링 대신 최선의 근사 선택."""
     kw_lower = [k.lower() for k in keywords if k]
+    diet_boost_labels: set[str] = set()
+    for ex in (exclude_keywords or []):
+        diet_boost_labels.update(_SAFETY_SAFE_LABELS.get(ex, []))
 
     def _keyword_match_count(p: dict[str, Any]) -> int:
         name = str(p.get("product_name") or "").lower()
         brand = str(p.get("brand") or "").lower()
         return sum(1 for k in kw_lower if k in name or k in brand)
 
+    def _diet_boost(p: dict[str, Any]) -> int:
+        if not diet_boost_labels:
+            return 0
+        name_no_space = _strip_spaces(str(p.get("product_name") or "").lower())
+        return sum(1 for label in diet_boost_labels if _strip_spaces(label) in name_no_space)
+
     def _sort_key(p: dict[str, Any]) -> tuple:
         return (
+            -_diet_boost(p),
             -_keyword_match_count(p),
             -float(p.get("rating") or 0),
             -int(p.get("review_count") or 0),
@@ -302,6 +408,7 @@ def _rank_with_metadata(
     keywords: list[str],
     condition: str | None,
     preference_context: dict[str, Any],
+    exclude_keywords: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Stage4: 판단(LLM, 1콜)=axis_weight+tier3 매칭 → 계산(코드, aggregator)=
@@ -361,7 +468,7 @@ def _rank_with_metadata(
         )
         agent_logger.log_graceful_degradation(node="product_agent", reason=f"{fc.value}:{e}", stage="scoring_llm")
         return {
-            "ranked_products": _baseline_rank(candidates, keywords),
+            "ranked_products": _baseline_rank(candidates, keywords, exclude_keywords),
             # 검색(tool)은 성공했고 스코어링 LLM만 실패한 것이므로 이 필드는
             # 보조 신호로만 쓴다 — 실제 축소 여부는 ranking_mode/degraded_mode로 판단.
             "tool_call_success": False,
@@ -394,7 +501,7 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
     # ── next/deny: 재검색 없이 다음 후보 ──
     if intent in ("next", "deny") and existing_ranked:
         if condition:
-            rank_meta = _rank_with_metadata(existing_ranked, keywords, condition, preference_context)
+            rank_meta = _rank_with_metadata(existing_ranked, keywords, condition, preference_context, exclude_keywords)
             reranked = rank_meta["ranked_products"]
             top_product = reranked[0] if reranked else None
             if not top_product:
@@ -450,7 +557,26 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
         }
 
     # ── 전체 플랫폼 동시 검색 ──
-    query = build_search_query(keywords)
+    # keyword_additions(context_agent의 retrieval_signals)는 "유당불내증" →
+    # "락토프리 우유"처럼 프로필 제약을 구체 검색어로 번역한 값인데, 이번
+    # keywords와 무관한 신호까지 섞여 있을 수 있다(예: 오늘 "커피 원두"를
+    # 검색 중인데 프로필의 유당불내증이 매턴 "락토프리 우유"로 번역돼 따라
+    # 붙는 경우 — context_agent.py:638-642 참고). 오늘 keywords와 같은
+    # 대상을 가리키는 addition만 골라 붙여서 무관한 카테고리 오염을 막는다.
+    relevant_additions = [
+        addition for addition in (preference_context.get("keyword_additions") or [])
+        if any(_mentions_same_target(kw, addition) for kw in keywords)
+    ]
+    # LLM 분류기가 "당뇨 → 저당" 같은 retrieval 신호를 안정적으로 안 뽑는 경우가
+    # 있어(모델 편차) exclude_keywords에 이미 확정된 배제어(설탕 등)가 있으면
+    # _SAFETY_SAFE_LABELS로 대응하는 대표 라벨(저당 등)을 코드에서 직접
+    # 쿼리에 붙인다 — LLM 신뢰도에 기대지 않는 결정론적 보강.
+    diet_query_additions = list(dict.fromkeys(
+        _SAFETY_SAFE_LABELS[ex][0]
+        for ex in exclude_keywords
+        if ex in _SAFETY_SAFE_LABELS
+    ))
+    query = build_search_query(keywords + relevant_additions + diet_query_additions)
     effective_condition, preferred_platform = _derive_search_params(condition, preference_context)
     sort = CONDITION_MAP.get(effective_condition, "relevance") if effective_condition else "relevance"
 
@@ -465,10 +591,14 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
         condition=sort,
         preferred_platform=preferred_platform,
     )
-    candidates = _filter_results(raw_results, exclude_keywords, preference_context.get("safety_constraints"))
+    candidates = _filter_results(
+        raw_results, exclude_keywords, preference_context.get("safety_constraints"),
+        requested_keywords=keywords,
+    )
 
     if not candidates:
         return {
+            "search_query": query,
             "stage": "idle",
             "error": "no_candidates",
             "last_agent": "product_agent",
@@ -476,12 +606,13 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
         }
 
     agent_logger.log(f"[product_agent] 랭킹 | 후보 {len(candidates)}개")
-    rank_meta = _rank_with_metadata(candidates, keywords, condition, preference_context)
+    rank_meta = _rank_with_metadata(candidates, keywords, condition, preference_context, exclude_keywords)
     ranked_products = rank_meta["ranked_products"]
 
     top_product = ranked_products[0] if ranked_products else None
     if not top_product:
         return {
+            "search_query": query,
             "stage": "idle",
             "error": "no_relevant_products",
             "last_agent": "product_agent",
@@ -494,6 +625,7 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
     )
     return {
         "search_results": candidates,
+        "search_query": query,
         "selected_product": top_product,
         "product_url": top_product.get("product_url"),
         "recommended_products": ranked_products,

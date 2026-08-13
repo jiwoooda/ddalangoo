@@ -89,6 +89,15 @@ def get_llm(agent: str, *, retry_owner: str = "sdk", **kwargs) -> BaseChatModel:
     backend = os.getenv("LLM_BACKEND", "api")
     model = os.getenv(_ENV_KEYS[agent], _DEFAULT_MODELS[backend][agent])
 
+    # 실험(population eval 등)에서 재현성을 위해 모든 에이전트의 temperature를
+    # 한 번에 통제하고 싶을 때 쓰는 전역 오버라이드 — 각 에이전트 모듈이
+    # 저마다 다른 기본 temperature를 하드코딩(kwargs로 호출부에서 지정)해서,
+    # 실험 스크립트가 매 호출부를 일일이 고치지 않고 프로세스 시작 시 env
+    # 하나만 세팅해서 전부 덮어쓸 수 있게 한다.
+    temperature_override = os.getenv("LLM_TEMPERATURE_OVERRIDE")
+    if temperature_override is not None:
+        kwargs["temperature"] = float(temperature_override)
+
     # eval 실험 콜백 주입 (set_eval_callbacks 로 등록된 경우)
     extra_cbs = list(getattr(_eval_local, 'callbacks', None) or [])
     if extra_cbs:
