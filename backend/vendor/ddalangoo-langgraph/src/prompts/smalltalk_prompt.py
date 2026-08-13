@@ -391,7 +391,9 @@ household_size, value_priority, delivery_priority, cooking_frequency,
 preferred_name 중 하나. profile 필드와 무관한 안부성 질문(예: "식사는
 하셨어요?")이면 meal_check. 질문이 없었다면 null로 두세요 — 코드가 이
 값으로 같은 화제 재질문을 막으므로, 실제로 물은 내용과 반드시 일치해야
-합니다.
+합니다. 리액션에 자연스럽게 얹힌 감탄형 질문(예: "그럼 다음엔 또 뭘
+드실지 궁금해지네요")처럼 실제로 그 정보를 알아내려는 목적이 아니면
+null로 두세요 — 진짜로 답을 듣고 싶어서 묻는 질문일 때만 채우세요.
 
 이미 물었지만 아직 답을 못 들은 화제: {already_asked_topics}
 위 화제는 표현을 바꿔서도 다시 묻지 마세요 — 사용자가 답을 피했다면
