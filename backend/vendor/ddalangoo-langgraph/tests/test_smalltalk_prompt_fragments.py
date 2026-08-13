@@ -9,8 +9,10 @@ if not hasattr(langgraph.errors, "NodeError"):
     langgraph.errors.NodeError = NodeError
 
 from src.agents.smalltalk_agent import (
+    _is_cross_branch_repeat,
     _next_name_greeting_pending,
     check_episode_verbatim_copy,
+    force_repeat_avoidance_reply,
     is_thin_reply,
     select_style_pattern,
 )
@@ -79,6 +81,76 @@ def test_new_name_arms_greeting_once():
         extracted_name="김철수",
         previous_name=None,
     )
+
+
+def test_cross_branch_repeat_detected_when_pending_field_re_asked():
+    assert _is_cross_branch_repeat(
+        reply_has_question=True,
+        asked_topic_field="favorite_foods",
+        already_asked_topics=["favorite_foods", "meal_check"],
+        health_followup_active=False,
+        topic_stall_target="household_size",
+    )
+
+
+def test_cross_branch_repeat_ignores_health_followup_turn():
+    # health_notes가 감지 턴+다음 턴 2턴 동안 다시 나오는 건 설계된 동작 —
+    # already_asked_topics에 남아있어도 반복으로 오판하면 안 된다.
+    assert not _is_cross_branch_repeat(
+        reply_has_question=True,
+        asked_topic_field="health_notes",
+        already_asked_topics=["health_notes"],
+        health_followup_active=True,
+        topic_stall_target=None,
+    )
+
+
+def test_cross_branch_repeat_ignores_field_already_handled_by_forced_pivot():
+    assert not _is_cross_branch_repeat(
+        reply_has_question=True,
+        asked_topic_field="household_size",
+        already_asked_topics=["household_size"],
+        health_followup_active=False,
+        topic_stall_target="household_size",
+    )
+
+
+def test_cross_branch_repeat_false_when_no_question_or_not_pending():
+    assert not _is_cross_branch_repeat(
+        reply_has_question=False,
+        asked_topic_field="favorite_foods",
+        already_asked_topics=["favorite_foods"],
+        health_followup_active=False,
+        topic_stall_target=None,
+    )
+    assert not _is_cross_branch_repeat(
+        reply_has_question=True,
+        asked_topic_field="favorite_foods",
+        already_asked_topics=["household_size"],
+        health_followup_active=False,
+        topic_stall_target=None,
+    )
+
+
+def test_force_repeat_avoidance_pivots_to_missing_required_field():
+    reply, target = force_repeat_avoidance_reply(
+        "와, 그 카페 진짜 좋네요! 어떤 음료를 좋아하세요?",
+        merged_profile={"household_size": None, "delivery_priority": "빠른배송",
+                         "value_priority": "가성비", "food_dislikes": ["매운 음식"]},
+    )
+    assert target == "household_size"
+    assert "어떤 음료를 좋아하세요" not in reply
+    assert "혼자 지내세요" in reply
+
+
+def test_force_repeat_avoidance_strips_question_when_no_required_field_missing():
+    reply, target = force_repeat_avoidance_reply(
+        "와, 그 카페 진짜 좋네요! 어떤 음료를 좋아하세요?",
+        merged_profile={"household_size": 1, "delivery_priority": "빠른배송",
+                         "value_priority": "가성비", "food_dislikes": ["매운 음식"]},
+    )
+    assert target is None
+    assert "?" not in reply and "？" not in reply
 
 
 def test_repl_degraded_result_is_detectable():
