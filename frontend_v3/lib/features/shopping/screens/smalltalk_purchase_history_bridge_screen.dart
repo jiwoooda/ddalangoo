@@ -126,7 +126,11 @@ class _SmallTalkPurchaseHistoryBridgeScreenState
           DialogueBubble(
             contentKey: ValueKey(_currentMessage),
             text: _currentMessage,
-            cyclePages: true,
+            // 바깥 for 루프가 이미 문장 단위로 speak()를 기다렸다 다음
+            // 문장으로 넘어간다. cyclePages(내부 고정 타이머 순환)는 다른
+            // 화면들과 통일해서 꺼둔다 — 안 그러면 문장이 길어졌을 때만
+            // 내부적으로 또 쪼개 순환하려 들어 타이밍이 어긋날 수 있다.
+            cyclePages: false,
             highlightedWords: [_resolvedUserName, '취향', '구매하셨던 이력'],
             minHeight: 172,
             padding: const EdgeInsets.symmetric(
