@@ -21,7 +21,9 @@ class AdditionalSignal(BaseModel):
 class SmalltalkProfileSchema(BaseModel):
     food_dislikes: list[str] = Field(
         default_factory=list,
-        description="알레르기는 아니지만 못 먹거나 싫어하는 음식/식감 (예: 매운 음식, 질긴 고기)",
+        description="알레르기는 아니지만 못 먹거나 싫어하는 음식/식감 (예: 매운 음식, 질긴 고기). "
+        "이 질문을 받고 사용자가 명확히 '없다'고 답했다면 빈 리스트로 남기지 말고 "
+        "정확히 [\"없음\"]으로 채우세요 — '아직 안 물어봄'과 '물어봤는데 없음'을 구분하기 위함입니다.",
     )
     value_priority: Optional[Literal["가성비", "품질·브랜드", "무관"]] = Field(
         default=None,
@@ -58,7 +60,9 @@ class SmalltalkProfileSchema(BaseModel):
     )
     health_notes: list[str] = Field(
         default_factory=list,
-        description="알레르기·식이제한 이상으로 신경 쓰이는 건강 상태 (예: 당뇨, 혈압, 저염식 필요, 복용 중인 약)",
+        description="알레르기·식이제한 이상으로 신경 쓰이는 건강 상태 (예: 당뇨, 혈압, 저염식 필요, 복용 중인 약). "
+        "이 질문을 받고 사용자가 명확히 '없다'고 답했다면 빈 리스트로 남기지 말고 "
+        "정확히 [\"없음\"]으로 채우세요 — '아직 안 물어봄'과 '물어봤는데 없음'을 구분하기 위함입니다.",
     )
     inconveniences: list[str] = Field(
         default_factory=list, description="기존 장보기/배달 경험에서 불편했던 점",
