@@ -72,11 +72,26 @@ from src.tools import db_client
 from src.utils.agent_logger import agent_logger
 from src.utils.retry import FailureClass, classify_failure
 
-# route_entry의 키워드 폴백을 재사용 — LLM 호출 없이 "이번 발화가 주문
-# 요청처럼 보이는지"만 값싸게 체크한다(check_completion_gate의 주문-핸드오프
-# 예외 판단용). router.py -> intent_agent만 import하고 smalltalk_agent를
-# import하지 않으므로 순환 import 없음.
-from src.graph.router import _looks_like_order_request_fallback
+# check_completion_gate의 주문-핸드오프 예외 판단용. 처음엔 route_entry의
+# _looks_like_order_request_fallback을 그대로 재사용했는데, 그 함수는
+# reorder 신호("저번에"/"지난번에" 등)까지 포함해서 상품명 문맥과 무관하게
+# 매칭된다(intent_agent._should_force_reorder는 이 신호를 상품 키워드와
+# AND로 묶어 쓰지만, 이 폴백 함수 자체엔 그런 결합이 없다) — 스몰톡엔 구매
+# 이력/상품 키워드 문맥이 아예 없어서, "저번에 건강검진 갔는데 당뇨라던데"
+# 같은 순수 회상 발화까지 재주문 요청으로 오판해 is_order_handoff가 True가
+# 되고, check_completion_gate가 필수 필드나 건강 후속 확인 여부와 무관하게
+# 즉시 온보딩을 끝내버리는 문제가 실측으로 확인됐다(당뇨 언급 직후 바로
+# 종료). 스몰톡의 SMALLTALK_ORDER_HANDOFF_RULE은 애초에 "우유 사줘"류의
+# 명확한 구매 요청만 다루므로, 아래는 그 구매 동사만 본다 — 모호한 reorder
+# 신호는 아예 제외한다.
+_SMALLTALK_ORDER_TRIGGERS = (
+    "사줘", "사줄래", "사주세요", "구매해", "구매해줘", "주문해",
+    "사고싶어", "사고 싶어", "사 줘",
+)
+
+
+def _looks_like_explicit_order_request(user_input: str) -> bool:
+    return any(t in user_input for t in _SMALLTALK_ORDER_TRIGGERS)
 
 
 class SmalltalkOutput(BaseModel):
@@ -94,6 +109,17 @@ class SmalltalkOutput(BaseModel):
         default=False,
         description="온보딩 대화를 마무리해도 될지. 선호도 정보가 충분히 모였거나, "
         "사용자가 특정 상품 구매 등 쇼핑 의사를 명확히 보이면 true.",
+    )
+    asked_topic_field: Optional[str] = Field(
+        default=None,
+        description="reply에 질문(물음표든 암묵적 '궁금해요'든)이 있다면, 그 질문이 어떤 "
+        "profile 필드에 대한 것인지 정확한 필드명으로: favorite_foods, food_dislikes, "
+        "usual_order_platform, inconveniences, health_notes, household_size, "
+        "value_priority, delivery_priority, cooking_frequency, preferred_name. profile "
+        "필드와 무관한 안부성 질문(예: '식사는 하셨어요?')이면 meal_check. 질문이 "
+        "없었다면 null. 화제 반복 방지를 위해 코드가 이 값으로 추적하므로, 실제로 어떤 "
+        "내용을 물었는지와 정확히 일치해야 한다(예: 좋아하는 음식을 물었으면 반드시 "
+        "favorite_foods, 다른 값을 쓰면 안 됨).",
     )
 
 
@@ -265,7 +291,8 @@ def get_avoid_repeat_instruction(pending_topics: list[str], frustration_detected
     호출한다. 둘 다 없으면 빈 문자열."""
     if not pending_topics and not frustration_detected:
         return ""
-    topics_str = ", ".join(pending_topics) if pending_topics else "방금 그 화제"
+    display_labels = [_TOPIC_FIELD_DISPLAY_LABEL.get(t, t) for t in pending_topics]
+    topics_str = ", ".join(display_labels) if display_labels else "방금 그 화제"
     if frustration_detected:
         return f"""
 # ⚠️ 화제 반복 금지 — 아래 규칙이 다른 모든 지시보다 우선합니다
@@ -280,6 +307,52 @@ def get_avoid_repeat_instruction(pending_topics: list[str], frustration_detected
 다음 화제는 이미 물었지만 아직 답을 못 들었습니다: {topics_str}
 표현을 바꿔서도, 다른 각도로도 다시 묻지 마세요 — 사용자가 답을 피한
 것으로 보고 존중하며, 완전히 다른 화제로 넘어가세요.
+"""
+
+
+# 건강 이슈 심층 탐색 — 당뇨/고혈압 등 의학적 키워드가 사용자 발화에서
+# 나오면(다른 화제처럼 한 번 스치고 다음 화제로 넘어가지 않도록) 최소
+# 한 턴 더 그 화제를 우선하도록 강제한다. 실측에서 "당뇨라 단 거 못
+# 먹는다"는 발화 직후 바로 onboarding_complete=true가 되어, 복용 약이나
+# 구체적 식단 제한 같은 후속 확인이 전혀 없이 대화가 끝나버리는 문제가
+# 확인됐다 — 건강 정보는 안전(위험 회피)과 직결되는 필드라 얕게 끝나면
+# 실질적 위해(예: 단 음식 추천)로 이어질 수 있어, 다른 화제 정체 감지
+# (get_topic_stall_instruction)보다 우선순위를 높게 둔다. check_completion_gate
+# 에도 별도 파라미터로 넘겨서, 필수 필드가 이미 다 채워졌어도(3/4, 4/4)
+# 이 화제가 안 끝났으면 온보딩 완료를 보류한다.
+_HEALTH_KEYWORDS = (
+    "당뇨", "고혈압", "혈압", "혈당", "알레르기", "알러지", "저염", "신부전",
+    "지병", "고지혈", "천식", "통풍", "콩팥", "신장", "위염", "장염",
+)
+
+# 최초 감지 턴 이후 몇 턴 더 이 화제를 우선할지. 감지 턴 자체에서 이미
+# 후속 질문 하나를 던지므로(get_health_followup_instruction), 여기 1을
+# 더해 총 최소 2턴(감지 턴 + 다음 턴)은 건강 화제를 우선하게 된다.
+_HEALTH_FOLLOWUP_EXTRA_TURNS = 1
+
+
+def detect_health_disclosure(user_input: str) -> bool:
+    return any(k in user_input for k in _HEALTH_KEYWORDS)
+
+
+def get_health_followup_instruction(just_disclosed: bool) -> str:
+    if just_disclosed:
+        return """
+# ⚠️ 건강 이슈가 방금 언급됐습니다 — 아래 규칙이 다른 모든 지시보다 우선합니다
+규칙 1. 이번 턴은 다른 화제로 넘어가지 마세요. 방금 나온 건강 이슈를 더
+구체적으로 확인하는 질문 하나를 하세요 — 예: 그것 때문에 못 드시거나
+피해야 하는 음식이 정확히 무엇인지, 복용 중인 약이 있는지, 이미 지키고
+계신 식단이 있는지 중 하나.
+규칙 2. onboarding_complete는 이번 턴에 true로 설정하지 마세요 — 이
+화제를 더 확인해야 합니다.
+"""
+    return """
+# ⚠️ 건강 이슈를 아직 충분히 확인하지 못했습니다 — 아래 규칙이 다른 모든 지시보다 우선합니다
+규칙 1. 직전 턴에 나온 건강 이슈(당뇨/고혈압 등)에 대해 아직 안 들은 것
+하나만 더 확인하고 넘어가세요 — 못 드시는 음식, 복용 약, 이미 지키는
+식단 중 아직 안 나온 게 있으면 그걸 물어보세요. 이미 충분히 들었다면
+질문 없이 짧게 그 이야기를 정리하는 리액션만 하세요.
+규칙 2. onboarding_complete는 이번 턴에 true로 설정하지 마세요.
 """
 
 
@@ -353,61 +426,63 @@ def _cross_check_directional_fields(profile: SmalltalkProfileSchema, user_input:
     return corrected
 
 
-# B-3: "이미 물었지만 아직 답을 못 들은 화제" 추적. LLM에게 매 턴 대화
-# 전체를 재훑게 하는 대신, reply에 어떤 화제 키워드가 있었는지 코드로
-# 감지해서 state.already_asked_topics에 누적한다(해당 필드가 채워지면
-# 자동으로 빠짐) — 토큰 절감 + 대화가 길어질 때의 판단 정확도 개선.
-_TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "이름": ("성함", "이름이", "부르면", "호칭"),
-    "좋아하는 음식": ("좋아하는 음식", "뭐 드셨", "무슨 음식", "어떤 음식", "즐겨 드시"),
-    "장보는 곳": (
-        "어디서 사", "어디서 장", "장 보실 때", "어디서 주문",
-        "마트나 온라인", "마트 아니면 온라인", "쿠팡이나", "온라인으로 주문",
-    ),
-    "불편했던 점": ("불편했", "힘드셨", "불편한 점", "불편하신"),
-    "건강": ("건강은", "몸은 어떠", "지병", "소화는", "어디 신경"),
-    # "오늘 식사는 하셨어요?" 류는 SMALLTALK_NAME_GREETING_HINT의 예시
-    # 안부 질문이자 화법 여러 개가 공통으로 즐겨 쓰는 필러 질문이라, 위
-    # 5개 화제 어디에도 안 걸려서 같은 질문이 여러 턴에 반복되는 게
-    # 실측으로 확인됐다 — profile 필드가 없는 잡담용 질문이라
-    # _TOPIC_ANSWERED_FIELD에도 None으로 등록해, 한 번 물으면 온보딩
-    # 내내 다시 안 묻게 한다(필드 충족으로 자동 해제되는 다른 화제와 다름).
-    "식사여부": ("식사는 하셨", "식사하셨", "밥은 드셨", "밥 드셨"),
-}
-_TOPIC_ANSWERED_FIELD = {
-    "이름": "preferred_name",
-    "좋아하는 음식": "favorite_foods",
-    "장보는 곳": "usual_order_platform",
-    "불편했던 점": "inconveniences",
-    "건강": "health_notes",
-    "식사여부": None,
+# B-3: "이미 물었지만 아직 답을 못 들은 화제" 추적. 예전엔 reply 문자열에
+# 고정 키워드가 있는지로 화제를 감지했는데, LLM이 매번 다른 어휘로 같은
+# 질문을 표현할 수 있어서(예: "즐겨 드시는" 대신 "주로 잡수시는") 첫 질문이
+# 감지망을 빠져나가면 already_asked_topics에 아예 안 쌓여 재질문을 못 막는
+# 문제가 실측(같은 "좋아하는 음식" 질문이 여러 번, 사용자가 "아까
+# 말했잖니"라고 항의)으로 확인됐다 — 완전 일치 문자열 매칭 대신, LLM이 이번
+# reply의 질문이 어떤 필드에 대한 것인지 구조화 출력(asked_topic_field)으로
+# 직접 보고하게 하고, 코드는 그 값을 그대로 추적한다(해당 필드가 채워지면
+# 자동으로 빠짐). "의미 단위" 판단을 LLM에게 맡기고, "이미 물은 화제는
+# 다시 안 묻는다"는 결정론적 집행만 코드가 담당하는 역할 분리다.
+_TRACKED_TOPIC_FIELDS = {
+    "preferred_name", "favorite_foods", "food_dislikes", "usual_order_platform",
+    "inconveniences", "health_notes", "household_size", "value_priority",
+    "delivery_priority", "cooking_frequency", "meal_check",
 }
 
-
-def _detect_asked_topics(reply: str) -> set[str]:
-    return {topic for topic, kws in _TOPIC_KEYWORDS.items() if any(kw in reply for kw in kws)}
+# avoid_repeat_instruction에 화제를 사람이 읽을 수 있게 보여줄 때 쓰는
+# 표시용 라벨 — 추적 자체는 위 필드명 그대로 하지만, 프롬프트에 필드명을
+# 그대로 노출하면 부자연스럽다.
+_TOPIC_FIELD_DISPLAY_LABEL = {
+    "preferred_name": "이름/호칭",
+    "favorite_foods": "좋아하는 음식",
+    "food_dislikes": "못 먹거나 싫어하는 음식",
+    "usual_order_platform": "장보는 곳",
+    "inconveniences": "불편했던 점",
+    "health_notes": "건강 관련 이야기",
+    "household_size": "가구 인원",
+    "value_priority": "가격 vs 품질 우선순위",
+    "delivery_priority": "배송 속도 vs 배송비",
+    "cooking_frequency": "요리 빈도",
+    "meal_check": "식사 여부",
+}
 
 
 def _field_filled(merged: dict, field: str) -> bool:
     return merged.get(field) not in (None, [], "")
 
 
-def _topic_still_pending(topic: str, merged_profile: dict) -> bool:
-    field = _TOPIC_ANSWERED_FIELD[topic]
-    if field is None:
-        # 연결된 profile 필드가 없는 화제(예: "식사여부")는 필드 충족으로
-        # 자동 해제되지 않는다 — 한 번 물으면 온보딩이 끝날 때까지 계속
-        # "이미 물음" 상태로 남는다.
+def _topic_still_pending(field: str, merged_profile: dict) -> bool:
+    if field == "meal_check":
+        # 연결된 profile 필드가 없는 안부성 질문(예: "식사는 하셨어요?")은
+        # 필드 충족으로 자동 해제되지 않는다 — 한 번 물으면 온보딩이 끝날
+        # 때까지 계속 "이미 물음" 상태로 남는다.
         return True
     return not _field_filled(merged_profile, field)
 
 
 def _update_already_asked_topics(
-    pending: list[str], reply: str, reply_has_question: bool, merged_profile: dict
+    pending: list[str], asked_topic_field: Optional[str], reply_has_question: bool, merged_profile: dict
 ) -> list[str]:
     topics = set(pending)
-    if reply_has_question:
-        topics |= _detect_asked_topics(reply)
+    # reply_has_question(B-5 후처리 이후 실제로 질문이 남아있는지)로 한 번
+    # 더 확인한다 — LLM이 asked_topic_field를 채웠어도 그 질문 문장이
+    # B-5(물음표 개수 제한)로 잘려나갔다면 실제로는 안 물은 것이라 추적하면
+    # 안 된다.
+    if reply_has_question and asked_topic_field in _TRACKED_TOPIC_FIELDS:
+        topics.add(asked_topic_field)
     topics = {t for t in topics if _topic_still_pending(t, merged_profile)}
     return sorted(topics)
 
@@ -563,6 +638,29 @@ def check_episode_verbatim_copy(
     return longest_match >= 10 or matcher.ratio() > threshold
 
 
+# 짧은 맞장구("그래", "응")에 대한 리액션이 전혀 다른 화제였던 직전 turn의
+# 문구를 거의 그대로 재사용하는 현상이 실측(택배 얘기 때 리액션 문장을
+# 나물/된장 얘기에도 토씨 하나 안 다르게 재사용)으로 확인됐다.
+# check_episode_verbatim_copy와 같은 SequenceMatcher 기반 검증이지만, 대상이
+# 고정 소재 텍스트가 아니라 "직전 봇 자신의 reply들"이라 별도 함수로 둔다.
+# 음성 에이전트 레이턴시 때문에 재생성은 하지 않고(다른 B계열과 동일 원칙)
+# 관측 가능한 경고 로그만 남긴다 — 실제 억제는 프롬프트 지시(화제 전환 힌트에
+# "직전 리액션 재사용 금지" 추가)로 시도한다.
+def check_reply_verbatim_reuse(reply: str, recent_replies: list[str], threshold: float = 0.6) -> bool:
+    normalized_reply = re.sub(r"\s+", " ", reply).strip()
+    if not normalized_reply:
+        return False
+    for prior in recent_replies:
+        normalized_prior = re.sub(r"\s+", " ", prior).strip()
+        if not normalized_prior:
+            continue
+        matcher = SequenceMatcher(None, normalized_reply, normalized_prior)
+        longest_match = max((block.size for block in matcher.get_matching_blocks()), default=0)
+        if longest_match >= 15 or matcher.ratio() > threshold:
+            return True
+    return False
+
+
 def get_wrap_up_instruction(is_timeout: bool, is_field_complete: bool, is_thin_reply: bool = False) -> str:
     if is_timeout:
         base = _WRAP_UP_INSTRUCTION_TIMEOUT
@@ -578,6 +676,7 @@ def check_completion_gate(
     is_timeout: bool,
     is_order_handoff: bool = False,
     was_field_complete_before_turn: bool = False,
+    health_followup_pending: bool = False,
 ) -> bool:
     """LLM이 onboarding_complete=true를 반환해도, 필수 필드가 안 채워졌으면
     이를 오버라이드하여 false로 되돌린다. 예외 둘:
@@ -598,10 +697,19 @@ def check_completion_gate(
     문제가 있었다. 그래서 "턴 시작 전부터 이미 충족돼 있었을 때"만 필드
     기반 완료를 허용한다 — 막 채워진 턴은 자연스럽게 한 턴 더 이어가고,
     바로 다음 턴은 profile_before가 이제 충족 상태라 wrap-up 지시가 정상
-    발동해 깨끗하게 마무리된다."""
+    발동해 깨끗하게 마무리된다.
+
+    health_followup_pending=True면 필수 필드가 이미 다 채워졌어도(심지어
+    4/4여도) 완료를 보류한다 — 건강 이슈(당뇨/고혈압 등)는 안전과 직결돼서,
+    필수 필드 충족률과 무관하게 최소한의 후속 확인 없이 온보딩이 끝나면 안
+    된다는 게 실측(당뇨 언급 직후 즉시 완료)으로 확인됐다. is_timeout/
+    is_order_handoff는 이 경우에도 여전히 우선한다(무한루프 방지, 구매 요청
+    처리 우선 원칙은 안전 확인보다 앞선 기존 예외라 그대로 둔다)."""
     if is_timeout or is_order_handoff:
         return True
     if not llm_says_complete:
+        return False
+    if health_followup_pending:
         return False
     return was_field_complete_before_turn
 
@@ -841,6 +949,11 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
     name_greeting_pending = bool(state.get("name_greeting_pending", False))
     already_asked_topics_in = list(state.get("already_asked_topics") or [])
     stalled_turns_in = int(state.get("turns_without_required_progress") or 0)
+    health_followup_remaining_in = int(state.get("health_followup_turns_remaining") or 0)
+    recent_replies_in = list(state.get("recent_replies") or [])
+    health_just_disclosed = detect_health_disclosure(user_input)
+    health_followup_active = health_just_disclosed or health_followup_remaining_in > 0
+    health_followup_instruction = ""
     chosen_pattern_key: Optional[str] = None
     chosen_episode_key: Optional[str] = None
     enforce_no_question = False  # wrap-up/질문억제 턴에서만 True — B-5 후처리 게이트
@@ -896,7 +1009,11 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         frustration_detected = detect_frustration(user_input)
         wrap_up_instruction = get_wrap_up_instruction(
             is_timeout=past_cap,
-            is_field_complete=_required_fields_filled(profile_before),
+            # health_followup_active면 필수 필드가 다 채워졌어도 이번 턴은
+            # 마무리 턴으로 취급하지 않는다 — 건강 화제를 더 확인해야 한다
+            # (아래 health_followup_instruction 분기). is_timeout은 예외로
+            # 그대로 둔다(무한루프 방지가 안전 확인보다 우선).
+            is_field_complete=_required_fields_filled(profile_before) and not health_followup_active,
             is_thin_reply=thin_reply,
         )
         suppress_question = consecutive_question_turns >= _MAX_CONSECUTIVE_QUESTION_TURNS
@@ -920,6 +1037,18 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             chosen_pattern_key = None
             style_pattern = "(이번 턴은 마무리 턴이라 화법 예시를 생략합니다 — 아래 마무리 지시를 그대로 따르세요.)"
             name_greeting_hint = ""
+        elif health_followup_active:
+            # 안전(건강)이 다른 화제 정체/질문 억제/이름 안부보다 우선한다 —
+            # 이 화제만큼은 다른 화제로 새지 않고, 질문 연속 억제 규칙도
+            # 이번 턴만큼은 적용하지 않는다(아래 enforce_no_question 계산 참고).
+            chosen_pattern_key = None
+            style_pattern = "(이번 턴은 건강 이슈를 더 확인해야 해서 화법 예시를 생략합니다 — 아래 건강 확인 지시를 그대로 따르세요.)"
+            name_greeting_hint = ""
+            health_followup_instruction = get_health_followup_instruction(health_just_disclosed)
+            agent_logger.log(
+                f"[smalltalk_agent] 건강 이슈 후속 확인 강제 | "
+                f"just_disclosed={health_just_disclosed} remaining_in={health_followup_remaining_in}"
+            )
         elif suppress_question:
             # 최근 연속으로 질문 턴이 이어졌을 때도 같은 원리로, 화법 예시를
             # 억제 문구로 완전히 교체한다(단순히 "질문하지 마세요"를 덧붙이는
@@ -941,27 +1070,57 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             chosen_episode_key, episode_hint = select_episode(recent_episodes_used)
             if thin_reply:
                 topic_pivot_hint = SMALLTALK_TOPIC_PIVOT_HINT
-            if stalled_turns_in >= _TOPIC_STALL_TURN_THRESHOLD:
+            # topic_stall_instruction과 avoid_repeat_instruction을 동시에
+            # 켜면 "이 규칙이 다른 모든 지시보다 우선합니다"라고 주장하는
+            # 블록이 한 턴에 두 개가 되는데, 실측에서 이 경우 모델이 둘 다
+            # 무시하고 원래 화제를 이어가는 현상이 확인됐다(두 "최우선"이
+            # 서로 신호를 희석시키는 것으로 보임) — 그래서 한 턴엔 하나만
+            # 켠다. 사용자가 명시적으로 항의했으면("아까 말했잖아") 그게
+            # 가장 급하니 최우선, 아니면 화제 정체(필수 필드 진행 없음)가
+            # 특정 필드로의 전환까지 지정해주므로 더 구체적인 쪽을 우선한다
+            # — 화제 정체로 전환하면 "다시 묻지 마세요"까지 자연히 만족된다
+            # (전환 대상 자체가 이미 물은 화제가 아니므로).
+            if frustration_detected:
+                avoid_repeat_instruction = get_avoid_repeat_instruction(already_asked_topics_in, True)
+                agent_logger.log(
+                    f"[smalltalk_agent] 화제 반복 방지 지시 주입(항의 감지) | pending={already_asked_topics_in}"
+                )
+            elif stalled_turns_in >= _TOPIC_STALL_TURN_THRESHOLD:
                 topic_stall_instruction = get_topic_stall_instruction(profile_before)
                 if topic_stall_instruction:
                     agent_logger.log(
                         f"[smalltalk_agent] 화제 정체 {stalled_turns_in}턴 연속 — 필수 필드로 강제 전환"
                     )
-            # B-3(already_asked_topics)를 "다시 묻지 마세요"라고 대화 중간
-            # 문단에서만 언급했더니 실측에서 무시되고 같은 질문이 반복됐다
-            # — wrap-up/질문억제와 같은 후반부 강한 지시로 승격한다. 사용자가
-            # 명시적으로 항의했으면("아까 말했잖아") 최우선으로 처리한다.
-            avoid_repeat_instruction = get_avoid_repeat_instruction(already_asked_topics_in, frustration_detected)
-            if avoid_repeat_instruction:
-                agent_logger.log(
-                    f"[smalltalk_agent] 화제 반복 방지 지시 주입 | pending={already_asked_topics_in} "
-                    f"frustration={frustration_detected}"
-                )
-        enforce_no_question = bool(wrap_up_instruction) or suppress_question
-        # wrap-up이 이미 질문을 금지하므로, wrap-up 턴엔 중복으로 넣지 않는다.
+                else:
+                    # 채울 필수 필드가 이미 없으면(get_topic_stall_instruction이
+                    # 빈 문자열 반환) 정체 전환 지시가 무의미하므로, 그 다음
+                    # 우선순위인 화제 반복 방지로 대체한다.
+                    avoid_repeat_instruction = get_avoid_repeat_instruction(already_asked_topics_in, False)
+                    if avoid_repeat_instruction:
+                        agent_logger.log(
+                            f"[smalltalk_agent] 화제 반복 방지 지시 주입 | pending={already_asked_topics_in}"
+                        )
+            else:
+                # B-3(already_asked_topics)를 "다시 묻지 마세요"라고 대화
+                # 중간 문단에서만 언급했더니 실측에서 무시되고 같은 질문이
+                # 반복됐다 — wrap-up/질문억제와 같은 후반부 강한 지시로 승격한다.
+                avoid_repeat_instruction = get_avoid_repeat_instruction(already_asked_topics_in, False)
+                if avoid_repeat_instruction:
+                    agent_logger.log(
+                        f"[smalltalk_agent] 화제 반복 방지 지시 주입 | pending={already_asked_topics_in}"
+                    )
+        # health_followup_active는 질문 연속 억제보다 우선한다 — 안전 확인
+        # 질문은 "질문이 너무 잦았다"는 UX 이유로 막으면 안 된다.
+        enforce_no_question = bool(wrap_up_instruction) or (suppress_question and not health_followup_active)
+        # wrap-up/건강확인이 이미 질문 여부를 스스로 규정하므로, 그 턴엔 중복으로 넣지 않는다.
         question_suppression_instruction = (
-            _QUESTION_SUPPRESSION_INSTRUCTION if (suppress_question and not wrap_up_instruction) else ""
+            _QUESTION_SUPPRESSION_INSTRUCTION
+            if (suppress_question and not wrap_up_instruction and not health_followup_active)
+            else ""
         )
+        already_asked_display = ", ".join(
+            _TOPIC_FIELD_DISPLAY_LABEL.get(t, t) for t in already_asked_topics_in
+        ) or "(없음)"
         prompt = SMALLTALK_CHAT_PROMPT.format(
             persona=SMALLTALK_PERSONA,
             profile_field_guide=SMALLTALK_PROFILE_FIELD_GUIDE,
@@ -972,9 +1131,10 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             episode_hint=episode_hint,
             topic_pivot_hint=topic_pivot_hint,
             name_greeting_hint=name_greeting_hint,
-            already_asked_topics=", ".join(already_asked_topics_in) or "(없음)",
+            already_asked_topics=already_asked_display,
             collected_so_far=collected_so_far,
             wrap_up_instruction=wrap_up_instruction,
+            health_followup_instruction=health_followup_instruction,
             question_suppression_instruction=question_suppression_instruction,
             topic_stall_instruction=topic_stall_instruction,
             avoid_repeat_instruction=avoid_repeat_instruction,
@@ -1019,6 +1179,14 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             f"episode={chosen_episode_key} reply={result.reply!r}"
         )
 
+    if check_reply_verbatim_reuse(result.reply, recent_replies_in):
+        # 짧은 맞장구 턴에서 전혀 다른 화제였던 직전 reply 문구를 거의
+        # 그대로 재사용하는 현상을 감지한다 — 재생성은 안 하고 경고만 남긴다.
+        agent_logger.log(
+            "[smalltalk_agent] 직전 reply 원문 과다 재사용 감지 | "
+            f"reply={result.reply!r} recent={recent_replies_in!r}"
+        )
+
     # B-1: 안전 필드 교차검증 — food_dislikes에 의학적 키워드가 섞여 있으면
     # new_diet_restrictions로 재분류(LLM 판단만 믿지 않음).
     kept_dislikes, promoted_to_restrictions = _reclassify_medical_food_dislikes(result.profile.food_dislikes)
@@ -1054,17 +1222,19 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             setattr(result, top_field, kept)
 
     merged_profile, changed = _build_merged_profile(user_id, result)
-    is_order_handoff = _looks_like_order_request_fallback(user_input)
+    is_order_handoff = _looks_like_explicit_order_request(user_input)
     onboarding_complete = check_completion_gate(
         llm_says_complete=result.onboarding_complete,
         is_timeout=past_cap,
         is_order_handoff=is_order_handoff,
         was_field_complete_before_turn=_required_fields_filled(profile_before),
+        health_followup_pending=health_followup_active,
     )
     if result.onboarding_complete and not onboarding_complete:
+        reason = "건강 이슈 후속 확인 미완료" if health_followup_active else "필수 필드 미충족"
         agent_logger.log(
-            "[smalltalk_agent] LLM은 종료(onboarding_complete=true)를 원했지만 "
-            "필수 필드 미충족 — 게이트가 override, 대화 계속"
+            f"[smalltalk_agent] LLM은 종료(onboarding_complete=true)를 원했지만 "
+            f"{reason} — 게이트가 override, 대화 계속"
         )
     if past_cap and not onboarding_complete:
         # 이론상 check_completion_gate가 is_timeout이면 항상 True를 반환하므로
@@ -1087,6 +1257,8 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         new_name_greeting_pending = False
         new_already_asked_topics: list[str] = []
         new_turns_without_required_progress = 0
+        new_health_followup_remaining = 0
+        new_recent_replies: list[str] = []
     else:
         new_recent_patterns = (
             (recent_patterns_used + [chosen_pattern_key])[-3:] if chosen_pattern_key else recent_patterns_used
@@ -1104,10 +1276,10 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             extracted_name=result.preferred_name,
             previous_name=previous_preferred_name,
         )
-        # B-3: 이번 턴 reply가 새로 물은 화제를 추가하고, merged_profile에서
-        # 이미 채워진 화제는 뺀다.
+        # B-3: 이번 턴 LLM이 보고한 asked_topic_field를 추가하고,
+        # merged_profile에서 이미 채워진 화제는 뺀다.
         new_already_asked_topics = _update_already_asked_topics(
-            already_asked_topics_in, result.reply, reply_has_question, merged_profile
+            already_asked_topics_in, result.asked_topic_field, reply_has_question, merged_profile
         )
         # 화제 정체 카운터: 이번 턴에 필수 필드가 새로 하나라도 채워졌으면
         # 리셋, 아니면 +1(get_topic_stall_instruction이 임계치에서 강제 전환).
@@ -1116,6 +1288,13 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         new_turns_without_required_progress = (
             0 if after_required_count > before_required_count else stalled_turns_in + 1
         )
+        # 건강 화제 후속 카운터: 방금 새로 감지됐으면 최소 유지 턴수로 리셋,
+        # 진행 중이었으면 1 감소, 아니면 0 유지.
+        new_health_followup_remaining = (
+            _HEALTH_FOLLOWUP_EXTRA_TURNS if health_just_disclosed
+            else max(0, health_followup_remaining_in - 1)
+        )
+        new_recent_replies = (recent_replies_in + [result.reply])[-2:]
 
     return {
         "explanation": result.reply,
@@ -1128,6 +1307,8 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         "name_greeting_pending": new_name_greeting_pending,
         "already_asked_topics": new_already_asked_topics,
         "turns_without_required_progress": new_turns_without_required_progress,
+        "health_followup_turns_remaining": new_health_followup_remaining,
+        "recent_replies": new_recent_replies,
         "stage": "idle",
         "last_agent": "smalltalk_agent",
         "error": None,

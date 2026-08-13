@@ -202,6 +202,20 @@ class ShoppingState(TypedDict):
     # 파생되는 화제로 이어가라"는 더 강한 지시에 실측에서 매번 졌기 때문.
     turns_without_required_progress: int
 
+    # ── 스몰토크: 건강 화제 후속 질문 강제 카운터 ── 당뇨/고혈압 등 의학적
+    # 키워드가 사용자 발화에서 감지되면(detect_health_disclosure) 세워지고,
+    # 이 값이 0보다 큰 동안은 check_completion_gate가 필수 필드 충족률과
+    # 무관하게 온보딩 완료를 보류한다 — 건강 이슈는 안전과 직결돼서, 다른
+    # 화제처럼 한 번 스치고 넘어가면 안 된다는 게 실측(당뇨 언급 직후 바로
+    # 온보딩 종료)으로 확인됐기 때문.
+    health_followup_turns_remaining: int
+
+    # ── 스몰토크: 직전 봇 응답 원문 ── 최근 1~2턴의 reply를 그대로 저장해서,
+    # 새 reply가 화제가 전혀 다른데도 이전 리액션 문구를 거의 그대로
+    # 재사용하는지(check_reply_verbatim_reuse) 후처리로 감지한다 — 짧은
+    # 맞장구("그래") 턴에서 이 현상이 실측으로 확인됐다.
+    recent_replies: list[str]
+
 # ══════════════════════════════════════════════
 # 2. MemoryState
 # ══════════════════════════════════════════════
@@ -285,4 +299,6 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "consecutive_question_turns": 0,
         "already_asked_topics": [],
         "turns_without_required_progress": 0,
+        "health_followup_turns_remaining": 0,
+        "recent_replies": [],
     }
