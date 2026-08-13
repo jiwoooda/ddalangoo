@@ -275,12 +275,26 @@ _REQUIRED_FIELD_PIVOT_EXAMPLES = {
     "delivery_priority": '"문득 궁금한데, 배송은 빠른 게 좋으세요 아니면 배송비 아끼는 게 더 좋으세요?"',
     "value_priority": '"그런데 궁금한 게, 물건 고르실 때 가격을 더 보시는 편이세요 아니면 품질을 더 보시는 편이세요?"',
     "food_dislikes": '"혹시 못 드시거나 안 좋아하시는 음식도 있으세요?"',
+    "health_notes": '"혹시 건강 때문에 신경 쓰시는 게 있으신가요, 아니면 딱히 없으신가요?"',
 }
+
+# food_dislikes/health_notes는 "3/4만 채우면 완료" 완화 풀에 남겨두되(이중
+# 집계, 무해함), 그와 별개로 "최소 한 번은 반드시 물어봐야" 하는 필드로
+# 승격한다 — 실측(REPL)에서 다른 3개 필드가 순서대로 채워지기만 하면
+# food_dislikes/건강은 단 한 번도 화제 정체(=강제 개입 트리거)에 안 걸리고
+# 그냥 통과되는 게 확인됐다. "없다"는 답도 유효하므로 _CONFIRMED_NONE_
+# SENTINEL로 채우면 충족으로 인정한다(무조건 뭔가를 찾아내라는 게 아님).
+_MANDATORY_ASK_FIELDS = ("food_dislikes", "health_notes")
 
 
 def _topic_stall_target_field(merged_profile: dict, stalled_turns: int = 0) -> Optional[str]:
-    """화제 전환 대상으로 삼을, 아직 안 채워진 필수 필드 하나. 채울 필드가
-    이미 다 있으면(정체가 문제 안 됨) None.
+    """화제 전환 대상으로 삼을, 아직 안 채워진 필드 하나. 채울 게 이미
+    다 있으면(정체가 문제 안 됨) None.
+
+    _MANDATORY_ASK_FIELDS(한 번은 반드시 물어야 하는 필드)가 남아있으면
+    항상 그것부터 우선한다 — stalled_turns 순환 로직보다 앞선다. 여기가
+    비어야만 기존 _REQUIRED_FIELD_PRIORITY(4개, 3/4만 채우면 되는 완화
+    풀) 순환으로 넘어간다.
 
     stalled_turns로 미충족 필드 목록을 순환시킨다(고정적으로 항상
     missing[0]만 쓰지 않음) — 사용자가 그 질문에 답을 안(또는 회피)하는
@@ -289,6 +303,9 @@ def _topic_stall_target_field(merged_profile: dict, stalled_turns: int = 0) -> O
     누적 시 이 값으로 reply를 직접 고쳐 쓰므로 특히 중요). 그래서 정체가
     길어질수록 다음 미충족 필드로 옮겨가며 최소 한 번씩은 골고루 물어보게
     한다."""
+    missing_mandatory = [f for f in _MANDATORY_ASK_FIELDS if merged_profile.get(f) in (None, [], "")]
+    if missing_mandatory:
+        return missing_mandatory[0]
     missing = [f for f in _REQUIRED_FIELD_PRIORITY if merged_profile.get(f) in (None, [], "")]
     if not missing:
         return None
@@ -583,6 +600,14 @@ def _update_already_asked_topics(
     return sorted(topics)
 
 
+# "물어봤지만 없다고 확인됨"을 표현하는 센티널 — value_priority/
+# delivery_priority가 이미 Literal["...", "무관"]로 "물어봤고 상관없다"를
+# 표현하는 것과 같은 원리를, list 필드(food_dislikes/health_notes)에
+# 문자열로 적용한다. 빈 리스트로 남기면 "안 물어봄"과 구분이 안 돼서,
+# 필수-확인 게이트(_MANDATORY_ASK_FIELDS)가 계속 다시 물으라고 강제하게 된다.
+_CONFIRMED_NONE_SENTINEL = "없음"
+
+
 # B-4: 가벼운 환각 방지 안전판. 완벽한 검증이 아니라 "최근 대화에 전혀
 # 언급되지 않은 내용"만 걸러낸다 — 추출값이 실제 발화에 대응하는 최소한의
 # 근거(2글자 이상 부분 문자열 중복)가 있는지만 확인한다.
@@ -592,6 +617,13 @@ def _filter_hallucinated_items(items: list[str], source_text: str) -> tuple[list
     normalized_source = source_text.replace(" ", "")
     kept, dropped = [], []
     for item in items:
+        if item == _CONFIRMED_NONE_SENTINEL:
+            # "없음"은 사용자가 실제로 뭔가를 말해서 추출된 값이 아니라
+            # "물어봤는데 없다고 확인됨"을 나타내는 코드 차원의 마커라,
+            # 사용자 발화에 이 2글자가 그대로 등장하는지(예: "없는데요"엔
+            # "없음"이 부분문자열로 없음) 검사하는 게 애초에 무의미하다.
+            kept.append(item)
+            continue
         normalized_item = item.replace(" ", "")
         if len(normalized_item) < 2:
             overlap = normalized_item in normalized_source
@@ -601,6 +633,18 @@ def _filter_hallucinated_items(items: list[str], source_text: str) -> tuple[list
             )
         (kept if overlap else dropped).append(item)
     return kept, dropped
+
+
+# B-6: "없음" 센티널은 실제로 그 화제를 물어본 뒤(already_asked_topics에
+# 그 필드가 기록돼 있음) 사용자가 확인했을 때만 유효하다. 실측에서 LLM이
+# 질문한 적도 없이(예: 온보딩 첫 인사 턴부터) 곧바로 ["없음"]을 채워버리는
+# 게 확인돼서, B-4와 같은 "근거 없는 확정은 안 믿는다" 원칙을 적용한다.
+def _reject_premature_none_confirmation(
+    value: list[str], field: str, already_asked_topics: list[str]
+) -> list[str]:
+    if value == [_CONFIRMED_NONE_SENTINEL] and field not in already_asked_topics:
+        return []
+    return value
 
 
 # B-5: 물음표 개수 제한 후처리 안전판. "물음표 최대 1개"(일반 턴)/"물음표
@@ -788,6 +832,7 @@ def check_completion_gate(
     is_order_handoff: bool = False,
     was_field_complete_before_turn: bool = False,
     health_followup_pending: bool = False,
+    mandatory_fields_pending: bool = False,
 ) -> bool:
     """LLM이 onboarding_complete=true를 반환해도, 필수 필드가 안 채워졌으면
     이를 오버라이드하여 false로 되돌린다. 예외 둘:
@@ -813,14 +858,26 @@ def check_completion_gate(
     health_followup_pending=True면 필수 필드가 이미 다 채워졌어도(심지어
     4/4여도) 완료를 보류한다 — 건강 이슈(당뇨/고혈압 등)는 안전과 직결돼서,
     필수 필드 충족률과 무관하게 최소한의 후속 확인 없이 온보딩이 끝나면 안
-    된다는 게 실측(당뇨 언급 직후 즉시 완료)으로 확인됐다. is_timeout/
-    is_order_handoff는 이 경우에도 여전히 우선한다(무한루프 방지, 구매 요청
-    처리 우선 원칙은 안전 확인보다 앞선 기존 예외라 그대로 둔다)."""
+    된다는 게 실측(당뇨 언급 직후 즉시 완료)으로 확인됐다.
+
+    mandatory_fields_pending=True면 마찬가지로 완료를 보류한다 —
+    food_dislikes/health_notes가 3/4 완화 풀 안에 있다 보니, 다른 3개
+    필드가 순서대로 채워지기만 하면 이 둘은 단 한 번도 안 물어보고 그냥
+    넘어가는 게 실측으로 확인됐다(_MANDATORY_ASK_FIELDS 참고). "없다"는
+    답도 _CONFIRMED_NONE_SENTINEL로 채우면 충족으로 인정되므로, 이 게이트는
+    "반드시 무언가를 찾아내라"가 아니라 "반드시 한 번은 물어보고 확인하라"는
+    뜻이다. health_followup_pending과 트리거 조건이 다르다(전자는 "방금
+    disclosure가 나왔을 때", 이건 "한 번도 안 물어봤을 때") — 서로 다른
+    이유로 독립적으로 완료를 막을 수 있어 병존시킨다.
+
+    is_timeout/is_order_handoff는 이 경우들에도 여전히 우선한다(무한루프
+    방지, 구매 요청 처리 우선 원칙은 안전 확인보다 앞선 기존 예외라 그대로
+    둔다)."""
     if is_timeout or is_order_handoff:
         return True
     if not llm_says_complete:
         return False
-    if health_followup_pending:
+    if health_followup_pending or mandatory_fields_pending:
         return False
     return was_field_complete_before_turn
 
@@ -1084,6 +1141,9 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         # name_greeting_pending을 잘못 켜지 않는다.
         known_name_profile = db_client.get_profile(user_id) or {}
         profile_before = known_name_profile  # 화제 정체 카운터 계산에서 두 분기 공통으로 참조
+        mandatory_fields_pending = any(
+            not _field_filled(profile_before, f) for f in _MANDATORY_ASK_FIELDS
+        )
         known_name = known_name_profile.get("preferred_name")
         previous_preferred_name = known_name
         # 힌트를 얹는 방식은 기존 "이름 물어보기" 지시(few-shot 예시 포함)가
@@ -1115,17 +1175,25 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         agent_logger.log(f"[smalltalk_agent] 진입 | user_id={user_id} (온보딩 {user_turns}턴째, {elapsed_minutes:.1f}분 경과)")
         conversation_so_far = _format_conversation(messages[:-1]) or "(없음)"
         profile_before = db_client.get_profile(user_id) or {}
+        mandatory_fields_pending = any(
+            not _field_filled(profile_before, f) for f in _MANDATORY_ASK_FIELDS
+        )
         previous_preferred_name = profile_before.get("preferred_name")
         collected_so_far = format_smalltalk_profile(profile_before)
         thin_reply = is_thin_reply(user_input, {})
         frustration_detected = detect_frustration(user_input)
         wrap_up_instruction = get_wrap_up_instruction(
             is_timeout=past_cap,
-            # health_followup_active면 필수 필드가 다 채워졌어도 이번 턴은
-            # 마무리 턴으로 취급하지 않는다 — 건강 화제를 더 확인해야 한다
-            # (아래 health_followup_instruction 분기). is_timeout은 예외로
-            # 그대로 둔다(무한루프 방지가 안전 확인보다 우선).
-            is_field_complete=_required_fields_filled(profile_before) and not health_followup_active,
+            # health_followup_active/mandatory_fields_pending이면 필수 필드가
+            # 다 채워졌어도 이번 턴은 마무리 턴으로 취급하지 않는다 — 건강
+            # 화제를 더 확인해야 하거나(health_followup_instruction 분기),
+            # food_dislikes/health_notes를 아직 한 번도 안 물어봤다. is_timeout은
+            # 예외로 그대로 둔다(무한루프 방지가 안전 확인보다 우선).
+            is_field_complete=(
+                _required_fields_filled(profile_before)
+                and not health_followup_active
+                and not mandatory_fields_pending
+            ),
             is_thin_reply=thin_reply,
         )
         suppress_question = (
@@ -1330,6 +1398,23 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         if dropped:
             agent_logger.log(f"[smalltalk_agent] 환각 의심으로 제외됨 | {list_field}: {dropped}")
             setattr(result.profile, list_field, kept)
+    # B-6: "없음" 센티널 조기확정 방지 — 실측에서, food_dislikes/health_notes를
+    # 한 번도 물어본 적 없는 온보딩 첫 인사 턴부터 LLM이 곧바로 ["없음"]을
+    # 채워버리는 게 확인됐다(질문·답변 없이 임의로 "확인됨"을 자칭). "없음"은
+    # 실제로 그 화제를 물어본 뒤 사용자가 확인했을 때만 유효해야 하므로,
+    # already_asked_topics_in(이번 턴 시작 전까지 실제로 물어본 화제 목록)에
+    # 그 필드가 없는데 센티널을 채우려 하면 무효 처리하고 빈 리스트로
+    # 되돌린다 — B-4와 같은 "근거 없는 확정은 안 믿는다" 원칙.
+    for mandatory_field in _MANDATORY_ASK_FIELDS:
+        value = getattr(result.profile, mandatory_field)
+        rejected = _reject_premature_none_confirmation(value, mandatory_field, already_asked_topics_in)
+        if rejected != value:
+            agent_logger.log(
+                f"[smalltalk_agent] '없음' 센티널 조기확정 무효화 | "
+                f"{mandatory_field}: 아직 물어본 적 없는데 확정하려 함"
+            )
+            setattr(result.profile, mandatory_field, rejected)
+
     for top_field in ("new_allergens", "new_diet_restrictions"):
         original = getattr(result, top_field)
         kept, dropped = _filter_hallucinated_items(original, hallucination_source)
@@ -1396,9 +1481,15 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         is_order_handoff=is_order_handoff,
         was_field_complete_before_turn=_required_fields_filled(profile_before),
         health_followup_pending=health_followup_active,
+        mandatory_fields_pending=mandatory_fields_pending,
     )
     if result.onboarding_complete and not onboarding_complete:
-        reason = "건강 이슈 후속 확인 미완료" if health_followup_active else "필수 필드 미충족"
+        if health_followup_active:
+            reason = "건강 이슈 후속 확인 미완료"
+        elif mandatory_fields_pending:
+            reason = "food_dislikes/health_notes 미확인"
+        else:
+            reason = "필수 필드 미충족"
         agent_logger.log(
             f"[smalltalk_agent] LLM은 종료(onboarding_complete=true)를 원했지만 "
             f"{reason} — 게이트가 override, 대화 계속"
