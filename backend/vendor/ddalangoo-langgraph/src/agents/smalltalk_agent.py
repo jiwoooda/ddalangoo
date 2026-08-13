@@ -56,6 +56,8 @@ from src.state.smalltalk_schema import SmalltalkProfileSchema, format_smalltalk_
 from src.prompts.smalltalk_prompt import (
     SMALLTALK_CHAT_PROMPT,
     SMALLTALK_EPISODE_BANK,
+    SMALLTALK_GREETING_FLOW_KNOWN_NAME,
+    SMALLTALK_GREETING_FLOW_UNKNOWN_NAME,
     SMALLTALK_GREETING_PROMPT,
     SMALLTALK_NAME_GREETING_HINT,
     SMALLTALK_ORDER_HANDOFF_RULE,
@@ -199,6 +201,88 @@ def _required_fields_filled(profile: dict) -> bool:
     return filled >= _REQUIRED_FIELD_MIN_FILLED
 
 
+def _required_fields_filled_count(profile: dict) -> int:
+    return sum(1 for f in REQUIRED_FIELDS if profile.get(f) not in (None, [], ""))
+
+
+# 화제 정체 감지용 — "필수 항목을 우선 고려하라"는 SMALLTALK_TOPIC_GUIDE의
+# 추상 지시가 "방금 나온 이야기에서 파생되는 화제로 이어가라"는 훨씬 강한
+# 지시에 실측에서 매번 졌다(예: 음식 얘기가 소스→다른 음료로 몇 턴이고
+# 계속 파생되기만 하고 REQUIRED_FIELDS는 하나도 안 채워짐). 그래서 몇 턴
+# 연속으로 필수 필드 진행이 없으면 코드가 감지해서, 필드별 구체적 전환
+# 예시로 강제 전환한다 — 짧은 맞장구 전용이던 SMALLTALK_TOPIC_PIVOT_HINT도
+# 같은 이유(추상적이라 예시가 없음)로 실패했으므로 이 메커니즘이 대체한다.
+_TOPIC_STALL_TURN_THRESHOLD = 2
+
+_REQUIRED_FIELD_PRIORITY = ["household_size", "delivery_priority", "value_priority", "food_dislikes"]
+
+_REQUIRED_FIELD_PIVOT_EXAMPLES = {
+    "household_size": '"그러고 보니 궁금한 게 있는데, 지금 혼자 지내세요 아니면 같이 사시는 분이 계세요?"',
+    "delivery_priority": '"문득 궁금한데, 배송은 빠른 게 좋으세요 아니면 배송비 아끼는 게 더 좋으세요?"',
+    "value_priority": '"그런데 궁금한 게, 물건 고르실 때 가격을 더 보시는 편이세요 아니면 품질을 더 보시는 편이세요?"',
+    "food_dislikes": '"혹시 못 드시거나 안 좋아하시는 음식도 있으세요?"',
+}
+
+
+def get_topic_stall_instruction(merged_profile: dict) -> str:
+    """대화가 같은 화제에 머물러 REQUIRED_FIELDS 진행이 없을 때 호출한다.
+    채울 필드가 이미 다 있으면(정체가 문제 안 됨) 빈 문자열."""
+    missing = [f for f in _REQUIRED_FIELD_PRIORITY if merged_profile.get(f) in (None, [], "")]
+    if not missing:
+        return ""
+    example = _REQUIRED_FIELD_PIVOT_EXAMPLES[missing[0]]
+    return f"""
+# ⚠️ 화제 전환이 필요합니다 — 아래 규칙이 다른 모든 지시보다 우선합니다
+규칙 1. 지금까지 대화가 같은 화제에 여러 턴째 머물러 있습니다. 이번 턴은
+지금 화제(예: 방금 나온 음식의 세부사항)를 절대 더 파고들지 마세요.
+규칙 2. 다른 새 화제도 아니고 정확히 아래 예시가 묻는 내용으로 전환하세요
+— 위 화제 가이드의 다른 항목(예: 장보는 곳)으로 임의로 대체하면 안 됩니다.
+방금 나온 이야기를 짧게 리액션한 뒤, 아래 예시를 그대로 참고해서 자연스럽게
+이으세요("그러고 보니", "문득 궁금한데" 같은 전환어를 쓰면 자연스럽습니다):
+{example}
+"""
+
+
+# 화제 반복 방지 — B-3(already_asked_topics)가 대화 중간 문단에서 "다시
+# 묻지 마세요"라고 지시하는 것만으로는 실측에서 매번 무시됐다(같은 질문이
+# 3턴 연속 토씨 하나 안 틀리고 반복됨) — wrap-up/질문억제/화제정체와 같은
+# 교훈으로, 이것도 후반부 강한 "규칙이 우선한다" 블록으로 옮긴다.
+#
+# 추가로 "아까 말했잖아" 같은 사용자의 명시적 항의는 코드로 직접 감지해서,
+# 화제 키워드 매칭이 못 잡는 반복(예: 표현이 완전히 달라서 already_asked_
+# topics에 안 걸린 경우)까지 놓치지 않고 최우선으로 처리한다.
+_FRUSTRATION_PATTERNS = (
+    "아까 말했", "아까도 물어", "말했잖", "물어봤잖", "이미 말했", "방금 말했", "몇 번을 말",
+)
+
+
+def detect_frustration(user_input: str) -> bool:
+    return any(p in user_input for p in _FRUSTRATION_PATTERNS)
+
+
+def get_avoid_repeat_instruction(pending_topics: list[str], frustration_detected: bool) -> str:
+    """already_asked_topics에 남은 화제나 사용자의 명시적 항의가 있을 때
+    호출한다. 둘 다 없으면 빈 문자열."""
+    if not pending_topics and not frustration_detected:
+        return ""
+    topics_str = ", ".join(pending_topics) if pending_topics else "방금 그 화제"
+    if frustration_detected:
+        return f"""
+# ⚠️ 화제 반복 금지 — 아래 규칙이 다른 모든 지시보다 우선합니다
+규칙 1. 사용자가 같은 질문이 반복된다고 방금 직접 항의했습니다("아까
+말했잖아" 등). 이 화제({topics_str})는 완전히 접으세요 — 사과하듯 짧게
+인정만 하고, 다시는 묻지 마세요.
+규칙 2. 이번 턴엔 반드시 완전히 새로운 화제로 전환하세요. 방금 사용자가
+준 정보에서 자연스럽게 파생되는 질문이면 가장 좋습니다.
+"""
+    return f"""
+# ⚠️ 화제 반복 금지 — 아래 규칙이 다른 모든 지시보다 우선합니다
+다음 화제는 이미 물었지만 아직 답을 못 들었습니다: {topics_str}
+표현을 바꿔서도, 다른 각도로도 다시 묻지 마세요 — 사용자가 답을 피한
+것으로 보고 존중하며, 완전히 다른 화제로 넘어가세요.
+"""
+
+
 # ══════════════════════════════════════════════════════════════════
 # 하네스 검증/이관 — 결정론적으로 판별 가능한 것은 프롬프트 지시에만
 # 맡기지 않고 코드로 교차검증한다(smalltalk_prompt.py 모듈 docstring의
@@ -276,7 +360,10 @@ def _cross_check_directional_fields(profile: SmalltalkProfileSchema, user_input:
 _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
     "이름": ("성함", "이름이", "부르면", "호칭"),
     "좋아하는 음식": ("좋아하는 음식", "뭐 드셨", "무슨 음식", "어떤 음식", "즐겨 드시"),
-    "장보는 곳": ("어디서 사", "어디서 장", "장 보실 때", "어디서 주문"),
+    "장보는 곳": (
+        "어디서 사", "어디서 장", "장 보실 때", "어디서 주문",
+        "마트나 온라인", "마트 아니면 온라인", "쿠팡이나", "온라인으로 주문",
+    ),
     "불편했던 점": ("불편했", "힘드셨", "불편한 점", "불편하신"),
     "건강": ("건강은", "몸은 어떠", "지병", "소화는", "어디 신경"),
     # "오늘 식사는 하셨어요?" 류는 SMALLTALK_NAME_GREETING_HINT의 예시
@@ -426,6 +513,21 @@ def is_thin_reply(user_input: str, newly_extracted_fields: dict) -> bool:
     return len(user_input.strip()) <= 6 and not newly_extracted_fields
 
 
+def _normalize_name_for_comparison(name: str) -> str:
+    """"테스트유저"와 "테스트유저님"처럼 호칭 접미사·공백 차이만 있는 같은
+    이름이 "새 이름"으로 오판되지 않게 정규화한다. LLM이 이미 아는 이름을
+    reply에 자연스럽게 붙여 쓰면서(예: "~님") 구조화 출력에도 그 형태 그대로
+    다시 추출하는 경우가 실측에서 나왔다 — 그러면 아래 비교가 매번 "새
+    이름"으로 오판해서 name_greeting_pending이 계속 재점화되고, 그 사이엔
+    화법 로테이션/화제 정체 감지(get_topic_stall_instruction)가 있는 최종
+    분기 자체를 못 타는 부작용이 있었다."""
+    normalized = name.strip()
+    for suffix in ("님", "씨"):
+        if normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)].strip()
+    return normalized
+
+
 def _next_name_greeting_pending(
     *,
     was_pending: bool,
@@ -445,7 +547,7 @@ def _next_name_greeting_pending(
         return True
     if not extracted_name:
         return False
-    return extracted_name.strip() != (previous_name or "").strip()
+    return _normalize_name_for_comparison(extracted_name) != _normalize_name_for_comparison(previous_name or "")
 
 
 def check_episode_verbatim_copy(
@@ -715,6 +817,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
     consecutive_question_turns = int(state.get("consecutive_question_turns") or 0)
     name_greeting_pending = bool(state.get("name_greeting_pending", False))
     already_asked_topics_in = list(state.get("already_asked_topics") or [])
+    stalled_turns_in = int(state.get("turns_without_required_progress") or 0)
     chosen_pattern_key: Optional[str] = None
     chosen_episode_key: Optional[str] = None
     enforce_no_question = False  # wrap-up/질문억제 턴에서만 True — B-5 후처리 게이트
@@ -725,12 +828,33 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         onboarding_started_at = datetime.now(timezone.utc).isoformat()
         elapsed_minutes = 0.0
         conversation_so_far = ""  # 첫 턴은 이전 대화가 없음(B-4 환각 검증용 소스 텍스트에도 사용)
-        agent_logger.log(f"[smalltalk_agent] 진입 | user_id={user_id} (온보딩 1턴째, 인사)")
+        # 가입 시점에 이미 이름을 받아둔 유저는(runtime.py의
+        # _seed_preferred_name_if_new) profile.preferred_name이 미리
+        # 채워져 있다 — 그러면 온보딩 첫 턴에 이름을 또 묻지 않는다.
+        # previous_preferred_name도 여기서 세팅해야, 이 턴에 LLM이 그
+        # 이름을 다시 언급해도 "방금 새로 알게 된 이름"으로 오판해서
+        # name_greeting_pending을 잘못 켜지 않는다.
+        known_name_profile = db_client.get_profile(user_id) or {}
+        profile_before = known_name_profile  # 화제 정체 카운터 계산에서 두 분기 공통으로 참조
+        known_name = known_name_profile.get("preferred_name")
+        previous_preferred_name = known_name
+        # 힌트를 얹는 방식은 기존 "이름 물어보기" 지시(few-shot 예시 포함)가
+        # 더 강해서 실측에서 매번 졌다 — wrap-up/질문억제와 같은 교훈으로,
+        # 경쟁하는 지시 자체를 통째로 교체한다(smalltalk_prompt.py 참고).
+        greeting_flow_instruction = (
+            SMALLTALK_GREETING_FLOW_KNOWN_NAME.format(name=known_name)
+            if known_name
+            else SMALLTALK_GREETING_FLOW_UNKNOWN_NAME
+        )
+        agent_logger.log(
+            f"[smalltalk_agent] 진입 | user_id={user_id} (온보딩 1턴째, 인사, known_name={known_name!r})"
+        )
         prompt = SMALLTALK_GREETING_PROMPT.format(
             persona=SMALLTALK_PERSONA,
             profile_field_guide=SMALLTALK_PROFILE_FIELD_GUIDE,
             order_handoff_rule=SMALLTALK_ORDER_HANDOFF_RULE,
             safety_field_note=SMALLTALK_SAFETY_FIELD_NOTE,
+            greeting_flow_instruction=greeting_flow_instruction,
             user_input=user_input or "없음",
         )
         past_cap = False
@@ -746,6 +870,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         previous_preferred_name = profile_before.get("preferred_name")
         collected_so_far = format_smalltalk_profile(profile_before)
         thin_reply = is_thin_reply(user_input, {})
+        frustration_detected = detect_frustration(user_input)
         wrap_up_instruction = get_wrap_up_instruction(
             is_timeout=past_cap,
             is_field_complete=_required_fields_filled(profile_before),
@@ -762,6 +887,8 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         # 이름 인지 턴은 화법·에피소드·화제전환과 배타적이다. 얇은 답변 전환은
         # 위 세 조건이 없을 때만 일반 화법/에피소드와 함께 활성화된다.
         topic_pivot_hint = ""
+        topic_stall_instruction = ""
+        avoid_repeat_instruction = ""
         episode_hint = ""
         if wrap_up_instruction:
             # 화법 예시가 질문으로 끝나는 few-shot이라, "이 지시가 우선합니다"
@@ -791,6 +918,22 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             chosen_episode_key, episode_hint = select_episode(recent_episodes_used)
             if thin_reply:
                 topic_pivot_hint = SMALLTALK_TOPIC_PIVOT_HINT
+            if stalled_turns_in >= _TOPIC_STALL_TURN_THRESHOLD:
+                topic_stall_instruction = get_topic_stall_instruction(profile_before)
+                if topic_stall_instruction:
+                    agent_logger.log(
+                        f"[smalltalk_agent] 화제 정체 {stalled_turns_in}턴 연속 — 필수 필드로 강제 전환"
+                    )
+            # B-3(already_asked_topics)를 "다시 묻지 마세요"라고 대화 중간
+            # 문단에서만 언급했더니 실측에서 무시되고 같은 질문이 반복됐다
+            # — wrap-up/질문억제와 같은 후반부 강한 지시로 승격한다. 사용자가
+            # 명시적으로 항의했으면("아까 말했잖아") 최우선으로 처리한다.
+            avoid_repeat_instruction = get_avoid_repeat_instruction(already_asked_topics_in, frustration_detected)
+            if avoid_repeat_instruction:
+                agent_logger.log(
+                    f"[smalltalk_agent] 화제 반복 방지 지시 주입 | pending={already_asked_topics_in} "
+                    f"frustration={frustration_detected}"
+                )
         enforce_no_question = bool(wrap_up_instruction) or suppress_question
         # wrap-up이 이미 질문을 금지하므로, wrap-up 턴엔 중복으로 넣지 않는다.
         question_suppression_instruction = (
@@ -810,6 +953,8 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             collected_so_far=collected_so_far,
             wrap_up_instruction=wrap_up_instruction,
             question_suppression_instruction=question_suppression_instruction,
+            topic_stall_instruction=topic_stall_instruction,
+            avoid_repeat_instruction=avoid_repeat_instruction,
             conversation_so_far=conversation_so_far,
             user_input=user_input or "없음",
         )
@@ -918,6 +1063,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         new_consecutive_question_turns = 0
         new_name_greeting_pending = False
         new_already_asked_topics: list[str] = []
+        new_turns_without_required_progress = 0
     else:
         new_recent_patterns = (
             (recent_patterns_used + [chosen_pattern_key])[-3:] if chosen_pattern_key else recent_patterns_used
@@ -940,6 +1086,13 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         new_already_asked_topics = _update_already_asked_topics(
             already_asked_topics_in, result.reply, reply_has_question, merged_profile
         )
+        # 화제 정체 카운터: 이번 턴에 필수 필드가 새로 하나라도 채워졌으면
+        # 리셋, 아니면 +1(get_topic_stall_instruction이 임계치에서 강제 전환).
+        before_required_count = _required_fields_filled_count(profile_before)
+        after_required_count = _required_fields_filled_count(merged_profile)
+        new_turns_without_required_progress = (
+            0 if after_required_count > before_required_count else stalled_turns_in + 1
+        )
 
     return {
         "explanation": result.reply,
@@ -951,6 +1104,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
         "consecutive_question_turns": new_consecutive_question_turns,
         "name_greeting_pending": new_name_greeting_pending,
         "already_asked_topics": new_already_asked_topics,
+        "turns_without_required_progress": new_turns_without_required_progress,
         "stage": "idle",
         "last_agent": "smalltalk_agent",
         "error": None,

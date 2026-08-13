@@ -96,6 +96,7 @@ class SmalltalkAgentInput(TypedDict):
     name_greeting_pending: bool
     consecutive_question_turns: int
     already_asked_topics: list[str]
+    turns_without_required_progress: int
 
 
 class PaymentAgentInput(TypedDict):
@@ -240,6 +241,7 @@ class SmalltalkAgentUpdate(TypedDict, total=False):
     name_greeting_pending: bool
     consecutive_question_turns: int
     already_asked_topics: list[str]
+    turns_without_required_progress: int
 
 
 class PaymentAgentUpdate(TypedDict, total=False):

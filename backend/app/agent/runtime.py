@@ -95,6 +95,28 @@ def _config(conversation_id: int) -> dict:
     return {"configurable": {"thread_id": str(conversation_id)}}
 
 
+def _seed_preferred_name_if_new(user_id: int) -> None:
+    """온보딩 스몰톡이 시작되기 전에, 가입 때 받은 이름을 profile.preferred_name
+    으로 미리 채워둔다 — smalltalk_agent.py의 GREETING_PROMPT가 이미 알고
+    있는 이름이면 "성함이 어떻게 되세요?"를 건너뛰도록 참고한다(둘 다 실제로
+    같은 사람을 부를 이름이라 매번 다시 묻는 게 어색하다는 피드백으로 추가).
+    이미 preferred_name이 있거나 온보딩이 끝난 유저는 건드리지 않는다 —
+    대화 중 사용자가 다른 애칭을 알려줬으면 그게 우선이어야 하기 때문.
+    """
+    from src.tools import db_client
+
+    profile = db_client.get_profile(str(user_id)) or {}
+    if profile.get("preferred_name") or profile.get("onboarded_at"):
+        return
+    user = db_client.get_user(str(user_id))
+    name = (user or {}).get("name")
+    if not name:
+        return
+    merged = dict(profile)
+    merged["preferred_name"] = name
+    db_client.save_profile(str(user_id), merged)
+
+
 async def update_state(conversation_id: int, patch: dict) -> dict:
     await ensure_initialized()
     graph = get_graph()
@@ -109,6 +131,8 @@ async def start(user_id: int, message: str, conversation_id: int) -> dict:
     await ensure_initialized()
     graph = get_graph()
     config = _config(conversation_id)
+
+    _seed_preferred_name_if_new(user_id)
 
     initial_state = get_default_shopping_state(
         user_id=str(user_id),

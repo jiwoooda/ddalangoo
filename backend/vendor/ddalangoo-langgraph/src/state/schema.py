@@ -195,6 +195,13 @@ class ShoppingState(TypedDict):
     # 때의 판단 정확도 개선이 목적.
     already_asked_topics: list[str]
 
+    # ── 스몰토크: 화제 정체 턴 카운터 ── REQUIRED_FIELDS 진행이 없는 턴이
+    # 연속 몇 번째인지 기록한다. 임계치(_TOPIC_STALL_TURN_THRESHOLD)에
+    # 닿으면 다음 턴에 필드별 구체적 예시로 강제 화제 전환을 건다 —
+    # "필수 항목을 우선 고려하라"는 추상 지시만으로는 "방금 나온 이야기에서
+    # 파생되는 화제로 이어가라"는 더 강한 지시에 실측에서 매번 졌기 때문.
+    turns_without_required_progress: int
+
 # ══════════════════════════════════════════════
 # 2. MemoryState
 # ══════════════════════════════════════════════
@@ -277,4 +284,5 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "name_greeting_pending": False,
         "consecutive_question_turns": 0,
         "already_asked_topics": [],
+        "turns_without_required_progress": 0,
     }

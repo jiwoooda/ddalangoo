@@ -172,6 +172,38 @@ def save_general_preference(user_id: int, preference: dict[str, Any]) -> None:
         return
 
 
+def get_profile(user_id: int) -> Optional[dict[str, Any]]:
+    """장기 프로필(스몰톡 온보딩에서 모은 선호도/알레르기/호칭 등)을 조회한다.
+
+    general/keyword 캐시와 preference_type만 다를 뿐 같은 테이블을 쓰지만,
+    이건 TTL로 만료시키면 안 되는 영속적 사실이라 _is_fresh 체크를 하지
+    않는다(smalltalk_agent.py의 db_client.get_profile이 이 함수를 호출한다).
+    """
+    if not _can_try_database():
+        return None
+    try:
+        row = _get_cache_row(user_id, preference_type="profile")
+    except Exception:
+        return None
+    if not row:
+        return None
+    return _entry_from_row(row)
+
+
+def save_profile(user_id: int, profile: dict[str, Any]) -> None:
+    """장기 프로필을 저장한다(TTL 없음, get_profile과 동일한 preference_type)."""
+    if not _can_try_database():
+        return
+    try:
+        _save_cache_row(
+            user_id,
+            preference_type="profile",
+            preference_data=dict(profile),
+        )
+    except Exception:
+        return
+
+
 def get_keyword_preference(user_id: int, keywords: list[str]) -> Optional[list]:
     """키워드별 선호도 캐시를 조회한다. TTL 초과 시 None을 반환한다."""
     if not keywords:
