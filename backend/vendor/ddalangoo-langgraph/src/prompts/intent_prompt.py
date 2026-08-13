@@ -91,6 +91,10 @@ needs_clarification=true:
 
 # immediate_response
 짧은 한국어 한 문장. 이해한 내용만 확인. 음성 출력에 적합하게 자연스럽게.
+needs_clarification=true이거나 intent=unclear면 이 응답이 다른 Agent를 거치지 않고
+그대로 사용자에게 나갑니다 — "구체적으로 말씀해 주실 수 있나요?"처럼 사무적으로 되묻지
+말고, 무엇을 도와드리면 좋을지 궁금해하는 따뜻한 태도로 되물으세요 (예: "어떤 걸
+찾아드리면 좋을까요? 조금만 더 알려주시면 바로 도와드릴게요").
 
 # 입력
 User input: {user_input}

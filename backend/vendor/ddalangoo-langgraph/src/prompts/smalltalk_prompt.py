@@ -52,9 +52,14 @@ reply(대화 텍스트)와 profile 필드 추출(구조화 출력)은 한 LLM �
   추출된 적이 있어서, 프롬프트 지시만으로는 재발을 막지 못한다고 보고 코드
   교차검증을 추가했다.
 - "이미 물어본 화제"는 매 턴 LLM이 대화 전체를 재추론하게 하지 않고,
-  smalltalk_agent.py가 reply에 어떤 화제 키워드가 있었는지 코드로 추적해서
-  (state.already_asked_topics) 다음 턴 프롬프트에 짧은 목록으로 준다 —
-  토큰도 줄고, 대화가 길어질수록 LLM이 놓칠 확률도 줄어든다.
+  smalltalk_agent.py가 state.already_asked_topics에 추적해서 다음 턴
+  프롬프트에 짧은 목록으로 준다 — 토큰도 줄고, 대화가 길어질수록 LLM이
+  놓칠 확률도 줄어든다. 처음엔 reply 문자열에 고정 키워드가 있는지로
+  화제를 감지했는데, LLM이 매번 다른 어휘로 같은 질문을 표현할 수 있어서
+  감지망을 빠져나가는 사례(같은 질문이 반복돼 사용자가 항의)가 실측으로
+  나왔다 — 그래서 asked_topic_field(SmalltalkOutput)로 LLM이 이번 reply의
+  질문이 어떤 필드에 대한 것인지 직접 보고하게 바꿨다. "의미 단위" 판단은
+  LLM에게 맡기고, 반복 방지 집행만 코드가 결정론적으로 담당한다.
 - 추출된 자유서술형 필드(예: favorite_foods, health_notes)는 최근 사용자
   발화와 키워드가 전혀 안 겹치면 명백한 환각으로 보고 저장 전에 걸러낸다
   (_filter_hallucinated_items) — 완벽한 검증이 아니라 "대화에 전혀 없던
@@ -197,6 +202,10 @@ SMALLTALK_TOPIC_PIVOT_HINT = """\
 새로운 화제로 자연스럽게 넘어가세요. "다음 질문"이라고 예고하지 말고,
 아직 채워지지 않은 필수 항목 중 대화에 가장 자연스럽게 붙는 하나를 우선
 화제로 고르세요.
+짧은 맞장구엔 반영할 새 내용이 없다 보니, 아래 "지금까지의 대화"에서 이미
+전혀 다른 화제에 썼던 리액션 문구(예: "그런 방법이 정말 유용하죠!")를
+지금 화제에도 습관적으로 재사용하기 쉽습니다 — 그러지 마세요. 지금
+화제에 맞는 새로운 표현으로 반응하세요.
 """
 
 # 두 프롬프트가 공유하는 주문 처리 규칙 — onboarding_complete=true 처리는
@@ -293,6 +302,8 @@ SMALLTALK_GREETING_PROMPT = """\
 - preferred_name: 사용자가 알려준 이름/호칭
 {safety_field_note}- profile 항목: 그 외 계속 참고하면 좋을 취향/생활 정보. 각 필드 설명은
   아래 공통 규칙을 따르세요.
+- asked_topic_field: reply에 질문을 담았다면 preferred_name 또는
+  meal_check(안부성 질문) 중 해당하는 값을, 없었다면 null을 쓰세요.
 
 {profile_field_guide}
 
@@ -373,6 +384,15 @@ preferred_name(이름/호칭)과 위 profile 항목 중 실제로 나온 얘기�
 채우세요. 안전 필드 구분 기준(new_allergens/new_diet_restrictions vs
 food_dislikes/health_notes)은 위 안전 필드 설명을 따르세요.
 
+reply에 질문(물음표든 "궁금해요"든)을 담았다면, asked_topic_field에 그
+질문이 어떤 항목에 대한 것인지 정확한 필드명을 쓰세요: favorite_foods,
+food_dislikes, usual_order_platform, inconveniences, health_notes,
+household_size, value_priority, delivery_priority, cooking_frequency,
+preferred_name 중 하나. profile 필드와 무관한 안부성 질문(예: "식사는
+하셨어요?")이면 meal_check. 질문이 없었다면 null로 두세요 — 코드가 이
+값으로 같은 화제 재질문을 막으므로, 실제로 물은 내용과 반드시 일치해야
+합니다.
+
 이미 물었지만 아직 답을 못 들은 화제: {already_asked_topics}
 위 화제는 표현을 바꿔서도 다시 묻지 마세요 — 사용자가 답을 피했다면
 그 화제는 존중하고 다른 화제로 넘어가세요.
@@ -391,6 +411,7 @@ food_dislikes/health_notes)은 위 안전 필드 설명을 따르세요.
 아직 파악된 게 적고 대화를 더 나눌 여지가 있으면 onboarding_complete=false로
 두세요.
 {wrap_up_instruction}
+{health_followup_instruction}
 {question_suppression_instruction}
 {avoid_repeat_instruction}
 {topic_stall_instruction}
