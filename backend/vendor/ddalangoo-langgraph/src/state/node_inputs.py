@@ -171,6 +171,7 @@ class ContextAgentUpdate(TypedDict, total=False):
 
 class ProductAgentUpdate(TypedDict, total=False):
     search_results: list[dict[str, Any]]
+    search_query: str
     stage: Stage
     error: Optional[str]
     last_agent: str

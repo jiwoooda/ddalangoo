@@ -67,7 +67,7 @@ enum class RecoveryRequestResult {
  * 같은 step을 다시 읽어서 기존 rule이 정상 화면 전환을 판단하게 둔다.
  */
 class VlmFallbackRuntime(
-    private val service: AccessibilityService,
+    private val service: DdalangooAccessibilityService,
     private val actionExecutor: ActionExecutor,
     private val scheduleProcessTick: (Long, String) -> Unit
 ) {
@@ -208,9 +208,11 @@ class VlmFallbackRuntime(
         AutomationLogger.info(
             "vlm_fallback screenshot requested taskId=${context.task.taskId} step=${context.task.currentStep}"
         )
+        val overlayHiddenForScreenshot = service.hideShoppingAutomationOverlayForScreenshot()
         handler.postDelayed({
             if (screenshotRequestKey == requestKey) {
                 screenshotRequestKey = null
+                service.restoreShoppingAutomationOverlayAfterScreenshot(overlayHiddenForScreenshot)
                 continueWithoutVlm(
                     context,
                     "vlm_screenshot_timeout",
@@ -219,43 +221,47 @@ class VlmFallbackRuntime(
             }
         }, SCREENSHOT_TIMEOUT_MS)
 
-        service.takeScreenshot(
-            Display.DEFAULT_DISPLAY,
-            service.mainExecutor,
-            object : AccessibilityService.TakeScreenshotCallback {
-                override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
-                    if (screenshotRequestKey != requestKey) return
-                    screenshotRequestKey = null
-                    AutomationLogger.info(
-                        "vlm_fallback screenshot captured taskId=${context.task.taskId} step=${context.task.currentStep}"
-                    )
-                    val bitmap = Bitmap.wrapHardwareBuffer(
-                        screenshot.hardwareBuffer,
-                        screenshot.colorSpace
-                    )
-                    val softwareBitmap = bitmap?.copy(Bitmap.Config.ARGB_8888, false)
-                    screenshot.hardwareBuffer.close()
+        handler.postDelayed({
+            service.takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                service.mainExecutor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                        if (screenshotRequestKey != requestKey) return
+                        screenshotRequestKey = null
+                        service.restoreShoppingAutomationOverlayAfterScreenshot(overlayHiddenForScreenshot)
+                        AutomationLogger.info(
+                            "vlm_fallback screenshot captured taskId=${context.task.taskId} step=${context.task.currentStep}"
+                        )
+                        val bitmap = Bitmap.wrapHardwareBuffer(
+                            screenshot.hardwareBuffer,
+                            screenshot.colorSpace
+                        )
+                        val softwareBitmap = bitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                        screenshot.hardwareBuffer.close()
 
-                    if (softwareBitmap == null) {
-                        continueWithoutVlm(context, "vlm_screenshot_failed", "Failed to convert screenshot")
-                        return
+                        if (softwareBitmap == null) {
+                            continueWithoutVlm(context, "vlm_screenshot_failed", "Failed to convert screenshot")
+                            return
+                        }
+                        val screenshotBase64 = encodeJpegBase64(softwareBitmap)
+                        softwareBitmap.recycle()
+                        requestPlanner(context, screenshotBase64)
                     }
-                    val screenshotBase64 = encodeJpegBase64(softwareBitmap)
-                    softwareBitmap.recycle()
-                    requestPlanner(context, screenshotBase64)
-                }
 
-                override fun onFailure(errorCode: Int) {
-                    if (screenshotRequestKey != requestKey) return
-                    screenshotRequestKey = null
-                    continueWithoutVlm(
-                        context,
-                        "vlm_screenshot_failed",
-                        "Failed to capture screenshot errorCode=$errorCode"
-                    )
+                    override fun onFailure(errorCode: Int) {
+                        if (screenshotRequestKey != requestKey) return
+                        screenshotRequestKey = null
+                        service.restoreShoppingAutomationOverlayAfterScreenshot(overlayHiddenForScreenshot)
+                        continueWithoutVlm(
+                            context,
+                            "vlm_screenshot_failed",
+                            "Failed to capture screenshot errorCode=$errorCode"
+                        )
+                    }
                 }
-            }
-        )
+            )
+        }, SCREENSHOT_OVERLAY_HIDE_SETTLE_MS)
     }
 
     private fun requestPlanner(context: VlmFallbackContext, screenshotBase64: String) {
@@ -1088,5 +1094,6 @@ class VlmFallbackRuntime(
         private const val MAX_TOTAL_ATTEMPTS = 8
         private const val MAX_NO_PROGRESS_PER_STEP = 2
         private const val SCREENSHOT_TIMEOUT_MS = 5000L
+        private const val SCREENSHOT_OVERLAY_HIDE_SETTLE_MS = 90L
     }
 }

@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.CountDownLatch
@@ -46,6 +47,14 @@ class DdalangooAccessibilityService : AccessibilityService() {
             activeService?.scheduleTaskStartedTicks()
                 ?: AutomationLogger.warn("task tick skipped reason=service_not_active")
         }
+
+        fun notifyTaskUpdated() {
+            activeService?.refreshShoppingAutomationOverlayFromStore()
+        }
+
+        fun notifyTaskCleared() {
+            activeService?.hideShoppingAutomationOverlay()
+        }
     }
 
     private val uiTreeCollector = UiTreeCollector()
@@ -60,6 +69,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
     private var suppressSearchResultDumpUntilMs: Long = 0L
     private var suppressAddToCartResultUntilMs: Long = 0L
     private var suppressOrderHistoryScreenGuardUntilMs: Long = 0L
+    private var suppressUnexpectedProductDetailBackUntilMs: Long = 0L
     private var suppressPurchaseHistoryNavigationNormalizeUntilMs: Long = 0L
     private var lastPurchaseHistoryScrollFingerprint: String? = null
     private var lastPurchaseHistoryScrollChanged: Boolean? = null
@@ -87,11 +97,13 @@ class DdalangooAccessibilityService : AccessibilityService() {
     private var suppressCoupangInitialOrderHistoryResetUntilMs: Long = 0L
     private lateinit var actionExecutor: ActionExecutor
     private lateinit var vlmFallbackRuntime: VlmFallbackRuntime
+    private var shoppingAutomationOverlay: ShoppingAutomationFlutterOverlay? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeService = this
         actionExecutor = ActionExecutor(this)
+        shoppingAutomationOverlay = ShoppingAutomationFlutterOverlay(this)
         vlmFallbackRuntime = VlmFallbackRuntime(
             service = this,
             actionExecutor = actionExecutor,
@@ -129,6 +141,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
         // task가 없을 때는 무거운 작업 없이 즉시 리턴한다 — 실제 자동화 로직
         // (아래 task != null 경로)은 전혀 건드리지 않는다.
         if (taskAtStart == null) {
+            hideShoppingAutomationOverlay()
             lastPurchaseHistoryScrollFingerprint = null
             lastPurchaseHistoryScrollChanged = null
             resetProductSearchCollectionState()
@@ -137,6 +150,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
 
         AutomationLogger.info("processCurrentRoot trigger=$trigger")
         if (taskAtStart.currentStep == AutomationContract.Step.COMPLETED) {
+            hideShoppingAutomationOverlay()
             AutomationLogger.info("task_completed_ignore_event trigger=$trigger")
             AutomationTaskStore.recordCompletedIgnored(
                 packageName = packageNameOverride ?: taskAtStart.packageName,
@@ -146,6 +160,7 @@ class DdalangooAccessibilityService : AccessibilityService() {
             )
             return
         }
+        refreshShoppingAutomationOverlay(taskAtStart)
 
         val rootNode = rootInActiveWindow
         if (rootNode == null) {
@@ -296,6 +311,17 @@ class DdalangooAccessibilityService : AccessibilityService() {
             filteredNodeCount = filteredNodes.size,
             trigger = trigger
         )
+
+        if (handleUnexpectedProductDetailDuringOpenSearch(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+        ) {
+            return
+        }
 
         if (maybeRequestVisualSentinelRetry(
                 task = task,
@@ -492,6 +518,17 @@ class DdalangooAccessibilityService : AccessibilityService() {
                 "skip early search submit currentStep=${task.currentStep} trigger=$trigger"
             )
             scheduleProcessTick(700L, "waiting_search_input_settle")
+            return
+        }
+
+        if (handleSearchSubmitObservation(
+                task = task,
+                currentPackageName = currentPackageName,
+                rawNodeCount = rawNodes.size,
+                filteredNodes = filteredNodes,
+                trigger = trigger
+            )
+        ) {
             return
         }
 
@@ -806,8 +843,13 @@ class DdalangooAccessibilityService : AccessibilityService() {
             if (actionPlan.reasonCode == RuleReasonCode.MY_COUPANG.value) {
                 markCoupangCanonicalNavigationStarted(task)
             }
-            AutomationTaskStore.advanceAfterSuccess(actionPlan)
-            scheduleAfterSuccessfulAction(actionPlan)
+            if (isSearchSubmitAction(task, actionPlan)) {
+                AutomationTaskStore.markSearchSubmitActionAccepted(actionResult.method)
+                scheduleProcessTick(1400L, "observe_search_submit")
+            } else {
+                AutomationTaskStore.advanceAfterSuccess(actionPlan)
+                scheduleAfterSuccessfulAction(actionPlan)
+            }
         }
 
         AutomationLogger.validation(
@@ -1018,10 +1060,12 @@ class DdalangooAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        hideShoppingAutomationOverlay()
         AutomationLogger.warn("service interrupted")
     }
 
     override fun onDestroy() {
+        hideShoppingAutomationOverlay()
         if (activeService === this) {
             activeService = null
         }
@@ -1034,6 +1078,42 @@ class DdalangooAccessibilityService : AccessibilityService() {
         }
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
+    }
+
+    fun hideShoppingAutomationOverlayForScreenshot(): Boolean {
+        return shoppingAutomationOverlay?.hideForScreenshot() == true
+    }
+
+    fun restoreShoppingAutomationOverlayAfterScreenshot(wasHidden: Boolean) {
+        if (!wasHidden) return
+        val task = AutomationTaskStore.getTask()
+        if (shouldShowShoppingAutomationOverlay(task)) {
+            shoppingAutomationOverlay?.restoreAfterScreenshot()
+            refreshShoppingAutomationOverlay(task)
+        }
+    }
+
+    private fun refreshShoppingAutomationOverlayFromStore() {
+        refreshShoppingAutomationOverlay(AutomationTaskStore.getTask())
+    }
+
+    private fun refreshShoppingAutomationOverlay(task: AutomationTask?) {
+        if (shouldShowShoppingAutomationOverlay(task)) {
+            shoppingAutomationOverlay?.update(task!!)
+        } else {
+            hideShoppingAutomationOverlay()
+        }
+    }
+
+    private fun hideShoppingAutomationOverlay() {
+        shoppingAutomationOverlay?.hide()
+    }
+
+    private fun shouldShowShoppingAutomationOverlay(task: AutomationTask?): Boolean {
+        if (task == null) return false
+        return (task.taskType == AutomationContract.TaskType.PURCHASE_HISTORY ||
+            task.taskType == AutomationContract.TaskType.PURCHASE_HISTORY_VALIDATION) &&
+            task.currentStep != AutomationContract.Step.COMPLETED
     }
 
     private fun scheduleTaskStartedTicks() {
@@ -2066,6 +2146,66 @@ class DdalangooAccessibilityService : AccessibilityService() {
             System.currentTimeMillis() < suppressSearchSubmitUntilMs
     }
 
+    private fun handleSearchSubmitObservation(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (task.currentStep != AutomationContract.Step.SEARCH_SUBMIT) return false
+        if (!AutomationTaskStore.isWaitingForSearchSubmitObservation()) return false
+
+        if (isSearchResultsScreenReady(task, filteredNodes)) {
+            AutomationTaskStore.clearSearchSubmitObservation("search_results_observed")
+            AutomationLogger.info(
+                "search_submit_business_success taskId=${task.taskId} platform=${task.platform} " +
+                    "trigger=$trigger nextStep=${AutomationContract.Step.ENSURE_RECOMMENDED_SORT}"
+            )
+            AutomationTaskStore.updateCurrentStep(AutomationContract.Step.ENSURE_RECOMMENDED_SORT)
+            scheduleProcessTick(200L, "search_submit_results_observed")
+            return true
+        }
+
+        if (AutomationTaskStore.isSearchSubmitObservationSettling()) {
+            AutomationLogger.info(
+                "search_submit_observation_waiting taskId=${task.taskId} platform=${task.platform} " +
+                    "trigger=$trigger"
+            )
+            scheduleProcessTick(300L, "waiting_search_submit_observation")
+            return true
+        }
+
+        val expectedKeyword = task.searchKeyword.ifBlank { task.targetProductName }.trim()
+        val inputStillFilled = isSearchInputStillFilledWithExpectedKeyword(filteredNodes, expectedKeyword)
+        if (inputStillFilled) {
+            val switched = AutomationTaskStore.switchToNextSearchSubmitStrategy(
+                reason = "input_still_filled_without_search_results"
+            )
+            if (switched) {
+                scheduleProcessTick(100L, "retry_search_submit_next_strategy")
+            } else {
+                AutomationTaskStore.stopTask(
+                    packageName = currentPackageName,
+                    currentStep = task.currentStep,
+                    rawNodeCount = rawNodeCount,
+                    filteredNodeCount = filteredNodes.size,
+                    trigger = trigger,
+                    screenType = "search_submit_not_effective",
+                    reasonCode = "search_submit_not_effective",
+                    message = "Search submit was accepted but platform search results were not observed",
+                    failedAction = "search_submit",
+                    expectedState = "platform-specific search results screen",
+                    observedState = "search input still contains $expectedKeyword"
+                )
+            }
+            return true
+        }
+
+        AutomationTaskStore.clearSearchSubmitObservation("search_input_changed_or_missing")
+        return false
+    }
+
     private fun verifySearchInputBeforeSubmit(
         task: AutomationTask,
         currentPackageName: String?,
@@ -2179,6 +2319,21 @@ class DdalangooAccessibilityService : AccessibilityService() {
             }
     }
 
+    private fun isSearchInputStillFilledWithExpectedKeyword(
+        filteredNodes: List<UiNode>,
+        expectedKeyword: String
+    ): Boolean {
+        val normalizedExpected = normalizeSearchTarget(expectedKeyword)
+        if (normalizedExpected.isBlank()) return false
+        val searchInputNode = findCurrentSearchInputNode(filteredNodes) ?: return false
+        val actualSearchText = searchInputNode.text
+            ?.takeIf { text -> text.isNotBlank() }
+            ?: searchInputNode.contentDescription.orEmpty()
+        val normalizedActual = normalizeSearchTarget(actualSearchText)
+        return normalizedActual.isNotBlank() &&
+            (normalizedActual == normalizedExpected || normalizedActual.contains(normalizedExpected))
+    }
+
     private fun isEditText(node: UiNode): Boolean {
         return node.className.orEmpty().contains("EditText", ignoreCase = true)
     }
@@ -2255,6 +2410,65 @@ class DdalangooAccessibilityService : AccessibilityService() {
             AutomationContract.Step.DUMP_SEARCH_RESULTS
         )
         return resultWaitRetryCount >= 2 && AutomationTaskStore.tryReserveSearchSubmitRetry()
+    }
+
+    private fun handleUnexpectedProductDetailDuringOpenSearch(
+        task: AutomationTask,
+        currentPackageName: String?,
+        rawNodeCount: Int,
+        filteredNodes: List<UiNode>,
+        trigger: String
+    ): Boolean {
+        if (task.currentStep != AutomationContract.Step.OPEN_SEARCH) return false
+        if (!isSearchAutomationTask(task)) return false
+        if (task.platform != AutomationContract.Platform.COUPANG) return false
+        if (currentPackageName != AutomationContract.PackageName.COUPANG) return false
+
+        val isProductDetailScreen = isCoupangProductDetailScreen(filteredNodes) ||
+            isLikelyCoupangProductDetailScreen(filteredNodes)
+        if (!isProductDetailScreen) return false
+
+        val now = System.currentTimeMillis()
+        if (now < suppressUnexpectedProductDetailBackUntilMs) {
+            AutomationLogger.info(
+                "product_search_recover_from_detail_wait taskId=${task.taskId} " +
+                    "currentStep=${task.currentStep} trigger=$trigger"
+            )
+            scheduleProcessTick(600L, "waiting_product_detail_back_settle")
+            return true
+        }
+
+        suppressUnexpectedProductDetailBackUntilMs = now + 1200L
+        val backNode = findCoupangBackNavigationNode(filteredNodes)
+        val clickedBackNode = backNode?.sourceNode
+            ?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        val usedGlobalBack = if (clickedBackNode) false else performGlobalAction(GLOBAL_ACTION_BACK)
+
+        AutomationLogger.info(
+            "product_search_recover_from_detail taskId=${task.taskId} platform=${task.platform} " +
+                "currentStep=${task.currentStep} action=back clickedBackNode=$clickedBackNode " +
+                "usedGlobalBack=$usedGlobalBack backNodeId=${backNode?.id ?: -1} " +
+                "rawNodeCount=$rawNodeCount filteredNodeCount=${filteredNodes.size} trigger=$trigger"
+        )
+        scheduleProcessTick(900L, "after_product_detail_back")
+        return true
+    }
+
+    private fun findCoupangBackNavigationNode(filteredNodes: List<UiNode>): UiNode? {
+        return filteredNodes
+            .asSequence()
+            .filter { node -> node.visibleToUser && node.enabled }
+            .filter { node ->
+                val text = node.primaryText().trim()
+                val viewId = node.viewIdResourceName.orEmpty()
+                text == "뒤로가기" ||
+                    text == "뒤로" ||
+                    viewId.endsWith(":id/back") ||
+                    viewId.endsWith("/back") ||
+                    viewId.contains("back", ignoreCase = true)
+            }
+            .filter { node -> node.clickable || node.sourceNode?.isClickable == true }
+            .minWithOrNull(compareBy<UiNode> { it.boundsTop }.thenBy { it.boundsLeft })
     }
 
     private fun isSearchInspectionScreenReady(rawNodeCount: Int, filteredNodeCount: Int): Boolean {

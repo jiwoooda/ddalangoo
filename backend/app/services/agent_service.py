@@ -1744,6 +1744,10 @@ def _product_search_task_from_execution(execution: dict) -> AutomationTaskInAgen
 
 def _product_search_query_from_state(state: dict) -> str | None:
     """LangGraph state에서 Android 앱 검색에 넘길 대표 검색어를 만든다."""
+    search_query = str(state.get("search_query") or "").strip()
+    if search_query:
+        return search_query
+
     keywords = [
         str(keyword).strip()
         for keyword in (state.get("keywords") or [])

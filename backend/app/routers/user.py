@@ -8,7 +8,8 @@ from app.schemas.user import (
     UserResponse,
     UserUpdateRequest,
 )
-from app.services import user_service
+from app.schemas.preference_report import PreferenceReportResponse
+from app.services import preference_report_service, user_service
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -40,6 +41,13 @@ async def get_user(userId: int, db: AsyncSession = Depends(get_db)):
     회원가입/로그인은 DB 기반이므로 조회도 같은 DB를 봐야 한다.
     """
     return await user_service.get_user_db(db, userId)
+
+
+@router.get("/{userId}/preference-report", response_model=PreferenceReportResponse)
+async def get_preference_report(userId: int, db: AsyncSession = Depends(get_db)):
+    """사용자 구매이력/선호도 캐시 기반 분석 리포트를 조회한다."""
+    await user_service.get_user_db(db, userId)
+    return await preference_report_service.get_preference_report_db(db, userId)
 
 
 @router.patch("/{userId}", response_model=UserResponse)

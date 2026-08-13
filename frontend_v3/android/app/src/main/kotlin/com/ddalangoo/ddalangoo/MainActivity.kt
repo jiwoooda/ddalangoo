@@ -243,6 +243,7 @@ class MainActivity : FlutterActivity() {
                         arguments.entries.associate { (key, value) -> key.toString() to value },
                     )
                     AutomationTaskStore.setTask(task)
+                    DdalangooAccessibilityService.notifyTaskUpdated()
                     if (shouldLaunchPackageForTask(task)) {
                         task.effectivePackageName()?.let { packageName ->
                             launchPackage(packageName)
@@ -259,6 +260,7 @@ class MainActivity : FlutterActivity() {
 
                 AutomationContract.Method.CLEAR_TASK -> {
                     AutomationTaskStore.clearTask()
+                    DdalangooAccessibilityService.notifyTaskCleared()
                     result.success(true)
                 }
 
