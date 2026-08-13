@@ -11,6 +11,8 @@ if not hasattr(langgraph.errors, "NodeError"):
 from src.agents.smalltalk_agent import (
     _is_cross_branch_repeat,
     _next_name_greeting_pending,
+    _reject_premature_none_confirmation,
+    check_completion_gate,
     check_episode_verbatim_copy,
     force_repeat_avoidance_reply,
     is_thin_reply,
@@ -136,7 +138,8 @@ def test_force_repeat_avoidance_pivots_to_missing_required_field():
     reply, target = force_repeat_avoidance_reply(
         "와, 그 카페 진짜 좋네요! 어떤 음료를 좋아하세요?",
         merged_profile={"household_size": None, "delivery_priority": "빠른배송",
-                         "value_priority": "가성비", "food_dislikes": ["매운 음식"]},
+                         "value_priority": "가성비", "food_dislikes": ["매운 음식"],
+                         "health_notes": ["없음"]},
     )
     assert target == "household_size"
     assert "어떤 음료를 좋아하세요" not in reply
@@ -147,10 +150,76 @@ def test_force_repeat_avoidance_strips_question_when_no_required_field_missing()
     reply, target = force_repeat_avoidance_reply(
         "와, 그 카페 진짜 좋네요! 어떤 음료를 좋아하세요?",
         merged_profile={"household_size": 1, "delivery_priority": "빠른배송",
-                         "value_priority": "가성비", "food_dislikes": ["매운 음식"]},
+                         "value_priority": "가성비", "food_dislikes": ["매운 음식"],
+                         "health_notes": ["없음"]},
     )
     assert target is None
     assert "?" not in reply and "？" not in reply
+
+
+def test_force_repeat_avoidance_prioritizes_mandatory_fields_over_soft_pool():
+    # household_size가 안 채워져 있어도, food_dislikes(필수-확인 필드)가
+    # 안 채워져 있으면 그쪽을 먼저 강제한다.
+    _, target = force_repeat_avoidance_reply(
+        "와, 그 카페 진짜 좋네요! 어떤 음료를 좋아하세요?",
+        merged_profile={"household_size": None, "delivery_priority": "빠른배송",
+                         "value_priority": "가성비", "food_dislikes": [],
+                         "health_notes": ["없음"]},
+    )
+    assert target == "food_dislikes"
+
+
+def test_reject_premature_none_confirmation_when_never_asked():
+    # 온보딩 첫 인사 턴처럼 아직 한 번도 물어본 적 없는데 LLM이 곧바로
+    # ["없음"]을 채우려 하면 무효화(빈 리스트로)한다.
+    assert _reject_premature_none_confirmation(["없음"], "food_dislikes", []) == []
+
+
+def test_reject_premature_none_confirmation_accepts_when_previously_asked():
+    assert _reject_premature_none_confirmation(
+        ["없음"], "food_dislikes", ["food_dislikes", "meal_check"]
+    ) == ["없음"]
+
+
+def test_reject_premature_none_confirmation_leaves_real_values_untouched():
+    assert _reject_premature_none_confirmation(["매운 음식"], "food_dislikes", []) == ["매운 음식"]
+
+
+def test_completion_gate_blocked_when_mandatory_fields_pending():
+    assert not check_completion_gate(
+        llm_says_complete=True,
+        is_timeout=False,
+        was_field_complete_before_turn=True,
+        mandatory_fields_pending=True,
+    )
+
+
+def test_completion_gate_allowed_when_mandatory_fields_resolved():
+    assert check_completion_gate(
+        llm_says_complete=True,
+        is_timeout=False,
+        was_field_complete_before_turn=True,
+        mandatory_fields_pending=False,
+    )
+
+
+def test_completion_gate_timeout_overrides_mandatory_fields_pending():
+    assert check_completion_gate(
+        llm_says_complete=True,
+        is_timeout=True,
+        was_field_complete_before_turn=False,
+        mandatory_fields_pending=True,
+    )
+
+
+def test_topic_stall_target_field_targets_health_notes_after_food_dislikes_confirmed():
+    from src.agents.smalltalk_agent import _topic_stall_target_field
+
+    target = _topic_stall_target_field(
+        {"household_size": 1, "delivery_priority": "빠른배송", "value_priority": "가성비",
+         "food_dislikes": ["없음"], "health_notes": []}
+    )
+    assert target == "health_notes"
 
 
 def test_repl_degraded_result_is_detectable():
