@@ -139,7 +139,7 @@ def _confirm_candidate(candidate: dict) -> dict:
         "product_url": product_url,
         "pending_action": {
             "type": "product_confirm",
-            "message": f"{product_name}, {price:,}원이에요. 다시 주문할까요?",
+            "message": f"{product_name}, {price:,}원이에요. 이번에도 다시 주문할까요?",
             "payload": {
                 "purchase_history_id": candidate.get("purchase_history_id"),
                 "product_url": product_url,
