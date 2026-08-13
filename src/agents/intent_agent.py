@@ -18,6 +18,7 @@ from src.state.node_inputs import IntentAgentInput, IntentAgentUpdate
 from src.prompts.intent_prompt import INTENT_AGENT_PROMPT
 from src.utils.agent_logger import agent_logger
 from src.utils.retry import FailureClass, classify_failure
+from src.utils.search_keywords import normalize_search_keywords
 
 IntentType = Literal[
     "buy", "reorder", "confirm", "deny", "next", "refine",
@@ -54,14 +55,7 @@ def _looks_like_quantity_reply(text: str) -> bool:
 
 def _normalize_keyword_tokens(keywords: list[str]) -> list[str]:
     """중복·공백 제거 및 빈 문자열 필터."""
-    seen: set[str] = set()
-    result = []
-    for kw in keywords:
-        kw = kw.strip()
-        if kw and kw not in seen:
-            seen.add(kw)
-            result.append(kw)
-    return result
+    return normalize_search_keywords(keywords)
 
 
 _STOP_WORDS = frozenset({

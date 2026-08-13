@@ -636,13 +636,12 @@ def context_agent_node(state: ContextAgentInput) -> ContextAgentUpdate:
     )
 
     # tier1(safety_constraints)/tier2(exclude_additions)는 검색 단계에서 바로
-    # 걸러지도록 exclude_keywords에 병합. tier1은 keywords 쪽엔 넣지 않는다
-    # (알레르기 성분명을 검색어로 쓰면 오히려 그 성분이 든 상품만 더 잡힘).
+    # 걸러지도록 exclude_keywords에 병합한다. retrieval keyword_additions는
+    # recommendation_context에만 보존하고 핵심 검색어에는 합치지 않는다.
+    # 카테고리 호환성 검증 없이 합치면 "커피 원두 락토프리 우유"처럼 과거
+    # 프로필의 다른 품목이 현재 플랫폼 검색어를 오염시킬 수 있기 때문이다.
     existing_keywords = state.get("keywords") or []
     existing_exclude = state.get("exclude_keywords") or []
-    merged_keywords = existing_keywords + [
-        k for k in pref_ctx.get("keyword_additions", []) if k not in existing_keywords
-    ]
     merged_exclude = existing_exclude + [
         k for k in (pref_ctx.get("exclude_additions", []) + pref_ctx.get("safety_constraints", []))
         if k not in existing_exclude
@@ -651,6 +650,6 @@ def context_agent_node(state: ContextAgentInput) -> ContextAgentUpdate:
     return {
         **updates,
         "recommendation_context": recommendation_context,
-        "keywords": merged_keywords,
+        "keywords": existing_keywords,
         "exclude_keywords": merged_exclude,
     }
