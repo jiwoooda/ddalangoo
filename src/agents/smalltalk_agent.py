@@ -240,6 +240,16 @@ def _required_fields_filled_count(profile: dict) -> int:
 # 같은 이유(추상적이라 예시가 없음)로 실패했으므로 이 메커니즘이 대체한다.
 _TOPIC_STALL_TURN_THRESHOLD = 2
 
+# 프롬프트 지시(_TOPIC_STALL_TURN_THRESHOLD)만으로는 부족했다 — 실측에서
+# "화제 정체 N턴 연속" 로그가 8턴 넘게 연속으로 찍히는데도 매번 무관한
+# 화제(카페→빵→고기굽기→음료)로 계속 새는 케이스가 확인됐다(household_size로
+# 전환하라는 예시 문장을 그대로 줬는데도 단 한 번도 안 물어봄). 소프트
+# 지시가 이만큼(_TOPIC_STALL_TURN_THRESHOLD 이후 추가로 이만큼 더) 연속
+# 무시되면, B-5와 같은 원리로 코드가 reply를 직접 고쳐서 지정된 필드
+# 질문을 강제로 붙인다 — "규칙이 우선한다"는 지시조차 안 먹히는 경우의
+# 마지막 수단.
+_TOPIC_STALL_FORCE_AFTER_IGNORED_TURNS = 2
+
 _REQUIRED_FIELD_PRIORITY = ["household_size", "delivery_priority", "value_priority", "food_dislikes"]
 
 _REQUIRED_FIELD_PIVOT_EXAMPLES = {
@@ -250,13 +260,30 @@ _REQUIRED_FIELD_PIVOT_EXAMPLES = {
 }
 
 
-def get_topic_stall_instruction(merged_profile: dict) -> str:
-    """대화가 같은 화제에 머물러 REQUIRED_FIELDS 진행이 없을 때 호출한다.
-    채울 필드가 이미 다 있으면(정체가 문제 안 됨) 빈 문자열."""
+def _topic_stall_target_field(merged_profile: dict, stalled_turns: int = 0) -> Optional[str]:
+    """화제 전환 대상으로 삼을, 아직 안 채워진 필수 필드 하나. 채울 필드가
+    이미 다 있으면(정체가 문제 안 됨) None.
+
+    stalled_turns로 미충족 필드 목록을 순환시킨다(고정적으로 항상
+    missing[0]만 쓰지 않음) — 사용자가 그 질문에 답을 안(또는 회피)하는
+    채로 정체가 계속되면, 매번 우선순위 1번 필드로만 강제 전환하다가는
+    같은 질문을 무한 반복하게 된다(force_topic_pivot_reply가 지시 무시
+    누적 시 이 값으로 reply를 직접 고쳐 쓰므로 특히 중요). 그래서 정체가
+    길어질수록 다음 미충족 필드로 옮겨가며 최소 한 번씩은 골고루 물어보게
+    한다."""
     missing = [f for f in _REQUIRED_FIELD_PRIORITY if merged_profile.get(f) in (None, [], "")]
     if not missing:
+        return None
+    return missing[stalled_turns // _TOPIC_STALL_TURN_THRESHOLD % len(missing)]
+
+
+def get_topic_stall_instruction(merged_profile: dict, stalled_turns: int = 0) -> str:
+    """대화가 같은 화제에 머물러 REQUIRED_FIELDS 진행이 없을 때 호출한다.
+    채울 필드가 이미 다 있으면(정체가 문제 안 됨) 빈 문자열."""
+    target = _topic_stall_target_field(merged_profile, stalled_turns)
+    if not target:
         return ""
-    example = _REQUIRED_FIELD_PIVOT_EXAMPLES[missing[0]]
+    example = _REQUIRED_FIELD_PIVOT_EXAMPLES[target]
     return f"""
 # ⚠️ 화제 전환이 필요합니다 — 아래 규칙이 다른 모든 지시보다 우선합니다
 규칙 1. 지금까지 대화가 같은 화제에 여러 턴째 머물러 있습니다. 이번 턴은
@@ -269,6 +296,15 @@ def get_topic_stall_instruction(merged_profile: dict) -> str:
 """
 
 
+def force_topic_pivot_reply(reply: str, target_field: str) -> str:
+    """topic_stall_instruction이 _TOPIC_STALL_FORCE_AFTER_IGNORED_TURNS턴
+    넘게 무시됐을 때 쓰는 마지막 수단 — reply에 이미 있던 질문 문장을
+    지우고(리액션/공감은 남김) 지정된 필수 필드 질문을 그대로 붙인다."""
+    without_question = _limit_questions(reply, max_questions=0).strip()
+    pivot_question = _REQUIRED_FIELD_PIVOT_EXAMPLES[target_field].strip('"')
+    return f"{without_question} {pivot_question}".strip()
+
+
 # 화제 반복 방지 — B-3(already_asked_topics)가 대화 중간 문단에서 "다시
 # 묻지 마세요"라고 지시하는 것만으로는 실측에서 매번 무시됐다(같은 질문이
 # 3턴 연속 토씨 하나 안 틀리고 반복됨) — wrap-up/질문억제/화제정체와 같은
@@ -277,8 +313,15 @@ def get_topic_stall_instruction(merged_profile: dict) -> str:
 # 추가로 "아까 말했잖아" 같은 사용자의 명시적 항의는 코드로 직접 감지해서,
 # 화제 키워드 매칭이 못 잡는 반복(예: 표현이 완전히 달라서 already_asked_
 # topics에 안 걸린 경우)까지 놓치지 않고 최우선으로 처리한다.
+#
+# "다니까"/"라니까" 계열도 추가한다 — "마트 간다니까"처럼 "아까 말했잖아"라고
+# 명시하진 않지만 이미 답한 걸 짜증 섞어 재확인해주는 어미다. 실측에서
+# 이런 발화 뒤에도 딸랑구가 태연히 같은 화제로 또 캐묻는 게 확인됐다(사용자가
+# 세 번째 답하는데도 반응 못 함) — "아까 말했잖아"류만큼 명시적이진 않지만
+# 짜증/반복 신호로 취급한다.
 _FRUSTRATION_PATTERNS = (
     "아까 말했", "아까도 물어", "말했잖", "물어봤잖", "이미 말했", "방금 말했", "몇 번을 말",
+    "다니까", "라니까",
 )
 
 
@@ -603,6 +646,21 @@ def _normalize_name_for_comparison(name: str) -> str:
     return normalized
 
 
+def _is_same_name(extracted: str, previous: str) -> bool:
+    """호칭 접미사 차이(_normalize_name_for_comparison)뿐 아니라, 한쪽이
+    다른 쪽의 부분 문자열인 경우(성을 생략하고 재추출·애칭 등)도 같은
+    이름으로 본다. 실측에서 이름을 한 번만 알려준 세션인데도 몇 턴 지나서
+    name_greeting_pending이 다시 True로 재점화되는 사례가 있었다 — 구조화
+    출력은 매 턴 전체 필드를 다시 채워 보내는 특성상, LLM이 "김철수" 대신
+    "철수"만 다시 추출하는 등 표현이 살짝 달라지는 것만으로 완전 일치
+    비교가 "새 이름"으로 오판하는 게 원인으로 보인다."""
+    a = _normalize_name_for_comparison(extracted)
+    b = _normalize_name_for_comparison(previous)
+    if not a or not b:
+        return a == b
+    return a == b or a in b or b in a
+
+
 def _next_name_greeting_pending(
     *,
     was_pending: bool,
@@ -622,7 +680,7 @@ def _next_name_greeting_pending(
         return True
     if not extracted_name:
         return False
-    return _normalize_name_for_comparison(extracted_name) != _normalize_name_for_comparison(previous_name or "")
+    return not _is_same_name(extracted_name, previous_name or "")
 
 
 def check_episode_verbatim_copy(
@@ -954,6 +1012,7 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
     health_just_disclosed = detect_health_disclosure(user_input)
     health_followup_active = health_just_disclosed or health_followup_remaining_in > 0
     health_followup_instruction = ""
+    topic_stall_target: Optional[str] = None
     chosen_pattern_key: Optional[str] = None
     chosen_episode_key: Optional[str] = None
     enforce_no_question = False  # wrap-up/질문억제 턴에서만 True — B-5 후처리 게이트
@@ -1086,7 +1145,8 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
                     f"[smalltalk_agent] 화제 반복 방지 지시 주입(항의 감지) | pending={already_asked_topics_in}"
                 )
             elif stalled_turns_in >= _TOPIC_STALL_TURN_THRESHOLD:
-                topic_stall_instruction = get_topic_stall_instruction(profile_before)
+                topic_stall_target = _topic_stall_target_field(profile_before, stalled_turns_in)
+                topic_stall_instruction = get_topic_stall_instruction(profile_before, stalled_turns_in)
                 if topic_stall_instruction:
                     agent_logger.log(
                         f"[smalltalk_agent] 화제 정체 {stalled_turns_in}턴 연속 — 필수 필드로 강제 전환"
@@ -1222,6 +1282,28 @@ def smalltalk_agent_node(state: SmalltalkAgentInput, runtime: Runtime | None = N
             setattr(result, top_field, kept)
 
     merged_profile, changed = _build_merged_profile(user_id, result)
+
+    # 화제 정체 강제 개입 — topic_stall_instruction(소프트 지시)이 이미
+    # _TOPIC_STALL_FORCE_AFTER_IGNORED_TURNS턴 넘게 무시됐는데도 이번 턴도
+    # 지정된 필드를 안 물었으면(그리고 그 필드가 이번 턴 추출로도 안
+    # 채워졌으면), reply를 직접 고쳐서 그 질문을 강제로 붙인다. B-5와 같은
+    # "지시만으론 안 되면 코드로" 원칙이지만, 여긴 지시 위반이 여러 턴
+    # 반복될 때만 쓰는 마지막 수단이라 다른 B계열보다 개입 폭이 크다.
+    if (
+        topic_stall_target
+        and result.asked_topic_field != topic_stall_target
+        and not _field_filled(merged_profile, topic_stall_target)
+        and stalled_turns_in >= _TOPIC_STALL_TURN_THRESHOLD + _TOPIC_STALL_FORCE_AFTER_IGNORED_TURNS
+    ):
+        forced_reply = force_topic_pivot_reply(result.reply, topic_stall_target)
+        agent_logger.log(
+            f"[smalltalk_agent] 화제 정체 지시 {stalled_turns_in}턴 연속 무시 — 강제 개입 | "
+            f"target={topic_stall_target} before={result.reply!r} after={forced_reply!r}"
+        )
+        result.reply = forced_reply
+        result.asked_topic_field = topic_stall_target
+        result.onboarding_complete = False
+
     is_order_handoff = _looks_like_explicit_order_request(user_input)
     onboarding_complete = check_completion_gate(
         llm_says_complete=result.onboarding_complete,
