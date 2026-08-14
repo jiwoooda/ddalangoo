@@ -68,13 +68,36 @@ def _simplify_with_haiku(explanation: str, reason: str) -> str:
         return explanation
 
 
+def _format_safety_substitution(preference_context: dict) -> str | None:
+    """건강/식이 제약 때문에 원 키워드 대신 구체 대체어(예: "우유"→"락토프리
+    우유")로 찾은 경우, 설명 생성 LLM에 그 사유를 명시적으로 알려준다.
+    이걸 안 넘기면 LLM이 axis_contributions만 보고 배송/가격 같은 부차적
+    이유만 말하고, 정작 사용자에게 가장 중요한 "왜 이 상품이 안전한지"는
+    설명에서 누락되는 문제가 있었다(실측: 유당불내증 프로필에 락토프리
+    우유를 추천하면서 "로켓배송이라 빨라요"만 이유로 나감)."""
+    additions = (preference_context or {}).get("keyword_additions") or []
+    exclusions = (preference_context or {}).get("exclude_additions") or []
+    if not additions or not exclusions:
+        return None
+    return (
+        f"주의: 건강/식이 제약({', '.join(exclusions)}) 때문에 "
+        f"'{', '.join(additions)}'로 대체해서 찾은 상품입니다 — "
+        f"추천 이유에 이 안전 대체 사실을 최우선으로 언급하세요."
+    )
+
+
 def _format_preference(preference_context: dict) -> str:
-    if not preference_context or not preference_context.get("summary"):
+    lines = []
+    safety_note = _format_safety_substitution(preference_context)
+    if safety_note:
+        lines.append(safety_note)
+    if preference_context and preference_context.get("summary"):
+        lines.append(preference_context["summary"])
+        keyword_summary = preference_context.get("keyword_summary") or ""
+        if keyword_summary:
+            lines.append(f"키워드 관련 선호: {keyword_summary}")
+    if not lines:
         return "선호 정보 없음 (구매이력 부족)"
-    lines = [preference_context["summary"]]
-    keyword_summary = preference_context.get("keyword_summary") or ""
-    if keyword_summary:
-        lines.append(f"키워드 관련 선호: {keyword_summary}")
     return "\n".join(lines)
 
 
