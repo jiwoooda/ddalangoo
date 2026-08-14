@@ -722,6 +722,77 @@ class MockShoppingFlowService extends ShoppingFlowService {
         ),
       ];
     }
+    if (normalized.contains('우유')) {
+      return const <_MockProduct>[
+        _MockProduct(
+          recommendationItemId: 501,
+          title: '서울우유 락토프리 1L',
+          brand: '서울우유',
+          price: 3900,
+          platform: 'kurly',
+          optionText: '1개',
+          deliveryInfo: '새벽배송',
+          reason: '유당불내증에도 편하게 드실 수 있는 제품이라 추천해요.',
+        ),
+        _MockProduct(
+          recommendationItemId: 502,
+          title: '일반 우유 1L',
+          brand: '매일유업',
+          price: 2900,
+          platform: 'coupang',
+          optionText: '1개',
+          deliveryInfo: '로켓배송',
+          reason: '가격이 가장 저렴한 후보예요.',
+        ),
+        _MockProduct(
+          recommendationItemId: 503,
+          title: '저지방 락토프리 900ml',
+          brand: '매일유업',
+          price: 3500,
+          platform: 'naver',
+          optionText: '900ml',
+          deliveryInfo: '일반배송',
+          reason: '저지방을 선호하실 때 잘 맞는 후보예요.',
+        ),
+      ];
+    }
+    // 재구매 데모(김열무 페르소나)용: "대파 다시 사줘"처럼 상품명이 그대로
+    // 들어오는 경우를 위한 항목. 첫 후보를 가장 저렴하게 배치해서 "저가
+    // 선호" 추천 시나리오와 맞아떨어지게 했다.
+    if (normalized.contains('대파')) {
+      return const <_MockProduct>[
+        _MockProduct(
+          recommendationItemId: 601,
+          title: '대파 1단',
+          brand: '산지직송',
+          price: 1980,
+          platform: 'coupang',
+          optionText: '1단',
+          deliveryInfo: '로켓배송',
+          reason: '지난번과 같은 상품 중 가장 저렴한 곳으로 골랐어요.',
+        ),
+        _MockProduct(
+          recommendationItemId: 602,
+          title: '국내산 대파 1단',
+          brand: '자연마켓',
+          price: 2900,
+          platform: 'kurly',
+          optionText: '1단',
+          deliveryInfo: '새벽배송',
+          reason: '신선도를 더 중요하게 볼 때 좋은 후보예요.',
+        ),
+        _MockProduct(
+          recommendationItemId: 603,
+          title: '프리미엄 대파 2단',
+          brand: '그린팜',
+          price: 4900,
+          platform: 'naver',
+          optionText: '2단',
+          deliveryInfo: '일반배송',
+          reason: '넉넉하게 담고 싶을 때 좋은 후보예요.',
+        ),
+      ];
+    }
     return const <_MockProduct>[
       _MockProduct(
         recommendationItemId: 401,
