@@ -36,10 +36,10 @@ def test_fails_safety_constraints_no_overlap_passes():
     assert _fails_safety_constraints(product, ["우유"]) is False
 
 
-def test_fails_safety_constraints_missing_nutrition_conservative_exclude():
-    """nutrition_info 자체가 없으면(mcp 모드 연동 전) 보수적으로 배제."""
+def test_fails_safety_constraints_missing_nutrition_uses_text_fallback():
+    """성분표와 위험 텍스트가 모두 없으면 무조건 차단하지 않는다."""
     product = {}
-    assert _fails_safety_constraints(product, ["우유"]) is True
+    assert _fails_safety_constraints(product, ["우유"]) is False
 
 
 def test_fails_safety_constraints_empty_list_never_excludes():
