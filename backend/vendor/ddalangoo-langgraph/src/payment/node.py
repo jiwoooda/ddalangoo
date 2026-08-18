@@ -172,9 +172,23 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
         if intent == "quantity_change":
             new_qty = _coerce_positive_int(state.get("quantity"), default=quantity)
             if new_qty and selected_product:
+                # 장바구니에 다른 상품이 더 있을 수 있으므로, 전체를 비우고
+                # selected_product 하나만 다시 담으면 무관한 다른 품목이 같이
+                # 사라진다(실측 확인됨, fl-2026-08-18-005). selected_product와
+                # 이름이 같은 항목만 새 수량으로 바꾸고 나머지는 그대로 유지한다.
                 from src.tools.mock_tools import mock_clear_cart
+                existing_cart = mock_get_cart(user_id)
+                target_name = selected_product.get("product_name")
                 mock_clear_cart(user_id)
-                mock_add_to_cart(user_id, selected_product, new_qty, keywords)
+                matched = False
+                for item in existing_cart:
+                    if item.get("product_name") == target_name:
+                        mock_add_to_cart(user_id, item.get("product") or selected_product, new_qty, item.get("keywords") or keywords)
+                        matched = True
+                    else:
+                        mock_add_to_cart(user_id, item.get("product") or item, item.get("quantity", 1), item.get("keywords"))
+                if not matched:
+                    mock_add_to_cart(user_id, selected_product, new_qty, keywords)
             cart = mock_get_cart(user_id)
             cart_total = sum(item["total"] for item in cart) if cart else total
             items_summary = ", ".join(

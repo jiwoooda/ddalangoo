@@ -54,6 +54,7 @@ _UNIT_NODE = {
     "response_agent": ("src.agents.response_agent", "response_agent_node"),
     "smalltalk_agent": ("src.agents.smalltalk_agent", "smalltalk_agent_node"),
     "reorder_agent": ("src.agents.reorder_agent", "reorder_agent_node"),
+    "payment_agent": ("src.payment.node", "payment_agent_node"),
 }
 
 
@@ -82,6 +83,28 @@ def _ensure_graph_compatibility() -> None:
         Runtime.execution_info = None
 
 
+def _seed_mock_cart(context: dict[str, Any]) -> None:
+    """payment_agent처럼 장바구니 상태가 state가 아니라 외부 mock DB(user_id 키,
+    src/tools/mock_tools.py의 _mock_carts)에 있는 agent는 state만 채워선 재현이
+    안 된다 — context.cart_seed = [{"user_id":..., "product": {...}, "quantity":...,
+    "keywords": [...]}, ...]가 있으면 실행 전에 이미 있는 mock_add_to_cart/
+    mock_clear_cart를 그대로 불러 미리 담아둔다(새 fixture 시스템 아님, 실제
+    프로덕션 mock tool 재사용)."""
+    seeds = context.get("cart_seed")
+    if not seeds:
+        return
+    from src.tools.mock_tools import mock_add_to_cart, mock_clear_cart
+
+    default_user_id = context.get("user_id")
+    seeded_users: set[str] = set()
+    for item in seeds:
+        user_id = item.get("user_id", default_user_id)
+        if user_id and user_id not in seeded_users:
+            mock_clear_cart(user_id)
+            seeded_users.add(user_id)
+        mock_add_to_cart(user_id, item["product"], item["quantity"], item.get("keywords"))
+
+
 def _run_unit_case(case: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str]]:
     """반환: (output, executed_nodes, tool_calls_summary). unit은 노드 하나만
     호출하므로 executed_nodes는 그 노드 이름 하나."""
@@ -92,7 +115,9 @@ def _run_unit_case(case: dict[str, Any]) -> tuple[dict[str, Any], list[str], lis
     module = importlib.import_module(module_path)
     node_fn = getattr(module, fn_name)
 
-    state = {**(case.get("input") or {}), **(case.get("context") or {})}
+    context = case.get("context") or {}
+    _seed_mock_cart(context)
+    state = {**(case.get("input") or {}), **context}
     output = node_fn(state)
     if not isinstance(output, dict):
         output = dict(output or {})
@@ -118,6 +143,7 @@ def _run_graph_case(
 
     context = case.get("context") or {}
     user_id = context.get("user_id", f"living_test_{case['case_id']}")
+    _seed_mock_cart(context)
 
     graph = build_graph()
     session_id = f"living-test-{case['case_id']}"

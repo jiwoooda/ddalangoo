@@ -1,0 +1,49 @@
+{
+  "run_id": "run-20260818-134011-ef3c9e4",
+  "scope": "unit",
+  "target": "payment_agent",
+  "git_sha": "ef3c9e4",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "payment_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "payment_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "cart_items[0].product_name",
+          "expected": "서울우유 1L",
+          "actual": "서울우유 1L",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "cart_items[0].quantity",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "cart_items[1].product_name",
+          "expected": "풀무원 유정란 10구",
+          "actual": "풀무원 유정란 10구",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "cart_items[1].quantity",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
