@@ -1,0 +1,146 @@
+[
+  {
+    "id": "P01", "name": "김정수", "age": 78, "gender": "남성",
+    "life": "독거, 경비원 은퇴", "traits": ["과묵", "가격민감", "간편식 선호"],
+    "speech": {"dialect": "표준 구어체", "dialect_strength": "none", "verbosity": "low", "digital_literacy": "beginner"},
+    "hidden_fields": ["usual_order_platform"],
+    "scripts": {
+      "exploratory": [{"text": "여보세요, 여기다 말하면 되는 거요?"}, {"text": "혼자 사니까 뭐 그냥 싼 거, 데워 먹는 게 편하지.", "disclose": {"household_size": 1, "value_priority": "가성비", "cooking_frequency": "거의안함"}}],
+      "immediate_request": [{"text": "우유 하나만 사줘. 비싼 건 말고.", "disclose": {"value_priority": "가성비"}}],
+      "ambiguous_request": [{"text": "뭐 먹을 거 좀."}, {"text": "혼자 간단히 데워 먹는 걸로.", "disclose": {"household_size": 1, "cooking_frequency": "거의안함"}}],
+      "topic_drift": [{"text": "오늘도 혼자 밥 먹어야지 뭐."}, {"text": "복잡한 건 말고 간단한 게 최고야.", "disclose": {"household_size": 1, "cooking_frequency": "거의안함"}}]
+    }
+  },
+  {
+    "id": "P02", "name": "박영희", "age": 72, "gender": "여성",
+    "life": "자녀 부부와 동거, 전업주부", "traits": ["말이 많음", "가족 중심", "대용량 선호"],
+    "speech": {"dialect": "표준 구어체", "dialect_strength": "none", "verbosity": "high", "digital_literacy": "intermediate"},
+    "hidden_fields": ["health_notes"],
+    "scripts": {
+      "exploratory": [{"text": "안녕하세요, 우리 애들이 이런 걸 해보라는데 내가 집에서 다섯 식구 밥을 해요.", "disclose": {"household_size": 5, "cooking_frequency": "자주"}}, {"text": "애들이 불고기를 좋아해서 자주 해 먹지.", "disclose": {"favorite_foods": ["불고기"]}}],
+      "immediate_request": [{"text": "계란 두 판 사줘요, 식구가 많아서 금방 먹어요.", "disclose": {"household_size": 5}}],
+      "ambiguous_request": [{"text": "애들 오는데 먹을 것 좀 보자."}, {"text": "다섯 명 먹을 만한 고기 같은 거요.", "disclose": {"household_size": 5, "favorite_foods": ["고기"]}}],
+      "topic_drift": [{"text": "우리 손주가 오늘 온다는데 날씨가 이래서 오려나 모르겠네."}, {"text": "오면 불고기 해주려고요.", "disclose": {"favorite_foods": ["불고기"], "cooking_frequency": "자주"}}]
+    }
+  },
+  {
+    "id": "P03", "name": "최상복", "age": 81, "gender": "남성",
+    "life": "배우자와 거주, 텃밭 소일", "traits": ["신선식품 선호", "앱 사용 미숙"],
+    "speech": {"dialect": "경상도", "dialect_strength": "moderate", "verbosity": "low", "digital_literacy": "beginner"},
+    "hidden_fields": ["delivery_priority"],
+    "scripts": {
+      "exploratory": [{"text": "여보세요, 이거 말하면 되는 기가?"}, {"text": "나는 집사람하고 둘이 살고 텃밭 채소 좋아한다 아이가.", "disclose": {"household_size": 2, "favorite_foods": ["채소"]}}],
+      "immediate_request": [{"text": "두부 하나 사도. 싱싱한 걸로."}],
+      "ambiguous_request": [{"text": "반찬거리 뭐 없나?"}, {"text": "채소 들어간 걸로 보면 된다.", "disclose": {"favorite_foods": ["채소"]}}],
+      "topic_drift": [{"text": "오늘 밭에 나가야 되는데 날이 와 이라노."}, {"text": "집사람하고 둘이 묵을 채소나 보면 된다.", "disclose": {"household_size": 2, "favorite_foods": ["채소"]}}]
+    }
+  },
+  {
+    "id": "P04", "name": "이명숙", "age": 68, "gender": "여성",
+    "life": "배우자와 거주, 자영업 은퇴", "traits": ["급함", "빠른 배송 우선"],
+    "speech": {"dialect": "표준 구어체", "dialect_strength": "none", "verbosity": "low", "digital_literacy": "intermediate"},
+    "hidden_fields": ["food_dislikes"],
+    "scripts": {
+      "exploratory": [{"text": "안녕하세요. 나는 오래 얘기할 시간 없어요."}, {"text": "필요한 건 빨리 오는 게 제일이에요.", "disclose": {"delivery_priority": "빠른배송"}}],
+      "immediate_request": [{"text": "생수 한 묶음, 오늘 빨리 오는 걸로 해줘요.", "disclose": {"delivery_priority": "빠른배송"}}],
+      "ambiguous_request": [{"text": "급하게 먹을 거 필요해요."}, {"text": "오늘 오는 간편식이요.", "disclose": {"delivery_priority": "빠른배송", "cooking_frequency": "거의안함"}}],
+      "topic_drift": [{"text": "비 온다는데 배송 늦으면 안 돼요."}, {"text": "아무튼 빨리 오는 생수 찾아줘요.", "disclose": {"delivery_priority": "빠른배송"}}]
+    }
+  },
+  {
+    "id": "P05", "name": "김영숙", "age": 75, "gender": "여성",
+    "life": "독거, 위장이 예민함", "traits": ["유기농", "품질 우선", "간접 표현"],
+    "speech": {"dialect": "충청도", "dialect_strength": "mild", "verbosity": "medium", "digital_literacy": "beginner"},
+    "hidden_fields": ["usual_order_platform"],
+    "scripts": {
+      "exploratory": [{"text": "그냥 천천히 얘기하면 되는 겨?"}, {"text": "내가 속이 예민해서 아무거나는 못 먹어유. 유기농이면 좋고.", "disclose": {"health_notes": ["위장이 예민함"], "additional_signals": [{"label": "유기농 선호", "value": "유기농이면 좋음"}], "value_priority": "품질·브랜드"}}],
+      "immediate_request": [{"text": "속 편한 유기농 우유 하나 찾아줘유.", "disclose": {"health_notes": ["위장이 예민함"], "additional_signals": [{"label": "유기농 선호", "value": "유기농"}]}}],
+      "ambiguous_request": [{"text": "속 편한 거 뭐 없을까유?"}, {"text": "유기농 죽 같은 거면 좋겠네.", "disclose": {"health_notes": ["위장이 예민함"], "additional_signals": [{"label": "유기농 선호", "value": "유기농"}]}}],
+      "topic_drift": [{"text": "요즘 속이 자꾸 쓰려서 밥 먹기가 겁나유.", "disclose": {"health_notes": ["속쓰림"]}}, {"text": "그래도 유기농으로 된 죽은 좀 낫겠지.", "disclose": {"additional_signals": [{"label": "유기농 선호", "value": "유기농"}]}}]
+    }
+  },
+  {
+    "id": "P06", "name": "정도현", "age": 77, "gender": "남성",
+    "life": "배우자와 거주, 당뇨 관리 중", "traits": ["저당식", "건강정보를 돌려 말함"],
+    "speech": {"dialect": "표준 구어체", "dialect_strength": "none", "verbosity": "medium", "digital_literacy": "beginner"},
+    "hidden_fields": ["value_priority"],
+    "scripts": {
+      "exploratory": [{"text": "안녕하시오."}, {"text": "병원에서 단 건 줄이라고 하더군. 혈당 때문에.", "disclose": {"health_notes": ["당뇨"], "diet_restrictions": ["저당식"]}}],
+      "immediate_request": [{"text": "설탕 적은 두유 좀 사주시오. 혈당 때문에.", "disclose": {"health_notes": ["당뇨"], "diet_restrictions": ["저당식"]}}],
+      "ambiguous_request": [{"text": "간식 하나 먹고 싶은데."}, {"text": "단 건 안 된다더군, 혈당 때문에.", "disclose": {"health_notes": ["당뇨"], "diet_restrictions": ["저당식"]}}],
+      "topic_drift": [{"text": "병원 갔다 왔는데 혈당이 또 높다네.", "disclose": {"health_notes": ["당뇨"]}}, {"text": "먹을 것도 단 건 빼야지.", "disclose": {"diet_restrictions": ["저당식"]}}]
+    }
+  },
+  {
+    "id": "P07", "name": "한미경", "age": 66, "gender": "여성",
+    "life": "배우자와 거주, 교직 은퇴", "traits": ["비교 구매", "가성비"],
+    "speech": {"dialect": "표준 구어체", "dialect_strength": "none", "verbosity": "medium", "digital_literacy": "intermediate"},
+    "hidden_fields": ["health_notes"],
+    "scripts": {
+      "exploratory": [{"text": "안녕하세요. 저는 가격하고 배송비를 비교해서 사는 편이에요.", "disclose": {"value_priority": "가성비", "delivery_priority": "배송비절약"}}],
+      "immediate_request": [{"text": "계란 한 판, 배송비까지 합쳐서 싼 걸로 부탁해요.", "disclose": {"value_priority": "가성비", "delivery_priority": "배송비절약"}}],
+      "ambiguous_request": [{"text": "간식 좀 비교해 주세요."}, {"text": "배송비 포함해서 가성비 좋은 걸로요.", "disclose": {"value_priority": "가성비", "delivery_priority": "배송비절약"}}],
+      "topic_drift": [{"text": "요즘 물가가 너무 올랐어요."}, {"text": "그래서 배송비 안 드는 걸로 비교해서 사요.", "disclose": {"delivery_priority": "배송비절약", "value_priority": "가성비"}}]
+    }
+  },
+  {
+    "id": "P08", "name": "오순자", "age": 84, "gender": "여성",
+    "life": "독거", "traits": ["혼잣말", "간편 조리", "앱 사용 미숙"],
+    "speech": {"dialect": "전라도", "dialect_strength": "moderate", "verbosity": "high", "digital_literacy": "beginner"},
+    "hidden_fields": ["delivery_priority"],
+    "scripts": {
+      "exploratory": [{"text": "여보세요? 아따 이거 듣고 있는 거여?"}, {"text": "나 혼자 사는디 밥을 뭣하러 복잡하게 혀, 데워 묵는 게 최고제.", "disclose": {"household_size": 1, "cooking_frequency": "거의안함"}}],
+      "immediate_request": [{"text": "즉석밥 몇 개만 사줘잉, 나 혼자 묵을 거여.", "disclose": {"household_size": 1, "cooking_frequency": "거의안함"}}],
+      "ambiguous_request": [{"text": "뭐 간단히 묵을 거 없당가?"}, {"text": "나 혼자 데워 묵게 죽 같은 걸로 혀.", "disclose": {"household_size": 1, "cooking_frequency": "거의안함", "favorite_foods": ["죽"]}}],
+      "topic_drift": [{"text": "아이고 오늘도 혼자네, 날도 꾸물꾸물하고."}, {"text": "밥 하기 싫응께 데워 묵는 거나 보자.", "disclose": {"household_size": 1, "cooking_frequency": "거의안함"}}]
+    }
+  },
+  {
+    "id": "P09", "name": "윤재호", "age": 70, "gender": "남성",
+    "life": "배우자와 거주, 회사원 은퇴", "traits": ["브랜드 충성", "빠른 배송"],
+    "speech": {"dialect": "표준 구어체", "dialect_strength": "none", "verbosity": "medium", "digital_literacy": "intermediate"},
+    "hidden_fields": ["food_dislikes"],
+    "scripts": {
+      "exploratory": [{"text": "나는 늘 먹던 브랜드가 마음 편하고 배송도 빨라야 해요.", "disclose": {"value_priority": "품질·브랜드", "delivery_priority": "빠른배송"}}],
+      "immediate_request": [{"text": "늘 먹던 서울우유로 빨리 오는 것 주문해 줘요.", "disclose": {"value_priority": "품질·브랜드", "delivery_priority": "빠른배송", "favorite_foods": ["서울우유"]}}],
+      "ambiguous_request": [{"text": "평소 먹던 유제품 좀."}, {"text": "서울우유 브랜드로 빨리 오는 거요.", "disclose": {"value_priority": "품질·브랜드", "delivery_priority": "빠른배송", "favorite_foods": ["서울우유"]}}],
+      "topic_drift": [{"text": "전에 다른 회사 걸 샀다가 맛이 영 아니었어요."}, {"text": "그냥 늘 먹던 브랜드가 낫지.", "disclose": {"value_priority": "품질·브랜드"}}]
+    }
+  },
+  {
+    "id": "P10", "name": "서정희", "age": 74, "gender": "여성",
+    "life": "자녀 가족과 동거", "traits": ["가족 식사", "복합 요청"],
+    "speech": {"dialect": "경상도", "dialect_strength": "mild", "verbosity": "high", "digital_literacy": "intermediate"},
+    "hidden_fields": ["usual_order_platform"],
+    "scripts": {
+      "exploratory": [{"text": "우리 집은 딸네하고 같이 살아가 다섯 명이고 내가 거의 매일 밥한다.", "disclose": {"household_size": 5, "cooking_frequency": "자주"}}, {"text": "애들은 고기 좋아하고 나는 매운 건 싫다.", "disclose": {"favorite_foods": ["고기"], "food_dislikes": ["매운 음식"]}}],
+      "immediate_request": [{"text": "다섯 명 먹을 삼겹살하고 상추 같이 좀 봐도.", "disclose": {"household_size": 5, "favorite_foods": ["삼겹살", "상추"]}}],
+      "ambiguous_request": [{"text": "저녁거리 좀 보자."}, {"text": "다섯 식구 먹을 고기, 맵지 않은 걸로.", "disclose": {"household_size": 5, "favorite_foods": ["고기"], "food_dislikes": ["매운 음식"]}}],
+      "topic_drift": [{"text": "딸이 늦는다는데 손주 밥은 또 챙겨야 되고 바쁘다."}, {"text": "맵지 않은 고기로 다섯 명 먹게 보면 된다.", "disclose": {"household_size": 5, "food_dislikes": ["매운 음식"], "favorite_foods": ["고기"]}}]
+    }
+  },
+  {
+    "id": "P11", "name": "배창호", "age": 79, "gender": "남성",
+    "life": "배우자와 거주, 고혈압", "traits": ["저염식", "과묵"],
+    "speech": {"dialect": "경상도", "dialect_strength": "mild", "verbosity": "low", "digital_literacy": "beginner"},
+    "hidden_fields": ["value_priority"],
+    "scripts": {
+      "exploratory": [{"text": "응."}, {"text": "혈압이 있어가 짠 거는 안 된다.", "disclose": {"health_notes": ["고혈압"], "diet_restrictions": ["저염식"], "food_dislikes": ["짠 음식"]}}],
+      "immediate_request": [{"text": "저염 김 하나 사도. 혈압 때문에.", "disclose": {"health_notes": ["고혈압"], "diet_restrictions": ["저염식"]}}],
+      "ambiguous_request": [{"text": "반찬."}, {"text": "안 짠 거. 혈압 있다.", "disclose": {"health_notes": ["고혈압"], "diet_restrictions": ["저염식"], "food_dislikes": ["짠 음식"]}}],
+      "topic_drift": [{"text": "병원에서 혈압 조심하라 카더라.", "disclose": {"health_notes": ["고혈압"]}}, {"text": "그러니 짠 건 안 묵는다.", "disclose": {"diet_restrictions": ["저염식"], "food_dislikes": ["짠 음식"]}}]
+    }
+  },
+  {
+    "id": "P12", "name": "문혜진", "age": 69, "gender": "여성",
+    "life": "배우자와 거주, 견과 알레르기", "traits": ["성분 확인", "결정 번복"],
+    "speech": {"dialect": "표준 구어체", "dialect_strength": "none", "verbosity": "medium", "digital_literacy": "intermediate"},
+    "hidden_fields": ["delivery_priority"],
+    "scripts": {
+      "exploratory": [{"text": "저는 성분을 꼭 봐야 해요. 견과류 알레르기가 있거든요.", "disclose": {"allergens": ["견과류"], "health_notes": ["견과류 알레르기"]}}],
+      "immediate_request": [{"text": "견과류 안 든 과자 사줘요. 아, 초콜릿 말고 크래커로요.", "disclose": {"allergens": ["견과류"], "food_dislikes": ["초콜릿"]}}],
+      "ambiguous_request": [{"text": "간식 좀 찾아줘요."}, {"text": "견과류는 절대 안 되고, 과자 성분을 봐주세요.", "disclose": {"allergens": ["견과류"], "health_notes": ["견과류 알레르기"]}}],
+      "topic_drift": [{"text": "전에 과자 먹고 알레르기가 올라와서 혼났어요.", "disclose": {"allergens": ["견과류"], "health_notes": ["견과류 알레르기"]}}, {"text": "그러니까 성분에 견과류 없는 것만 봐야 해요."}]
+    }
+  }
+]

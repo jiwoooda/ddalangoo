@@ -13,7 +13,9 @@ from src.state.schema import ShoppingState
 from src.state.node_inputs import ResponseAgentInput, ResponseAgentUpdate
 from src.prompts.response_prompt import RESPONSE_EXPLAIN_PROMPT, RESPONSE_QA_PROMPT
 from src.utils.agent_logger import agent_logger
+from src.utils.priority_resolver import _mentions_same_target
 from src.utils.retry import classify_failure, retry_call
+from src.agents.product_agent import _safety_fallback_keywords
 
 _llm: BaseChatModel | None = None
 
@@ -68,27 +70,44 @@ def _simplify_with_haiku(explanation: str, reason: str) -> str:
         return explanation
 
 
-def _format_safety_substitution(preference_context: dict) -> str | None:
+def _format_safety_substitution(preference_context: dict, keywords: list[str]) -> str | None:
     """건강/식이 제약 때문에 원 키워드 대신 구체 대체어(예: "우유"→"락토프리
     우유")로 찾은 경우, 설명 생성 LLM에 그 사유를 명시적으로 알려준다.
     이걸 안 넘기면 LLM이 axis_contributions만 보고 배송/가격 같은 부차적
     이유만 말하고, 정작 사용자에게 가장 중요한 "왜 이 상품이 안전한지"는
     설명에서 누락되는 문제가 있었다(실측: 유당불내증 프로필에 락토프리
-    우유를 추천하면서 "로켓배송이라 빨라요"만 이유로 나감)."""
+    우유를 추천하면서 "로켓배송이라 빨라요"만 이유로 나감).
+
+    exclude_additions/keyword_additions는 프로필 제약이 있으면 오늘 뭘
+    사든 채워질 수 있어서(product_agent.py의 diet_query_additions와 동일한
+    문제), 오늘 keywords가 그 제약의 위험군과 실제로 관련 있을 때만 노출
+    한다 — 안 그러면 "사과 사줘"에 "유당불내증이 있으셔도 안심하고
+    드실 수 있는 사과맛이에요" 같은 엉뚱한 안전 사유가 붙는다(실측 확인됨).
+    """
     additions = (preference_context or {}).get("keyword_additions") or []
     exclusions = (preference_context or {}).get("exclude_additions") or []
     if not additions or not exclusions:
         return None
+    relevant_exclusions = [
+        ex for ex in exclusions
+        if any(
+            _mentions_same_target(kw, risk_term)
+            for kw in keywords
+            for risk_term in _safety_fallback_keywords(ex)
+        )
+    ]
+    if not relevant_exclusions:
+        return None
     return (
-        f"주의: 건강/식이 제약({', '.join(exclusions)}) 때문에 "
+        f"주의: 건강/식이 제약({', '.join(relevant_exclusions)}) 때문에 "
         f"'{', '.join(additions)}'로 대체해서 찾은 상품입니다 — "
         f"추천 이유에 이 안전 대체 사실을 최우선으로 언급하세요."
     )
 
 
-def _format_preference(preference_context: dict) -> str:
+def _format_preference(preference_context: dict, keywords: list[str]) -> str:
     lines = []
-    safety_note = _format_safety_substitution(preference_context)
+    safety_note = _format_safety_substitution(preference_context, keywords)
     if safety_note:
         lines.append(safety_note)
     if preference_context and preference_context.get("summary"):
@@ -172,7 +191,7 @@ def _generate_explanation(
                 product_json=json.dumps(product, ensure_ascii=False),
                 keywords=json.dumps(keywords, ensure_ascii=False),
                 condition=condition or "없음",
-                preference_context=_format_preference(preference_context),
+                preference_context=_format_preference(preference_context, keywords),
             ))]
         ).content.strip()
     except Exception as e:

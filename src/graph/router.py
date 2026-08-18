@@ -304,7 +304,12 @@ def route(state: ShoppingState) -> RouteName:
         agent_logger.log_router("intent_agent", dest, intent or "-", stage, pending_type)
         return dest
 
-    if needs_clarification or confidence < 0.5 or intent == "unclear":
+    # reorder는 예외 — needs_clarification=true라도 respond로 바로 보내지 않고
+    # reorder_agent(아래 stage-router/기본 매핑에서 도달)로 보낸다. reorder_agent가
+    # 정확히 "상품명 없는 모호한 재구매"를 처리하도록 설계돼 있어서(구매이력 조회 →
+    # 후보 나열/되묻기), 여기서 막으면 그 분기를 탈 기회 자체가 없어져 구매이력을
+    # 전혀 모르는 맥락 없는 되물음만 반복된다(routing-2026-08-18-001로 재현 확인됨).
+    if (needs_clarification or confidence < 0.5 or intent == "unclear") and intent != "reorder":
         return _decide("respond")
 
     if intent == "cancel":
