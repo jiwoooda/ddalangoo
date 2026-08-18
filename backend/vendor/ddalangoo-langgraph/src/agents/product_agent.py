@@ -571,10 +571,20 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
     # 있어(모델 편차) exclude_keywords에 이미 확정된 배제어(설탕 등)가 있으면
     # _SAFETY_SAFE_LABELS로 대응하는 대표 라벨(저당 등)을 코드에서 직접
     # 쿼리에 붙인다 — LLM 신뢰도에 기대지 않는 결정론적 보강.
+    # 단, exclude_keywords는 프로필 제약이면 오늘 뭘 사든 무조건 채워지므로
+    # (safety_constraints가 매턴 무조건 병합됨) 관련성 체크 없이 붙이면
+    # "사과 사줘"에도 "락토프리"가 붙어 엉뚱한 결과로 새는 오염이 실측
+    # 확인됐다 — 오늘 keywords가 그 제약의 위험군(_safety_fallback_keywords,
+    # 예: 유당불내증→우유/치즈/...)과 실제로 관련 있을 때만 붙인다.
     diet_query_additions = list(dict.fromkeys(
         _SAFETY_SAFE_LABELS[ex][0]
         for ex in exclude_keywords
         if ex in _SAFETY_SAFE_LABELS
+        and any(
+            _mentions_same_target(kw, risk_term)
+            for kw in keywords
+            for risk_term in _safety_fallback_keywords(ex)
+        )
     ))
     query = build_search_query(keywords + relevant_additions + diet_query_additions)
     effective_condition, preferred_platform = _derive_search_params(condition, preference_context)

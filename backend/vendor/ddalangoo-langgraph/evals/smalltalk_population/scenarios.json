@@ -1,0 +1,30 @@
+[
+  {
+    "id": "exploratory",
+    "label": "탐색형",
+    "goal": "질문 공세 없이 관계를 형성하고 대화에서 공개된 선호를 수집한다.",
+    "expected_terminal": "onboarding_or_wait",
+    "turns": [{"text": "안녕하세요"}, {"text": "그냥 이야기나 좀 하려고요"}]
+  },
+  {
+    "id": "immediate_request",
+    "label": "즉시 요청형",
+    "goal": "명확한 구매 요청을 인식해 불필요한 온보딩 없이 쇼핑 흐름으로 전환한다.",
+    "expected_terminal": "shopping_handoff",
+    "turns": [{"text": "우유 좀 사줘"}]
+  },
+  {
+    "id": "ambiguous_request",
+    "label": "애매한 요청형",
+    "goal": "최소한의 확인 질문으로 카탈로그 품목과 조건을 좁힌다.",
+    "expected_terminal": "shopping_handoff",
+    "turns": [{"text": "뭐 먹을 거 좀"}, {"text": "간단히 먹을 수 있는 걸로"}]
+  },
+  {
+    "id": "topic_drift",
+    "label": "화제 이탈형",
+    "goal": "건강·외로움·날씨 발언에 적절히 반응하고 안전정보를 보존한다.",
+    "expected_terminal": "onboarding_or_shopping_handoff",
+    "turns": [{"text": "요즘 날씨도 춥고 혼자 밥 먹기도 싫네"}]
+  }
+]

@@ -27,6 +27,8 @@ AGENT_PROMPT_FILES = {
     "response": ["src/prompts/response_prompt.py"],
     "intent": ["src/prompts/intent_prompt.py"],
     "recipe": ["src/prompts/recipe_prompt.py"],
+    "smalltalk": ["src/prompts/smalltalk_prompt.py"],
+    "reorder": [],  # reorder_agent는 현재 전용 프롬프트 파일이 없음(코드/라우팅 로직 위주)
 }
 
 # evaluators.py의 evaluator key(영문, 코드용) → 이름만 읽어도 뜻이 바로
