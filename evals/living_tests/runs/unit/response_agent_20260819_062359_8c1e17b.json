@@ -1,0 +1,28 @@
+{
+  "run_id": "run-20260819-062359-8c1e17b",
+  "scope": "unit",
+  "target": "response_agent",
+  "git_sha": "8c1e17b",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "response_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "response_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_contains",
+          "path": "explanation",
+          "expected": "애플",
+          "actual": "부산우유 사과동네, 8,430원이에요. 가격이 저렴해요. 주문할까요?",
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}

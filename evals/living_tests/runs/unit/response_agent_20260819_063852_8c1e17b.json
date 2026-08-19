@@ -1,0 +1,28 @@
+{
+  "run_id": "run-20260819-063852-8c1e17b",
+  "scope": "unit",
+  "target": "response_agent",
+  "git_sha": "8c1e17b",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "response_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "response_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_contains",
+          "path": "explanation",
+          "expected": "애플",
+          "actual": "'애플'은 없어요. 대신 부산우유 사과동네를 보여드려요. 로켓배송으로 빨리 받아보실 수 있어요. 주문할까요?",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

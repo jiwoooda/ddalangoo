@@ -45,6 +45,21 @@ def _check_field_equals(assertion: dict, output: dict, executed_nodes: list[str]
     }
 
 
+def _check_field_contains(assertion: dict, output: dict, executed_nodes: list[str]) -> dict:
+    """field_equals의 형제 - LLM이 생성한 자연어 필드(explanation 등)처럼 문구가
+    매번 조금씩 달라지는 값은 정확히 일치시킬 수 없다. 부분 문자열 포함 여부만
+    본다(대소문자 구분 없음)."""
+    path = assertion["path"]
+    expected = assertion["value"]
+    actual = _resolve_path(output, path)
+    passed = isinstance(actual, str) and str(expected).lower() in actual.lower()
+    return {
+        "type": "field_contains", "path": path,
+        "expected": expected, "actual": actual,
+        "passed": passed,
+    }
+
+
 def _check_executed_nodes_contains(assertion: dict, output: dict, executed_nodes: list[str]) -> dict:
     value = assertion["value"]
     return {
@@ -65,6 +80,7 @@ def _check_executed_nodes_not_contains(assertion: dict, output: dict, executed_n
 
 _CHECKERS = {
     "field_equals": _check_field_equals,
+    "field_contains": _check_field_contains,
     "executed_nodes_contains": _check_executed_nodes_contains,
     "executed_nodes_not_contains": _check_executed_nodes_not_contains,
 }

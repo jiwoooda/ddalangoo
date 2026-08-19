@@ -105,11 +105,39 @@ def _format_safety_substitution(preference_context: dict, keywords: list[str]) -
     )
 
 
-def _format_preference(preference_context: dict, keywords: list[str]) -> str:
+def _format_brand_mismatch_note(product: dict, keywords: list[str]) -> str | None:
+    """사용자가 명시한 keyword 중 일부가 실제 선택된 상품의 이름/브랜드에 전혀
+    없으면(예: "애플 우유" 요청에 애플과 무관한 "부산우유"가 선택된 경우), 그
+    사실을 설명 LLM에 명시적으로 알려 사용자에게 먼저 고지하게 한다.
+
+    product_agent._matches_requested_keywords는 keywords 중 하나만 맞아도
+    후보를 통과시키므로(예: "우유"만 맞고 "애플"은 안 맞아도 통과), 그대로
+    두면 요청을 완전히 만족한 것처럼 조용히 다른 상품을 보여주게 된다(실측
+    확인: 스코어링 LLM 자체는 "애플과 무관"이라고 정확히 판정했는데도 그
+    판정이 사용자에게 전혀 전달 안 됨, fl-2026-08-19-003). 후보 필터링/랭킹
+    로직 자체는 안 건드리고(그러면 no_candidates가 되는 범위가 넓어져
+    더 큰 변경이 됨), 이미 선택된 상품에 대해 고지만 추가한다."""
+    if not keywords:
+        return None
+    name = str(product.get("product_name") or "").lower()
+    brand = str(product.get("brand") or "").lower()
+    haystack = name + " " + brand
+    missing = [kw for kw in keywords if kw and kw.lower() not in haystack]
+    # 전부 일치(정상)하거나 전부 불일치(no_candidates에서 이미 걸러졌어야 할
+    # 경우 - 방어적으로 여기서 추측성 문구를 만들지 않고 상위 로직을 신뢰)면 스킵.
+    if not missing or len(missing) == len(keywords):
+        return None
+    return f"주의: 요청하신 '{', '.join(missing)}'는 찾지 못해서 다른 상품을 보여드리는 것입니다."
+
+
+def _format_preference(preference_context: dict, keywords: list[str], product: dict | None = None) -> str:
     lines = []
     safety_note = _format_safety_substitution(preference_context, keywords)
     if safety_note:
         lines.append(safety_note)
+    brand_note = _format_brand_mismatch_note(product, keywords) if product else None
+    if brand_note:
+        lines.append(brand_note)
     if preference_context and preference_context.get("summary"):
         lines.append(preference_context["summary"])
         keyword_summary = preference_context.get("keyword_summary") or ""
@@ -191,7 +219,7 @@ def _generate_explanation(
                 product_json=json.dumps(product, ensure_ascii=False),
                 keywords=json.dumps(keywords, ensure_ascii=False),
                 condition=condition or "없음",
-                preference_context=_format_preference(preference_context, keywords),
+                preference_context=_format_preference(preference_context, keywords, product),
             ))]
         ).content.strip()
     except Exception as e:
