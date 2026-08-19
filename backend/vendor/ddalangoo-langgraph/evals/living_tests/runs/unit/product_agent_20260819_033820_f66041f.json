@@ -1,0 +1,28 @@
+{
+  "run_id": "run-20260819-033820-f66041f",
+  "scope": "unit",
+  "target": "product_agent",
+  "git_sha": "f66041f",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "product_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "quantity",
+          "expected": 3,
+          "actual": null,
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}
