@@ -288,8 +288,14 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     # 검색과 무관한 intent는 기존 keywords 유지 (ask/confirm/deny/next 등이 keywords를 덮어쓰면 안 됨)
     if intent in _search_intents:
         keywords = _normalize_keyword_tokens(parsed.keywords or []) or state.get("keywords") or []
-        # LLM이 빈 keywords 반환 → 휴리스틱 추출
-        if not keywords:
+        # LLM이 빈 keywords 반환 → 휴리스틱 추출. 단, LLM이 이미
+        # needs_clarification=true로 "실제 상품명이 없다"고 판단했으면 원문에서
+        # 억지로 뽑지 않는다 — 그러면 "뭐 먹을 거 좀 사야 하는데"의
+        # "먹을"/"사야"/"하는데" 같은 조사·어미가 상품명처럼 검색되고, 그 값이
+        # state에 남아 이후 턴(next 등)에서 실제 검색에 쓰여 엉뚱한 no_candidates
+        # 오류로 이어진다(실측 확인). needs_clarification 케이스는 STOP_WORDS를
+        # 계속 추가하는 대신, 애초에 "정말 모호하면 억지로 안 뽑는다"로 일반화한다.
+        if not keywords and not parsed.needs_clarification:
             keywords = _fallback_search_keywords(user_input)
     elif intent == "quantity_change":
         # 보통은 지금 선택된 상품을 그대로 가리키지만("3개로 바꿔줘"), 이번 턴에
