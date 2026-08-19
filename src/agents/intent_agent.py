@@ -291,6 +291,12 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         # LLM이 빈 keywords 반환 → 휴리스틱 추출
         if not keywords:
             keywords = _fallback_search_keywords(user_input)
+    elif intent == "quantity_change":
+        # 보통은 지금 선택된 상품을 그대로 가리키지만("3개로 바꿔줘"), 이번 턴에
+        # 다른 상품명을 명시했으면(예: "계란은 빼줘") 그 상품을 우선해야 한다 —
+        # 무조건 예전 keywords를 우선하면 quantity_change로는 애초에 다른
+        # 품목을 절대 가리킬 수 없다(실측 확인, fl-2026-08-18-006).
+        keywords = _normalize_keyword_tokens(parsed.keywords or []) or state.get("keywords") or []
     else:
         keywords = state.get("keywords") or _normalize_keyword_tokens(parsed.keywords or [])
 

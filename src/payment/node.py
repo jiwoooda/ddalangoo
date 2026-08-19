@@ -170,39 +170,64 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
     # ── Step 1-5: cart_review 확인 → 결제수단 선택 ──
     if pending_type == "cart_review":
         if intent == "quantity_change":
-            new_qty = _coerce_positive_int(state.get("quantity"), default=quantity)
-            if new_qty and selected_product:
+            # 완전히 제거하려는 요청("계란은 빼줘")도 quantity_change로 분류되고
+            # quantity=0으로 채워진다(intent_prompt.py 참고, fl-2026-08-18-006) —
+            # 이 경우 대상 품목은 재담기 없이 완전히 뺀다.
+            raw_qty = state.get("quantity")
+            is_removal = raw_qty == 0
+            new_qty = None if is_removal else _coerce_positive_int(raw_qty, default=quantity)
+            if (new_qty or is_removal) and (keywords or selected_product):
                 # 장바구니에 다른 상품이 더 있을 수 있으므로, 전체를 비우고
-                # selected_product 하나만 다시 담으면 무관한 다른 품목이 같이
-                # 사라진다(실측 확인됨, fl-2026-08-18-005). selected_product와
-                # 이름이 같은 항목만 새 수량으로 바꾸고 나머지는 그대로 유지한다.
+                # 대상 하나만 다시 담으면 무관한 다른 품목이 같이 사라진다
+                # (실측 확인됨, fl-2026-08-18-005). 대상 품목만 갱신/제거하고
+                # 나머지는 그대로 유지한다. 대상 식별은 이번 턴에 실제로 언급된
+                # keywords를 우선하고(예: 계란을 말했는데 selected_product가
+                # 이전 턴의 우유로 남아있는 경우 대비, fl-2026-08-18-006),
+                # keywords가 없을 때만 selected_product로 보충한다.
                 from src.tools.mock_tools import mock_clear_cart
                 existing_cart = mock_get_cart(user_id)
-                target_name = selected_product.get("product_name")
+
+                def _matches_target(item: dict) -> bool:
+                    name = item.get("product_name", "") or ""
+                    # product_name은 검색 결과 그대로라 사용자가 부른 말과 다를 수 있다
+                    # (예: "계란" vs "유정란") — 담을 때 같이 저장해둔 item 자체의
+                    # keywords(사용자가 실제로 뭐라고 불렀는지)도 함께 비교한다.
+                    item_keywords = item.get("keywords") or []
+                    if keywords:
+                        return any(
+                            kw and (kw in name or any(kw in ik or ik in kw for ik in item_keywords))
+                            for kw in keywords
+                        )
+                    return selected_product is not None and name == selected_product.get("product_name")
+
                 mock_clear_cart(user_id)
                 matched = False
                 for item in existing_cart:
-                    if item.get("product_name") == target_name:
-                        mock_add_to_cart(user_id, item.get("product") or selected_product, new_qty, item.get("keywords") or keywords)
+                    if _matches_target(item):
                         matched = True
+                        if not is_removal:
+                            mock_add_to_cart(user_id, item.get("product") or selected_product, new_qty, item.get("keywords") or keywords)
                     else:
                         mock_add_to_cart(user_id, item.get("product") or item, item.get("quantity", 1), item.get("keywords"))
-                if not matched:
+                if not matched and not is_removal and selected_product:
                     mock_add_to_cart(user_id, selected_product, new_qty, keywords)
             cart = mock_get_cart(user_id)
             cart_total = sum(item["total"] for item in cart) if cart else total
             items_summary = ", ".join(
                 f"{(item.get('keywords') or [item.get('product_name', '상품')])[0]} {item.get('quantity', 1)}개"
                 for item in cart
-            ) if cart else f"{short_name} {new_qty}개"
-            review_msg = f"총 {cart_total:,}원이에요. 수량 바꾸거나 빼실 게 있으면 말씀해 주세요."
+            ) if cart else (f"{short_name} {new_qty}개" if new_qty else "")
+            review_msg = (
+                f"총 {cart_total:,}원이에요. 수량 바꾸거나 빼실 게 있으면 말씀해 주세요."
+                if cart else "장바구니가 비었어요. 더 담으실래요?"
+            )
             output = {
                 "stage": "cart_shopping",
                 "quantity": new_qty,
                 "cart_items": cart,
                 "error": None,
                 "last_agent": "payment_agent",
-                "pending_action": {"type": "cart_review", "message": review_msg},
+                "pending_action": {"type": "cart_review" if cart else "what_to_buy", "message": review_msg},
                 # 장바구니가 바뀌었으므로 새 결제 멱등성 키 발급.
                 "payment_idempotency_key": str(uuid.uuid4()),
             }

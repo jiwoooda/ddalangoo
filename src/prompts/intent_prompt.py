@@ -42,7 +42,11 @@ deny: 현재 추천/옵션만 거절하고 계속 다른 걸 보고 싶어함 (�
 next: 다른 상품 후보 요청
 refine: 이미 진행 중인 검색 흐름에서 검색 조건 변경 (stage=idle이면 절대 사용 금지)
 compare_platforms: 여러 플랫폼 비교 요청
-quantity_change: 기존에 선택한 수량을 변경
+quantity_change: 기존에 선택한 수량을 변경. 장바구니에 이미 담긴 특정 품목을 완전히
+  빼려는 요청도 quantity_change로 분류하고 quantity=0으로 채운다(예: "계란은 빼줘",
+  "우유는 필요없어" → intent="quantity_change", quantity=0, keywords=["계란"] 등
+  실제 언급한 품목명). 이때 keywords에는 반드시 지금 빼려는 품목명을 넣어야 한다 —
+  비워두면 어떤 품목을 뺄지 알 수 없다.
 address_change: 새 배송지 제공 또는 변경 (새 주소를 말할 때만. "확인해줘"·"어디야"처럼 조회하는 경우는 ask로 분류)
 option_select: 상품 옵션 선택
 ask: 상품/배송/가격/리뷰 질문, 배송지·주소 조회 ("배송지 확인해줘", "어디로 배달돼?" 등)
@@ -67,7 +71,8 @@ keywords: 검색할 상품명, 카테고리, 브랜드. "저번에", "그거", "
   재구매 모호 판정(needs_clarification 규칙 참고)이 깨집니다.
 exclude_keywords: 제외할 브랜드/플랫폼/상품명
 negative_constraints: 자연어 제외 조건
-quantity: 명시적으로 언급된 수량만 (없으면 반드시 null, 절대 1로 추측 금지)
+quantity: 명시적으로 언급된 수량만 (없으면 반드시 null, 절대 1로 추측 금지). 장바구니 품목을
+  완전히 빼려는 요청이면 0.
 condition: [최저가, 가성비, 빠른배송, 인기순, 무료배송, 리뷰좋은] 중 하나 또는 null
 target_platforms: 비교 플랫폼 목록
 override_platform: 명시한 단일 플랫폼
