@@ -1,0 +1,28 @@
+{
+  "run_id": "run-20260819-015848-2a5c3e1",
+  "scope": "unit",
+  "target": "product_agent",
+  "git_sha": "2a5c3e1",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "product_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "search_query",
+          "expected": "사과",
+          "actual": "사과",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
