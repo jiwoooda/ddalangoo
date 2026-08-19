@@ -54,6 +54,7 @@ class ProductAgentInput(TypedDict):
     current_product_index: int
     recommended_products: list[dict[str, Any]]
     recommendation_context: Optional[dict[str, Any]]
+    quantity: Optional[int]
 
 
 class ResponseAgentInput(TypedDict):

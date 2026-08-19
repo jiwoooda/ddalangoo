@@ -641,7 +641,12 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
         "recommended_products": ranked_products,
         "current_product_index": 0,
         "stage": "searching",
-        "quantity": None,
+        # 들어온 quantity를 그대로 돌려준다(무조건 None으로 리셋하지 않음) —
+        # intent_agent가 이번 턴에 이미 "명시됐으면 숫자, 아니면 None"으로
+        # 정확히 정리해서 넘겨준다(_search_intents 로직 참고). 여기서 무조건
+        # None으로 리셋하면 "우유 3개 사줘"처럼 상품명과 수량을 함께 말한
+        # 요청도 수량이 사라진다(실측 확인, fl-2026-08-19-001).
+        "quantity": state.get("quantity"),
         "last_agent": "product_agent",
         "error": None,
         "ranking_mode": rank_meta.get("ranking_mode"),
