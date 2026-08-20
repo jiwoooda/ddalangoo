@@ -1,0 +1,34 @@
+{
+  "run_id": "run-20260820-092502-6681cf6",
+  "scope": "integration",
+  "target": "state_transition",
+  "git_sha": "6681cf6",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "state_transition-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "context_agent",
+        "product_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "quantity",
+          "expected": 3,
+          "actual": 3,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

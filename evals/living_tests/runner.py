@@ -130,16 +130,23 @@ def _run_graph_case(
     """integration/e2e — 실제 graph.invoke()를 태우고 stream_mode='updates'로
     어떤 노드가 실행됐는지 수집한다.
 
-    extra_state는 Failure 재현(run_reproduction)에서만 쓰인다 — Failure의
-    input.state(기계가 읽는 구조화된 초기 state 조각)를 사용자 메시지 주입
-    전에 그대로 병합한다. Test 케이스 실행(run_case)에서는 항상 None."""
+    extra_state는 명시적으로 안 주면 case["input"]["state"]를 그대로 쓴다 —
+    Failure 재현(run_reproduction)이 finput["state"]를 넘기는 것과 Test
+    케이스(run_case)가 케이스 정의의 input.state를 쓰는 것을 같은 메커니즘으로
+    통일한다(예: 대화 중간 상태 - pending_action=product_select 등 - 를 재현해야
+    하는 케이스, fl-2026-08-20-001 참고). 둘 다 "기계가 읽는 구조화된 초기 state
+    조각을 사용자 메시지 주입 전에 그대로 병합"이라는 같은 규칙을 따른다 —
+    Runner가 이 값을 해석/가공하지 않는다."""
     _ensure_graph_compatibility()
     from src.graph.builder import build_graph
     from src.state.schema import get_default_shopping_state
 
-    user_input = (case.get("input") or {}).get("user_input") or (case.get("input") or {}).get("user")
+    case_input = case.get("input") or {}
+    user_input = case_input.get("user_input") or case_input.get("user")
     if not user_input:
         raise store.SchemaError(f"integration/e2e 케이스는 input.user_input(또는 input.user)이 필요함: {case['case_id']}")
+    if extra_state is None:
+        extra_state = case_input.get("state")
 
     context = case.get("context") or {}
     user_id = context.get("user_id", f"living_test_{case['case_id']}")
