@@ -63,7 +63,12 @@ def _route_product_confirming(state: ShoppingState, intent: str | None, pending_
     pa_type = (state.get("pending_action") or {}).get("type")
 
     if pa_type == "product_select":
-        if intent in ("confirm", "option_select"):
+        # unclear도 reorder_agent로 보낸다 — 후보 목록에 대한 자유 답변은
+        # intent 분류가 원래 불안정하다(예: "음... 잘 모르겠어요"). reorder_agent의
+        # _select_from_pending이 후보명과 직접 매칭을 시도하고, 실패해도
+        # "번호로 다시 말씀해 주세요"처럼 맥락 있는 재질문을 하므로, 여기서
+        # intent만 보고 generic respond로 넘기는 것보다 낫다(실측 확인).
+        if intent in ("confirm", "option_select", "unclear"):
             return decide("reorder_agent")
         return decide("respond")
 
@@ -309,7 +314,17 @@ def route(state: ShoppingState) -> RouteName:
     # 정확히 "상품명 없는 모호한 재구매"를 처리하도록 설계돼 있어서(구매이력 조회 →
     # 후보 나열/되묻기), 여기서 막으면 그 분기를 탈 기회 자체가 없어져 구매이력을
     # 전혀 모르는 맥락 없는 되물음만 반복된다(routing-2026-08-18-001로 재현 확인됨).
-    if (needs_clarification or confidence < 0.5 or intent == "unclear") and intent != "reorder":
+    #
+    # pending_action.type == "product_select"도 예외 — 이미 후보 목록을 나열해
+    # 되묻는 중인데, 사용자의 후속 답변이 애매(unclear)하다고 여기서 respond로
+    # 보내버리면 reorder_agent 자체의 재질문 로직(_select_from_pending이 후보와
+    # 매칭 시도, 실패하면 "번호로 다시 말씀해 주세요")을 탈 기회가 아예 없어져
+    # 맥락 없는 일반 clarification만 반복된다(실측 확인, fl-2026-08-20-001).
+    if (
+        (needs_clarification or confidence < 0.5 or intent == "unclear")
+        and intent != "reorder"
+        and pending_type != "product_select"
+    ):
         return _decide("respond")
 
     if intent == "cancel":

@@ -1,0 +1,46 @@
+{
+  "run_id": "run-20260820-092641-6681cf6",
+  "scope": "unit",
+  "target": "product_agent",
+  "git_sha": "6681cf6",
+  "model": "default",
+  "case_count": 2,
+  "cases": [
+    {
+      "case_id": "product_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "search_query",
+          "expected": "사과",
+          "actual": "사과",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "quantity",
+          "expected": 3,
+          "actual": 3,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
