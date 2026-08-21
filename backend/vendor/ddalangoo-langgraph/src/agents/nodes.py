@@ -53,7 +53,17 @@ def respond_node(state: RespondNodeInput) -> dict:
             agent_logger.log_respond(msg, stage, pending_action)
             return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None}
 
-    if state.get("needs_clarification"):
+    if pending_action.get("type") == "product_select" and pending_action.get("message"):
+        # product_select 상태에서는 reorder_agent가 이번 턴에 방금 낸 재질문
+        # (예: "번호로 다시 말씀해 주세요")이 intent_agent 단계에서 만들어진
+        # needs_clarification의 일반 문구보다 항상 더 구체적이고 최신이다 —
+        # 아래 needs_clarification 분기가 먼저 걸리면 그 구체적 재질문이
+        # 완전히 무시된다(실측 확인, fl-2026-08-21-002). needs_clarification의
+        # 전체 우선순위는 다른 흐름에 영향이 넓어 안 건드리고, 이 케이스만 좁게
+        # 예외로 둔다.
+        msg = pending_action["message"]
+
+    elif state.get("needs_clarification"):
         msg = immediate or state.get("clarification_reason") or "다시 한번 말씀해 주세요."
 
     elif stage == "product_confirming" and intent == "confirm" and not state.get("quantity"):

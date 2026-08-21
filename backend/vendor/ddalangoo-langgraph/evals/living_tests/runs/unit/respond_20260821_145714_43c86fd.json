@@ -1,0 +1,28 @@
+{
+  "run_id": "run-20260821-145714-43c86fd",
+  "scope": "unit",
+  "target": "respond",
+  "git_sha": "43c86fd",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "respond-2026-08-21-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "respond"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "messages[0].content",
+          "expected": "어떤 상품인지 모르겠어요. 번호로 다시 말씀해 주세요.",
+          "actual": "어떤 상품인지 모르겠어요. 번호로 다시 말씀해 주세요.",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

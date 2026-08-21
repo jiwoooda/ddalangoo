@@ -22,7 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # scope→target 허용값. unit은 target별로 파일이 따로 있고(agent 1:1),
 # integration/e2e는 케이스 수가 적어 파일 하나에 target 필드로만 구분한다.
 SCOPES: dict[str, list[str]] = {
-    "unit": ["intent_agent", "context_agent", "product_agent", "response_agent", "smalltalk_agent", "reorder_agent", "payment_agent"],
+    "unit": ["intent_agent", "context_agent", "product_agent", "response_agent", "smalltalk_agent", "reorder_agent", "payment_agent", "respond"],
     "integration": ["routing", "handoff", "tool_flow", "state_transition", "context_preservation"],
     "e2e": ["workflows"],
 }

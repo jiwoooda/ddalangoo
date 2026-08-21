@@ -1,0 +1,111 @@
+{
+  "run_id": "repro-20260821-145520-43c86fd",
+  "failure_id": "fl-2026-08-21-002",
+  "git_sha": "43c86fd",
+  "model": "default",
+  "trace_ref": null,
+  "observed": {
+    "output": {
+      "messages": [
+        "content='안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?' additional_kwargs={} response_metadata={} id='129d0213-01fc-4061-9155-aae1355f04f3' tool_calls=[] invalid_tool_calls=[]",
+        "content='음... 잘 모르겠어요' additional_kwargs={} response_metadata={} id='498ba213-3e8b-4377-a0dd-f027882f088f'",
+        "content='어떤 상품인지 모르겠어요. 번호로 다시 말씀해 주세요.' additional_kwargs={} response_metadata={} id='d8fded60-3ac6-43f8-8534-0e1c0f4aff49' tool_calls=[] invalid_tool_calls=[]"
+      ],
+      "stage": "product_confirming",
+      "intent": "unclear",
+      "last_agent": "reorder_agent",
+      "error": null,
+      "degraded_mode": false,
+      "degradation_reason": null,
+      "failure_stage": null,
+      "ranking_mode": null,
+      "source_used": null,
+      "confidence": 0.5,
+      "immediate_response": "어떤 걸 도와드리면 좋을까요?",
+      "needs_clarification": true,
+      "clarification_reason": null,
+      "keywords": [],
+      "search_query": null,
+      "exclude_keywords": [],
+      "negative_constraints": [],
+      "quantity": null,
+      "condition": null,
+      "override_platform": null,
+      "target_platforms": [],
+      "tried_platforms": [],
+      "selected_platform": null,
+      "search_results": [],
+      "scored_products": [],
+      "recommended_products": [],
+      "current_product_index": 0,
+      "selected_product": null,
+      "product_url": null,
+      "explanation": "안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?",
+      "highlight_specs": [],
+      "pending_action": {
+        "type": "product_select",
+        "message": "어떤 상품인지 모르겠어요. 번호로 다시 말씀해 주세요.",
+        "payload": {
+          "candidates": [
+            {
+              "purchase_history_id": "ph_001",
+              "product_name": "설향 딸기 500g",
+              "price_at_purchase": 12900,
+              "platform": "kurly",
+              "product_url": "https://mock.kurly.com/products/strawberry-500g"
+            },
+            {
+              "purchase_history_id": "ph_002",
+              "product_name": "풀무원 유정란 10구",
+              "price_at_purchase": 4900,
+              "platform": "coupang",
+              "product_url": "https://mock.coupang.com/products/egg-10"
+            }
+          ]
+        }
+      },
+      "cart": null,
+      "order": null,
+      "payment": null,
+      "checkout_session": null,
+      "payment_idempotency_key": null,
+      "session_id": "living-test-fl-2026-08-21-002",
+      "conversation_id": null,
+      "user_id": "living_test_fl-2026-08-21-002",
+      "storage_state_path": null,
+      "cart_items": [],
+      "recipe_dish": null,
+      "recipe_people": null,
+      "recipe_items": [],
+      "current_recipe_item_index": 0,
+      "recommendation_context": null,
+      "reorder_resolution": null,
+      "current_option_value": null,
+      "address_text": null,
+      "tool_calls": null,
+      "tool_results": null,
+      "conversation_summary": null,
+      "order_id": null,
+      "onboarding_started_at": "2026-08-21T14:55:10.460695+00:00",
+      "recent_patterns_used": [],
+      "recent_episodes_used": [],
+      "name_greeting_pending": false,
+      "consecutive_question_turns": 0,
+      "already_asked_topics": [],
+      "turns_without_required_progress": 1,
+      "health_followup_turns_remaining": 0,
+      "recent_replies": [
+        "안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?"
+      ]
+    },
+    "executed_nodes": [
+      "wait_for_input",
+      "reset_turn_observability",
+      "intent_agent",
+      "reorder_agent",
+      "respond",
+      "__interrupt__"
+    ],
+    "tool_calls_summary": []
+  }
+}
