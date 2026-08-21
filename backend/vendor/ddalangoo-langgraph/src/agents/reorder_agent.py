@@ -65,8 +65,17 @@ def _resolve_reorder_candidates(
     query: str,
     top_k: int = 5,
 ) -> dict[str, Any]:
-    search_terms = keywords or [query]
-    history = _fetch_histories_by_keywords(user_id, search_terms, limit=top_k)
+    if keywords:
+        history = _fetch_histories_by_keywords(user_id, keywords, limit=top_k)
+    else:
+        # 상품명이 아예 없으면(keywords=[]) 원문 문장을 검색어로 쓰지 않는다 —
+        # "저번에 샀던 거 다시 사줘" 같은 문장은 실제 상품명과 절대 안 겹쳐서
+        # 항상 no_match로 새고, 구매이력이 실제로 있어도 없다고 나온다(실측
+        # 확인, fl-2026-08-21-001). 이 경우는 키워드로 좁히는 대신 최근
+        # 구매이력을 그대로 가져온다 — 2개 이상이면 아래 ambiguous 분기가
+        # 그대로 "어떤 걸로 할까요?"로 되물어준다.
+        history = db_client.get_purchase_histories(user_id)[:top_k]
+        agent_logger.log(f"[reorder_agent] keywords 없음 -> 최근 구매이력 {len(history)}건으로 대체")
 
     candidates = []
     for item in history:
