@@ -1,0 +1,46 @@
+{
+  "run_id": "run-20260821-152704-12d564e",
+  "scope": "integration",
+  "target": "state_transition",
+  "git_sha": "12d564e",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "state_transition-2026-08-21-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "keywords",
+          "expected": [
+            "딸기"
+          ],
+          "actual": [],
+          "passed": false
+        },
+        {
+          "type": "executed_nodes_contains",
+          "value": "product_agent",
+          "executed_nodes": [
+            "wait_for_input",
+            "reset_turn_observability",
+            "intent_agent",
+            "respond",
+            "__interrupt__"
+          ],
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}

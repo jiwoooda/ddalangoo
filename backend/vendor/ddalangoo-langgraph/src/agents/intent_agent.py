@@ -84,6 +84,12 @@ _BUY_TRIGGERS = frozenset({
 })
 _REORDER_SIGNALS = frozenset({"저번에", "지난번에", "재주문", "똑같이 다시", "예전에 산"})
 
+_DISMISSIVE_PHRASES = frozenset({
+    "아무거나", "아무거나요", "암거나", "아무렇게나",
+    "상관없어요", "상관없어", "상관 없어요", "상관 없어",
+    "편한대로", "편한 대로", "알아서", "알아서요", "알아서 해주세요", "알아서 해줘",
+})
+
 def _should_force_buy_from_freeform(user_input: str, intent: str, stage: str) -> bool:
     """idle 상태에서 buy 트리거가 있는데 LLM이 다른 intent를 뽑았을 때 buy로 교정.
     reorder는 교정 대상에서 제외 — 재구매 신호가 buy 트리거보다 우선."""
@@ -98,6 +104,18 @@ def _should_force_reorder(user_input: str, intent: str, stage: str, keywords: li
     has_reorder_signal = any(t in user_input for t in _REORDER_SIGNALS)
     has_product = bool(keywords)
     return has_reorder_signal and has_product
+
+
+def _should_force_recommendation_fallback(user_input: str, intent: str, stage: str, keywords: list) -> bool:
+    """상품명 없이 '아무거나/상관없어요' 등으로 답하면, 계속 되묻는 대신
+    프로필의 favorite_foods로 대신 채우도록 context_agent에 신호를 보낸다
+    (실제 keywords 대입은 context_agent 담당 — 여기선 profile에 접근하지 않음).
+    이미 keywords가 있으면(예: "딸기는 아무거나 괜찮아요") 그 자체로 충분한
+    정보라 건드리지 않는다."""
+    if intent != "buy" or stage not in ("idle", "searching") or keywords:
+        return False
+    text = user_input.strip()
+    return any(p in text for p in _DISMISSIVE_PHRASES)
 
 
 def _parse_quantity(v) -> Optional[int]:
@@ -201,6 +219,7 @@ def _degraded_intent_result(state: IntentAgentInput, failure_class: FailureClass
         "last_agent": "intent_agent",
         "tool_calls": None,
         "tool_results": None,
+        "recommend_from_profile": False,
         "degraded_mode": True,
         "failure_stage": "intent_llm",
         "degradation_reason": f"{failure_class.value}:{type(exc).__name__}",
@@ -329,6 +348,15 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         clarification_reason = "어떤 상품을 다시 주문할지 알려주세요."
         immediate_response = "어떤 상품을 다시 주문할까요?"
 
+    # "아무거나/상관없어요" 등 dismissive 답변: 되묻는 대신 프로필 기반 추천으로
+    # 대체한다 (실제 keywords 채우기는 context_agent가 profile.favorite_foods로).
+    recommend_from_profile = _should_force_recommendation_fallback(user_input, intent, stage, keywords)
+    if recommend_from_profile:
+        needs_clarification = False
+        clarification_reason = None
+        confidence = max(confidence, 0.8)
+        immediate_response = immediate_response or "네, 평소 좋아하시는 걸로 준비해드릴게요."
+
     # recipe 필드는 buy intent일 때만 갱신, 그 외엔 state 값 유지
     recipe_dish = parsed.recipe_dish if intent == "buy" else (parsed.recipe_dish or state.get("recipe_dish"))
     recipe_people = parsed.recipe_people if intent == "buy" else (parsed.recipe_people or state.get("recipe_people"))
@@ -353,6 +381,7 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         "last_agent": "intent_agent",
         "tool_calls": None,
         "tool_results": None,
+        "recommend_from_profile": recommend_from_profile,
     }
     agent_logger.log_intent(user_input, stage, pending_action, result)
     return result

@@ -95,6 +95,11 @@ class ShoppingState(TypedDict):
     immediate_response: Optional[str]
     needs_clarification: bool
     clarification_reason: Optional[str]
+    # "아무거나 사주세요"처럼 상품명 없이 dismissive하게 답할 때, 되묻는 대신
+    # 프로필의 favorite_foods로 대신 채우라는 intent_agent → context_agent 신호.
+    # intent_agent가 매 턴 명시적으로 True/False를 다시 쓴다(과거 턴 값이 이번
+    # 턴에 새어들지 않도록) — quantity/needs_clarification과 동일한 패턴.
+    recommend_from_profile: bool
 
     # ── 검색 조건 ──
     keywords: list[str]
@@ -253,6 +258,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "immediate_response": None,
         "needs_clarification": False,
         "clarification_reason": None,
+        "recommend_from_profile": False,
         "keywords": [],
         "search_query": None,
         "exclude_keywords": [],

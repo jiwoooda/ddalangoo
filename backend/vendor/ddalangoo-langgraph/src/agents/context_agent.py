@@ -589,6 +589,17 @@ def context_agent_node(state: ContextAgentInput) -> ContextAgentUpdate:
     user_id = state.get("user_id", "")
     keywords = state.get("keywords") or []
 
+    if state.get("recommend_from_profile") and not keywords:
+        # intent_agent가 "아무거나/상관없어요" dismissive 답변을 감지해 보낸
+        # 신호 — 되묻는 대신 profile.favorite_foods[0]으로 채운다. favorite_foods가
+        # 없으면 그대로 빈 keywords로 두고, product_agent의 기존
+        # invalid_keywords 처리(재질문)로 자연스럽게 넘어간다.
+        profile = db_client.get_profile(user_id)
+        favorite_foods = (profile or {}).get("favorite_foods") or []
+        if favorite_foods:
+            keywords = [favorite_foods[0]]
+            agent_logger.log(f"[context_agent] recommend_from_profile → favorite_foods[0]='{keywords[0]}'로 keywords 채움")
+
     agent_logger.log(
         f"\n{'─'*40}\n[context_agent] 진입 | stage={stage}  intent={intent}  "
         f"user_id={user_id}  keywords={keywords}\n{'─'*40}"
@@ -640,7 +651,10 @@ def context_agent_node(state: ContextAgentInput) -> ContextAgentUpdate:
     # recommendation_context에만 보존하고 핵심 검색어에는 합치지 않는다.
     # 카테고리 호환성 검증 없이 합치면 "커피 원두 락토프리 우유"처럼 과거
     # 프로필의 다른 품목이 현재 플랫폼 검색어를 오염시킬 수 있기 때문이다.
-    existing_keywords = state.get("keywords") or []
+    # state.get("keywords")를 다시 읽지 않고 위에서 계산한 keywords를 그대로
+    # 쓴다 — recommend_from_profile로 채워진 값이 여기서 다시 원본(빈 리스트)
+    # 으로 덮이면 product_agent에 전달이 안 된다.
+    existing_keywords = keywords
     existing_exclude = state.get("exclude_keywords") or []
     merged_exclude = existing_exclude + [
         k for k in (pref_ctx.get("exclude_additions", []) + pref_ctx.get("safety_constraints", []))
