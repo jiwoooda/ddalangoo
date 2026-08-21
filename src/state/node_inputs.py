@@ -44,6 +44,7 @@ class ContextAgentInput(TypedDict):
     keywords: list[str]
     exclude_keywords: list[str]
     messages: list
+    recommend_from_profile: bool
 
 
 class ProductAgentInput(TypedDict):
@@ -162,6 +163,7 @@ class IntentAgentUpdate(TypedDict, total=False):
     degraded_mode: bool
     failure_stage: Optional[str]
     degradation_reason: Optional[str]
+    recommend_from_profile: bool
 
 
 class ContextAgentUpdate(TypedDict, total=False):

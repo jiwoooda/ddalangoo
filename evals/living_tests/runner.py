@@ -106,6 +106,20 @@ def _seed_mock_cart(context: dict[str, Any]) -> None:
         mock_add_to_cart(user_id, item["product"], item["quantity"], item.get("keywords"))
 
 
+def _seed_profile(context: dict[str, Any]) -> None:
+    """context_agent의 favorite_foods처럼 profile이 state가 아니라 외부 mock DB
+    (db_client)에 있는 경우, integration 케이스가 실행 전에 미리 심어둔다 —
+    context.profile_seed = {"user_id": ..., "profile": {...}}. _seed_mock_cart와
+    동일한 패턴(새 fixture 시스템 아님, 실제 프로덕션 db_client.save_profile 재사용)."""
+    seed = context.get("profile_seed")
+    if not seed:
+        return
+    from src.tools import db_client
+
+    user_id = seed.get("user_id", context.get("user_id"))
+    db_client.save_profile(user_id, seed["profile"])
+
+
 def _run_unit_case(case: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str]]:
     """반환: (output, executed_nodes, tool_calls_summary). unit은 노드 하나만
     호출하므로 executed_nodes는 그 노드 이름 하나."""
@@ -118,6 +132,7 @@ def _run_unit_case(case: dict[str, Any]) -> tuple[dict[str, Any], list[str], lis
 
     context = case.get("context") or {}
     _seed_mock_cart(context)
+    _seed_profile(context)
     state = {**(case.get("input") or {}), **context}
     output = node_fn(state)
     if not isinstance(output, dict):
@@ -152,6 +167,7 @@ def _run_graph_case(
     context = case.get("context") or {}
     user_id = context.get("user_id", f"living_test_{case['case_id']}")
     _seed_mock_cart(context)
+    _seed_profile(context)
 
     graph = build_graph()
     session_id = f"living-test-{case['case_id']}"
