@@ -1,0 +1,60 @@
+{
+  "run_id": "run-20260821-145837-43c86fd",
+  "scope": "unit",
+  "target": "intent_agent",
+  "git_sha": "43c86fd",
+  "model": "default",
+  "case_count": 2,
+  "cases": [
+    {
+      "case_id": "intent_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "keywords",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "intent",
+          "expected": "reorder",
+          "actual": "unclear",
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    },
+    {
+      "case_id": "intent_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "keywords",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "needs_clarification",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

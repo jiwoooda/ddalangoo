@@ -55,6 +55,7 @@ _UNIT_NODE = {
     "smalltalk_agent": ("src.agents.smalltalk_agent", "smalltalk_agent_node"),
     "reorder_agent": ("src.agents.reorder_agent", "reorder_agent_node"),
     "payment_agent": ("src.payment.node", "payment_agent_node"),
+    "respond": ("src.agents.nodes", "respond_node"),
 }
 
 
