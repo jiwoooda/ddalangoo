@@ -64,12 +64,19 @@ def _ambiguous_question(candidates: list[dict]) -> str:
     )
 
 
-def _ambiguous_retry_question(candidates: list[dict]) -> str:
+def _ambiguous_next_batch_question(candidates: list[dict]) -> str:
+    """직전에 보여준 후보를 사용자가 못 알아봤을 때(select 실패) 쓴다. 같은
+    목록을 그대로 반복하면 사용자가 이미 "모르겠다"고 한 걸 다시 들이미는
+    셈이라(사용자 확인) — 구매이력 중 아직 안 보여준 다른 후보가 있으면
+    그걸 대신 보여준다."""
     names = _format_candidate_names(candidates)
-    return (
-        f"음, 어떤 상품인지 잘 모르겠어요. 다시 한번 보여드릴게요: {names}. "
-        "번호로 말씀해주시면 더 정확하게 찾아드릴 수 있어요!"
-    )
+    return f"그럼 다른 것도 보여드릴게요: {names}. 혹시 이 중에 있으실까요?"
+
+
+def _ambiguous_no_more_candidates_message() -> str:
+    """select 실패했는데 더 보여줄 구매이력도 안 남았을 때 — 목록을 반복하는
+    대신 상품을 더 구체적으로 설명해달라고 요청으로 전환한다."""
+    return "음, 예전에 사셨던 건 그게 다예요. 어떤 상품을 찾으시는지 조금 더 자세히 말씀해주시면 제가 더 잘 찾아드릴게요!"
 
 
 # ── 후보 탐색 로직 ──────────────────────────────────────────────
@@ -142,10 +149,14 @@ def _resolve_reorder_candidates(
     # 재랭킹, confidence 0.75 임계값)이 미구현이라, 후보가 2개 이상이면
     # 점수 차이와 무관하게 항상 사용자에게 되묻는다.
     if len(distinct) >= 2:
+        shown, remaining = distinct[:3], distinct[3:]
         return {
             "resolution_type": "ambiguous",
-            "candidates": distinct[:3],
-            "question": _ambiguous_question(distinct[:3]),
+            "candidates": shown,
+            # 처음엔 top_k(최대 3개)만 보여주고, 나머지는 select 실패 시
+            # 다음 후보로 꺼내 쓸 수 있게 남겨둔다.
+            "remaining_candidates": remaining,
+            "question": _ambiguous_question(shown),
         }
 
     return {"resolution_type": "resolved", "candidates": candidates, "selected": candidates[0]}
@@ -266,20 +277,42 @@ def reorder_agent_node(state: ReorderAgentInput) -> ReorderAgentUpdate:
                  "stage": output.get("stage"), "pending_action": output.get("pending_action")},
             )
             return output
-        retry_candidates = (pending.get("payload") or {}).get("candidates") or []
-        output = {
-            "pending_action": {
-                **pending,
-                # 목록을 다시 안 보여주고 "번호로 말씀해주세요"만 반복하면, 사용자
-                # 입장에선 방금 본 선택지를 기억해내야만 답할 수 있다 — 특히
-                # 어르신 대상이면 부담이 크다(사용자 확인, fl-2026-08-21-002).
-                # 목록을 다시 보여주며 재질문한다.
-                "message": _ambiguous_retry_question(retry_candidates),
-            },
-            "stage": "product_confirming",
-            "error": None,
-            "last_agent": "reorder_agent",
-        }
+        # 같은 후보 목록을 그대로 다시 보여주면, 사용자가 이미 "모르겠다"고
+        # 답한 걸 또 들이미는 셈이다(사용자 확인, fl-2026-08-21-002 후속).
+        # 구매이력 중 아직 안 보여준 다른 후보가 있으면 그걸 꺼내 보여주고,
+        # 더 없으면 목록 반복 대신 구체적인 설명을 요청하는 쪽으로 전환한다.
+        remaining = (pending.get("payload") or {}).get("remaining_candidates") or []
+        if remaining:
+            next_batch, new_remaining = remaining[:3], remaining[3:]
+            output = {
+                "pending_action": {
+                    "type": "product_select",
+                    "message": _ambiguous_next_batch_question(next_batch),
+                    "payload": {"candidates": next_batch, "remaining_candidates": new_remaining},
+                },
+                "stage": "product_confirming",
+                "error": None,
+                "last_agent": "reorder_agent",
+            }
+        else:
+            # 더 보여줄 구매이력이 없다 — product_select를 계속 유지하면 다음
+            # 턴에 사용자가 완전히 새 상품명을 말해도 라우터가 reorder_agent/
+            # respond 사이에서만 맴돌고 product_agent로 못 간다(_route_product_
+            # confirming의 product_select 분기는 buy intent를 respond로 보냄).
+            # pending_action을 비우고 stage를 idle로 되돌려 다음 턴을 완전히
+            # 새 구매 요청처럼 처리되게 한다. needs_clarification/clarification_
+            # reason도 여기서 명시적으로 꺼야 respond_node가 intent_agent의
+            # 오래된 일반 문구 대신 이 안내를 쓴다(fl-2026-08-21-002와 같은
+            # 우선순위 문제 재발 방지).
+            output = {
+                "pending_action": None,
+                "stage": "idle",
+                "error": None,
+                "last_agent": "reorder_agent",
+                "needs_clarification": False,
+                "clarification_reason": None,
+                "immediate_response": _ambiguous_no_more_candidates_message(),
+            }
         agent_logger.log_reorder_agent(
             {"pending_type": "product_select", "user_id": user_id, "keywords": keywords},
             {"resolution_type": "select_failed", "candidates": [],
@@ -311,7 +344,10 @@ def reorder_agent_node(state: ReorderAgentInput) -> ReorderAgentUpdate:
             "pending_action": {
                 "type": "product_select",
                 "message": result.get("question", "이전에 사신 상품이 여러 개예요. 어떤 걸로 할까요?"),
-                "payload": {"candidates": candidates},
+                "payload": {
+                    "candidates": candidates,
+                    "remaining_candidates": result.get("remaining_candidates") or [],
+                },
             },
             "stage": "product_confirming",
             "error": None,

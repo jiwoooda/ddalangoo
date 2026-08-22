@@ -213,6 +213,9 @@ class ReorderAgentUpdate(TypedDict, total=False):
     error: Optional[str]
     search_results: list[dict[str, Any]]
     last_agent: str
+    needs_clarification: bool
+    clarification_reason: Optional[str]
+    immediate_response: str
 
 
 class RecipeAgentUpdate(TypedDict, total=False):
