@@ -42,6 +42,36 @@ def _validate_product_url(url: str) -> bool:
     return db_client.validate_product_url(url)
 
 
+# ── 후보 안내 문구 ──────────────────────────────────────────────
+# 목록 자체(상품명)는 실제 구매이력이라 정확해야 하므로 LLM이 아니라 코드가
+# 그대로 조립한다 — 말투만 친근하게 다듬은 고정 템플릿(사용자 확인 완료,
+# fl-2026-08-21-002 재질문 케이스). LLM에 자유 생성을 맡기면 상품명이
+# 바뀌거나 누락될 위험(할루시네이션)이 있어 어르신 대상 서비스에선 부적절.
+
+def _format_candidate_names(candidates: list[dict]) -> str:
+    return ", ".join(
+        f"{i+1}. {c.get('product_name', '상품')}"
+        for i, c in enumerate(candidates[:3])
+    )
+
+
+def _ambiguous_question(candidates: list[dict]) -> str:
+    names = _format_candidate_names(candidates)
+    return (
+        f"저번에 이런 걸 사셨어요: {names}. "
+        "이 중에 찾으시는 게 있으실까요? 다른 상품이면 조금 더 자세히 "
+        "말씀해주시면 제가 더 잘 찾아드릴게요!"
+    )
+
+
+def _ambiguous_retry_question(candidates: list[dict]) -> str:
+    names = _format_candidate_names(candidates)
+    return (
+        f"음, 어떤 상품인지 잘 모르겠어요. 다시 한번 보여드릴게요: {names}. "
+        "번호로 말씀해주시면 더 정확하게 찾아드릴 수 있어요!"
+    )
+
+
 # ── 후보 탐색 로직 ──────────────────────────────────────────────
 
 def _get_latest_user_text(state: ShoppingState) -> str:
@@ -112,14 +142,10 @@ def _resolve_reorder_candidates(
     # 재랭킹, confidence 0.75 임계값)이 미구현이라, 후보가 2개 이상이면
     # 점수 차이와 무관하게 항상 사용자에게 되묻는다.
     if len(distinct) >= 2:
-        names = ", ".join(
-            f"{i+1}. {c.get('product_name', '상품')}"
-            for i, c in enumerate(distinct[:3])
-        )
         return {
             "resolution_type": "ambiguous",
             "candidates": distinct[:3],
-            "question": f"사신 적 있는 상품이 여러 개예요. 어떤 걸로 할까요? {names}",
+            "question": _ambiguous_question(distinct[:3]),
         }
 
     return {"resolution_type": "resolved", "candidates": candidates, "selected": candidates[0]}
@@ -240,10 +266,15 @@ def reorder_agent_node(state: ReorderAgentInput) -> ReorderAgentUpdate:
                  "stage": output.get("stage"), "pending_action": output.get("pending_action")},
             )
             return output
+        retry_candidates = (pending.get("payload") or {}).get("candidates") or []
         output = {
             "pending_action": {
                 **pending,
-                "message": "어떤 상품인지 모르겠어요. 번호로 다시 말씀해 주세요.",
+                # 목록을 다시 안 보여주고 "번호로 말씀해주세요"만 반복하면, 사용자
+                # 입장에선 방금 본 선택지를 기억해내야만 답할 수 있다 — 특히
+                # 어르신 대상이면 부담이 크다(사용자 확인, fl-2026-08-21-002).
+                # 목록을 다시 보여주며 재질문한다.
+                "message": _ambiguous_retry_question(retry_candidates),
             },
             "stage": "product_confirming",
             "error": None,
