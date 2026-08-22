@@ -1,0 +1,35 @@
+{
+  "run_id": "run-20260822-111200-1ccb9f1",
+  "scope": "unit",
+  "target": "reorder_agent",
+  "git_sha": "1ccb9f1",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "reorder_agent-2026-08-22-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "reorder_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "우유 1L",
+          "actual": "음, 어떤 상품인지 잘 모르겠어요. 다시 한번 보여드릴게요: 1. 딸기 500g, 2. 계란 10구. 번호로 말씀해주시면 더 정확하게 찾아드릴 수 있어요!",
+          "passed": false
+        },
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "그럼 다른 것도",
+          "actual": "음, 어떤 상품인지 잘 모르겠어요. 다시 한번 보여드릴게요: 1. 딸기 500g, 2. 계란 10구. 번호로 말씀해주시면 더 정확하게 찾아드릴 수 있어요!",
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}
