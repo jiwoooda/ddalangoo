@@ -1,0 +1,68 @@
+{
+  "run_id": "run-20260822-110037-08fca6b",
+  "scope": "integration",
+  "target": "routing",
+  "git_sha": "08fca6b",
+  "model": "default",
+  "case_count": 2,
+  "cases": [
+    {
+      "case_id": "routing-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "reorder_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "executed_nodes_contains",
+          "value": "reorder_agent",
+          "executed_nodes": [
+            "wait_for_input",
+            "reset_turn_observability",
+            "intent_agent",
+            "reorder_agent",
+            "respond",
+            "__interrupt__"
+          ],
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "routing-2026-08-20-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "reorder_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "executed_nodes_contains",
+          "value": "reorder_agent",
+          "executed_nodes": [
+            "wait_for_input",
+            "reset_turn_observability",
+            "intent_agent",
+            "reorder_agent",
+            "respond",
+            "__interrupt__"
+          ],
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
