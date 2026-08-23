@@ -79,7 +79,7 @@ def _format_list_message(dish: str, people: Optional[int], items: list[dict]) ->
     lines = [f"{people_str}{dish} 재료예요:"]
     for item in items:
         lines.append(f"  {item['name']} {item['quantity']}{item['unit']}")
-    lines.append("빼실 게 있으면 말씀해 주세요.")
+    lines.append("혹시 빼고 싶은 게 있으면 말씀해 주세요.")
     return "\n".join(lines)
 
 

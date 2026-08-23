@@ -153,9 +153,9 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 f"{(item.get('keywords') or [item.get('product_name', '상품')])[0]} {item.get('quantity', 1)}개"
                 for item in cart
             )
-            review_msg = f"총 {cart_total:,}원이에요. 수량 바꾸거나 빼실 게 있으면 말씀해 주세요."
+            review_msg = f"총 {cart_total:,}원이에요. 수량을 바꾸거나 빼고 싶은 게 있으면 편하게 말씀해 주세요."
         else:
-            review_msg = f"{short_name} {quantity or 1}개, {total:,}원이에요. 수량 바꾸거나 빼실 게 있으면 말씀해 주세요."
+            review_msg = f"{short_name} {quantity or 1}개, {total:,}원이에요. 수량을 바꾸거나 빼고 싶은 게 있으면 편하게 말씀해 주세요."
 
         output = {
             "stage": "cart_shopping",
@@ -218,7 +218,7 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 for item in cart
             ) if cart else (f"{short_name} {new_qty}개" if new_qty else "")
             review_msg = (
-                f"총 {cart_total:,}원이에요. 수량 바꾸거나 빼실 게 있으면 말씀해 주세요."
+                f"총 {cart_total:,}원이에요. 수량을 바꾸거나 빼고 싶은 게 있으면 편하게 말씀해 주세요."
                 if cart else "장바구니가 비었어요. 더 담으실래요?"
             )
             output = {
@@ -241,7 +241,7 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 "stage": "cart_shopping",
                 "error": "address_required",
                 "last_agent": "payment_agent",
-                "pending_action": {"type": "address_required", "message": "배송지가 아직 없어요. 먼저 배송지를 등록해 주세요.", "payload": {"subType": "address_required"}},
+                "pending_action": {"type": "address_required", "message": "아직 등록된 배송지가 없으시네요. 배송지를 먼저 알려주시겠어요?", "payload": {"subType": "address_required"}},
             }
             agent_logger.log_payment_agent(_log_in, output)
             return output
@@ -283,7 +283,7 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
             "stage": "payment_processing",
             "error": None,
             "last_agent": "payment_agent",
-            "pending_action": {"type": "payment_password", "message": "비밀번호 입력해주세요!"},
+            "pending_action": {"type": "payment_password", "message": "결제 비밀번호를 입력해 주시겠어요?"},
         }
         agent_logger.log_payment_agent(_log_in, output)
         agent_logger.log("[payment_agent] Step 3 완료 | 비밀번호 요청")
@@ -315,7 +315,7 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 "last_agent": "payment_agent",
                 "pending_action": {
                     "type": "payment_retry_confirm",
-                    "message": "결제 처리 중 문제가 있었어요. 다시 시도할까요?",
+                    "message": "결제 처리 중에 문제가 있었어요. 죄송해요, 다시 시도해 볼까요?",
                 },
                 "payment_idempotency_key": None,
                 "degraded_mode": True,
@@ -332,7 +332,7 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 "last_agent": "payment_agent",
                 "pending_action": {
                     "type": "payment_retry_confirm",
-                    "message": "결제 처리 중 문제가 있었어요. 다시 시도할까요?",
+                    "message": "결제 처리 중에 문제가 있었어요. 죄송해요, 다시 시도해 볼까요?",
                 },
                 "degraded_mode": True,
                 "failure_stage": "payment_execute",

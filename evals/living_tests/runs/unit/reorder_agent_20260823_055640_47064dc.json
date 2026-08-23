@@ -1,0 +1,103 @@
+{
+  "run_id": "run-20260823-055640-47064dc",
+  "scope": "unit",
+  "target": "reorder_agent",
+  "git_sha": "47064dc",
+  "model": "default",
+  "case_count": 4,
+  "cases": [
+    {
+      "case_id": "reorder_agent-2026-08-21-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "reorder_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "pending_action.type",
+          "expected": "product_select",
+          "actual": "product_select",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "reorder_agent-2026-08-22-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "reorder_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "저번에 이런 걸 사셨어요",
+          "actual": "저번에 이런 걸 사셨어요: 1. 풀무원 유정란 10구, 2. 설향 딸기 500g. 이 중에 찾으시는 게 있으실까요? 다른 상품이면 조금 더 자세히 말씀해주시면 제가 더 잘 찾아드릴게요!",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "reorder_agent-2026-08-22-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "reorder_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "우유 1L",
+          "actual": "그럼 다른 것도 보여드릴게요: 1. 우유 1L, 2. 식빵. 혹시 이 중에 있으실까요?",
+          "passed": true
+        },
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "그럼 다른 것도",
+          "actual": "그럼 다른 것도 보여드릴게요: 1. 우유 1L, 2. 식빵. 혹시 이 중에 있으실까요?",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "reorder_agent-2026-08-22-003",
+      "trace_ref": null,
+      "executed_nodes": [
+        "reorder_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "pending_action",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "stage",
+          "expected": "idle",
+          "actual": "idle",
+          "passed": true
+        },
+        {
+          "type": "field_contains",
+          "path": "immediate_response",
+          "expected": "조금 더 자세히",
+          "actual": "음, 예전에 사셨던 건 그게 다예요. 어떤 상품을 찾으시는지 조금 더 자세히 말씀해주시면 제가 더 잘 찾아드릴게요!",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
