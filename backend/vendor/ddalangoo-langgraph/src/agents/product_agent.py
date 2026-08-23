@@ -73,8 +73,8 @@ def _has_safe_label(label: str, haystack_no_space: str) -> bool:
 def _no_results_message(keywords: list[str]) -> str:
     label = keywords[0] if keywords else None
     if label:
-        return f"{label}를 찾지 못했어요. 다른 상품을 말씀해 주세요."
-    return "찾으시는 상품이 없어요. 다른 상품을 말씀해 주세요."
+        return f"죄송해요, {label}는 못 찾았어요. 다른 상품으로 다시 말씀해 주시겠어요?"
+    return "죄송해요, 찾으시는 상품이 없었어요. 다른 상품으로 다시 말씀해 주시겠어요?"
 
 
 def _missing_product_message(keywords: list[str]) -> str:
@@ -84,8 +84,8 @@ def _missing_product_message(keywords: list[str]) -> str:
 def _no_more_products_message(keywords: list[str]) -> str:
     label = keywords[0] if keywords else None
     if label:
-        return f"{label}로는 더 추천할 상품이 없어요. 다른 상품을 찾아볼까요?"
-    return "더 추천할 상품이 없어요. 다른 상품을 찾아볼까요?"
+        return f"{label}로는 더 보여드릴 상품이 없네요. 다른 상품을 찾아볼까요?"
+    return "더 보여드릴 상품이 없네요. 다른 상품을 찾아볼까요?"
 
 CONDITION_MAP = {
     "최저가": "price_asc",

@@ -49,7 +49,7 @@ def respond_node(state: RespondNodeInput) -> dict:
             agent_logger.log_respond(msg, stage, pending_action)
             return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None}
         elif intent in ("deny", "address_change"):
-            msg = immediate or "그럼 새 배송지를 말씀해 주세요."
+            msg = immediate or "네, 알겠어요! 새 배송지를 말씀해 주시겠어요?"
             agent_logger.log_respond(msg, stage, pending_action)
             return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None}
 
@@ -64,7 +64,7 @@ def respond_node(state: RespondNodeInput) -> dict:
         msg = pending_action["message"]
 
     elif state.get("needs_clarification"):
-        msg = immediate or state.get("clarification_reason") or "다시 한번 말씀해 주세요."
+        msg = immediate or state.get("clarification_reason") or "죄송해요, 잘 못 들었어요. 다시 한번 말씀해 주시겠어요?"
 
     elif stage == "product_confirming" and intent == "confirm" and not state.get("quantity"):
         # intent=confirm인데 수량이 없어서 router가 어떤 agent도 안 거치고 바로
@@ -85,18 +85,18 @@ def respond_node(state: RespondNodeInput) -> dict:
         msg = immediate or "결제를 계속 진행할까요?"
 
     elif stage == "completed":
-        msg = "주문이 완료되었습니다."
+        msg = "주문이 완료됐어요!"
 
     elif stage == "failed":
-        msg = state.get("error") or "처리 중 문제가 발생했습니다."
+        msg = state.get("error") or "죄송해요, 처리하다가 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
 
     else:
         error = state.get("error")
         _ERROR_MESSAGES = {
-            "no_candidates":        "죄송해요, 해당 상품을 찾지 못했어요. 다른 상품을 말씀해 주세요.",
-            "no_relevant_products": "죄송해요, 맞는 상품이 없어요. 다른 키워드로 말씀해 주세요.",
-            "invalid_keywords":     "상품명을 좀 더 구체적으로 말씀해 주세요.",
-            "no_more_products":     "더 이상 보여드릴 상품이 없어요.",
+            "no_candidates":        "죄송해요, 그 상품은 못 찾았어요. 다른 상품으로 다시 말씀해 주시겠어요?",
+            "no_relevant_products": "죄송해요, 딱 맞는 상품을 못 찾았어요. 다른 말로 다시 한번 말씀해 주시겠어요?",
+            "invalid_keywords":     "어떤 상품을 찾으시는지 조금 더 자세히 말씀해주시면 제가 더 잘 찾아드릴게요!",
+            "no_more_products":     "더 보여드릴 상품이 없네요. 다른 상품을 찾아볼까요?",
         }
         msg = _ERROR_MESSAGES.get(error, immediate or "무엇을 도와드릴까요?")
 
