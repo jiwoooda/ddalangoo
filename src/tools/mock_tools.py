@@ -888,6 +888,20 @@ def mock_get_purchase_history(user_id: str) -> list[dict[str, Any]]:
     return sorted(history, key=lambda h: h.get("purchased_at") or "", reverse=True)
 
 
+def mock_update_purchase_satisfaction(
+    user_id: str, purchase_history_id: str, satisfaction_score: Optional[int], memo: Optional[str] = None,
+) -> bool:
+    """구매이력 하나의 satisfaction_score/memo를 in-place로 갱신한다(만족도
+    체크인 결과 기록용). 대상을 못 찾으면 False."""
+    for item in MOCK_PURCHASE_HISTORY.get(str(user_id), []):
+        if item.get("id") == purchase_history_id:
+            item["satisfaction_score"] = satisfaction_score
+            if memo is not None:
+                item["memo"] = memo
+            return True
+    return False
+
+
 def mock_keyword_search_history(user_id: str, keywords: list[str], limit: int = 5) -> list[dict[str, Any]]:
     history = mock_get_purchase_history(user_id)  # 이미 최신순
     results = []

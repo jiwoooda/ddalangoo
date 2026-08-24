@@ -27,6 +27,7 @@ from src.tools.mock_tools import (
     mock_get_default_address,
     mock_get_purchase_history,
     mock_keyword_search_history,
+    mock_update_purchase_satisfaction,
     mock_validate_product_url,
 )
 
@@ -132,6 +133,22 @@ def get_purchase_histories_by_keywords(
         return _run_async_with_fresh_engine(_from_db)
     except Exception:
         return []
+
+
+def update_purchase_satisfaction(
+    user_id: str,
+    purchase_history_id: str,
+    satisfaction_score: int | None,
+    memo: str | None = None,
+    mode: DbMode | None = None,
+) -> bool:
+    """만족도 체크인(src/agents/satisfaction_checkin.py) 결과 기록용. real 모드는
+    이 write 경로에 대응하는 app.repositories 함수가 아직 없어서 조용히 무시하지
+    않고 False를 반환한다(기록 안 됐는데 기록된 것처럼 보이면 안 됨)."""
+    if (mode or _default_db_mode()) == "mock":
+        return mock_update_purchase_satisfaction(user_id, purchase_history_id, satisfaction_score, memo)
+    logger.warning(f"[db_client] update_purchase_satisfaction: real 모드 미구현 (user_id={user_id})")
+    return False
 
 
 def validate_product_url(url: str, mode: DbMode | None = None) -> bool:

@@ -29,6 +29,11 @@ from src.prompts.fallback_prompt import (
 )
 from src.utils.agent_logger import agent_logger
 from src.utils.retry import retry_call
+from src.agents.satisfaction_checkin import (
+    pick_satisfaction_candidate,
+    start_satisfaction_checkin,
+    capture_satisfaction_answer,
+)
 
 # route()가 이 값들을 안전하게 다시 판단할 수 있는 intent만 허용한다 — "confirm"/
 # "deny"/"quantity_change"/"address_change"/"cancel" 등은 stage에 따라 payment_agent/
@@ -156,13 +161,31 @@ def _build_prompt(state: FallbackOrchestratorInput) -> str:
     )
 
 
-def _clarify_result(message: str) -> FallbackOrchestratorUpdate:
+def _clarify_result(message: str, payload: Optional[dict[str, Any]] = None) -> FallbackOrchestratorUpdate:
+    pending_action: dict[str, Any] = {"type": "clarification", "message": message}
+    if payload:
+        pending_action["payload"] = payload
     return {
-        "pending_action": {"type": "clarification", "message": message},
+        "pending_action": pending_action,
         "needs_clarification": False,
         "clarification_reason": None,
         "last_agent": "fallback_orchestrator",
     }
+
+
+def _extract_last_user_text(messages: Optional[list]) -> str:
+    for msg in reversed(messages or []):
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            role = msg.get("role") or msg.get("type")
+            if content and role in (None, "user", "human"):
+                return str(content)
+        else:
+            content = getattr(msg, "content", None)
+            msg_type = getattr(msg, "type", None) or getattr(msg, "role", None)
+            if content and msg_type in (None, "human", "user"):
+                return str(content)
+    return ""
 
 
 def _recover_result(decision: FallbackDecision) -> FallbackOrchestratorUpdate:
@@ -215,6 +238,18 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
         f"intent={state.get('intent')} stuck_turns={state.get('fallback_stuck_turns')}\n{'─'*40}"
     )
 
+    # 직전 턴에 만족도 체크인을 걸어놨었다면(router.py::route()가
+    # pending_action.payload.satisfaction_check만 보고 여기로 결정적으로
+    # 보냄 — LLM 진단 없이), 이번 턴은 그 답변을 해석하는 턴이다. 새로
+    # recover/clarify/chat을 판단할 필요가 없다.
+    pending_check = ((state.get("pending_action") or {}).get("payload") or {}).get("satisfaction_check")
+    if pending_check:
+        user_text = _extract_last_user_text(state.get("messages"))
+        reply = capture_satisfaction_answer(state.get("user_id", ""), pending_check, user_text)
+        result = _clarify_result(reply)
+        result["fallback_stuck_turns"] = 0  # 체크인 마무리 - 다시 정상 대기 상태로
+        return result
+
     prompt = _build_prompt(state)
     try:
         llm = _get_llm()
@@ -239,6 +274,21 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
             return _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
         return _recover_result(decision)
     if decision.action == "chat":
+        # 잡담으로 끝내기보다, 아직 만족도를 안 물어본 구매이력이 있으면 그걸
+        # 되물어서 죽어있던 satisfaction_score/memo 필드에 처음으로 실제
+        # 용도를 준다(사용자 요청). 후보가 없거나 질문 생성이 실패하면 기존
+        # 그대로 일반 chat 응답으로 대체한다.
+        user_id = state.get("user_id")
+        candidate = pick_satisfaction_candidate(user_id) if user_id else None
+        if candidate:
+            pending_action = start_satisfaction_checkin(candidate)
+            if pending_action:
+                return {
+                    "pending_action": pending_action,
+                    "needs_clarification": False,
+                    "clarification_reason": None,
+                    "last_agent": "fallback_orchestrator",
+                }
         return _clarify_result(decision.chat_reply or _DEFAULT_CLARIFY_FALLBACK)
     # action == "clarify" 또는 예상 밖의 값 — 안전하게 clarify로 처리
     return _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)

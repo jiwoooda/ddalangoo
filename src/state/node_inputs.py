@@ -135,6 +135,7 @@ class CancelNodeInput(TypedDict):
 class FallbackOrchestratorInput(TypedDict):
     stage: Stage
     intent: Optional[Intent]
+    user_id: str
     pending_action: Optional[PendingAction]
     confidence: Optional[float]
     needs_clarification: bool
