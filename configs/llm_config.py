@@ -43,6 +43,9 @@ _DEFAULT_MODELS: dict[str, dict[str, str]] = {
         "response": "gpt-4o",
         "context":  "gpt-4o-mini",
         "recipe":   "gpt-4o-mini",
+        # fallback_orchestrator는 정상 처리가 막혔을 때만(자주 아님) 불리고,
+        # 여러 턴 맥락을 종합 판단해야 해서 product/response와 같은 상위 티어를 쓴다.
+        "fallback": "gpt-4o",
     },
     "ollama": {
         # A후보 기본값. B후보는 --model 옵션으로 오버라이드.
@@ -55,6 +58,7 @@ _DEFAULT_MODELS: dict[str, dict[str, str]] = {
         "response": "qwen2.5:7b",
         "context":  "qwen2.5:14b",
         "recipe":   "qwen2.5:7b",
+        "fallback": "qwen3:32b",
     },
     "vllm": {
         # vLLM OpenAI-compatible 서버 (A100 × 2, AWQ int4 ~18GB)
@@ -64,6 +68,7 @@ _DEFAULT_MODELS: dict[str, dict[str, str]] = {
         "response": "/home/tta/models/qwen2.5-32b-instruct-awq",
         "context":  "/home/tta/models/qwen2.5-32b-instruct-awq",
         "recipe":   "/home/tta/models/qwen2.5-32b-instruct-awq",
+        "fallback": "/home/tta/models/qwen2.5-32b-instruct-awq",
     },
 }
 
@@ -73,6 +78,7 @@ _ENV_KEYS: dict[str, str] = {
     "response": "RESPONSE_MODEL",
     "context":  "CONTEXT_MODEL",
     "recipe":   "RECIPE_MODEL",
+    "fallback": "FALLBACK_MODEL",
 }
 
 
@@ -163,5 +169,10 @@ def reset_all_llm_caches() -> None:
     try:
         import src.agents.context_agent as ca
         ca._context_llm = None
+    except Exception:
+        pass
+    try:
+        import src.agents.fallback_orchestrator as fo
+        fo._fallback_llm = None
     except Exception:
         pass

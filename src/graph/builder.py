@@ -30,6 +30,7 @@ from src.graph.router import (
     after_response_agent,
     after_recipe_agent,
     after_payment_agent,
+    after_fallback_orchestrator,
 )
 from src.agents.intent_agent import intent_agent_node, intent_error_handler
 from src.agents.context_agent import context_agent_node
@@ -46,8 +47,27 @@ from src.agents.nodes import (
 )
 from src.agents.recipe_agent import recipe_agent_node
 from src.agents.smalltalk_agent import smalltalk_agent_node, smalltalk_error_handler
+from src.agents.fallback_orchestrator import fallback_orchestrator_node
 from src.payment.node import payment_agent_node
 from src.utils.retry import NODE_RETRY_POLICY
+
+# intent_agent(route)와 fallback_orchestrator(after_fallback_orchestrator, recover
+# 시 route()를 그대로 재호출)가 도달할 수 있는 목적지 집합은 동일해야 한다 —
+# 하나로 공유해서 둘이 따로따로 갱신되다 어긋나는 걸 방지한다.
+_ROUTE_DESTINATIONS = {
+    "context_agent": "context_agent",
+    "reorder_agent": "reorder_agent",
+    "product_agent": "product_agent",
+    "response_agent": "response_agent",
+    "recipe_agent": "recipe_agent",
+    "payment_agent": "payment_agent",
+    "smalltalk_agent": "smalltalk_agent",
+    "ask_what_to_buy": "ask_what_to_buy",
+    "respond": "respond",
+    "cancel": "cancel",
+    "fallback_orchestrator": "fallback_orchestrator",
+    "end": END,
+}
 
 
 def build_graph(checkpointer=None):
@@ -82,6 +102,12 @@ def build_graph(checkpointer=None):
     builder.add_node("respond", respond_node)
     builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
     builder.add_node("cancel", cancel_node)
+    # fallback_orchestrator: route()가 needs_clarification/confidence/unclear로
+    # 막힌 게 반복되면(fallback_stuck_turns>=1) 여기로 보낸다. 정상 흐름에서는
+    # 절대 안 거쳐가는 노드 — LLM 호출 자체가 try/except로 감싸져 있어(내부에서
+    # retry_call 사용) 전체 Node RetryPolicy는 안 붙인다(intent_agent/smalltalk_agent
+    # 와 달리 부수효과 없는 순수 진단 노드라 굳이 그래프 레벨 재시도가 필요 없음).
+    builder.add_node("fallback_orchestrator", fallback_orchestrator_node)
 
     # 신규·미온보딩 유저는 세션을 여는 순간 딸랑구가 먼저 자기소개와 이름
     # 질문(또는 이미 이름을 안다면 그 이름으로 바로 인사)을 건넨다. 기존/
@@ -102,23 +128,12 @@ def build_graph(checkpointer=None):
         {"smalltalk_agent": "smalltalk_agent", "intent_agent": "intent_agent"},
     )
 
-    builder.add_conditional_edges(
-        "intent_agent",
-        route,
-        {
-            "context_agent": "context_agent",
-            "reorder_agent": "reorder_agent",
-            "product_agent": "product_agent",
-            "response_agent": "response_agent",
-            "recipe_agent": "recipe_agent",
-            "payment_agent": "payment_agent",
-            "smalltalk_agent": "smalltalk_agent",
-            "ask_what_to_buy": "ask_what_to_buy",
-            "respond": "respond",
-            "cancel": "cancel",
-            "end": END,
-        },
-    )
+    builder.add_conditional_edges("intent_agent", route, _ROUTE_DESTINATIONS)
+
+    # after_fallback_orchestrator: action="clarify"/"chat"이면 respond로, action=
+    # "recover"면 route()를 그대로 재호출한 결과이므로 route()가 갈 수 있는 곳은
+    # 어디든 갈 수 있다 — 그래서 intent_agent와 같은 목적지 집합을 공유한다.
+    builder.add_conditional_edges("fallback_orchestrator", after_fallback_orchestrator, _ROUTE_DESTINATIONS)
 
     builder.add_conditional_edges(
         "context_agent",

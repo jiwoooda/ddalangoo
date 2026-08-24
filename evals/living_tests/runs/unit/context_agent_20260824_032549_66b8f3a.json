@@ -1,0 +1,20 @@
+{
+  "run_id": "run-20260824-032548-66b8f3a",
+  "scope": "unit",
+  "target": "context_agent",
+  "git_sha": "66b8f3a",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "context_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "context_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [],
+      "verdict": "uncertain"
+    }
+  ]
+}
