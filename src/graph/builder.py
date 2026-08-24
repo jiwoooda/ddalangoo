@@ -4,7 +4,9 @@ Orchestrator Graph Builder.
 LangGraph StateGraph 구성:
 - session_start → 신규·미온보딩유저(메시지 0개): smalltalk_agent가 먼저
   선제 인사 → respond → wait_for_input
-- session_start → 기존/온보딩완료 유저: wait_for_input
+- session_start → 기존/온보딩완료 유저: entry_engagement가 먼저 말을
+  건다(만족도 체크인/프로필 이어 묻기/그마저 없으면 쇼핑 초대) → respond
+  → wait_for_input
 - 이후 턴: wait_for_input → intent_agent/smalltalk_agent(route_entry) →
   route() → {agents} → respond → after_respond()
 - interrupt_before=["wait_for_input"] (human-in-the-loop)
@@ -48,6 +50,7 @@ from src.agents.nodes import (
 from src.agents.recipe_agent import recipe_agent_node
 from src.agents.smalltalk_agent import smalltalk_agent_node, smalltalk_error_handler
 from src.agents.fallback_orchestrator import fallback_orchestrator_node
+from src.agents.casual_engagement import entry_engagement_node
 from src.payment.node import payment_agent_node
 from src.utils.retry import NODE_RETRY_POLICY
 
@@ -108,16 +111,21 @@ def build_graph(checkpointer=None):
     # retry_call 사용) 전체 Node RetryPolicy는 안 붙인다(intent_agent/smalltalk_agent
     # 와 달리 부수효과 없는 순수 진단 노드라 굳이 그래프 레벨 재시도가 필요 없음).
     builder.add_node("fallback_orchestrator", fallback_orchestrator_node)
+    # entry_engagement: 세션을 여는 순간 온보딩 완료 유저에게 먼저 말을 건다
+    # (만족도 체크인/프로필 이어 묻기/그마저 없으면 쇼핑 초대) — smalltalk_agent가
+    # 신규 유저에게 선제 인사하는 것과 대칭. casual_engagement.py 참고.
+    builder.add_node("entry_engagement", entry_engagement_node)
 
     # 신규·미온보딩 유저는 세션을 여는 순간 딸랑구가 먼저 자기소개와 이름
     # 질문(또는 이미 이름을 안다면 그 이름으로 바로 인사)을 건넨다. 기존/
-    # 온보딩완료 유저는 그대로 wait_for_input에서 사용자 입력을 기다린다.
+    # 온보딩완료 유저는 entry_engagement가 먼저 말을 건다.
     builder.set_entry_point("session_start")
     builder.add_conditional_edges(
         "session_start",
         route_session_start,
-        {"smalltalk_agent": "smalltalk_agent", "wait_for_input": "wait_for_input"},
+        {"smalltalk_agent": "smalltalk_agent", "entry_engagement": "entry_engagement", "wait_for_input": "wait_for_input"},
     )
+    builder.add_edge("entry_engagement", "respond")
     builder.add_edge("wait_for_input", "reset_turn_observability")
     # 온보딩 미완료 신규유저는 intent_agent를 거치지 않고 바로 smalltalk_agent로
     # (route_entry, src/graph/router.py 참고) — smalltalk는 LLM이 매턴 판단하는

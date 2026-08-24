@@ -1,0 +1,110 @@
+{
+  "run_id": "run-20260824-131604-394e118",
+  "scope": "unit",
+  "target": "fallback_orchestrator",
+  "git_sha": "394e118",
+  "model": "default",
+  "case_count": 4,
+  "cases": [
+    {
+      "case_id": "fallback_orchestrator-2026-08-24-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "fallback_orchestrator"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "needs_clarification",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "confidence",
+          "expected": 0.9,
+          "actual": 0.9,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "fallback_stuck_turns",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "fallback_orchestrator-2026-08-24-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "fallback_orchestrator"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "fallback_stuck_turns",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "pending_action.payload",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "fallback_orchestrator-2026-08-24-003",
+      "trace_ref": null,
+      "executed_nodes": [
+        "fallback_orchestrator"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "fallback_stuck_turns",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "pending_action.payload",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "fallback_orchestrator-2026-08-24-004",
+      "trace_ref": null,
+      "executed_nodes": [
+        "fallback_orchestrator"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "pending_action",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

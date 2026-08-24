@@ -1,0 +1,43 @@
+{
+  "run_id": "run-20260824-131725-394e118",
+  "scope": "integration",
+  "target": "routing",
+  "git_sha": "394e118",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "routing-2026-08-24-006",
+      "trace_ref": null,
+      "executed_nodes": [
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "context_agent",
+        "product_agent",
+        "response_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "executed_nodes_contains",
+          "value": "entry_engagement",
+          "executed_nodes": [
+            "wait_for_input",
+            "reset_turn_observability",
+            "intent_agent",
+            "context_agent",
+            "product_agent",
+            "response_agent",
+            "respond",
+            "__interrupt__"
+          ],
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}
