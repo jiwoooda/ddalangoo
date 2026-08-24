@@ -56,6 +56,7 @@ _UNIT_NODE = {
     "reorder_agent": ("src.agents.reorder_agent", "reorder_agent_node"),
     "payment_agent": ("src.payment.node", "payment_agent_node"),
     "respond": ("src.agents.nodes", "respond_node"),
+    "fallback_orchestrator": ("src.agents.fallback_orchestrator", "fallback_orchestrator_node"),
 }
 
 

@@ -125,10 +125,27 @@ class RespondNodeInput(TypedDict):
     needs_clarification: bool
     clarification_reason: Optional[str]
     error: Optional[str]
+    fallback_stuck_turns: int
 
 
 class CancelNodeInput(TypedDict):
     cart_items: list[dict[str, Any]]
+
+
+class FallbackOrchestratorInput(TypedDict):
+    stage: Stage
+    intent: Optional[Intent]
+    pending_action: Optional[PendingAction]
+    confidence: Optional[float]
+    needs_clarification: bool
+    clarification_reason: Optional[str]
+    keywords: list[str]
+    quantity: Optional[int]
+    condition: Optional[Condition]
+    exclude_keywords: list[str]
+    recommendation_context: Optional[dict[str, Any]]
+    messages: list
+    fallback_stuck_turns: int
 
 
 # ══════════════════════════════════════════════
@@ -269,3 +286,31 @@ class PaymentAgentUpdate(TypedDict, total=False):
     degraded_mode: bool
     failure_stage: Optional[str]
     degradation_reason: Optional[str]
+
+
+class RespondNodeUpdate(TypedDict, total=False):
+    messages: list
+    fallback_stuck_turns: int
+
+
+class FallbackOrchestratorUpdate(TypedDict, total=False):
+    intent: Optional[Intent]
+    confidence: float
+    keywords: list[str]
+    quantity: Optional[int]
+    condition: Optional[Condition]
+    exclude_keywords: list[str]
+    recipe_dish: Optional[str]
+    selected_product: Optional[dict[str, Any]]
+    search_results: list[dict[str, Any]]
+    product_url: Optional[str]
+    explanation: Optional[str]
+    highlight_specs: list[str]
+    current_product_index: int
+    pending_action: Optional[PendingAction]
+    immediate_response: str
+    needs_clarification: bool
+    clarification_reason: Optional[str]
+    fallback_stuck_turns: int
+    last_agent: str
+    error: Optional[str]

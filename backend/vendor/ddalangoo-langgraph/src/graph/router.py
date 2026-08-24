@@ -21,8 +21,13 @@ RouteName = Literal[
     "ask_what_to_buy",
     "respond",
     "cancel",
+    "fallback_orchestrator",
     "end",
 ]
+
+# fallback_orchestrator를 절대 태우지 않는 stage — 결제는 human-in-the-loop이
+# 필수인 영역이라 LLM에 자유도를 주지 않는다(설계 문서 2-2 참고).
+_FALLBACK_EXCLUDED_STAGES = frozenset({"payment_processing", "payment_password_required"})
 
 Decide = Callable[[RouteName], RouteName]
 
@@ -325,6 +330,14 @@ def route(state: ShoppingState) -> RouteName:
         and intent != "reorder"
         and pending_type != "product_select"
     ):
+        # Stuck Trigger: 정해진 재질문을 이미 한 번 거치고도(fallback_stuck_turns>=1)
+        # 또 막히면, respond로 같은 재질문을 반복하는 대신 fallback_orchestrator가
+        # 더 넓은 맥락으로 진단하게 한다. 결제 관련 stage는 절대 대상이 아니다
+        # (human-in-the-loop 경계, 설계 문서 참고). 1차 시도는 항상 지금처럼
+        # deterministic 재질문 그대로 나간다.
+        stuck_turns = state.get("fallback_stuck_turns") or 0
+        if stuck_turns >= 1 and stage not in _FALLBACK_EXCLUDED_STAGES:
+            return _decide("fallback_orchestrator")
         return _decide("respond")
 
     if intent == "cancel":
@@ -406,6 +419,21 @@ def after_payment_agent(state: ShoppingState) -> Literal["context_agent", "recip
             return _decide("recipe_agent")
 
     return _decide("respond")
+
+
+def after_fallback_orchestrator(state: ShoppingState) -> RouteName:
+    """fallback_orchestrator_node 실행 후 라우팅.
+
+    action="clarify"/"chat"이었으면 fallback_orchestrator가 pending_action.type을
+    "clarification"으로 세팅해뒀으므로 곧장 respond로 보낸다. action="recover"였으면
+    fallback_orchestrator가 intent/keywords 등을 정상 슬롯 값으로 고쳐놨을 뿐이므로,
+    새 라우팅 로직을 만들지 않고 route() 함수를 그대로 재호출한다 — route()는
+    이제 정상적으로 fallback_stuck_turns=0이고 needs_clarification=False인 state를
+    보고, 마치 intent_agent가 원래 이 값을 냈던 것처럼 평소와 동일하게 판단한다."""
+    pending_type = _ptype(state.get("pending_action"))
+    if pending_type == "clarification":
+        return "respond"
+    return route(state)
 
 
 def after_respond(state: ShoppingState) -> Literal["wait_for_input", "end"]:

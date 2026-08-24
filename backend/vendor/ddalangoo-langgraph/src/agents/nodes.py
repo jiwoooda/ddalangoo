@@ -1,6 +1,6 @@
 """공통 Graph 노드: wait_for_input, respond, cancel 등."""
 from src.state.schema import ShoppingState
-from src.state.node_inputs import RespondNodeInput, CancelNodeInput
+from src.state.node_inputs import RespondNodeInput, RespondNodeUpdate, CancelNodeInput
 from src.utils.agent_logger import agent_logger
 
 
@@ -33,13 +33,20 @@ def reset_turn_observability_node(state: ShoppingState) -> dict:
     }
 
 
-def respond_node(state: RespondNodeInput) -> dict:
-    """사용자에게 보낼 메시지 생성."""
+def respond_node(state: RespondNodeInput) -> RespondNodeUpdate:
+    """사용자에게 보낼 메시지 생성.
+
+    fallback_stuck_turns: Fallback Orchestrator 트리거 카운터. needs_clarification
+    분기(=정해진 재질문으로도 안 풀린 턴)를 탈 때만 +1, 그 외 모든 분기(진행이
+    있었던 턴)는 0으로 리셋한다 — smalltalk의 consecutive_question_turns와 같은
+    패턴. router.py의 route()가 다음 턴에 이 값을 보고 fallback_orchestrator로
+    보낼지 판단한다."""
     stage = state.get("stage", "idle")
     intent = state.get("intent")
     immediate = state.get("immediate_response")
     explanation = state.get("explanation")
     pending_action = state.get("pending_action") or {}
+    stuck_turns = state.get("fallback_stuck_turns") or 0
 
     # idle에서 배송지 confirm/deny — pending_action 클리어 후 단답 응답
     # (응답 agent가 방금 address_confirm을 세팅한 경우(intent=ask)는 통과시켜 그냥 표시)
@@ -47,11 +54,13 @@ def respond_node(state: RespondNodeInput) -> dict:
         if intent == "confirm":
             msg = immediate or "네, 알겠어요!"
             agent_logger.log_respond(msg, stage, pending_action)
-            return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None}
+            return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None, "fallback_stuck_turns": 0}
         elif intent in ("deny", "address_change"):
             msg = immediate or "네, 알겠어요! 새 배송지를 말씀해 주시겠어요?"
             agent_logger.log_respond(msg, stage, pending_action)
-            return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None}
+            return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None, "fallback_stuck_turns": 0}
+
+    stuck = False
 
     if pending_action.get("type") == "product_select" and pending_action.get("message"):
         # product_select 상태에서는 reorder_agent가 이번 턴에 방금 낸 재질문
@@ -60,11 +69,15 @@ def respond_node(state: RespondNodeInput) -> dict:
         # 아래 needs_clarification 분기가 먼저 걸리면 그 구체적 재질문이
         # 완전히 무시된다(실측 확인, fl-2026-08-21-002). needs_clarification의
         # 전체 우선순위는 다른 흐름에 영향이 넓어 안 건드리고, 이 케이스만 좁게
-        # 예외로 둔다.
+        # 예외로 둔다. reorder_agent 자체가 이미 후보 재제시로 회복을 시도하는
+        # 중이라 여기선 stuck으로 안 침(reorder_agent의 자체 회복이 소진되면
+        # pending_action이 풀리고 stage=idle로 돌아가므로, 그 이후에도 여전히
+        # 애매하면 아래 needs_clarification 분기에서 자연스럽게 잡힘).
         msg = pending_action["message"]
 
     elif state.get("needs_clarification"):
         msg = immediate or state.get("clarification_reason") or "죄송해요, 잘 못 들었어요. 다시 한번 말씀해 주시겠어요?"
+        stuck = True
 
     elif stage == "product_confirming" and intent == "confirm" and not state.get("quantity"):
         # intent=confirm인데 수량이 없어서 router가 어떤 agent도 안 거치고 바로
@@ -101,7 +114,10 @@ def respond_node(state: RespondNodeInput) -> dict:
         msg = _ERROR_MESSAGES.get(error, immediate or "무엇을 도와드릴까요?")
 
     agent_logger.log_respond(msg, stage, pending_action)
-    return {"messages": [{"role": "assistant", "content": msg}]}
+    return {
+        "messages": [{"role": "assistant", "content": msg}],
+        "fallback_stuck_turns": stuck_turns + 1 if stuck else 0,
+    }
 
 
 def ask_what_to_buy_node(state: ShoppingState) -> dict:

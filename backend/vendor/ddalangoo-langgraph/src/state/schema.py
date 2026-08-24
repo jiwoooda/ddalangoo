@@ -101,6 +101,13 @@ class ShoppingState(TypedDict):
     # 턴에 새어들지 않도록) — quantity/needs_clarification과 동일한 패턴.
     recommend_from_profile: bool
 
+    # ── Fallback Orchestrator 트리거 카운터 ── respond_node가 매 턴 갱신한다:
+    # needs_clarification 계열(막힌) 분기를 타면 +1, 그 외 정상 분기를 타면 0.
+    # smalltalk의 consecutive_question_turns와 같은 패턴(reset_turn_observability_node
+    # 처럼 매 턴 강제 초기화하지 않음 — 연속성이 핵심). route()가 이 값을 보고
+    # 이미 한 번 정해진 재질문을 했는데도 또 막혔으면 fallback_orchestrator로 보낸다.
+    fallback_stuck_turns: int
+
     # ── 검색 조건 ──
     keywords: list[str]
     search_query: Optional[str]
@@ -259,6 +266,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "needs_clarification": False,
         "clarification_reason": None,
         "recommend_from_profile": False,
+        "fallback_stuck_turns": 0,
         "keywords": [],
         "search_query": None,
         "exclude_keywords": [],
