@@ -34,6 +34,11 @@ from src.agents.satisfaction_checkin import (
     start_satisfaction_checkin,
     capture_satisfaction_answer,
 )
+from src.agents.profile_topup import (
+    pick_missing_profile_field,
+    start_profile_topup,
+    capture_profile_topup_answer,
+)
 
 # route()가 이 값들을 안전하게 다시 판단할 수 있는 intent만 허용한다 — "confirm"/
 # "deny"/"quantity_change"/"address_change"/"cancel" 등은 stage에 따라 payment_agent/
@@ -238,16 +243,22 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
         f"intent={state.get('intent')} stuck_turns={state.get('fallback_stuck_turns')}\n{'─'*40}"
     )
 
-    # 직전 턴에 만족도 체크인을 걸어놨었다면(router.py::route()가
-    # pending_action.payload.satisfaction_check만 보고 여기로 결정적으로
-    # 보냄 — LLM 진단 없이), 이번 턴은 그 답변을 해석하는 턴이다. 새로
-    # recover/clarify/chat을 판단할 필요가 없다.
-    pending_check = ((state.get("pending_action") or {}).get("payload") or {}).get("satisfaction_check")
-    if pending_check:
+    # 직전 턴에 만족도 체크인/프로필 이어 묻기를 걸어놨었다면(router.py::route()가
+    # pending_action.payload만 보고 여기로 결정적으로 보냄 — LLM 진단 없이),
+    # 이번 턴은 그 답변을 해석하는 턴이다. 새로 recover/clarify/chat을 판단할
+    # 필요가 없다.
+    payload = (state.get("pending_action") or {}).get("payload") or {}
+    if pending_check := payload.get("satisfaction_check"):
         user_text = _extract_last_user_text(state.get("messages"))
         reply = capture_satisfaction_answer(state.get("user_id", ""), pending_check, user_text)
         result = _clarify_result(reply)
         result["fallback_stuck_turns"] = 0  # 체크인 마무리 - 다시 정상 대기 상태로
+        return result
+    if pending_topup := payload.get("profile_topup"):
+        user_text = _extract_last_user_text(state.get("messages"))
+        reply = capture_profile_topup_answer(state.get("user_id", ""), pending_topup, user_text)
+        result = _clarify_result(reply)
+        result["fallback_stuck_turns"] = 0
         return result
 
     prompt = _build_prompt(state)
@@ -274,21 +285,30 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
             return _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
         return _recover_result(decision)
     if decision.action == "chat":
-        # 잡담으로 끝내기보다, 아직 만족도를 안 물어본 구매이력이 있으면 그걸
-        # 되물어서 죽어있던 satisfaction_score/memo 필드에 처음으로 실제
-        # 용도를 준다(사용자 요청). 후보가 없거나 질문 생성이 실패하면 기존
-        # 그대로 일반 chat 응답으로 대체한다.
+        # 잡담으로 끝내기보다 목적 있는 대화로 채운다 — 우선순위:
+        # 1) 아직 만족도를 안 물어본 구매이력이 있으면 그걸 되물어서 죽어있던
+        #    satisfaction_score/memo 필드에 처음으로 실제 용도를 준다.
+        # 2) 구매이력이 없거나 다 물어봤으면, 온보딩(smalltalk_agent) 때
+        #    다 못 채운 프로필 필드가 있는지 보고 이어서 묻는다 — 사용자
+        #    요청: "구매이력 없으면 smalltalk이 하던 쇼핑 성향 파악을 이어감".
+        # 3) 둘 다 없으면 기존처럼 일반 chat 응답.
         user_id = state.get("user_id")
-        candidate = pick_satisfaction_candidate(user_id) if user_id else None
-        if candidate:
-            pending_action = start_satisfaction_checkin(candidate)
-            if pending_action:
-                return {
-                    "pending_action": pending_action,
-                    "needs_clarification": False,
-                    "clarification_reason": None,
-                    "last_agent": "fallback_orchestrator",
-                }
+        pending_action = None
+        if user_id:
+            candidate = pick_satisfaction_candidate(user_id)
+            if candidate:
+                pending_action = start_satisfaction_checkin(candidate)
+            if not pending_action:
+                missing_field = pick_missing_profile_field(user_id)
+                if missing_field:
+                    pending_action = start_profile_topup(user_id, missing_field)
+        if pending_action:
+            return {
+                "pending_action": pending_action,
+                "needs_clarification": False,
+                "clarification_reason": None,
+                "last_agent": "fallback_orchestrator",
+            }
         return _clarify_result(decision.chat_reply or _DEFAULT_CLARIFY_FALLBACK)
     # action == "clarify" 또는 예상 밖의 값 — 안전하게 clarify로 처리
     return _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)

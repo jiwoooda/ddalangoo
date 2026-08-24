@@ -1,0 +1,35 @@
+{
+  "run_id": "run-20260824-110939-55e283e",
+  "scope": "unit",
+  "target": "fallback_orchestrator",
+  "git_sha": "55e283e",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "fallback_orchestrator-2026-08-24-003",
+      "trace_ref": null,
+      "executed_nodes": [
+        "fallback_orchestrator"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "fallback_stuck_turns",
+          "expected": 0,
+          "actual": null,
+          "passed": false
+        },
+        {
+          "type": "field_equals",
+          "path": "pending_action.payload",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}

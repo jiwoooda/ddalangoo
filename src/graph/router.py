@@ -314,13 +314,16 @@ def route(state: ShoppingState) -> RouteName:
         agent_logger.log_router("intent_agent", dest, intent or "-", stage, pending_type)
         return dest
 
-    # 만족도 체크인 진행 중(pending_action.payload.satisfaction_check)이면
-    # needs_clarification/confidence/stuck_turns 판단과 무관하게 항상
-    # fallback_orchestrator로 보내 답변을 마저 처리한다 — product_select가
-    # payload 기반으로 결정적으로 예외 처리되는 것과 같은 패턴(LLM 추측 없음,
-    # src/agents/satisfaction_checkin.py 참고).
-    if pending_type == "clarification" and (state.get("pending_action") or {}).get("payload", {}).get("satisfaction_check"):
-        return _decide("fallback_orchestrator")
+    # 만족도 체크인/프로필 이어 묻기 진행 중(pending_action.payload.
+    # satisfaction_check 또는 profile_topup)이면 needs_clarification/confidence/
+    # stuck_turns 판단과 무관하게 항상 fallback_orchestrator로 보내 답변을
+    # 마저 처리한다 — product_select가 payload 기반으로 결정적으로 예외
+    # 처리되는 것과 같은 패턴(LLM 추측 없음, src/agents/satisfaction_checkin.py,
+    # src/agents/profile_topup.py 참고).
+    if pending_type == "clarification":
+        _payload = (state.get("pending_action") or {}).get("payload") or {}
+        if _payload.get("satisfaction_check") or _payload.get("profile_topup"):
+            return _decide("fallback_orchestrator")
 
     # reorder는 예외 — needs_clarification=true라도 respond로 바로 보내지 않고
     # reorder_agent(아래 stage-router/기본 매핑에서 도달)로 보낸다. reorder_agent가
