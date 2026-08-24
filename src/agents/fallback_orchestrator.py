@@ -237,6 +237,19 @@ def _recover_result(decision: FallbackDecision) -> FallbackOrchestratorUpdate:
     return updates
 
 
+def _looks_like_new_request(state: FallbackOrchestratorInput) -> bool:
+    """만족도/프로필 되물음에 대한 답변 턴인데, intent_agent가 이번 턴 발화를
+    이미 명확한 새 쇼핑 요청으로 분류해뒀다면(예: "아니 됐고 우유나 사줘") —
+    사이드 대화 해석을 강행하지 않는다. intent_agent는 이 노드보다 먼저 항상
+    실행되므로 이번 턴 분류 결과가 이미 state에 있다 — 별도 LLM 호출 없이
+    이미 계산된 값만 재사용한다."""
+    return (
+        state.get("intent") in _SAFE_INTENTS
+        and not state.get("needs_clarification")
+        and (state.get("confidence") or 0.0) >= 0.5
+    )
+
+
 def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrchestratorUpdate:
     agent_logger.log(
         f"\n{'─'*40}\n[fallback_orchestrator] 진입 | stage={state.get('stage')} "
@@ -248,13 +261,27 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
     # 이번 턴은 그 답변을 해석하는 턴이다. 새로 recover/clarify/chat을 판단할
     # 필요가 없다.
     payload = (state.get("pending_action") or {}).get("payload") or {}
-    if pending_check := payload.get("satisfaction_check"):
-        user_text = _extract_last_user_text(state.get("messages"))
-        reply = capture_satisfaction_answer(state.get("user_id", ""), pending_check, user_text)
-        result = _clarify_result(reply)
-        result["fallback_stuck_turns"] = 0  # 체크인 마무리 - 다시 정상 대기 상태로
-        return result
-    if pending_topup := payload.get("profile_topup"):
+    pending_check = payload.get("satisfaction_check")
+    pending_topup = payload.get("profile_topup")
+    if pending_check or pending_topup:
+        if _looks_like_new_request(state):
+            # 사용자가 사이드 질문에 답하는 대신 목적 있는 새 요청으로 들어왔다
+            # — 만족도/프로필 해석을 포기하고 pending_action만 비운다. after_
+            # fallback_orchestrator가 pending_action이 clarification이 아님을
+            # 보고 route()를 그대로 재호출 — 이번 턴 intent_agent가 이미 정확히
+            # 분류해둔 값(예: intent=buy, keywords=["우유"])으로 바로 정상
+            # 쇼핑 흐름(context_agent 등)에 진입한다. 신규 라우팅 로직 없음.
+            agent_logger.log(
+                f"[fallback_orchestrator] 사이드 대화 도중 새 요청 감지(intent={state.get('intent')}) "
+                "- 만족도/프로필 해석 포기하고 정상 흐름으로 복귀"
+            )
+            return {"pending_action": None, "last_agent": "fallback_orchestrator"}
+        if pending_check:
+            user_text = _extract_last_user_text(state.get("messages"))
+            reply = capture_satisfaction_answer(state.get("user_id", ""), pending_check, user_text)
+            result = _clarify_result(reply)
+            result["fallback_stuck_turns"] = 0  # 체크인 마무리 - 다시 정상 대기 상태로
+            return result
         user_text = _extract_last_user_text(state.get("messages"))
         reply = capture_profile_topup_answer(state.get("user_id", ""), pending_topup, user_text)
         result = _clarify_result(reply)
