@@ -29,16 +29,9 @@ from src.prompts.fallback_prompt import (
 )
 from src.utils.agent_logger import agent_logger
 from src.utils.retry import retry_call
-from src.agents.satisfaction_checkin import (
-    pick_satisfaction_candidate,
-    start_satisfaction_checkin,
-    capture_satisfaction_answer,
-)
-from src.agents.profile_topup import (
-    pick_missing_profile_field,
-    start_profile_topup,
-    capture_profile_topup_answer,
-)
+from src.agents.satisfaction_checkin import capture_satisfaction_answer
+from src.agents.profile_topup import capture_profile_topup_answer
+from src.agents.casual_engagement import pick_and_start_engagement
 
 # route()가 이 값들을 안전하게 다시 판단할 수 있는 intent만 허용한다 — "confirm"/
 # "deny"/"quantity_change"/"address_change"/"cancel" 등은 stage에 따라 payment_agent/
@@ -312,23 +305,11 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
             return _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
         return _recover_result(decision)
     if decision.action == "chat":
-        # 잡담으로 끝내기보다 목적 있는 대화로 채운다 — 우선순위:
-        # 1) 아직 만족도를 안 물어본 구매이력이 있으면 그걸 되물어서 죽어있던
-        #    satisfaction_score/memo 필드에 처음으로 실제 용도를 준다.
-        # 2) 구매이력이 없거나 다 물어봤으면, 온보딩(smalltalk_agent) 때
-        #    다 못 채운 프로필 필드가 있는지 보고 이어서 묻는다 — 사용자
-        #    요청: "구매이력 없으면 smalltalk이 하던 쇼핑 성향 파악을 이어감".
-        # 3) 둘 다 없으면 기존처럼 일반 chat 응답.
-        user_id = state.get("user_id")
-        pending_action = None
-        if user_id:
-            candidate = pick_satisfaction_candidate(user_id)
-            if candidate:
-                pending_action = start_satisfaction_checkin(candidate)
-            if not pending_action:
-                missing_field = pick_missing_profile_field(user_id)
-                if missing_field:
-                    pending_action = start_profile_topup(user_id, missing_field)
+        # 잡담으로 끝내기보다 목적 있는 대화로 채운다 — casual_engagement.py의
+        # 공용 우선순위(만족도 체크인 → 프로필 이어 묻기)를 그대로 재사용한다.
+        # entry_engagement_node(세션 시작 트리거)와 같은 로직을 공유 — 여기
+        # 인라인으로 두 벌 유지하지 않는다. 둘 다 없으면 기존처럼 일반 chat 응답.
+        pending_action = pick_and_start_engagement(state.get("user_id", ""))
         if pending_action:
             return {
                 "pending_action": pending_action,

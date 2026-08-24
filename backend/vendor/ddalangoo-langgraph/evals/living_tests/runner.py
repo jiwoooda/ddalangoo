@@ -173,12 +173,30 @@ def _run_graph_case(
     graph = build_graph()
     session_id = f"living-test-{case['case_id']}"
     config = {"configurable": {"thread_id": session_id}}
-    graph.invoke(get_default_shopping_state(user_id, session_id), config)
+
+    executed_nodes: list[str] = []
+    # 첫 진입(session_start → entry_engagement/smalltalk_agent/wait_for_input)도
+    # .invoke() 대신 .stream(..., stream_mode="updates")로 돌려서 executed_nodes에
+    # 같이 담는다 — 예전엔 .invoke()라 이 구간이 전혀 추적이 안 돼서
+    # entry_engagement(세션 시작 트리거)가 실제로 실행됐는지 검증할 방법이
+    # 없었다. 기존 케이스는 전부 executed_nodes_contains/_not_contains만
+    # 쓰므로(정확히 일치 검증 없음) 앞에 노드가 더 찍혀도 회귀 없음.
+    for update in graph.stream(get_default_shopping_state(user_id, session_id), config, stream_mode="updates"):
+        executed_nodes.extend(update.keys())
+    # entry_engagement/smalltalk_agent가 세션 시작 시 pending_action을 세팅했을
+    # 수 있다(예: user_001은 만족도 후보가 기본으로 있어서 항상 뭔가 물어봄,
+    # 실측으로 발견 — routing-2026-08-18-001/024-002가 이걸로 회귀났었음).
+    # 기존 mid-conversation 테스트들은 "깨끗한 상태에서 이 메시지가 왔을 때"를
+    # 가정하므로, 실행 여부(executed_nodes)만 남기고 pending_action은 원래처럼
+    # 초기화한다 — entry_engagement 자체를 검증하는 테스트는 이 executed_nodes만
+    # 보면 되고, 그 이후 답변 흐름까지 보고 싶으면 케이스의 input.state에
+    # pending_action을 직접 명시하면 된다(이미 다른 케이스들이 쓰는 패턴,
+    # extra_state가 아래에서 이 값을 덮어씀).
+    graph.update_state(config, {"pending_action": None, "needs_clarification": False, "fallback_stuck_turns": 0})
     if extra_state:
         graph.update_state(config, extra_state)
     graph.update_state(config, {"messages": [{"role": "user", "content": user_input}]})
 
-    executed_nodes: list[str] = []
     for update in graph.stream(None, config, stream_mode="updates"):
         executed_nodes.extend(update.keys())
 
