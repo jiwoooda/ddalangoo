@@ -13,7 +13,7 @@ Satisfaction Check-in — 공용 "만족도 체크인" 부품.
 product_name)로 한다 — product_select가 candidates를 payload에 담아두는 것과
 동일한 패턴(새 상태 관리 메커니즘 아님).
 
-톤은 smalltalk_agent(온보딩 딸랑구 캐릭터)와 동일하게 SMALLTALK_PERSONA를
+톤은 smalltalk_agent(온보딩 딸랑구 캐릭터)와 동일하게 SMALLTALK_CHARACTER를
 그대로 재사용한다.
 """
 from typing import Any, Literal, Optional
@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
 
 from configs.llm_config import get_llm
-from src.prompts.smalltalk_prompt import SMALLTALK_PERSONA
+from src.prompts.smalltalk_prompt import SMALLTALK_CHARACTER
 from src.prompts.satisfaction_checkin_prompt import SATISFACTION_ASK_PROMPT, SATISFACTION_CAPTURE_PROMPT
 from src.tools import db_client
 from src.utils.agent_logger import agent_logger
@@ -69,7 +69,7 @@ def start_satisfaction_checkin(candidate: dict[str, Any]) -> Optional[dict[str, 
     얹으면 되는 dict(payload에 satisfaction_check 포함). LLM 실패 시 None —
     호출부는 이 경우 일반 chat 응답으로 대체해야 한다."""
     prompt = SATISFACTION_ASK_PROMPT.format(
-        persona=SMALLTALK_PERSONA,
+        persona=SMALLTALK_CHARACTER,
         product_name=candidate.get("product_name", "상품"),
         purchased_at=candidate.get("purchased_at", ""),
     )
@@ -98,7 +98,7 @@ def capture_satisfaction_answer(user_id: str, pending_check: dict[str, Any], use
     reply 문자열을 반환한다(기록 실패가 대화 자체를 끊으면 안 됨)."""
     product_name = pending_check.get("product_name", "상품")
     prompt = SATISFACTION_CAPTURE_PROMPT.format(
-        persona=SMALLTALK_PERSONA,
+        persona=SMALLTALK_CHARACTER,
         product_name=product_name,
         user_text=user_text,
     )

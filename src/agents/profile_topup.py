@@ -8,7 +8,7 @@ Profile Top-up — 공용 "프로필 이어 묻기" 부품.
 트리거(언제 불릴지)를 모른다 — fallback_orchestrator의 chat 분기가 지금
 쓰고 있다(satisfaction_checkin.py와 같은 자리, 우선순위만 뒤).
 
-**smalltalk_agent와 데이터 모델을 공유한다** — 톤(SMALLTALK_PERSONA)뿐 아니라
+**smalltalk_agent와 데이터 모델을 공유한다** — 톤(SMALLTALK_CHARACTER)뿐 아니라
 프로필 스키마(SmalltalkProfileSchema)와 병합 로직(_build_merged_profile)까지
 그대로 재사용한다. 여기서 새로 추출한 값이 온보딩 때 쓰던 것과 다른 형태로
 쌓이면 나중에 어긋나기 때문이다. 재사용 안 하는 것은 온보딩 전용 상태
@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
 
 from configs.llm_config import get_llm
-from src.prompts.smalltalk_prompt import SMALLTALK_PERSONA, SMALLTALK_PROFILE_FIELD_GUIDE
+from src.prompts.smalltalk_prompt import SMALLTALK_CHARACTER, SMALLTALK_PROFILE_FIELD_GUIDE
 from src.prompts.profile_topup_prompt import PROFILE_TOPUP_ASK_PROMPT, PROFILE_TOPUP_CAPTURE_PROMPT
 from src.state.smalltalk_schema import SmalltalkProfileSchema, SMALLTALK_PROFILE_FIELDS, format_smalltalk_profile
 from src.agents.smalltalk_agent import SmalltalkOutput, _build_merged_profile
@@ -95,7 +95,7 @@ def start_profile_topup(user_id: str, field: str) -> Optional[dict[str, Any]]:
     얹으면 되는 dict(payload에 profile_topup 포함). LLM 실패 시 None."""
     profile = db_client.get_profile(user_id) or {}
     prompt = PROFILE_TOPUP_ASK_PROMPT.format(
-        persona=SMALLTALK_PERSONA,
+        persona=SMALLTALK_CHARACTER,
         profile_field_guide=SMALLTALK_PROFILE_FIELD_GUIDE,
         field=f"{field} ({_FIELD_QUESTION_HINT.get(field, field)})",
         known_profile=format_smalltalk_profile(profile),
@@ -119,7 +119,7 @@ def capture_profile_topup_answer(user_id: str, pending_check: dict[str, Any], us
     """되물음에 대한 답변 턴. 성공/실패와 무관하게 항상 사용자에게 보여줄
     reply 문자열을 반환한다."""
     prompt = PROFILE_TOPUP_CAPTURE_PROMPT.format(
-        persona=SMALLTALK_PERSONA,
+        persona=SMALLTALK_CHARACTER,
         asked_message=pending_check.get("asked_message", ""),
         user_text=user_text,
         profile_field_guide=SMALLTALK_PROFILE_FIELD_GUIDE,
