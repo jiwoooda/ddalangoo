@@ -148,17 +148,50 @@ def _format_preference(preference_context: dict, keywords: list[str], product: d
     return "\n".join(lines)
 
 
-def _fallback_explanation(product: dict) -> str:
-    """LLM 실패 또는 빈 설명 시 상품 필드로 최소 문장 생성."""
+_AXIS_REASON = {
+    "price": "가격이 저렴해서 골랐어요",
+    "review": "리뷰가 좋아서 골랐어요",
+    "preference": "평소 선호에 잘 맞아서 골랐어요",
+}
+_CONDITION_REASON = {
+    "최저가": "가격이 가장 저렴해서 골랐어요",
+    "가성비": "가성비가 좋아서 골랐어요",
+    "빠른배송": "배송이 빨라서 골랐어요",
+    "인기순": "인기 있는 상품이라 골랐어요",
+    "무료배송": "무료배송이라 골랐어요",
+    "리뷰좋은": "리뷰가 좋아서 골랐어요",
+}
+
+
+def _fallback_reason(product: dict, condition: str | None) -> str:
+    """RESPONSE_EXPLAIN_PROMPT가 정상 경로에서 쓰는 것과 같은 판단 순서를
+    코드로 재현한다(축 기여도 → condition → 기본값) — 새 LLM 호출 없이
+    aggregator.py가 이미 계산해둔 axis_contributions만 재사용."""
+    contributions = product.get("axis_contributions")
+    if contributions:
+        top_axis = max(contributions, key=contributions.get)
+        if contributions[top_axis] > 0:
+            return _AXIS_REASON.get(top_axis, "잘 맞는 상품이라 골랐어요")
+    if condition and condition in _CONDITION_REASON:
+        return _CONDITION_REASON[condition]
+    return "인기 있는 상품이라 골랐어요"
+
+
+def _fallback_explanation(product: dict, condition: str | None = None) -> str:
+    """LLM 실패 또는 빈 설명 시 상품 필드로 최소 문장 생성.
+
+    예전엔 상품명/가격/플랫폼만 나열하고 추천 이유가 아예 빠져 있었다 —
+    "핵심 이유가 항상 있어야 한다"는 요구사항을 이 degraded 경로가 못
+    지키고 있었다(실측 확인, 사용자 지적). _reflect_elderly는 문장 수/길이/
+    어려운 단어만 검사해서 이유 누락을 못 잡는다 — 그래서 여기서 직접
+    채운다."""
     name = product.get("name") or "상품"
     price = product.get("price")
-    platform = product.get("platform") or ""
     price_str = f"{price:,}원" if isinstance(price, (int, float)) else (str(price) if price else "")
     parts = [name]
     if price_str:
         parts.append(f"{price_str}이에요.")
-    if platform:
-        parts.append(f"{platform}에서 판매 중이에요.")
+    parts.append(f"{_fallback_reason(product, condition)}.")
     return " ".join(parts)
 
 
@@ -228,7 +261,7 @@ def _generate_explanation(
 
     degraded = False
     if not explanation:
-        explanation = _fallback_explanation(product)
+        explanation = _fallback_explanation(product, condition)
         degraded = True
         agent_logger.log(f"[response_agent] fallback 설명: {explanation}")
         agent_logger.log_graceful_degradation(node="response_agent", reason="explain_llm_failed", stage="response_llm")
