@@ -118,6 +118,18 @@ def _should_force_recommendation_fallback(user_input: str, intent: str, stage: s
     return any(p in text for p in _DISMISSIVE_PHRASES)
 
 
+def _should_clear_existing_cart(intent: str, cart_operations: list[dict]) -> bool:
+    """intent=buy 발화에 CLEAR_CART가 섞여 있으면("싹 다 비우고 계란만 담아")
+    기존 장바구니를 비워야 한다는 신호다. cart_operations는 매 턴 intent_agent가
+    다시 쓰는 필드라(recommend_from_profile과 동일 패턴) payment_agent의 Step 0가
+    실제로 담기를 실행하는 시점(보통 2턴 뒤, "네" 확인 이후)엔 이미 사라지고
+    없다 — 그래서 이 판단 결과를 intent_agent_node가 queue_clear_existing(턴을
+    넘어 지속되는 필드)에 옮겨 담아 Step 0까지 전달한다."""
+    if intent != "buy":
+        return False
+    return any(op.get("op") == "CLEAR_CART" for op in cart_operations)
+
+
 def _split_multi_buy_queue(intent: str, cart_operations: list[dict]) -> Optional[dict]:
     """intent=buy 발화에 서로 다른 상품(ADD_ITEM)이 2개 이상 담겼으면("계란이랑
     참기름 사줘"), 이번 턴엔 첫 품목만 검색하고 전체 품목을 queue_items로 채워
@@ -473,5 +485,12 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         result["queue_items"] = multi_buy_split["queue_items"]
         result["current_queue_index"] = multi_buy_split["current_queue_index"]
         result["queue_source"] = multi_buy_split["queue_source"]
+    # queue_clear_existing은 recommend_from_profile 등과 달리 매 턴 다시 안 쓴다 —
+    # "싹 다 비우고 계란만 담아"의 CLEAR_CART 신호는 이 턴(검색 시작)에서
+    # cart_operations로 살아있지만, 실제로 담기가 실행되는 Step 0는 보통
+    # 2턴 뒤("네" 확인) — 그때는 이번 턴 cart_operations가 이미 사라진 뒤라
+    # payment_agent가 소비할 때까지 살아있어야 한다(queue_items와 동일 패턴).
+    if _should_clear_existing_cart(intent, cart_operations):
+        result["queue_clear_existing"] = True
     agent_logger.log_intent(user_input, stage, pending_action, result)
     return result

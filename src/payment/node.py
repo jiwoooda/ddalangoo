@@ -118,7 +118,7 @@ def _apply_cart_operations(
     user_id: str,
     operations: list[dict[str, Any]],
     new_item: Optional[tuple[dict, int, list[str]]] = None,
-) -> None:
+) -> list[dict[str, Any]]:
     """intent_agent가 만든 CartOperation[]을 현재 장바구니(+ 있으면 이번 턴에 새로
     확인된 상품)에 순서대로 적용한다. LLM은 발화를 구조화된 operation으로 변환하는
     파서 역할만 하고, 실제 수량 계산/커밋은 여기 deterministic 코드가 전담한다
@@ -131,8 +131,10 @@ def _apply_cart_operations(
     들고 있는 원본 product 데이터(revival_pool)로 되살아난다.
 
     revival_pool에도 없는 품목을 겨냥한 operation(한 번도 검색된 적 없는 완전히
-    새 품목)은 여기서 처리할 수 없다 — 실제 상품 정보가 없어 채울 수 없고, 별도
-    상품 검색 사이클이 필요한 범위 밖 문제라 로그만 남긴다."""
+    새 품목, 예: "싹 다 비우고 계란/참기름만 담아")은 여기서 처리할 수 없다 —
+    실제 상품 정보(가격/URL)가 없어 채울 수 없고 별도 상품 검색이 필요하다.
+    호출부가 그 검색을 이어서 시작할 수 있도록 unresolved 목록을 반환한다
+    (fl-2026-08-25-001 잔여 케이스, purchase_queue_agent로 이어붙임)."""
     original_cart = [dict(row) for row in mock_get_cart(user_id)]
     working: list[dict[str, Any]] = list(original_cart)
     revival_pool: list[dict[str, Any]] = list(original_cart)
@@ -184,8 +186,9 @@ def _apply_cart_operations(
     if unresolved:
         agent_logger.log(
             f"[payment_agent] cart_operations 중 기존 장바구니/이번 턴 확인 상품 어디와도 "
-            f"매칭 안 돼 처리 못 함(신규 검색 필요, 범위 밖): {unresolved}"
+            f"매칭 안 돼 신규 검색 필요: {unresolved}"
         )
+    return unresolved
 
 
 def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
@@ -211,6 +214,12 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
         and pending_type == "product_confirm"
         and intent in ("confirm", "quantity_change")
     ):
+        if state.get("queue_clear_existing"):
+            # "싹 다 비우고 계란만 담아"류 요청 — CLEAR_CART 신호는 intent_agent가
+            # 처음 판단한 턴에만 cart_operations에 있었고, 실제 담기가 실행되는
+            # 이 확인 턴("네")엔 이미 비워져 있다. queue_clear_existing(턴을
+            # 넘어 지속되는 필드)으로 전달받아 여기서 소비한다.
+            mock_clear_cart(user_id)
         cart_operations = state.get("cart_operations") or []
         if cart_operations:
             # "다 빼고 서울우유 한 개만 결제해줘"처럼, 방금 확인한 상품을 담는
@@ -235,6 +244,9 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
             # 장바구니가 바뀌었으므로 새 결제 멱등성 키 발급 — 이전 키로
             # mock_place_order를 호출하면 IdempotencyConflictError가 나야 정상.
             "payment_idempotency_key": str(uuid.uuid4()),
+            # 소비했으니 되돌린다 — 다음에 이 노드가 다시 불릴 때(전혀 다른
+            # 상품 확인) 잘못 남아 또 비우는 일이 없도록.
+            "queue_clear_existing": False,
         }
         agent_logger.log_payment_agent(_log_in, output)
         agent_logger.log(f"[payment_agent] Step 0 완료 | 장바구니 {len(cart)}개  총액 {sum(i['total'] for i in cart):,}원")
@@ -283,7 +295,35 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 # 뺄게") 나머지를 전부 지우라는 요청("다 빼고 X만", "싹 다
                 # 비워줘") — 아래 단일-품목 quantity=0 로직으로는 표현이 안 돼
                 # cart_operations 경로를 대신 쓴다(fl-2026-08-25-001).
-                _apply_cart_operations(user_id, cart_operations, new_item=None)
+                unresolved = _apply_cart_operations(user_id, cart_operations, new_item=None)
+                unresolved_adds = [op for op in unresolved if op.get("op") == "ADD_ITEM"]
+                if unresolved_adds:
+                    # 조작(비우기 등)은 이미 반영됐지만, 한 번도 검색된 적 없는
+                    # 신규 품목이 남아있다("싹 다 비우고 계란/참기름만 담아") —
+                    # purchase_queue_agent로 이어붙인다. 첫 품목은 이번 턴 곧장
+                    # 검색을 시작하고(Unit 4와 동일 패턴), queue_items에도
+                    # 포함시켜(current_queue_index=0) advance_queue가 나중에
+                    # "방금 담은 품목" 이름을 올바르게 찾도록 한다(fl-2026-08-26-001
+                    # 에서 확인된 인덱싱 규칙).
+                    queue_items = [
+                        {"name": op["item"], "quantity": op.get("quantity") or 1, "unit": "개"}
+                        for op in unresolved_adds
+                    ]
+                    output = {
+                        "stage": "idle",
+                        "intent": "buy",
+                        "keywords": [queue_items[0]["name"]],
+                        "quantity": queue_items[0]["quantity"],
+                        "queue_items": queue_items,
+                        "current_queue_index": 0,
+                        "queue_source": "multi_buy",
+                        "cart_items": mock_get_cart(user_id),
+                        "error": None,
+                        "last_agent": "payment_agent",
+                        "payment_idempotency_key": str(uuid.uuid4()),
+                    }
+                    agent_logger.log_payment_agent(_log_in, output)
+                    return output
                 cart = mock_get_cart(user_id)
                 cart_total = sum(item["total"] for item in cart) if cart else 0
                 review_msg = (

@@ -174,6 +174,11 @@ class ShoppingState(TypedDict):
     queue_items: list[dict[str, Any]]
     current_queue_index: int
     queue_source: Optional[Literal["recipe", "multi_buy"]]
+    # "싹 다 비우고 계란만 담아"처럼 buy 발화에 CLEAR_CART가 섞였을 때 intent_agent가
+    # 세운다 — cart_operations(매 턴 리셋)와 달리 payment_agent Step 0가 실제로
+    # 담기를 실행하는 턴(보통 확인 턴 몇 턴 뒤)까지 살아있어야 해서 queue_items와
+    # 같은 패턴으로 턴을 넘어 지속시킨다. Step 0가 소비한 뒤 False로 되돌린다.
+    queue_clear_existing: bool
 
     # ── Memory Agent context ──
     recommendation_context: Optional[dict[str, Any]]
@@ -311,6 +316,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "queue_items": [],
         "current_queue_index": 0,
         "queue_source": None,
+        "queue_clear_existing": False,
         "recommendation_context": None,
         "reorder_resolution": None,
         "storage_state_path": None,
