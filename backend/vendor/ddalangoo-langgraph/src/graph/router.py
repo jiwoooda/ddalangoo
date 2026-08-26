@@ -448,6 +448,13 @@ def after_payment_agent(state: ShoppingState) -> Literal["context_agent", "purch
     if stage == "completed":
         return _decide("context_agent")
 
+    # cart_review에서 비우기/조작 처리 중 검색된 적 없는 신규 품목을 발견하면
+    # (예: "싹 다 비우고 계란/참기름만 담아") payment_agent가 stage=idle,
+    # intent=buy로 곧장 첫 품목 검색을 시작하도록 세팅한다 — 일반 buy 요청과
+    # 동일하게 context_agent로 보낸다(fl-2026-08-25-001 잔여 케이스).
+    if stage == "idle" and intent == "buy":
+        return _decide("context_agent")
+
     # 품목 큐 모드(레시피/다중구매 공용): 장바구니 담기 후 다음 품목으로 자동 진행
     if stage == "cart_shopping" and pending_type == "continue_shopping":
         queue_items = state.get("queue_items") or []

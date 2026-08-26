@@ -122,6 +122,7 @@ class PaymentAgentInput(TypedDict):
     conversation_id: Optional[int]
     payment_idempotency_key: Optional[str]
     cart_operations: list[dict[str, Any]]
+    queue_clear_existing: bool
 
 
 class RespondNodeInput(TypedDict):
@@ -194,6 +195,7 @@ class IntentAgentUpdate(TypedDict, total=False):
     queue_items: list[dict[str, Any]]
     current_queue_index: int
     queue_source: Optional[Literal["recipe", "multi_buy"]]
+    queue_clear_existing: bool
 
 
 class ContextAgentUpdate(TypedDict, total=False):
@@ -296,7 +298,9 @@ class SmalltalkAgentUpdate(TypedDict, total=False):
 
 class PaymentAgentUpdate(TypedDict, total=False):
     stage: Stage
+    intent: Optional[Intent]
     selected_product: dict[str, Any]
+    keywords: list[str]
     cart_items: list[dict[str, Any]]
     pending_action: Optional[PendingAction]
     error: Optional[str]
@@ -308,6 +312,10 @@ class PaymentAgentUpdate(TypedDict, total=False):
     degraded_mode: bool
     failure_stage: Optional[str]
     degradation_reason: Optional[str]
+    queue_items: list[dict[str, Any]]
+    current_queue_index: int
+    queue_source: Optional[Literal["recipe", "multi_buy"]]
+    queue_clear_existing: bool
 
 
 class RespondNodeUpdate(TypedDict, total=False):
