@@ -118,6 +118,39 @@ def _should_force_recommendation_fallback(user_input: str, intent: str, stage: s
     return any(p in text for p in _DISMISSIVE_PHRASES)
 
 
+def _split_multi_buy_queue(intent: str, cart_operations: list[dict]) -> Optional[dict]:
+    """intent=buy 발화에 서로 다른 상품(ADD_ITEM)이 2개 이상 담겼으면("계란이랑
+    참기름 사줘"), 이번 턴엔 첫 품목만 검색하고 전체 품목을 queue_items로 채워
+    purchase_queue_agent가 이어받게 한다 — recipe_agent를 거치지 않고 곧장
+    큐를 채운다(fl-2026-08-25-001 다음 단계, 설계 문서: radiant-questing-map.md
+    Unit 4). ADD_ITEM이 0~1개면(대부분의 평범한 buy 요청) None을 반환해 기존
+    keywords/quantity 처리를 그대로 둔다 — 회귀 없음.
+
+    queue_items에는 첫 품목도 포함시킨다(current_queue_index=0으로 그 자리를
+    가리킴) — recipe_agent의 Mode 1이 재료 목록 전체를 queue_items에 채우고
+    idx=0에서 시작하는 것과 동일한 컨벤션. purchase_queue_agent의 advance_queue는
+    "idx가 가리키는 품목이 방금 처리됨"을 전제로 다음 품목 이름을 안내하므로,
+    첫 품목을 큐에서 빼놓으면(idx만 세팅) advance_queue가 "방금 담은 품목"
+    이름을 알 방법이 없어진다 — 실측으로 확인된 버그, queue_items를 이 방식
+    (전체 포함)으로 채워야 recipe 흐름과 완전히 같은 인덱싱 규칙을 공유한다."""
+    if intent != "buy":
+        return None
+    add_ops = [op for op in cart_operations if op.get("op") == "ADD_ITEM"]
+    if len(add_ops) < 2:
+        return None
+    first = add_ops[0]
+    return {
+        "keywords": [first["item"]],
+        "quantity": first.get("quantity"),
+        "queue_items": [
+            {"name": op["item"], "quantity": op.get("quantity") or 1, "unit": "개"}
+            for op in add_ops
+        ],
+        "current_queue_index": 0,
+        "queue_source": "multi_buy",
+    }
+
+
 def _parse_quantity(v) -> Optional[int]:
     if v is None:
         return None
@@ -405,6 +438,14 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     recipe_dish = parsed.recipe_dish if intent == "buy" else (parsed.recipe_dish or state.get("recipe_dish"))
     recipe_people = parsed.recipe_people if intent == "buy" else (parsed.recipe_people or state.get("recipe_people"))
 
+    cart_operations = [op.model_dump() for op in parsed.cart_operations]
+    # buy 발화에 서로 다른 상품이 2개 이상 있으면("계란이랑 참기름 사줘") 첫
+    # 품목만 이번 턴 keywords/quantity로 좁히고 나머지는 queue_items로 넘긴다.
+    multi_buy_split = _split_multi_buy_queue(intent, cart_operations)
+    if multi_buy_split:
+        keywords = multi_buy_split["keywords"]
+        quantity = multi_buy_split["quantity"]
+
     result = {
         "intent": intent,
         "keywords": keywords,
@@ -426,7 +467,11 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         "tool_calls": None,
         "tool_results": None,
         "recommend_from_profile": recommend_from_profile,
-        "cart_operations": [op.model_dump() for op in parsed.cart_operations],
+        "cart_operations": cart_operations,
     }
+    if multi_buy_split:
+        result["queue_items"] = multi_buy_split["queue_items"]
+        result["current_queue_index"] = multi_buy_split["current_queue_index"]
+        result["queue_source"] = multi_buy_split["queue_source"]
     agent_logger.log_intent(user_input, stage, pending_action, result)
     return result

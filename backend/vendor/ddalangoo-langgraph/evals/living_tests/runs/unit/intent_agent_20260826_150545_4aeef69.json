@@ -1,0 +1,56 @@
+{
+  "run_id": "run-20260826-150545-4aeef69",
+  "scope": "unit",
+  "target": "intent_agent",
+  "git_sha": "4aeef69",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "intent_agent-2026-08-26-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "queue_items[0].name",
+          "expected": "계란",
+          "actual": null,
+          "passed": false
+        },
+        {
+          "type": "field_equals",
+          "path": "queue_items[1].name",
+          "expected": "참기름",
+          "actual": null,
+          "passed": false
+        },
+        {
+          "type": "field_equals",
+          "path": "current_queue_index",
+          "expected": 0,
+          "actual": null,
+          "passed": false
+        },
+        {
+          "type": "field_equals",
+          "path": "queue_source",
+          "expected": "multi_buy",
+          "actual": null,
+          "passed": false
+        },
+        {
+          "type": "field_equals",
+          "path": "keywords[0]",
+          "expected": "계란",
+          "actual": null,
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}

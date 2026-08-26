@@ -17,6 +17,7 @@ RouteName = Literal[
     "response_agent",
     "payment_agent",
     "recipe_agent",
+    "purchase_queue_agent",
     "smalltalk_agent",
     "ask_what_to_buy",
     "respond",
@@ -118,7 +119,11 @@ def _route_searching(state: ShoppingState, intent: str | None, pending_type: str
 
 def _route_recipe_planning(state: ShoppingState, intent: str | None, pending_type: str, decide: Decide) -> RouteName:
     if pending_type == "ingredient_confirm":
-        if intent in ("confirm", "deny", "refine"):
+        # confirm(Mode 3: 현재 품목 쇼핑 시작)은 purchase_queue_agent로 —
+        # recipe_agent는 이제 재료 추론(Mode 1)/편집(Mode 2)만 담당한다(Unit 2).
+        if intent == "confirm":
+            return decide("purchase_queue_agent")
+        if intent in ("deny", "refine"):
             return decide("recipe_agent")
     return decide("respond")
 
@@ -363,8 +368,8 @@ def route(state: ShoppingState) -> RouteName:
     if stage_router := _STAGE_ROUTERS.get(stage):
         return stage_router(state, intent, pending_type, _decide)
 
-    # buy + recipe_dish (아직 recipe_items 없음) → recipe_agent
-    if intent == "buy" and state.get("recipe_dish") and not state.get("recipe_items"):
+    # buy + recipe_dish (아직 재료 목록 없음) → recipe_agent
+    if intent == "buy" and state.get("recipe_dish") and not state.get("queue_items"):
         return _decide("recipe_agent")
 
     return _decide(_DEFAULT_ROUTING_MAP.get(intent, "respond"))
@@ -406,14 +411,32 @@ def after_recipe_agent(state: ShoppingState) -> Literal["context_agent", "respon
         agent_logger.log_router("recipe_agent", dest, intent, stage or "-", pending_type)
         return dest
 
-    # Mode 3: stage=idle → 재료 하나 쇼핑 시작 → context_agent
+    # Mode 3/4는 purchase_queue_agent로 이동했다(Unit 2) — recipe_agent는 이제
+    # Mode 1/2(재료 추론/편집)만 담당하고 항상 stage="recipe_planning"으로 끝나
+    # stage=="idle" 분기는 이제 도달하지 않는다(정리는 Unit 3에서).
     if stage == "idle":
         return _decide("context_agent")
-    # Mode 1/2/4: recipe_planning or cart_shopping → respond (메시지 표시)
     return _decide("respond")
 
 
-def after_payment_agent(state: ShoppingState) -> Literal["context_agent", "recipe_agent", "respond"]:
+def after_purchase_queue_agent(state: ShoppingState) -> Literal["context_agent", "respond"]:
+    """recipe_agent의 옛 Mode 3/4 출력 라우팅과 동일한 로직 — Mode 3(현재 품목
+    쇼핑 시작)는 stage="idle"로 끝나 context_agent로, Mode 4(다음 품목 안내/완료)는
+    stage="recipe_planning"/"cart_shopping"으로 끝나 respond로."""
+    stage = state.get("stage")
+    intent = state.get("intent") or "-"
+    pending_type = _ptype(state.get("pending_action"))
+
+    def _decide(dest):
+        agent_logger.log_router("purchase_queue_agent", dest, intent, stage or "-", pending_type)
+        return dest
+
+    if stage == "idle":
+        return _decide("context_agent")
+    return _decide("respond")
+
+
+def after_payment_agent(state: ShoppingState) -> Literal["context_agent", "purchase_queue_agent", "respond"]:
     stage = state.get("stage", "idle")
     pending_type = _ptype(state.get("pending_action"))
     intent = state.get("intent") or "-"
@@ -425,12 +448,12 @@ def after_payment_agent(state: ShoppingState) -> Literal["context_agent", "recip
     if stage == "completed":
         return _decide("context_agent")
 
-    # 레시피 모드: 장바구니 담기 후 다음 재료로 자동 진행
+    # 품목 큐 모드(레시피/다중구매 공용): 장바구니 담기 후 다음 품목으로 자동 진행
     if stage == "cart_shopping" and pending_type == "continue_shopping":
-        recipe_items = state.get("recipe_items") or []
-        idx = state.get("current_recipe_item_index") or 0
-        if recipe_items and idx <= len(recipe_items) - 1:
-            return _decide("recipe_agent")
+        queue_items = state.get("queue_items") or []
+        idx = state.get("current_queue_index") or 0
+        if queue_items and idx <= len(queue_items) - 1:
+            return _decide("purchase_queue_agent")
 
     return _decide("respond")
 

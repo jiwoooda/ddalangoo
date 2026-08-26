@@ -31,6 +31,7 @@ from src.graph.router import (
     after_product_agent,
     after_response_agent,
     after_recipe_agent,
+    after_purchase_queue_agent,
     after_payment_agent,
     after_fallback_orchestrator,
 )
@@ -48,6 +49,7 @@ from src.agents.nodes import (
     ask_what_to_buy_node,
 )
 from src.agents.recipe_agent import recipe_agent_node
+from src.agents.purchase_queue_agent import purchase_queue_agent_node
 from src.agents.smalltalk_agent import smalltalk_agent_node, smalltalk_error_handler
 from src.agents.fallback_orchestrator import fallback_orchestrator_node
 from src.agents.casual_engagement import entry_engagement_node
@@ -63,6 +65,7 @@ _ROUTE_DESTINATIONS = {
     "product_agent": "product_agent",
     "response_agent": "response_agent",
     "recipe_agent": "recipe_agent",
+    "purchase_queue_agent": "purchase_queue_agent",
     "payment_agent": "payment_agent",
     "smalltalk_agent": "smalltalk_agent",
     "ask_what_to_buy": "ask_what_to_buy",
@@ -98,6 +101,11 @@ def build_graph(checkpointer=None):
     builder.add_node("product_agent", product_agent_node)
     builder.add_node("response_agent", response_agent_node)
     builder.add_node("recipe_agent", recipe_agent_node)
+    # purchase_queue_agent: 여러 품목을 순서대로 검색→확인→담기 반복하는 실행기.
+    # recipe_agent의 옛 Mode 3/4를 이어받은 노드(recipe_dish 비의존, Unit 2) —
+    # 레시피 재료 큐(queue_source="recipe")와 향후 다중 상품 구매 큐 둘 다
+    # 이 노드 하나를 공유한다.
+    builder.add_node("purchase_queue_agent", purchase_queue_agent_node)
     builder.add_node("smalltalk_agent", smalltalk_agent_node, retry_policy=NODE_RETRY_POLICY, error_handler=smalltalk_error_handler)
     # payment_agent: 장바구니/주문 등 부수효과가 있어 멱등성 키 없이는 자동
     # Retry를 붙이지 않는다(docs/resilience_plan.md Phase 1-6/4 참고).
@@ -173,11 +181,16 @@ def build_graph(checkpointer=None):
         after_recipe_agent,
         {"context_agent": "context_agent", "respond": "respond"},
     )
+    builder.add_conditional_edges(
+        "purchase_queue_agent",
+        after_purchase_queue_agent,
+        {"context_agent": "context_agent", "respond": "respond"},
+    )
 
     builder.add_conditional_edges(
         "payment_agent",
         after_payment_agent,
-        {"context_agent": "context_agent", "recipe_agent": "recipe_agent", "respond": "respond"},
+        {"context_agent": "context_agent", "purchase_queue_agent": "purchase_queue_agent", "respond": "respond"},
     )
     builder.add_edge("cancel", "respond")
     builder.add_edge("smalltalk_agent", "respond")
