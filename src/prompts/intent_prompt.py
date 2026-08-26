@@ -47,6 +47,14 @@ quantity_change: 기존에 선택한 수량을 변경. 장바구니에 이미 �
   "우유는 필요없어" → intent="quantity_change", quantity=0, keywords=["계란"] 등
   실제 언급한 품목명). 이때 keywords에는 반드시 지금 빼려는 품목명을 넣어야 한다 —
   비워두면 어떤 품목을 뺄지 알 수 없다.
+  주의(완전 제거 vs 개수만큼 줄이기, 반드시 구분): "계란은 빼줘"/"우유는 필요없어"처럼
+  숫자 없이 품목만 말하면 그 품목을 통째로 제거하라는 뜻(quantity=0)이다. 반면
+  "우유 1개 빼줘"/"우유 하나만 빼줘"처럼 구체적인 개수와 함께 "빼줘/줄여줘"라고
+  하면, 그 품목이 장바구니에 하나만 있어도 통째로 제거하는 게 아니라 그 개수만큼만
+  줄이라는 뜻이다 — 반드시 아래 "장바구니 조작 규칙"의 cart_operations=
+  [{{op:"CHANGE_QUANTITY", item:..., delta:-N}}]으로 표현하고, quantity=0 완전제거
+  경로를 쓰지 않는다. 나머지 품목까지 같이 다루거나("다 빼고 X만") 품목이
+  여러 개면 마찬가지로 cart_operations를 쓴다.
 address_change: 새 배송지 제공 또는 변경 (새 주소를 말할 때만. "확인해줘"·"어디야"처럼 조회하는 경우는 ask로 분류)
 option_select: 상품 옵션 선택
 ask: 상품/배송/가격/리뷰 질문, 배송지·주소 조회 ("배송지 확인해줘", "어디로 배달돼?" 등)
@@ -56,6 +64,10 @@ cancel: 검색/추천/구매 흐름 자체를 완전히 그만두고 싶어함 (
   "더 안 보고 멈추고 싶다"는 뜻. pending_action이 product_confirm/option_select
   등이어도 사용자가 흐름 자체를 멈추려는 표현이면 deny가 아니라 cancel로
   분류할 것.
+  주의: "장바구니 다 비워줘", "싹 다 비우고 X만 담아"처럼 장바구니 내용물
+  자체를 지우라는 요청은 cancel이 아니다 — cancel은 지금 진행 중인 검색/확인
+  흐름을 멈추는 것이고, 장바구니를 비우는 건 quantity_change(새 품목을 같이
+  요청했으면 buy)로 분류하고 cart_operations에 CLEAR_CART를 넣는다.
 unclear: 의도 판단 불가
 
 # Slot 필드
@@ -78,6 +90,47 @@ target_platforms: 비교 플랫폼 목록
 override_platform: 명시한 단일 플랫폼
 current_option_value: 명시된 옵션값
 address_text: 사용자가 말한 배송지 텍스트
+cart_operations: 장바구니에 대한 조작 목록(아래 "장바구니 조작 규칙" 참고), 발화에 등장한
+  순서대로. 품목이 하나뿐이고 단순 수량 확정이면 비워두고 quantity/keywords만 쓴다.
+
+# 장바구니 조작 규칙
+pending_action이 product_confirm 또는 cart_review일 때, 사용자가 장바구니 품목을
+조작하는 발화는 아래 기준으로 분류한다. intent는 quantity_change(이미 담긴/확인
+중인 품목을 다루는 경우) 또는 buy(새 품목을 같이 요청하는 경우)로 둔다.
+
+cart_operations의 각 원소는 {{op, item, quantity, delta}} 형태이고, op는 다음 중 하나:
+- SET_QUANTITY: item의 수량을 quantity(최종 수량)로 확정
+- CHANGE_QUANTITY: item의 현재 수량에서 delta만큼 상대적으로 증감(늘리면 양수,
+  줄이면 음수) — 최종 수량이 아니라 증감량을 말했을 때만 쓴다. "우유 1개 빼줘"처럼
+  구체적 개수와 함께 빼라고 하면, 장바구니에 그 품목이 하나만 있어도 REMOVE_ITEM이
+  아니라 CHANGE_QUANTITY(delta=-그 개수)를 쓴다.
+- REMOVE_ITEM: item을 숫자 언급 없이("계란은 빼줘") 통째로 제거. 몇 개를 빼라는
+  숫자가 있으면 REMOVE_ITEM이 아니라 CHANGE_QUANTITY를 쓴다.
+- ADD_ITEM: 장바구니에 없는 item을 quantity로 새로 담음
+- CLEAR_CART: 그 시점까지의 장바구니를 통째로 비움. item 불필요. 리스트 안에서
+  먼저 나오면 뒤에 오는 operation들은 빈 장바구니 위에 적용된다.
+
+cart_operations는 리스트 순서대로 적용되므로, "다 빼고 X만"류 표현은 CLEAR_CART를
+먼저 넣고 그 뒤에 남길 품목의 operation을 이어붙인다.
+
+예:
+- "3개로 바꿔줘"(품목 하나, 최종 수량) → cart_operations 비우고 keywords/quantity만
+  채운다(quantity=3). (기존 규칙 유지, cart_operations 불필요)
+- "계란은 빼줘"(품목 하나 완전 제거) → cart_operations 비우고 keywords=["계란"],
+  quantity=0. (기존 규칙 유지)
+- "다 빼고 우유 하나만" (하나만 남기고 나머지 전부 제거) →
+  cart_operations=[{{op:"CLEAR_CART"}}, {{op:"SET_QUANTITY", item:"우유", quantity:1}}]
+- "싹 다 비워줘" (아무것도 안 남기고 전부 제거) → cart_operations=[{{op:"CLEAR_CART"}}]
+- "우유 1개 빼줘" (최종 수량이 아니라 증감량) →
+  cart_operations=[{{op:"CHANGE_QUANTITY", item:"우유", delta:-1}}]
+  ("우유 하나 더 담아줘"는 delta:1로 동일하게 처리)
+- "딸기는 하나 더하고 우유는 2개 뺄게" (품목별로 다른 조작) →
+  cart_operations=[{{op:"CHANGE_QUANTITY", item:"딸기", delta:1}},
+                    {{op:"CHANGE_QUANTITY", item:"우유", delta:-2}}]
+- "계란 빼고 우유 하나 더 넣고 딸기는 3개로 해줘" (제거+증가+확정 혼합) →
+  cart_operations=[{{op:"REMOVE_ITEM", item:"계란"}},
+                    {{op:"CHANGE_QUANTITY", item:"우유", delta:1}},
+                    {{op:"SET_QUANTITY", item:"딸기", quantity:3}}]
 
 # 확인/거절 해석 규칙
 confirm: 현재 pending_action에 명확히 동의 (응, 좋아, 그걸로, 네, 진행해)
@@ -114,4 +167,9 @@ User input: {user_input}
 Stage: {stage}
 Pending action: {pending_action}
 Context: {context}
+
+Context에 현재 장바구니 내용이 있으면(예: "현재 장바구니: 서울우유 1L 3개, ..."),
+발화에서 언급한 품목이 그 목록에 있는지 확인하세요. 이미 목록에 있는 품목이면
+quantity_change/cart_operations로(새로 검색할 필요 없음), 목록에 없는 품목이면
+buy로 분류합니다 — 장바구니 조작 발화를 새 상품 검색으로 잘못 보내지 마세요.
 """

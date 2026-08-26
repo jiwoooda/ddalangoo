@@ -20,12 +20,14 @@ bridge_shopping_to_payment/bridge_payment_to_shopping)가 있었지만 실제
 """
 import re
 import uuid
+from typing import Any, Optional
 from src.state.schema import ShoppingState
 from src.state.node_inputs import PaymentAgentInput, PaymentAgentUpdate
 from src.utils.agent_logger import agent_logger, _ptype
 from src.tools.mock_tools import (
     mock_add_to_cart,
     mock_get_cart,
+    mock_clear_cart,
     mock_place_order,
     mock_get_default_address,
     IdempotencyConflictError,
@@ -89,6 +91,103 @@ def _delivery_msg(delivery_info: str) -> str:
     return ""
 
 
+def _item_matches_keyword(item: dict, keyword: str) -> bool:
+    """product_name은 검색 결과 그대로라 사용자가 부른 말과 다를 수 있다(예: "계란" vs
+    "유정란") — 담을 때 같이 저장해둔 item 자체의 keywords(사용자가 실제로 뭐라고
+    불렀는지)도 함께 비교한다. fl-2026-08-18-006에서 확인된 패턴 그대로."""
+    if not keyword:
+        return False
+    name = item.get("product_name", "") or ""
+    item_keywords = item.get("keywords") or []
+    return keyword in name or any(keyword in ik or ik in keyword for ik in item_keywords)
+
+
+def _cart_row(product: dict, quantity: int, keywords: Optional[list[str]]) -> dict[str, Any]:
+    return {
+        "product_name": product.get("product_name", "상품"),
+        "price": product.get("price", 0),
+        "quantity": quantity,
+        "platform": product.get("platform", ""),
+        "product_url": product.get("product_url", ""),
+        "product": product,
+        "keywords": keywords or [],
+    }
+
+
+def _apply_cart_operations(
+    user_id: str,
+    operations: list[dict[str, Any]],
+    new_item: Optional[tuple[dict, int, list[str]]] = None,
+) -> None:
+    """intent_agent가 만든 CartOperation[]을 현재 장바구니(+ 있으면 이번 턴에 새로
+    확인된 상품)에 순서대로 적용한다. LLM은 발화를 구조화된 operation으로 변환하는
+    파서 역할만 하고, 실제 수량 계산/커밋은 여기 deterministic 코드가 전담한다
+    (Parser(LLM) -> Operation -> Reducer(코드) 분리, fl-2026-08-25-001).
+
+    CLEAR_CART는 그 시점까지 쌓인 장바구니를 통째로 비운다 — 뒤따르는 operation은
+    빈 장바구니 위에 적용된다("다 빼고 X만" = [CLEAR_CART, SET_QUANTITY(X, ...)]).
+    CLEAR_CART로 지워진 뒤에도 원래 장바구니에 있던 품목이나 이번 턴에 확인 중인
+    상품(new_item)이 다시 지목되면, mock_get_cart만으론 이미 지워졌으니 별도로
+    들고 있는 원본 product 데이터(revival_pool)로 되살아난다.
+
+    revival_pool에도 없는 품목을 겨냥한 operation(한 번도 검색된 적 없는 완전히
+    새 품목)은 여기서 처리할 수 없다 — 실제 상품 정보가 없어 채울 수 없고, 별도
+    상품 검색 사이클이 필요한 범위 밖 문제라 로그만 남긴다."""
+    original_cart = [dict(row) for row in mock_get_cart(user_id)]
+    working: list[dict[str, Any]] = list(original_cart)
+    revival_pool: list[dict[str, Any]] = list(original_cart)
+    if new_item:
+        product, qty, kws = new_item
+        new_row = _cart_row(product, qty, kws)
+        working.append(new_row)
+        revival_pool.append(new_row)
+
+    unresolved: list[dict[str, Any]] = []
+    for op in operations:
+        kind = op.get("op")
+        if kind == "CLEAR_CART":
+            working = []
+            continue
+
+        item_kw = op.get("item") or ""
+        idx = next((i for i, row in enumerate(working) if _item_matches_keyword(row, item_kw)), None)
+        if idx is None:
+            revived = next((row for row in revival_pool if _item_matches_keyword(row, item_kw)), None)
+            if revived is not None:
+                working.append(dict(revived))
+                idx = len(working) - 1
+        if idx is None:
+            unresolved.append(op)
+            continue
+
+        row = working[idx]
+        if kind == "REMOVE_ITEM":
+            del working[idx]
+        elif kind in ("SET_QUANTITY", "ADD_ITEM"):
+            q = op.get("quantity")
+            row["quantity"] = q if q and q > 0 else row.get("quantity", 1)
+        elif kind == "CHANGE_QUANTITY":
+            new_qty = row.get("quantity", 1) + (op.get("delta") or 0)
+            # 0 이하로 줄이면 완전 제거(우유 2개뿐인데 3개 빼달라고 해도 음수로
+            # 남기지 않고 그냥 다 뺀다).
+            if new_qty > 0:
+                row["quantity"] = new_qty
+            else:
+                del working[idx]
+
+    # mock_add_to_cart는 병합이 아니라 append라, 동일 상품명이어도 그냥 새 줄로
+    # 쌓인다 — 항상 전체를 비우고 다시 담는 clear+rebuild 패턴을 쓴다.
+    mock_clear_cart(user_id)
+    for row in working:
+        mock_add_to_cart(user_id, row.get("product") or row, row.get("quantity", 1), row.get("keywords"))
+
+    if unresolved:
+        agent_logger.log(
+            f"[payment_agent] cart_operations 중 기존 장바구니/이번 턴 확인 상품 어디와도 "
+            f"매칭 안 돼 처리 못 함(신규 검색 필요, 범위 밖): {unresolved}"
+        )
+
+
 def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
     stage = state.get("stage")
     pending_type = (state.get("pending_action") or {}).get("type")
@@ -112,7 +211,15 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
         and pending_type == "product_confirm"
         and intent in ("confirm", "quantity_change")
     ):
-        mock_add_to_cart(user_id, selected_product, quantity, keywords)
+        cart_operations = state.get("cart_operations") or []
+        if cart_operations:
+            # "다 빼고 서울우유 한 개만 결제해줘"처럼, 방금 확인한 상품을 담는
+            # 동시에 기존 장바구니의 나머지 품목도 같이 조작하라는 요청
+            # (fl-2026-08-25-001) — 지금 확인 중인 상품을 새 품목으로 얹은 뒤
+            # cart_operations를 순서대로 적용한다.
+            _apply_cart_operations(user_id, cart_operations, new_item=(selected_product, quantity or 1, keywords))
+        else:
+            mock_add_to_cart(user_id, selected_product, quantity, keywords)
         cart = mock_get_cart(user_id)
         if len(cart) > 1:
             cart_msg = f"{short_name}도 담았어요! 총 {len(cart)}가지예요. 결제할까요, 더 담을까요?"
@@ -170,6 +277,30 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
     # ── Step 1-5: cart_review 확인 → 결제수단 선택 ──
     if pending_type == "cart_review":
         if intent == "quantity_change":
+            cart_operations = state.get("cart_operations") or []
+            if cart_operations:
+                # 품목별로 다른 조작이 섞였거나("딸기는 하나 더하고 우유는 2개
+                # 뺄게") 나머지를 전부 지우라는 요청("다 빼고 X만", "싹 다
+                # 비워줘") — 아래 단일-품목 quantity=0 로직으로는 표현이 안 돼
+                # cart_operations 경로를 대신 쓴다(fl-2026-08-25-001).
+                _apply_cart_operations(user_id, cart_operations, new_item=None)
+                cart = mock_get_cart(user_id)
+                cart_total = sum(item["total"] for item in cart) if cart else 0
+                review_msg = (
+                    f"총 {cart_total:,}원이에요. 수량을 바꾸거나 빼고 싶은 게 있으면 편하게 말씀해 주세요."
+                    if cart else "장바구니가 비었어요. 더 담으실래요?"
+                )
+                output = {
+                    "stage": "cart_shopping",
+                    "cart_items": cart,
+                    "error": None,
+                    "last_agent": "payment_agent",
+                    "pending_action": {"type": "cart_review" if cart else "what_to_buy", "message": review_msg},
+                    "payment_idempotency_key": str(uuid.uuid4()),
+                }
+                agent_logger.log_payment_agent(_log_in, output)
+                return output
+
             # 완전히 제거하려는 요청("계란은 빼줘")도 quantity_change로 분류되고
             # quantity=0으로 채워진다(intent_prompt.py 참고, fl-2026-08-18-006) —
             # 이 경우 대상 품목은 재담기 없이 완전히 뺀다.
@@ -184,7 +315,6 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 # keywords를 우선하고(예: 계란을 말했는데 selected_product가
                 # 이전 턴의 우유로 남아있는 경우 대비, fl-2026-08-18-006),
                 # keywords가 없을 때만 selected_product로 보충한다.
-                from src.tools.mock_tools import mock_clear_cart
                 existing_cart = mock_get_cart(user_id)
 
                 def _matches_target(item: dict) -> bool:
