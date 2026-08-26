@@ -98,6 +98,12 @@ pending_action이 product_confirm 또는 cart_review일 때, 사용자가 장바
 조작하는 발화는 아래 기준으로 분류한다. intent는 quantity_change(이미 담긴/확인
 중인 품목을 다루는 경우) 또는 buy(새 품목을 같이 요청하는 경우)로 둔다.
 
+pending_action과 무관하게, intent=buy 발화에 서로 다른 상품이 2개 이상 명시되면
+("계란이랑 참기름 사줘") cart_operations에 품목마다 ADD_ITEM 원소를 하나씩 채운다
+(quantity는 명시된 개수, 없으면 1). "유기농 계란"처럼 한 상품을 수식하는 여러
+단어는 상품이 하나뿐이므로 cart_operations 없이 keywords만 쓴다 — "이랑"/"하고"/
+"그리고"로 명백히 다른 카테고리 품목이 이어질 때만 ADD_ITEM을 여러 개 만든다.
+
 cart_operations의 각 원소는 {{op, item, quantity, delta}} 형태이고, op는 다음 중 하나:
 - SET_QUANTITY: item의 수량을 quantity(최종 수량)로 확정
 - CHANGE_QUANTITY: item의 현재 수량에서 delta만큼 상대적으로 증감(늘리면 양수,
@@ -131,6 +137,10 @@ cart_operations는 리스트 순서대로 적용되므로, "다 빼고 X만"류 
   cart_operations=[{{op:"REMOVE_ITEM", item:"계란"}},
                     {{op:"CHANGE_QUANTITY", item:"우유", delta:1}},
                     {{op:"SET_QUANTITY", item:"딸기", quantity:3}}]
+- "계란이랑 참기름 사줘" (intent=buy, 서로 다른 상품 여러 개 신규 요청) →
+  intent="buy", keywords=["계란","참기름"],
+  cart_operations=[{{op:"ADD_ITEM", item:"계란", quantity:1}},
+                    {{op:"ADD_ITEM", item:"참기름", quantity:1}}]
 
 # 확인/거절 해석 규칙
 confirm: 현재 pending_action에 명확히 동의 (응, 좋아, 그걸로, 네, 진행해)

@@ -21,7 +21,7 @@
 private 헬퍼 함수(`_extract_user_input` 등)는 기존처럼 `ShoppingState`를 받는다
 — 실무적으로 churn 대비 이득이 작아서 이번 범위에서는 안 건드렸다.
 """
-from typing import Any, Optional, TypedDict
+from typing import Any, Literal, Optional, TypedDict
 
 from src.state.schema import Condition, Intent, PendingAction, Stage
 
@@ -82,12 +82,18 @@ class ReorderAgentInput(TypedDict):
 
 class RecipeAgentInput(TypedDict):
     stage: Stage
-    intent: Optional[Intent]
     recipe_dish: Optional[str]
     recipe_people: Optional[int]
-    recipe_items: list[dict[str, Any]]
-    current_recipe_item_index: int
+    queue_items: list[dict[str, Any]]
     messages: list
+
+
+class PurchaseQueueAgentInput(TypedDict):
+    stage: Stage
+    intent: Optional[Intent]
+    queue_items: list[dict[str, Any]]
+    current_queue_index: int
+    queue_source: Optional[Literal["recipe", "multi_buy"]]
 
 
 class SmalltalkAgentInput(TypedDict):
@@ -185,6 +191,9 @@ class IntentAgentUpdate(TypedDict, total=False):
     degradation_reason: Optional[str]
     recommend_from_profile: bool
     cart_operations: list[dict[str, Any]]
+    queue_items: list[dict[str, Any]]
+    current_queue_index: int
+    queue_source: Optional[Literal["recipe", "multi_buy"]]
 
 
 class ContextAgentUpdate(TypedDict, total=False):
@@ -240,19 +249,28 @@ class ReorderAgentUpdate(TypedDict, total=False):
 
 
 class RecipeAgentUpdate(TypedDict, total=False):
-    recipe_items: list[dict[str, Any]]
-    current_recipe_item_index: int
+    queue_items: list[dict[str, Any]]
+    current_queue_index: int
+    queue_source: Optional[Literal["recipe", "multi_buy"]]
     stage: Stage
     pending_action: Optional[PendingAction]
-    intent: Optional[Intent]
-    keywords: list[str]
-    quantity: Optional[int]
     needs_clarification: bool
     clarification_reason: Optional[str]
     last_agent: str
     error: Optional[str]
     degraded_mode: bool
     failure_stage: Optional[str]
+
+
+class PurchaseQueueAgentUpdate(TypedDict, total=False):
+    current_queue_index: int
+    stage: Stage
+    pending_action: Optional[PendingAction]
+    intent: Optional[Intent]
+    keywords: list[str]
+    quantity: Optional[int]
+    last_agent: str
+    error: Optional[str]
 
 
 class SmalltalkAgentUpdate(TypedDict, total=False):

@@ -163,8 +163,17 @@ class ShoppingState(TypedDict):
     # ── 레시피 쇼핑 ──
     recipe_dish: Optional[str]
     recipe_people: Optional[int]
-    recipe_items: list[dict[str, Any]]
-    current_recipe_item_index: int
+
+    # ── 품목 큐(purchase_queue_agent) ── recipe_agent의 Mode 3/4 루프를
+    # recipe_dish에 의존하지 않는 범용 실행기로 분리한 필드(recipe_items/
+    # current_recipe_item_index는 Unit 3에서 완전히 은퇴 — 아무도 안 읽던
+    # current_recipe_item_index와, 여기 queue_items로 대체 가능했던
+    # recipe_items를 두 벌 유지할 이유가 없었다). queue_source는 이 큐를
+    # 채운 쪽("recipe"/"multi_buy")을 명시해 — purchase_queue_agent는
+    # recipe_dish를 절대 참조하지 않고 이 값만으로 문구를 고른다.
+    queue_items: list[dict[str, Any]]
+    current_queue_index: int
+    queue_source: Optional[Literal["recipe", "multi_buy"]]
 
     # ── Memory Agent context ──
     recommendation_context: Optional[dict[str, Any]]
@@ -299,8 +308,9 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "user_id": user_id,
         "recipe_dish": None,
         "recipe_people": None,
-        "recipe_items": [],
-        "current_recipe_item_index": 0,
+        "queue_items": [],
+        "current_queue_index": 0,
+        "queue_source": None,
         "recommendation_context": None,
         "reorder_resolution": None,
         "storage_state_path": None,

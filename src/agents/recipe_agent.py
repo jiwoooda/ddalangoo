@@ -4,8 +4,19 @@ Recipe Agent Node.
 역할:
   Mode 1 - 재료 목록 생성: 요리명+인원수 → LLM structured output → ingredient_confirm
   Mode 2 - 재료 제거 편집: 사용자가 특정 재료 제외 요청 → 목록 업데이트 후 재확인
-  Mode 3 - 쇼핑 시작: 현재 재료 keywords/quantity 세팅 → context_agent 진입
-  Mode 4 - 다음 재료 안내: 장바구니 담기 후 자동 진입 → 다음 재료 안내 or 전체 완료
+
+Mode 3(쇼핑 시작)/Mode 4(다음 재료 안내)는 purchase_queue_agent.py로 완전히
+이동했다(recipe_dish에 의존하지 않는 범용 실행기로 분리, Unit 2 — 독립 그래프
+노드로 승격돼 route()/after_payment_agent가 recipe_agent를 거치지 않고 직접
+그쪽으로 보낸다).
+
+recipe_items/current_recipe_item_index 필드는 Unit 3에서 완전히 은퇴시켰다 —
+Unit 1~2 과도기엔 queue_items와 나란히 채웠지만, current_recipe_item_index는
+아무도 안 읽었고 recipe_items를 읽는 곳(recipe_agent 자신의 Mode 2 판단,
+router.py의 Mode 1 진입 가드) 둘 다 queue_items로 바꿔도 그만이라 두 벌 유지할
+이유가 없었다. 지금은 recipe_agent가 queue_items/current_queue_index를
+직접 채운다 — queue_source="recipe"로 이 큐의 출처만 명시하고, recipe_dish는
+purchase_queue_agent에 절대 넘기지 않는다(그쪽은 recipe 개념을 몰라야 함).
 """
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -85,82 +96,33 @@ def _format_list_message(dish: str, people: Optional[int], items: list[dict]) ->
 
 def recipe_agent_node(state: RecipeAgentInput) -> RecipeAgentUpdate:
     stage = state.get("stage")
-    intent = state.get("intent")
     recipe_dish = state.get("recipe_dish") or ""
     recipe_people = state.get("recipe_people") or 4
-    recipe_items = list(state.get("recipe_items") or [])
-    current_idx = state.get("current_recipe_item_index") or 0
+    queue_items = list(state.get("queue_items") or [])
     user_message = _extract_user_input(state)
 
     agent_logger.log(
-        f"[recipe_agent] 진입 | stage={stage} intent={intent} "
-        f"dish={recipe_dish} idx={current_idx}/{len(recipe_items)}"
+        f"[recipe_agent] 진입 | stage={stage} dish={recipe_dish} "
+        f"items={len(queue_items)}"
     )
 
-    # ── Mode 4: 다음 재료 안내 (payment_agent 장바구니 담기 후 자동 진입) ──
-    if stage == "cart_shopping" and recipe_items:
-        next_idx = current_idx + 1
-        if next_idx >= len(recipe_items):
-            output = {
-                "current_recipe_item_index": next_idx,
-                "stage": "cart_shopping",
-                "keywords": [],
-                "quantity": None,
-                "pending_action": {
-                    "type": "continue_shopping",
-                    "message": "모든 재료를 담았어요! 결제하실까요?",
-                },
-                "last_agent": "recipe_agent",
-                "error": None,
-            }
-        else:
-            current_item = recipe_items[current_idx]
-            next_item = recipe_items[next_idx]
-            output = {
-                "current_recipe_item_index": next_idx,
-                "stage": "recipe_planning",
-                "keywords": [],
-                "quantity": None,
-                "pending_action": {
-                    "type": "ingredient_confirm",
-                    "message": (
-                        f"{current_item['name']} 담았어요! "
-                        f"다음은 {next_item['name']} {next_item['quantity']}{next_item['unit']}이에요. "
-                        f"찾아볼까요?"
-                    ),
-                },
-                "last_agent": "recipe_agent",
-                "error": None,
-            }
-        agent_logger.log(f"[recipe_agent] Mode 4 | {output['pending_action']['message']}")
-        return output
-
-    # ── Mode 3: 재료 확정 → 현재 재료 쇼핑 시작 ──
-    if stage == "recipe_planning" and intent == "confirm" and recipe_items:
-        item = recipe_items[current_idx]
-        output = {
-            "intent": "buy",
-            "keywords": [item["name"]],
-            "quantity": item.get("quantity"),
-            "stage": "idle",
-            "last_agent": "recipe_agent",
-            "error": None,
-        }
-        agent_logger.log(f"[recipe_agent] Mode 3 | {item['name']} 쇼핑 시작")
-        return output
+    # Mode 3(재료 확정→쇼핑 시작)/Mode 4(담기 후 다음 재료 안내)는
+    # purchase_queue_agent로 완전히 이동했다(Unit 2) — route()/after_payment_agent가
+    # 이제 그 경우엔 recipe_agent를 아예 거치지 않고 purchase_queue_agent로 직접
+    # 보낸다. 여기 남는 건 Mode 1(재료 추론)/Mode 2(재료 편집)뿐이다.
 
     # ── Mode 2: 재료 제거 편집 ──
-    if stage == "recipe_planning" and recipe_items:
-        updated = _remove_ingredients(user_message, recipe_items)
-        msg = _format_list_message(recipe_dish, recipe_people, updated if updated != recipe_items else recipe_items)
+    if stage == "recipe_planning" and queue_items:
+        updated = _remove_ingredients(user_message, queue_items)
+        msg = _format_list_message(recipe_dish, recipe_people, updated if updated != queue_items else queue_items)
         output = {
-            "recipe_items": updated,
+            "queue_items": updated,
             "stage": "recipe_planning",
             "pending_action": {"type": "ingredient_confirm", "message": msg},
             "last_agent": "recipe_agent",
             "error": None,
         }
-        agent_logger.log(f"[recipe_agent] Mode 2 | {len(recipe_items)}→{len(updated)}개")
+        agent_logger.log(f"[recipe_agent] Mode 2 | {len(queue_items)}→{len(updated)}개")
         return output
 
     # ── Mode 1: 재료 목록 생성 ──
@@ -185,8 +147,12 @@ def recipe_agent_node(state: RecipeAgentInput) -> RecipeAgentUpdate:
 
     msg = _format_list_message(recipe_dish, recipe_people, items)
     output = {
-        "recipe_items": items,
-        "current_recipe_item_index": 0,
+        # purchase_queue_agent(Mode 3/4)가 실제로 읽는 필드. queue_source="recipe"로
+        # 이 큐의 출처를 명시해서, purchase_queue_agent가 recipe_dish를 직접
+        # 참조하지 않아도 되게 한다(recipe_dish 개념을 모르는 범용 실행기로 유지).
+        "queue_items": items,
+        "current_queue_index": 0,
+        "queue_source": "recipe",
         "stage": "recipe_planning",
         "pending_action": {"type": "ingredient_confirm", "message": msg},
         "last_agent": "recipe_agent",
