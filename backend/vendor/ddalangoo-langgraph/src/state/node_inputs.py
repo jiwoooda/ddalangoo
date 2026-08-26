@@ -35,6 +35,7 @@ class IntentAgentInput(TypedDict):
     recipe_dish: Optional[str]
     recipe_people: Optional[int]
     user_id: str
+    cart_items: list[dict[str, Any]]
 
 
 class ContextAgentInput(TypedDict):
@@ -114,6 +115,7 @@ class PaymentAgentInput(TypedDict):
     address_text: Optional[str]
     conversation_id: Optional[int]
     payment_idempotency_key: Optional[str]
+    cart_operations: list[dict[str, Any]]
 
 
 class RespondNodeInput(TypedDict):
@@ -182,6 +184,7 @@ class IntentAgentUpdate(TypedDict, total=False):
     failure_stage: Optional[str]
     degradation_reason: Optional[str]
     recommend_from_profile: bool
+    cart_operations: list[dict[str, Any]]
 
 
 class ContextAgentUpdate(TypedDict, total=False):

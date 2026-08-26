@@ -101,6 +101,13 @@ class ShoppingState(TypedDict):
     # 턴에 새어들지 않도록) — quantity/needs_clarification과 동일한 패턴.
     recommend_from_profile: bool
 
+    # 장바구니에 대한 조작들(순서대로 적용). 품목별로 다른 add/remove/수량조작이
+    # 섞인 복합 요청("딸기는 하나 더하고 우유는 2개 뺄게")이나, 장바구니를 통째로/
+    # 부분적으로 비우는 요청("다 빼고 X만" = [CLEAR_CART, SET_QUANTITY(X,...)])을
+    # 표현한다. recommend_from_profile과 동일하게 intent_agent가 매 턴 명시적으로
+    # 다시 쓴다 — payment_agent가 그 턴에만 소비한다.
+    cart_operations: list[dict[str, Any]]
+
     # ── Fallback Orchestrator 트리거 카운터 ── respond_node가 매 턴 갱신한다:
     # needs_clarification 계열(막힌) 분기를 타면 +1, 그 외 정상 분기를 타면 0.
     # smalltalk의 consecutive_question_turns와 같은 패턴(reset_turn_observability_node
@@ -266,6 +273,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "needs_clarification": False,
         "clarification_reason": None,
         "recommend_from_profile": False,
+        "cart_operations": [],
         "fallback_stuck_turns": 0,
         "keywords": [],
         "search_query": None,
