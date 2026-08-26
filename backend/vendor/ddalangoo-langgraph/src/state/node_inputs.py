@@ -138,6 +138,7 @@ class RespondNodeInput(TypedDict):
 
 
 class CancelNodeInput(TypedDict):
+    user_id: str
     cart_items: list[dict[str, Any]]
 
 
@@ -156,6 +157,7 @@ class FallbackOrchestratorInput(TypedDict):
     recommendation_context: Optional[dict[str, Any]]
     messages: list
     fallback_stuck_turns: int
+    error: Optional[str]
 
 
 # ══════════════════════════════════════════════

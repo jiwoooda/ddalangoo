@@ -132,6 +132,11 @@ def _build_trigger_reason(state: FallbackOrchestratorInput) -> str:
         reasons.append(f"confidence={confidence}")
     if state.get("intent") == "unclear":
         reasons.append("intent=unclear")
+    if state.get("error") == "reorder_exhausted":
+        # reorder_agent가 구매이력 후보를 다 보여줬는데도(remaining_candidates
+        # 소진) 사용자가 원하는 걸 못 찾은 경우 — 재구매가 아니라 처음 사는
+        # 상품일 가능성이 있다는 힌트를 LLM에게 명시적으로 준다(fl-2026-08-26-002).
+        reasons.append("reorder_exhausted(재구매 후보를 다 보여줬는데도 못 찾음)")
     stuck_turns = state.get("fallback_stuck_turns") or 0
     base = ", ".join(reasons) or "알 수 없음"
     return f"정해진 재질문으로도 해결되지 않고 연속 {stuck_turns}번째 막힘 ({base})"

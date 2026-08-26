@@ -300,17 +300,27 @@ def reorder_agent_node(state: ReorderAgentInput) -> ReorderAgentUpdate:
             # respond 사이에서만 맴돌고 product_agent로 못 간다(_route_product_
             # confirming의 product_select 분기는 buy intent를 respond로 보냄).
             # pending_action을 비우고 stage를 idle로 되돌려 다음 턴을 완전히
-            # 새 구매 요청처럼 처리되게 한다. needs_clarification/clarification_
-            # reason도 여기서 명시적으로 꺼야 respond_node가 intent_agent의
-            # 오래된 일반 문구 대신 이 안내를 쓴다(fl-2026-08-21-002와 같은
-            # 우선순위 문제 재발 방지).
+            # 새 구매 요청처럼 처리되게 한다. needs_clarification=True로 둬야
+            # respond_node가 intent_agent의 오래된 일반 문구 대신 이 안내를
+            # 쓴다(immediate_response가 우선이라 fl-2026-08-21-002와 같은
+            # 우선순위 문제는 그대로 안 재발함).
+            #
+            # needs_clarification=True(그리고 error="reorder_exhausted")로
+            # 둔 것은 의도적이다 — 여기가 진짜 막힌 지점인데도 예전엔 False로
+            # 꺼서 respond_node의 stuck 카운터(fallback_stuck_turns)가 이 턴을
+            # 0으로 리셋해버렸다. 그러면 사용자가 계속 애매하게 답해도 Fallback
+            # Orchestrator(더 넓은 맥락 진단)로 넘어갈 기회가 한 턴 부당하게
+            # 늦춰지고, 나중에 다른 경로로 넘어가더라도 "재구매 후보를 이미 다
+            # 보여줬었다"는 맥락 자체가 유실됐다(fl-2026-08-26-002). error=
+            # "reorder_exhausted"는 fallback_orchestrator._build_trigger_reason이
+            # 읽어 진단 근거에 반영한다.
             output = {
                 "pending_action": None,
                 "stage": "idle",
-                "error": None,
+                "error": "reorder_exhausted",
                 "last_agent": "reorder_agent",
-                "needs_clarification": False,
-                "clarification_reason": None,
+                "needs_clarification": True,
+                "clarification_reason": "재구매 후보를 이미 다 보여드렸는데도 사용자가 원하는 상품을 못 찾음",
                 "immediate_response": _ambiguous_no_more_candidates_message(),
             }
         agent_logger.log_reorder_agent(
