@@ -143,27 +143,39 @@ def test_after_respond_idle_continues():
 
 
 # ── 멀티플랫폼 검색 ────────────────────────────────────────
+# WON-22 Unit 11 — 이 블록은 SEARCH_MODE=mock(기본값) 전제로 mock 카탈로그를
+# 검증한다. 문제는 backend/.env의 실제 기본값이 SEARCH_MODE=mcp이고, 전체
+# pytest 스위트를 한 번에 돌리면 test_e2e.py/test_full_usecase.py 등 다른
+# 파일이 모듈 임포트 시점에 load_dotenv()를 호출해 os.environ을 오염시켜서
+# (pytest는 전체 스위트를 한 프로세스에서 돈다) 이 파일만 단독 실행할 땐
+# 통과하다가 전체 스위트에서는 실 API를 타서 실패하는 게 실측 확인됐다 —
+# monkeypatch.setenv로 각 테스트가 실행 순서와 무관하게 항상 SEARCH_MODE=
+# mock을 보장하게 고정한다(테스트 격리, 실행 순서 의존성 제거).
 
-def test_search_all_platforms_returns_multi_platform():
+def test_search_all_platforms_returns_multi_platform(monkeypatch):
+    monkeypatch.setenv("SEARCH_MODE", "mock")
     results = search_products("딸기", ["naver", "coupang", "kurly"])
     platforms = {r["platform"] for r in results}
     assert len(platforms) > 1, f"단일 플랫폼만 반환됨: {platforms}"
 
-def test_search_limit_per_platform():
+def test_search_limit_per_platform(monkeypatch):
+    monkeypatch.setenv("SEARCH_MODE", "mock")
     results = search_products("딸기", ["naver", "coupang", "kurly"], limit_per_platform=3)
     from collections import Counter
     counts = Counter(r["platform"] for r in results)
     for plat, count in counts.items():
         assert count <= 3, f"{plat} 결과가 {count}개로 3개 초과"
 
-def test_search_no_platform_falls_back_to_default():
+def test_search_no_platform_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("SEARCH_MODE", "mock")
     results = search_products("딸기", [])
     assert len(results) > 0
 
-def test_search_unknown_query_returns_empty_results():
+def test_search_unknown_query_returns_empty_results(monkeypatch):
     # WON-22 Unit 8: 검색 실패 시 표시 없는 DEFAULT_PRODUCTS("상품 A")를 더
     # 이상 자동으로 채워 넣지 않는다 — 존재하지 않는 상품을 파는 것처럼
     # 보이면 안 됨(product_agent가 빈 결과를 그대로 no_candidates로 처리).
+    monkeypatch.setenv("SEARCH_MODE", "mock")
     results = search_products("존재하지않는상품xyz", ["naver", "coupang", "kurly"])
     assert results == []
 
