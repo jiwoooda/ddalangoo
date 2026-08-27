@@ -1,0 +1,131 @@
+{
+  "run_id": "run-20260827-051608-a82552e",
+  "scope": "unit",
+  "target": "intent_agent",
+  "git_sha": "a82552e",
+  "model": "default",
+  "case_count": 4,
+  "cases": [
+    {
+      "case_id": "intent_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "keywords",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "intent",
+          "expected": "reorder",
+          "actual": "unclear",
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    },
+    {
+      "case_id": "intent_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "keywords",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "needs_clarification",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-26-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "queue_items[0].name",
+          "expected": "계란",
+          "actual": "계란",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "queue_items[1].name",
+          "expected": "참기름",
+          "actual": "참기름",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "current_queue_index",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "queue_source",
+          "expected": "multi_buy",
+          "actual": "multi_buy",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "keywords[0]",
+          "expected": "계란",
+          "actual": "계란",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "intent",
+          "expected": "ask",
+          "actual": "ask",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "needs_clarification",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
