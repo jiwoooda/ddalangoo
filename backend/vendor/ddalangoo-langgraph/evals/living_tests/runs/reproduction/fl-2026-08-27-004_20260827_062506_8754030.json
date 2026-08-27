@@ -1,0 +1,377 @@
+{
+  "run_id": "repro-20260827-062505-8754030",
+  "failure_id": "fl-2026-08-27-004",
+  "git_sha": "8754030",
+  "model": "default",
+  "trace_ref": null,
+  "observed": {
+    "output": {
+      "messages": [
+        "content='안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?' additional_kwargs={} response_metadata={} id='dabd4240-ff2f-4681-bdfc-c81de96cc967' tool_calls=[] invalid_tool_calls=[]",
+        "content='서울우유 나100% 1L 사줘' additional_kwargs={} response_metadata={} id='00583303-5dd1-436c-8103-d941e0988a8d'",
+        "content=\"서울우유 1L, 2,800원이에요. '나100%'는 없어서 대신 서울우유를 추천드려요\\n주문할까요?\" additional_kwargs={} response_metadata={} id='c6de95af-59ef-43fd-8380-10e4fa344868' tool_calls=[] invalid_tool_calls=[]"
+      ],
+      "stage": "product_confirming",
+      "intent": "buy",
+      "last_agent": "response_agent",
+      "error": null,
+      "degraded_mode": false,
+      "degradation_reason": null,
+      "failure_stage": null,
+      "ranking_mode": "llm",
+      "source_used": null,
+      "confidence": 0.9,
+      "immediate_response": "서울우유 나100% 1L를 구매할게요.",
+      "needs_clarification": false,
+      "clarification_reason": null,
+      "recommend_from_profile": false,
+      "cart_operations": [
+        {
+          "op": "ADD_ITEM",
+          "item": "서울우유 나100% 1L",
+          "quantity": 1,
+          "delta": null
+        }
+      ],
+      "fallback_stuck_turns": 0,
+      "keywords": [
+        "서울우유",
+        "나100%"
+      ],
+      "search_query": "서울우유 나100%",
+      "exclude_keywords": [],
+      "negative_constraints": [],
+      "quantity": 1,
+      "condition": null,
+      "override_platform": null,
+      "target_platforms": [],
+      "tried_platforms": [],
+      "selected_platform": null,
+      "search_results": [
+        {
+          "product_name": "서울우유 1L",
+          "price": 2800,
+          "rating": 4.5,
+          "review_count": 5100,
+          "delivery": "로켓배송",
+          "delivery_fee": 0,
+          "platform": "coupang",
+          "image_url": "https://mock.coupang.com/milk.jpg",
+          "product_url": "https://mock.coupang.com/products/milk-1l",
+          "is_sold_out": false,
+          "raw": {},
+          "brand": "서울우유",
+          "nutrition_info": {
+            "allergens": [
+              "우유"
+            ],
+            "diet_tags": [],
+            "calories_kcal": 61
+          }
+        }
+      ],
+      "scored_products": [],
+      "recommended_products": [
+        {
+          "product_name": "서울우유 1L",
+          "price": 2800,
+          "rating": 4.5,
+          "review_count": 5100,
+          "delivery": "로켓배송",
+          "delivery_fee": 0,
+          "platform": "coupang",
+          "image_url": "https://mock.coupang.com/milk.jpg",
+          "product_url": "https://mock.coupang.com/products/milk-1l",
+          "is_sold_out": false,
+          "raw": {},
+          "brand": "서울우유",
+          "nutrition_info": {
+            "allergens": [
+              "우유"
+            ],
+            "diet_tags": [],
+            "calories_kcal": 61
+          },
+          "_candidate_id": "A",
+          "final_score": 0.5165,
+          "axis_contributions": {
+            "price": 0.2,
+            "review": 0.25,
+            "preference": 0.0665
+          },
+          "preference_item_breakdown": [
+            {
+              "preference_item": "서울우유",
+              "match_level": "강한부합",
+              "reasoning": "The product is explicitly labeled as '서울우유', directly matching the query keyword."
+            },
+            {
+              "preference_item": "나100%",
+              "match_level": "중립",
+              "reasoning": "The product description does not specify '나100%', so it neither confirms nor denies this preference."
+            }
+          ]
+        }
+      ],
+      "current_product_index": 0,
+      "selected_product": {
+        "product_name": "서울우유 1L",
+        "price": 2800,
+        "rating": 4.5,
+        "review_count": 5100,
+        "delivery": "로켓배송",
+        "delivery_fee": 0,
+        "platform": "coupang",
+        "image_url": "https://mock.coupang.com/milk.jpg",
+        "product_url": "https://mock.coupang.com/products/milk-1l",
+        "is_sold_out": false,
+        "raw": {},
+        "brand": "서울우유",
+        "nutrition_info": {
+          "allergens": [
+            "우유"
+          ],
+          "diet_tags": [],
+          "calories_kcal": 61
+        },
+        "_candidate_id": "A",
+        "final_score": 0.5165,
+        "axis_contributions": {
+          "price": 0.2,
+          "review": 0.25,
+          "preference": 0.0665
+        },
+        "preference_item_breakdown": [
+          {
+            "preference_item": "서울우유",
+            "match_level": "강한부합",
+            "reasoning": "The product is explicitly labeled as '서울우유', directly matching the query keyword."
+          },
+          {
+            "preference_item": "나100%",
+            "match_level": "중립",
+            "reasoning": "The product description does not specify '나100%', so it neither confirms nor denies this preference."
+          }
+        ]
+      },
+      "product_url": "https://mock.coupang.com/products/milk-1l",
+      "explanation": "서울우유 1L, 2,800원이에요. '나100%'는 없어서 대신 서울우유를 추천드려요. 주문할까요?",
+      "highlight_specs": [],
+      "pending_action": {
+        "type": "product_confirm",
+        "message": "서울우유 1L, 2,800원이에요. '나100%'는 없어서 대신 서울우유를 추천드려요\n주문할까요?"
+      },
+      "cart": null,
+      "order": null,
+      "payment": null,
+      "checkout_session": null,
+      "payment_idempotency_key": null,
+      "session_id": "living-test-fl-2026-08-27-004",
+      "conversation_id": null,
+      "user_id": "living_test_fl-2026-08-27-004",
+      "storage_state_path": null,
+      "cart_items": [],
+      "recipe_dish": null,
+      "recipe_people": null,
+      "queue_items": [],
+      "current_queue_index": 0,
+      "queue_source": null,
+      "queue_clear_existing": false,
+      "recommendation_context": {
+        "user_profile": {
+          "user_id": "living_test_fl-2026-08-27-004",
+          "name": null,
+          "age_group": null,
+          "default_address": null
+        },
+        "preference_memory": {},
+        "purchase_count": 0,
+        "retrieval_mode": "keyword_collective",
+        "keyword_results": [],
+        "personal_vector_results": [],
+        "collective_vector_results": [
+          {
+            "product_name": "설향 딸기 500g",
+            "price": 12900,
+            "rating": 4.8,
+            "review_count": 1523,
+            "delivery": "새벽배송",
+            "delivery_fee": 0,
+            "platform": "kurly",
+            "image_url": "https://mock.kurly.com/strawberry.jpg",
+            "product_url": "https://mock.kurly.com/products/strawberry-500g",
+            "is_sold_out": false,
+            "raw": {}
+          },
+          {
+            "product_name": "컬리 딸기 1kg 산지직송",
+            "price": 19800,
+            "rating": 4.7,
+            "review_count": 643,
+            "delivery": "새벽배송",
+            "delivery_fee": 0,
+            "platform": "kurly",
+            "image_url": "https://mock.kurly.com/strawberry-1kg.jpg",
+            "product_url": "https://mock.kurly.com/products/strawberry-1kg",
+            "is_sold_out": false,
+            "raw": {}
+          },
+          {
+            "product_name": "죽향 딸기 1kg",
+            "price": 22000,
+            "rating": 4.6,
+            "review_count": 892,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/strawberry.jpg",
+            "product_url": "https://mock.coupang.com/products/strawberry-1kg",
+            "is_sold_out": false,
+            "raw": {}
+          },
+          {
+            "product_name": "논산 딸기 500g 특품",
+            "price": 11500,
+            "rating": 4.5,
+            "review_count": 2104,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/strawberry-sp.jpg",
+            "product_url": "https://mock.coupang.com/products/strawberry-sp-500g",
+            "is_sold_out": false,
+            "raw": {}
+          },
+          {
+            "product_name": "딸기 500g 당일수확",
+            "price": 10900,
+            "rating": 4.4,
+            "review_count": 780,
+            "delivery": "내일 도착",
+            "delivery_fee": 3000,
+            "platform": "naver",
+            "image_url": "https://mock.naver.com/strawberry.jpg",
+            "product_url": "https://mock.naver.com/products/strawberry-500g",
+            "is_sold_out": false,
+            "raw": {}
+          }
+        ],
+        "merged_context": [
+          {
+            "product_name": "설향 딸기 500g",
+            "price": 12900,
+            "rating": 4.8,
+            "review_count": 1523,
+            "delivery": "새벽배송",
+            "delivery_fee": 0,
+            "platform": "kurly",
+            "image_url": "https://mock.kurly.com/strawberry.jpg",
+            "product_url": "https://mock.kurly.com/products/strawberry-500g",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          },
+          {
+            "product_name": "컬리 딸기 1kg 산지직송",
+            "price": 19800,
+            "rating": 4.7,
+            "review_count": 643,
+            "delivery": "새벽배송",
+            "delivery_fee": 0,
+            "platform": "kurly",
+            "image_url": "https://mock.kurly.com/strawberry-1kg.jpg",
+            "product_url": "https://mock.kurly.com/products/strawberry-1kg",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          },
+          {
+            "product_name": "죽향 딸기 1kg",
+            "price": 22000,
+            "rating": 4.6,
+            "review_count": 892,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/strawberry.jpg",
+            "product_url": "https://mock.coupang.com/products/strawberry-1kg",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          },
+          {
+            "product_name": "논산 딸기 500g 특품",
+            "price": 11500,
+            "rating": 4.5,
+            "review_count": 2104,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/strawberry-sp.jpg",
+            "product_url": "https://mock.coupang.com/products/strawberry-sp-500g",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          },
+          {
+            "product_name": "딸기 500g 당일수확",
+            "price": 10900,
+            "rating": 4.4,
+            "review_count": 780,
+            "delivery": "내일 도착",
+            "delivery_fee": 3000,
+            "platform": "naver",
+            "image_url": "https://mock.naver.com/strawberry.jpg",
+            "product_url": "https://mock.naver.com/products/strawberry-500g",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          }
+        ],
+        "preference_context": {
+          "keyword_history": [],
+          "keyword_summary": "",
+          "_cache_hit": false,
+          "keyword_additions": [],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        }
+      },
+      "reorder_resolution": null,
+      "current_option_value": null,
+      "address_text": null,
+      "tool_calls": null,
+      "tool_results": null,
+      "conversation_summary": null,
+      "order_id": null,
+      "onboarding_started_at": "2026-08-27T06:24:54.797615+00:00",
+      "recent_patterns_used": [],
+      "recent_episodes_used": [],
+      "name_greeting_pending": false,
+      "consecutive_question_turns": 0,
+      "already_asked_topics": [],
+      "turns_without_required_progress": 1,
+      "health_followup_turns_remaining": 0,
+      "recent_replies": [
+        "안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?"
+      ]
+    },
+    "executed_nodes": [
+      "session_start",
+      "smalltalk_agent",
+      "respond",
+      "__interrupt__",
+      "wait_for_input",
+      "reset_turn_observability",
+      "intent_agent",
+      "context_agent",
+      "product_agent",
+      "response_agent",
+      "respond",
+      "__interrupt__"
+    ],
+    "tool_calls_summary": []
+  }
+}

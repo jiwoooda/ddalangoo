@@ -1,0 +1,107 @@
+{
+  "run_id": "repro-20260827-062634-8754030",
+  "failure_id": "fl-2026-08-27-006",
+  "git_sha": "8754030",
+  "model": "default",
+  "trace_ref": null,
+  "observed": {
+    "output": {
+      "messages": [
+        "content='안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?' additional_kwargs={} response_metadata={} id='60b1e0e4-76cd-4df7-a998-607655593289' tool_calls=[] invalid_tool_calls=[]",
+        "content='(가상의 존재하지 않는 상품 검색)' additional_kwargs={} response_metadata={} id='e250c1f6-97dd-4192-84fc-cdb946cdba03'",
+        "content='아, 필요하신 게 있으시군요! 어떤 상품이 필요하신지 말씀해 주시면 바로 도와드릴게요. 그 전에, 어르신의 성함이 어떻게 되시는지 여쭤봐도 될까요?' additional_kwargs={} response_metadata={} id='5ecf02c4-91ca-4737-87f7-100d20e740a7' tool_calls=[] invalid_tool_calls=[]"
+      ],
+      "stage": "idle",
+      "intent": null,
+      "last_agent": "smalltalk_agent",
+      "error": null,
+      "degraded_mode": false,
+      "degradation_reason": null,
+      "failure_stage": null,
+      "ranking_mode": null,
+      "source_used": null,
+      "confidence": null,
+      "immediate_response": "아, 필요하신 게 있으시군요! 어떤 상품이 필요하신지 말씀해 주시면 바로 도와드릴게요. 그 전에, 어르신의 성함이 어떻게 되시는지 여쭤봐도 될까요?",
+      "needs_clarification": false,
+      "clarification_reason": null,
+      "recommend_from_profile": false,
+      "cart_operations": [],
+      "fallback_stuck_turns": 0,
+      "keywords": [
+        "존재하지않는상상속상품명123"
+      ],
+      "search_query": null,
+      "exclude_keywords": [],
+      "negative_constraints": [],
+      "quantity": null,
+      "condition": null,
+      "override_platform": null,
+      "target_platforms": [],
+      "tried_platforms": [],
+      "selected_platform": null,
+      "search_results": [],
+      "scored_products": [],
+      "recommended_products": [],
+      "current_product_index": 0,
+      "selected_product": null,
+      "product_url": null,
+      "explanation": "아, 필요하신 게 있으시군요! 어떤 상품이 필요하신지 말씀해 주시면 바로 도와드릴게요. 그 전에, 어르신의 성함이 어떻게 되시는지 여쭤봐도 될까요?",
+      "highlight_specs": [],
+      "pending_action": null,
+      "cart": null,
+      "order": null,
+      "payment": null,
+      "checkout_session": null,
+      "payment_idempotency_key": null,
+      "session_id": "living-test-fl-2026-08-27-006",
+      "conversation_id": null,
+      "user_id": "living_test_fl-2026-08-27-006",
+      "storage_state_path": null,
+      "cart_items": [],
+      "recipe_dish": null,
+      "recipe_people": null,
+      "queue_items": [],
+      "current_queue_index": 0,
+      "queue_source": null,
+      "queue_clear_existing": false,
+      "recommendation_context": null,
+      "reorder_resolution": null,
+      "current_option_value": null,
+      "address_text": null,
+      "tool_calls": null,
+      "tool_results": null,
+      "conversation_summary": null,
+      "order_id": null,
+      "onboarding_started_at": "2026-08-27T06:26:26.607705+00:00",
+      "recent_patterns_used": [
+        "guess"
+      ],
+      "recent_episodes_used": [
+        "expired_fridge"
+      ],
+      "name_greeting_pending": false,
+      "consecutive_question_turns": 1,
+      "already_asked_topics": [
+        "preferred_name"
+      ],
+      "turns_without_required_progress": 2,
+      "health_followup_turns_remaining": 0,
+      "recent_replies": [
+        "안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?",
+        "아, 필요하신 게 있으시군요! 어떤 상품이 필요하신지 말씀해 주시면 바로 도와드릴게요. 그 전에, 어르신의 성함이 어떻게 되시는지 여쭤봐도 될까요?"
+      ]
+    },
+    "executed_nodes": [
+      "session_start",
+      "smalltalk_agent",
+      "respond",
+      "__interrupt__",
+      "wait_for_input",
+      "reset_turn_observability",
+      "smalltalk_agent",
+      "respond",
+      "__interrupt__"
+    ],
+    "tool_calls_summary": []
+  }
+}
