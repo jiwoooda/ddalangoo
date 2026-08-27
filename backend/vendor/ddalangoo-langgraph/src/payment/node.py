@@ -24,6 +24,7 @@ from typing import Any, Optional
 from src.state.schema import ShoppingState
 from src.state.node_inputs import PaymentAgentInput, PaymentAgentUpdate
 from src.utils.agent_logger import agent_logger, _ptype
+from src.agents.product_agent import validate_selected_product
 from src.tools.mock_tools import (
     mock_add_to_cart,
     mock_get_cart,
@@ -293,6 +294,28 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
         and pending_type == "product_confirm"
         and intent in ("confirm", "quantity_change")
     ):
+        # WON-22 Unit 9 — 실제로 장바구니에 담기 전 마지막 재검증. product_
+        # agent의 게이트(같은 이름의 validate_selected_product, product_agent.py)
+        # 가 이미 한 번 통과시킨 상품이지만, 이 턴 사이 state가 다른 경로로
+        # 바뀌었을 가능성까지 방어하는 독립된 최종 게이트다(완료 조건:
+        # "Payment Agent까지 잘못된 제품이 전달되지 않음" — 단일 지점 신뢰
+        # 금지, product_agent와 동일한 원칙).
+        validation = validate_selected_product(selected_product, state.get("product_request"))
+        if not validation.matches:
+            agent_logger.log(
+                f"[payment_agent] Unit 9 최종 검증 실패(selection_validation_failed) — "
+                f"장바구니 담기 차단: {selected_product.get('product_name')!r} - {validation.mismatches}"
+            )
+            return {
+                "stage": "idle",
+                "error": "selection_validation_failed",
+                "last_agent": "payment_agent",
+                "selected_product": None,
+                "pending_action": {
+                    "type": "clarification",
+                    "message": "상품 정보를 다시 확인하는 중이에요. 잠시 후 다시 말씀해 주시겠어요?",
+                },
+            }
         if state.get("queue_clear_existing"):
             # "싹 다 비우고 계란만 담아"류 요청 — CLEAR_CART 신호는 intent_agent가
             # 처음 판단한 턴에만 cart_operations에 있었고, 실제 담기가 실행되는

@@ -126,6 +126,7 @@ class PaymentAgentInput(TypedDict):
     cart_operations: list[dict[str, Any]]
     queue_clear_existing: bool
     messages: list
+    product_request: Optional[dict[str, Any]]
 
 
 class RespondNodeInput(TypedDict):
