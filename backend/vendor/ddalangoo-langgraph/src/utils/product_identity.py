@@ -207,6 +207,11 @@ def compare_identities(request: ProductIdentity, candidate_name: str) -> Compari
             f"brand_mismatch: 요청 브랜드 '{request.normalized_brand}'가 후보명에 없음"
         )
 
+    if request.variant and normalize_brand(request.variant) not in normalize_brand(candidate_name):
+        mismatches.append(
+            f"variant_mismatch: 요청 옵션 '{request.variant}'가 후보명에 없음"
+        )
+
     if request.size is not None:
         candidate_size = parse_size(candidate_name)
         if candidate_size is None:

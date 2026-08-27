@@ -26,6 +26,13 @@ from src.utils.search_keywords import build_search_query
 from src.utils.aggregator import aggregate, normalize_fixed_axes, normalize_weights
 from src.utils.priority_resolver import _mentions_same_target
 from src.utils.retry import classify_failure, retry_call
+from src.utils.product_identity import (
+    ProductIdentity,
+    build_identity_from_request,
+    brand_appears_in,
+    compare_identities,
+    normalize_brand,
+)
 
 ALL_PLATFORMS = ["naver", "coupang", "kurly"]
 
@@ -328,11 +335,67 @@ def _matches_requested_keywords(product: dict[str, Any], requested_keywords: lis
     return any(kw.lower() in name or kw.lower() in brand for kw in requested_keywords if kw)
 
 
+def _gated_identity_for_mode(product_request: dict[str, Any]) -> ProductIdentity:
+    """match_mode별로 어떤 조건까지 하드 체크 대상인지 결정한다(WON-22 Unit 4
+    정책):
+      category      — category 일치만(브랜드/사이즈는 검사 대상 아님)
+      brand         — brand까지 일치해야 함(사이즈는 검사 안 함)
+      exact_product — brand + variant/size까지 전부 일치해야 함
+    compare_identities는 identity에 실제로 채워진 필드만 검사하므로, 여기서
+    match_mode에 안 맞는 필드를 아예 비워서 넘기면 그 필드는 검사에서
+    자동으로 빠진다(별도 if 분기 없이 하나의 compare_identities 호출로 통일)."""
+    match_mode = product_request.get("match_mode", "category")
+    brand = product_request.get("brand")
+    if match_mode == "category" or not brand:
+        return ProductIdentity(normalized_brand="", normalized_product_name="")
+    if match_mode == "brand":
+        return ProductIdentity(normalized_brand=normalize_brand(brand), normalized_product_name="")
+    return build_identity_from_request(product_request)  # exact_product
+
+
+def enforce_hard_constraints(
+    candidates: list[dict[str, Any]], product_request: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """ProductRequest 기반 필수조건 필터(WON-22 Unit 4) — 조건 불일치 후보가
+    점수와 무관하게 랭킹에 아예 들어가지 못하게 차단한다. 기존
+    _matches_requested_keywords(any/OR — keywords 중 하나만 맞아도 통과)의
+    허술함을 대체한다. product_request가 없으면(Unit 2가 아직 안 채운 경로,
+    예: buy가 아닌 intent) 아무것도 거르지 않고 그대로 통과시킨다 — 이
+    함수는 product_request가 있을 때만 적용되는 추가 계층이지, 기존 검색
+    결과 자체를 재현하지 않는다.
+
+    반환: (survivors, rejected) — rejected의 각 원소는 {"product_name":...,
+    "mismatches": [...]} 로 탈락 이유를 사람이 읽을 수 있게 남긴다(Unit 5의
+    "왜 이 후보가 안 맞는지" 설명, 로그 확인용)."""
+    if not product_request:
+        return candidates, []
+
+    excluded_brands = product_request.get("excluded_brands") or []
+    identity = _gated_identity_for_mode(product_request)
+
+    survivors: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for p in candidates:
+        haystack = f"{p.get('product_name') or ''} {p.get('brand') or ''}"
+        mismatches: list[str] = []
+        for excluded in excluded_brands:
+            if brand_appears_in(haystack, excluded):
+                mismatches.append(f"excluded_brand: 제외 요청한 브랜드 '{excluded}'가 후보에 포함됨")
+        mismatches.extend(compare_identities(identity, haystack).mismatches)
+
+        if mismatches:
+            rejected.append({"product_name": p.get("product_name"), "mismatches": mismatches})
+        else:
+            survivors.append(p)
+    return survivors, rejected
+
+
 def _filter_results(
     products: list[dict[str, Any]],
     exclude_keywords: list[str],
     safety_constraints: list[str] | None = None,
     requested_keywords: list[str] | None = None,
+    product_request: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     filtered = []
     for p in products:
@@ -342,7 +405,13 @@ def _filter_results(
             continue
         if p.get("price") is None:
             continue
-        if not _matches_requested_keywords(p, requested_keywords or []):
+        # product_request가 있으면(Unit 2가 buy 발화를 구조화해둔 경우) any(OR)
+        # 기반 _matches_requested_keywords를 건너뛴다(WON-22 Unit 4 — "기존
+        # _matches_requested_keywords(any) 의존 제거") — 대신 product_agent_node
+        # 에서 이 함수가 반환한 결과에 enforce_hard_constraints를 별도로 적용한다
+        # (한 후보에 여러 필터가 섞이지 않게 단계를 분리). product_request가
+        # 없는 경로(예: buy가 아닌 intent)는 기존 방식을 그대로 유지 — 회귀 없음.
+        if not product_request and not _matches_requested_keywords(p, requested_keywords or []):
             continue
         name = p.get("product_name", "").lower()
         brand = str(p.get("brand") or "").lower()
@@ -484,6 +553,7 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
     keywords = state.get("keywords") or []
     exclude_keywords = state.get("exclude_keywords") or []
     condition = state.get("condition")
+    product_request = state.get("product_request")
     current_idx = state.get("current_product_index") or 0
     existing_ranked = state.get("recommended_products") or []
     recommendation_context = state.get("recommendation_context") or {}
@@ -603,8 +673,17 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
     )
     candidates = _filter_results(
         raw_results, exclude_keywords, preference_context.get("safety_constraints"),
-        requested_keywords=keywords,
+        requested_keywords=keywords, product_request=product_request,
     )
+    # WON-22 Unit 4 — 하드 조건(브랜드/제외 브랜드/exact_product의 사이즈)
+    # 불일치 후보를 점수와 무관하게 랭킹 이전에 차단한다. product_request가
+    # 없으면(Unit 2가 안 채운 경로) candidates 그대로 통과 — 회귀 없음.
+    candidates, rejected_by_constraints = enforce_hard_constraints(candidates, product_request)
+    if rejected_by_constraints:
+        agent_logger.log(
+            f"[product_agent] 하드 조건 탈락 {len(rejected_by_constraints)}건: "
+            f"{[(r['product_name'], r['mismatches']) for r in rejected_by_constraints]}"
+        )
 
     if not candidates:
         return {
