@@ -123,6 +123,16 @@ class ShoppingState(TypedDict):
     quantity: Optional[int]
     condition: Optional[Condition]
 
+    # ── ProductRequest(WON-20 Unit 1) ── keywords 하나로는 "카테고리 검색"과
+    # "정확한 제품 지정"을 구분 못 해서(product_agent._matches_requested_keywords가
+    # keywords 중 하나만 일치해도 통과시키는 근본 원인) src/state/product_request.py의
+    # ProductRequest를 구조화 계약으로 도입한다. 지금은 계약만 존재 — 아무도
+    # 안 채우고(Unit 2가 intent_agent에서 채움) 안 읽는다(Unit 4+가 product_agent
+    # 에서 소비함). keywords 기반 기존 검색/랭킹은 이번 Unit에서 그대로 유지된다.
+    # ProductRequest.model_dump()한 plain dict로 저장(state는 Pydantic 인스턴스를
+    # 직접 들고 있지 않음 — 체크포인터 직렬화 때문).
+    product_request: Optional[dict[str, Any]]
+
     # ── 플랫폼 ──
     override_platform: Optional[str]
     target_platforms: list[str]
@@ -295,6 +305,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "negative_constraints": [],
         "quantity": None,
         "condition": None,
+        "product_request": None,
         "override_platform": None,
         "target_platforms": [],
         "tried_platforms": [],
