@@ -17,9 +17,40 @@ recipe_dish는 절대 참조하지 않는다. 이 큐가 레시피에서 왔는�
 요청에서 왔는지, 이 노드는 몰라도 된다(출처를 아는 쪽이 queue_source를
 채워서 알려준다).
 """
+from typing import Any
+
 from src.state.schema import ShoppingState
 from src.state.node_inputs import PurchaseQueueAgentInput, PurchaseQueueAgentUpdate
 from src.utils.agent_logger import agent_logger
+
+# WON-22 Unit 10 — queue_items의 각 원소를 ProductRequest와 연결한다. 기존
+# 문자열 기반 shape({"name","quantity","unit"} — recipe_agent Mode 1이
+# 아직도 이 shape만 채움)은 그대로 두고, "request"/"resolution_status"를
+# 선택적으로 얹는다. request가 없는(구버전/레시피 출처) 품목은 여기서
+# category 전용 ProductRequest로 즉석 변환해 하위 호환을 보장한다 — 품목별로
+# 독립된 dict라서 한 품목의 request가 다른 품목 request를 오염시킬 수 없다
+# (완료 조건: "한 품목 실패가 다른 품목 identity를 오염시키지 않게 처리").
+def _normalize_queue_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    normalized.setdefault("unit", "개")
+    normalized.setdefault("resolution_status", "pending")
+    if not normalized.get("request"):
+        normalized["request"] = {
+            "category": normalized.get("name"),
+            "brand": None,
+            "product_name": None,
+            "variant": None,
+            "size": None,
+            "size_preference": None,
+            "quantity": normalized.get("quantity"),
+            "platform": None,
+            "excluded_brands": [],
+            "condition": None,
+            "match_mode": "category",
+            "allow_substitution": False,
+            "substitution_scope": [],
+        }
+    return normalized
 
 
 def advance_queue(state: ShoppingState) -> dict:
@@ -30,13 +61,22 @@ def advance_queue(state: ShoppingState) -> dict:
     recipe_dish는 절대 참조하지 않는다(이 노드는 이 큐가 레시피에서 왔는지
     모르는 게 원칙, 설계 문서 참고).
     """
-    queue_items = list(state.get("queue_items") or [])
+    queue_items = [_normalize_queue_item(i) for i in (state.get("queue_items") or [])]
     current_idx = state.get("current_queue_index") or 0
     next_idx = current_idx + 1
     is_recipe = state.get("queue_source") == "recipe"
 
+    # WON-22 Unit 10 — 이 노드가 불렸다는 건 payment_agent Step 0가 방금
+    # current_idx 품목을 장바구니에 담는 데 성공했다는 뜻(after_payment_agent
+    # 가 성공 시에만 여기로 체이닝) — 그 사실을 기록에 남긴다. 이 갱신은
+    # current_idx 품목 하나의 dict만 바꾸므로 다른 품목의 request는 전혀
+    # 안 건드린다(오염 방지).
+    if current_idx < len(queue_items):
+        queue_items[current_idx] = {**queue_items[current_idx], "resolution_status": "selected"}
+
     if next_idx >= len(queue_items):
         output = {
+            "queue_items": queue_items,
             "current_queue_index": next_idx,
             "stage": "cart_shopping",
             "keywords": [],
@@ -52,6 +92,7 @@ def advance_queue(state: ShoppingState) -> dict:
         current_item = queue_items[current_idx]
         next_item = queue_items[next_idx]
         output = {
+            "queue_items": queue_items,
             "current_queue_index": next_idx,
             "stage": "recipe_planning",
             "keywords": [],
@@ -75,13 +116,21 @@ def start_queue_item(state: ShoppingState) -> dict:
 
     recipe_agent.py의 원래 Mode 3(L139-150)를 그대로 옮김.
     """
-    queue_items = list(state.get("queue_items") or [])
+    queue_items = [_normalize_queue_item(i) for i in (state.get("queue_items") or [])]
     current_idx = state.get("current_queue_index") or 0
     item = queue_items[current_idx]
     return {
+        "queue_items": queue_items,
         "intent": "buy",
         "keywords": [item["name"]],
         "quantity": item.get("quantity"),
+        # WON-22 Unit 10 — 품목별 ProductRequest를 그대로 실어서 product_agent
+        # (Unit 4 하드 필터/Unit 5 ProductResolver/Unit 9 검증 게이트)가 이
+        # 품목에도 keywords 기반 검색과 동일하게 적용되게 한다. 대부분의 큐
+        # 품목(레시피 재료 등)은 category 전용이라 사실상 지금까지의 동작과
+        # 같지만, 앞으로 품목별 브랜드/옵션이 채워지는 경로가 생기면 그대로
+        # 활용된다.
+        "product_request": item.get("request"),
         "stage": "idle",
         "last_agent": "purchase_queue_agent",
         "error": None,

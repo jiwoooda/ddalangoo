@@ -191,7 +191,9 @@ def _should_clear_existing_cart(intent: str, cart_operations: list[dict]) -> boo
     return any(op.get("op") == "CLEAR_CART" for op in cart_operations)
 
 
-def _split_multi_buy_queue(intent: str, cart_operations: list[dict]) -> Optional[dict]:
+def _split_multi_buy_queue(
+    intent: str, cart_operations: list[dict], product_request: Optional[dict] = None,
+) -> Optional[dict]:
     """intent=buy 발화에 서로 다른 상품(ADD_ITEM)이 2개 이상 담겼으면("계란이랑
     참기름 사줘"), 이번 턴엔 첫 품목만 검색하고 전체 품목을 queue_items로 채워
     purchase_queue_agent가 이어받게 한다 — recipe_agent를 거치지 않고 곧장
@@ -212,13 +214,33 @@ def _split_multi_buy_queue(intent: str, cart_operations: list[dict]) -> Optional
     if len(add_ops) < 2:
         return None
     first = add_ops[0]
+    queue_items = []
+    for i, op in enumerate(add_ops):
+        item_quantity = op.get("quantity") or 1
+        # WON-22 Unit 10 — 첫 품목(index 0)은 이번 턴 top-level product_request
+        # (Unit 2가 이 발화 전체에서 뽑아낸 구조화 정보)를 그대로 실어 감사
+        # 기록의 정확도를 높인다 — 실제 검색은 이 품목만은 큐를 거치지 않고
+        # keywords/product_request로 바로 나가므로(아래 result 참고)
+        # 검색 자체엔 영향 없음, 순수 기록 목적. 나머지 품목은 cart_operations
+        # 가 이름 이상의 정보(브랜드/옵션 등)를 안 주므로 category 전용으로
+        # 채운다 — 있는 정보만 정직하게 반영한다(과잉 확정 금지, 없는 브랜드를
+        # 지어내지 않음). purchase_queue_agent._normalize_queue_item과 동일한
+        # 기본 shape.
+        item_request = dict(product_request) if i == 0 and product_request else {
+            "category": op["item"], "brand": None, "product_name": None, "variant": None,
+            "size": None, "size_preference": None, "platform": None, "excluded_brands": [],
+            "condition": None, "match_mode": "category", "allow_substitution": False,
+            "substitution_scope": [],
+        }
+        item_request["quantity"] = item_quantity
+        queue_items.append({
+            "name": op["item"], "quantity": item_quantity, "unit": "개",
+            "request": item_request, "resolution_status": "pending",
+        })
     return {
         "keywords": [first["item"]],
         "quantity": first.get("quantity"),
-        "queue_items": [
-            {"name": op["item"], "quantity": op.get("quantity") or 1, "unit": "개"}
-            for op in add_ops
-        ],
+        "queue_items": queue_items,
         "current_queue_index": 0,
         "queue_source": "multi_buy",
     }
@@ -660,7 +682,7 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     cart_operations = [op.model_dump() for op in parsed.cart_operations]
     # buy 발화에 서로 다른 상품이 2개 이상 있으면("계란이랑 참기름 사줘") 첫
     # 품목만 이번 턴 keywords/quantity로 좁히고 나머지는 queue_items로 넘긴다.
-    multi_buy_split = _split_multi_buy_queue(intent, cart_operations)
+    multi_buy_split = _split_multi_buy_queue(intent, cart_operations, product_request)
     if multi_buy_split:
         keywords = multi_buy_split["keywords"]
         quantity = multi_buy_split["quantity"]
