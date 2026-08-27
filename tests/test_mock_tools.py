@@ -1,4 +1,4 @@
-"""WON-20 Unit 0 — mock_search_product의 검색 실패 fallback(DEFAULT_PRODUCTS)
+"""WON-22 Unit 0 — mock_search_product의 검색 실패 fallback(DEFAULT_PRODUCTS)
 tool 경계 자체를 고정한다. fl-2026-08-27-006 참고: agent 레벨(product_agent_node)
 에서는 지금 _matches_requested_keywords의 부수효과로 우연히 걸러지지만, tool은
 어떤 검색어를 넣어도 표시 없는 placeholder("상품 A")를 100% 무조건 반환한다 —

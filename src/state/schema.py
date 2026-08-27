@@ -123,7 +123,7 @@ class ShoppingState(TypedDict):
     quantity: Optional[int]
     condition: Optional[Condition]
 
-    # ── ProductRequest(WON-20 Unit 1) ── keywords 하나로는 "카테고리 검색"과
+    # ── ProductRequest(WON-22 Unit 1) ── keywords 하나로는 "카테고리 검색"과
     # "정확한 제품 지정"을 구분 못 해서(product_agent._matches_requested_keywords가
     # keywords 중 하나만 일치해도 통과시키는 근본 원인) src/state/product_request.py의
     # ProductRequest를 구조화 계약으로 도입한다. 지금은 계약만 존재 — 아무도

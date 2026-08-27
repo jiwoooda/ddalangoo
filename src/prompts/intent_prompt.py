@@ -142,11 +142,17 @@ cart_operations는 리스트 순서대로 적용되므로, "다 빼고 X만"류 
   cart_operations=[{{op:"ADD_ITEM", item:"계란", quantity:1}},
                     {{op:"ADD_ITEM", item:"참기름", quantity:1}}]
 
-# ProductRequest 추출 규칙 (WON-20 Unit 2)
-intent=buy(또는 refine/quantity_change처럼 상품을 다시 지목하는 경우)일 때,
-keywords와 별개로 요청을 구조화한 product_request도 함께 채운다. keywords는
-검색어로 계속 쓰이니 그대로 유지하고, product_request는 "얼마나 구체적으로
-요청했는지"를 판정하는 데 쓴다 — 지금 당장 검색/랭킹을 바꾸지는 않는다.
+# ProductRequest 추출 규칙 (WON-22 Unit 2/2.5)
+**범위 한정(가장 먼저 읽을 것)**: 이 섹션 전체는 intent=buy일 때 product_request
+필드 하나만 어떻게 채우는지에 대한 것이다. 결제/배송/가격 등을 묻는 질문
+(intent=ask)이나 확인/거절(confirm/deny) 등 다른 intent의 분류, needs_
+clarification 판단에는 이 섹션이 전혀 영향을 주지 않는다 — 그런 발화에서는
+이 섹션을 아예 무시하고 위에 있는 기존 규칙만 그대로 따른다.
+
+intent=buy일 때, keywords와 별개로 요청을 구조화한 product_request도 함께
+채운다. keywords는 검색어로 계속 쓰이니 그대로 유지하고, product_request는
+"얼마나 구체적으로 요청했는지"를 판정하는 데 쓴다 — 지금 당장 검색/랭킹을
+바꾸지는 않는다.
 
 product_request 필드:
 - category: 일반 카테고리 명사(예: 우유, 계란). 브랜드/제품명이 없어도 항상 채운다.
@@ -158,6 +164,12 @@ product_request 필드:
 - variant: 같은 브랜드/카테고리 안에서 특정 버전을 가리키는 수식어(예: 나100%,
   저지방, 무항생제, 제로). 없으면 null.
 - size: 언급된 용량/규격(예: 1L, 500g, 15구). 없으면 null.
+- size_preference: "1L"/"500g"처럼 절대 수치를 말한 게 아니라 "큰 거"/"작은 거"/
+  "대용량"/"낱개"처럼 **상대적으로만** 크기를 말했을 때만 "largest"(큰 쪽) 또는
+  "smallest"(작은 쪽)로 채운다. size와 동시에 채우지 않는다 — 절대 수치를
+  말했으면 size만 쓰고 size_preference는 null. "중간 크기로"/"적당한 걸로"
+  같은 표현은 이 필드로 표현하지 않는다(smallest/largest 둘만 지원 — 억지로
+  끼워맞추지 말고 null로 둔다).
 - platform: 사용자가 특정 쇼핑몰/플랫폼을 명시했을 때만(예: 쿠팡, 네이버, 컬리).
   "마트"/"슈퍼"/"가게"처럼 일반적인 매장 표현은 특정 플랫폼이 아니므로 null로
   둔다 — category/product_name 어디에도 넣지 않는다.
@@ -178,6 +190,16 @@ product_request 필드:
   excluded_brands에만 넣는다)
 - "마트에서 파는 계란" → category="계란", platform=null, match_mode="category"
   ("마트"는 매장 일반 표현이지 특정 플랫폼이 아니므로 어디에도 안 넣음)
+- "서울우유 큰거 사줘" → brand="서울우유", category="우유", size=null,
+  size_preference="largest", match_mode="brand" (특정 SKU 하나를 지목한 게
+  아니라 그 브랜드 안에서 큰 걸 원하는 것이므로 exact_product가 아니라 brand)
+- "계란 낱개로 사줘" → category="계란", size=null, size_preference="smallest",
+  match_mode="category"
+- "우유 대용량으로 사줘" → category="우유", size=null, size_preference="largest",
+  match_mode="category"
+- "우유 중간 크기로 사줘" (스코프 밖 — smallest/largest 어디에도 안 해당) →
+  category="우유", size=null, **size_preference=null**(largest/smallest로
+  섣불리 끼워맞추지 않음), match_mode="category"
 
 안전 규칙(반드시 지킬 것):
 - 명시된 브랜드를 자동으로 지우거나 무시하지 않는다.
