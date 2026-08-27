@@ -1,0 +1,409 @@
+{
+  "run_id": "run-20260827-152949-5397f60",
+  "scope": "unit",
+  "target": "intent_agent",
+  "git_sha": "5397f60",
+  "model": "default",
+  "case_count": 14,
+  "cases": [
+    {
+      "case_id": "intent_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "keywords",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "intent",
+          "expected": "reorder",
+          "actual": "unclear",
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    },
+    {
+      "case_id": "intent_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "keywords",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "needs_clarification",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-26-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "queue_items[0].name",
+          "expected": "계란",
+          "actual": "계란",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "queue_items[1].name",
+          "expected": "참기름",
+          "actual": "참기름",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "current_queue_index",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "queue_source",
+          "expected": "multi_buy",
+          "actual": "multi_buy",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "keywords[0]",
+          "expected": "계란",
+          "actual": "계란",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "intent",
+          "expected": "ask",
+          "actual": "ask",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "needs_clarification",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_not_contains",
+          "path": "keywords[0]",
+          "expected": "마트",
+          "actual": "계란",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-003",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.category",
+          "expected": "우유",
+          "actual": "우유",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.brand",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.match_mode",
+          "expected": "category",
+          "actual": "category",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "keywords[0]",
+          "expected": "우유",
+          "actual": "우유",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-004",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.brand",
+          "expected": "서울우유",
+          "actual": "서울우유",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.match_mode",
+          "expected": "brand",
+          "actual": "brand",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-005",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.brand",
+          "expected": "서울우유",
+          "actual": "서울우유",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.size",
+          "expected": "1L",
+          "actual": "1L",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.match_mode",
+          "expected": "exact_product",
+          "actual": "exact_product",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-006",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.excluded_brands[0]",
+          "expected": "서울우유",
+          "actual": "서울우유",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.brand",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.match_mode",
+          "expected": "category",
+          "actual": "category",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-007",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.category",
+          "expected": "계란",
+          "actual": "계란",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.platform",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_not_contains",
+          "path": "product_request.product_name",
+          "expected": "마트",
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-008",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.brand",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "needs_clarification",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-009",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.brand",
+          "expected": "서울우유",
+          "actual": "서울우유",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.size",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.size_preference",
+          "expected": "largest",
+          "actual": "largest",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.match_mode",
+          "expected": "brand",
+          "actual": "brand",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-010",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.size_preference",
+          "expected": "smallest",
+          "actual": "smallest",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "intent_agent-2026-08-27-011",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "product_request.size_preference",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

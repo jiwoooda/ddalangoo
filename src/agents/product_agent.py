@@ -441,6 +441,14 @@ def _filter_results(
             continue
         if p.get("price") is None:
             continue
+        # WON-22 Unit 8 — 이중 방어. mock_search_product는 이제 표시 없는
+        # placeholder(상품 A 등)를 자동으로 안 돌려주지만, 혹시 다른 경로
+        # (테스트가 직접 주입 등)로 is_placeholder=True인 후보가 들어와도
+        # 여기서 한 번 더 걸러낸다 — 운영 후보 경로에 fixture가 절대 안
+        # 섞이게 하는 마지막 안전판(완료 조건: "운영 후보 필터에서
+        # placeholder 차단").
+        if p.get("is_placeholder"):
+            continue
         # product_request가 있으면(Unit 2가 buy 발화를 구조화해둔 경우) any(OR)
         # 기반 _matches_requested_keywords를 건너뛴다(WON-22 Unit 4 — "기존
         # _matches_requested_keywords(any) 의존 제거") — 대신 product_agent_node

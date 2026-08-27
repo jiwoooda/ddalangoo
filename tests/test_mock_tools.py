@@ -1,18 +1,12 @@
-"""WON-22 Unit 0 — mock_search_product의 검색 실패 fallback(DEFAULT_PRODUCTS)
+"""WON-22 Unit 8 — mock_search_product의 검색 실패 fallback(DEFAULT_PRODUCTS)
 tool 경계 자체를 고정한다. fl-2026-08-27-006 참고: agent 레벨(product_agent_node)
-에서는 지금 _matches_requested_keywords의 부수효과로 우연히 걸러지지만, tool은
-어떤 검색어를 넣어도 표시 없는 placeholder("상품 A")를 100% 무조건 반환한다 —
-그 부수효과에 기대지 않고 tool 자체가 placeholder임을 표시하거나(Unit 8) 아예
-반환하지 않아야 한다. 이 테스트는 지금은 FAIL해야 정상이다(제품 코드는 아직
-수정 안 함, Unit 8에서 고침).
+에서는 _matches_requested_keywords의 부수효과로 우연히 걸러졌지만(그 보호는
+의도된 게 아니었음), tool은 검색 실패 시 표시 없는 placeholder("상품 A")를
+무조건 반환하고 있었다.
 
-주의(실 쿠팡 API 재확인, 2026-08-27): SEARCH_MODE=mcp(운영 기본값)로 같은
-검색 실패 상황을 재현하면 mock_search_product 자체가 아예 호출되지 않아
-error="no_candidates"로 정상 처리되고 "상품 A"는 절대 노출되지 않는다 —
-즉 이 결함은 실사용자에게 영향을 주는 프로덕션 버그가 아니라, mock 모드로
-로컬 개발/테스트할 때만 해당하는 test-infra 위생 문제다. 그래도 mock은
-다른 Living Test/로컬 개발이 결정론적 검증을 위해 계속 의존하므로 고칠
-가치는 있다 — 다만 우선순위를 "사용자가 겪는 버그"로 과대평가하지 말 것."""
+Unit 8에서 고침: mock_search_product는 이제 검색 실패 시 빈 리스트를 반환
+(DEFAULT_PRODUCTS 자동 주입 제거), DEFAULT_PRODUCTS 자체엔 is_placeholder=
+True/source="fixture" 표시를 추가했다. 이 테스트는 이제 정상적으로 PASS한다."""
 from src.tools.mock_tools import mock_search_product
 
 
@@ -26,3 +20,21 @@ def test_no_match_search_does_not_return_unmarked_placeholder():
             f"fallback은 반드시 is_placeholder=True로 표시하거나(Unit 8), 아예 "
             f"빈 리스트를 반환해야 한다."
         )
+
+
+def test_no_match_search_returns_empty_list():
+    """Unit 8 완료 조건: 검색 실패 시 아무 표시 없는 fixture가 섞여 나오는 게
+    아니라 아예 빈 리스트여야 한다(product_agent가 이걸 그대로 error=
+    "no_candidates"로 처리)."""
+    results = mock_search_product("존재하지않는상상속상품명123", ["naver", "coupang", "kurly"])
+    assert results == []
+
+
+def test_default_products_are_marked_as_placeholder():
+    """DEFAULT_PRODUCTS는 더 이상 자동으로 안 쓰이지만, 명시적으로 import해서
+    쓰는 테스트를 위해 표시는 유지돼야 한다(운영/테스트 데이터 경로 분리)."""
+    from src.tools.mock_tools import DEFAULT_PRODUCTS
+    assert DEFAULT_PRODUCTS
+    for product in DEFAULT_PRODUCTS:
+        assert product.get("is_placeholder") is True
+        assert product.get("source") == "fixture"
