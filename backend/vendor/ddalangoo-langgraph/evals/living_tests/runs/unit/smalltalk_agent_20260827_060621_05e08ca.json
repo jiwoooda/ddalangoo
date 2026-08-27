@@ -1,0 +1,106 @@
+{
+  "run_id": "run-20260827-060621-05e08ca",
+  "scope": "unit",
+  "target": "smalltalk_agent",
+  "git_sha": "05e08ca",
+  "model": "default",
+  "case_count": 3,
+  "cases": [
+    {
+      "case_id": "smalltalk_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "smalltalk_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "stage",
+          "expected": "idle",
+          "actual": "idle",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "last_agent",
+          "expected": "smalltalk_agent",
+          "actual": "smalltalk_agent",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "pending_action",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_contains",
+          "path": "explanation",
+          "expected": "성함",
+          "actual": "안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "smalltalk_agent-2026-08-27-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "smalltalk_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_not_contains",
+          "path": "explanation",
+          "expected": "?",
+          "actual": "가격을 더 중요하게 여기신다니, 가성비를 잘 따지시는군요. 저도 요즘은 가격을 고려하면서도 품질도 챙기려고 노력하고 있어요.",
+          "passed": true
+        },
+        {
+          "type": "field_not_contains",
+          "path": "explanation",
+          "expected": "궁금",
+          "actual": "가격을 더 중요하게 여기신다니, 가성비를 잘 따지시는군요. 저도 요즘은 가격을 고려하면서도 품질도 챙기려고 노력하고 있어요.",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "consecutive_question_turns",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "smalltalk_agent-2026-08-27-003",
+      "trace_ref": null,
+      "executed_nodes": [
+        "smalltalk_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_not_contains",
+          "path": "explanation",
+          "expected": "저도 그렇게 하고 싶어요",
+          "actual": "아, 잘 챙겨 드신다니 정말 다행이에요! 궁금해요.",
+          "passed": true
+        },
+        {
+          "type": "field_not_contains",
+          "path": "explanation",
+          "expected": "부럽다",
+          "actual": "아, 잘 챙겨 드신다니 정말 다행이에요! 궁금해요.",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
