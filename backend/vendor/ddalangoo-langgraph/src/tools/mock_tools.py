@@ -384,6 +384,15 @@ MOCK_PRODUCTS["두부"] = [
     },
 ]
 
+# WON-22 Unit 8 — 검색이 아무 카탈로그 버킷에도 안 걸릴 때(mock_search_product
+# 참고) 예전엔 이 fixture를 아무 표시 없이 그대로 반환해서, 검색 실패가
+# "존재하지 않는 상품을 파는 것처럼" 보이는 위험이 있었다(WON-22 Unit 0에서
+# tool 경계 자체는 100% 재현 확인 — 다만 agent 레벨에서 실사용자에게 노출된
+# 경로는 못 찾았고, 우연한 필터 부수효과로 막혀 있던 것뿐이라 우발적으로
+# 다시 뚫릴 수 있는 상태였음). is_placeholder=True/source="fixture"로 명시
+# 표시하고, mock_search_product는 더 이상 이걸 자동으로 안 돌려준다 — 필요한
+# 테스트는 이 리스트를 직접 import해서 명시적으로 써야 한다(운영과 테스트
+# 데이터 경로 분리, 완료 조건).
 DEFAULT_PRODUCTS = [
     {
         "product_name": "상품 A",
@@ -396,6 +405,8 @@ DEFAULT_PRODUCTS = [
         "image_url": "https://mock.naver.com/product-a.jpg",
         "product_url": "https://mock.naver.com/products/a",
         "is_sold_out": False,
+        "is_placeholder": True,
+        "source": "fixture",
         "raw": {},
     },
 ]
@@ -449,8 +460,10 @@ def mock_search_product(
                 if not platforms or p["platform"] in platforms:
                     results.append(_enrich_product(p, keyword))
 
-    if not results:
-        results = [_enrich_product(p, None) for p in DEFAULT_PRODUCTS]
+    # WON-22 Unit 8 — 아무 버킷에도 안 걸리면 더 이상 DEFAULT_PRODUCTS를
+    # 자동으로 채워 넣지 않는다. 빈 리스트를 그대로 반환해 호출부(product_
+    # agent.py)가 "검색 실패"를 있는 그대로 error="no_candidates"로 처리
+    # 하게 한다 — 존재하지 않는 상품을 파는 것처럼 보이면 안 된다.
 
     if budget_max:
         results = [p for p in results if p["price"] <= budget_max]

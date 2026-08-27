@@ -160,9 +160,12 @@ def test_search_no_platform_falls_back_to_default():
     results = search_products("딸기", [])
     assert len(results) > 0
 
-def test_search_unknown_query_returns_default_products():
+def test_search_unknown_query_returns_empty_results():
+    # WON-22 Unit 8: 검색 실패 시 표시 없는 DEFAULT_PRODUCTS("상품 A")를 더
+    # 이상 자동으로 채워 넣지 않는다 — 존재하지 않는 상품을 파는 것처럼
+    # 보이면 안 됨(product_agent가 빈 결과를 그대로 no_candidates로 처리).
     results = search_products("존재하지않는상품xyz", ["naver", "coupang", "kurly"])
-    assert len(results) > 0  # DEFAULT_PRODUCTS fallback
+    assert results == []
 
 
 # ── 그래프 빌드 ────────────────────────────────────────────
