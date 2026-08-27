@@ -1,8 +1,12 @@
 """Deterministic assertion 체커 — Living Test의 `expected_assertions`를 실제
 실행 결과(agent 출력 dict 또는 graph 실행의 executed_nodes)와 비교한다.
 
-지금 실제 케이스가 쓰는 두 종류만 구현한다(필요해지면 추가하는 최소주의):
+지금 실제 케이스가 쓰는 종류만 구현한다(필요해지면 추가하는 최소주의):
   - field_equals: 노드 출력(dict)의 특정 경로 값이 기대값과 같은지
+  - field_contains / field_not_contains: LLM이 생성한 자연어 필드처럼 문구가
+    매번 조금씩 달라지는 값은 정확히 일치시킬 수 없다 — 특정 부분 문자열을
+    포함하는지/안 하는지만 본다(대소문자 무시). not_contains는 프롬프트
+    수정으로 없앤 문구가 회귀로 다시 나오지 않는지 확인할 때 쓴다.
   - executed_nodes_contains / executed_nodes_not_contains: graph 실행 시
     특정 노드가 (안) 돌았는지 — Agent 하나만으로는 못 잡는 라우팅/핸드오프
     버그(예: routing-2026-08-18-001)를 위한 것.
@@ -60,6 +64,22 @@ def _check_field_contains(assertion: dict, output: dict, executed_nodes: list[st
     }
 
 
+def _check_field_not_contains(assertion: dict, output: dict, executed_nodes: list[str]) -> dict:
+    """field_contains의 반대 — LLM이 특정 문구/패턴을 다시 쓰지 않는지 확인할
+    때 쓴다(예: 페르소나가 강제하던 억지 공감 문구가 프롬프트 수정 후 안
+    나오는지 회귀 확인, smalltalk_agent 등). 필드가 문자열이 아니면(값이
+    아예 없는 경우 포함) 애초에 그 문구를 쓸 수 없으므로 통과로 본다."""
+    path = assertion["path"]
+    expected = assertion["value"]
+    actual = _resolve_path(output, path)
+    passed = not (isinstance(actual, str) and str(expected).lower() in actual.lower())
+    return {
+        "type": "field_not_contains", "path": path,
+        "expected": expected, "actual": actual,
+        "passed": passed,
+    }
+
+
 def _check_executed_nodes_contains(assertion: dict, output: dict, executed_nodes: list[str]) -> dict:
     value = assertion["value"]
     return {
@@ -81,6 +101,7 @@ def _check_executed_nodes_not_contains(assertion: dict, output: dict, executed_n
 _CHECKERS = {
     "field_equals": _check_field_equals,
     "field_contains": _check_field_contains,
+    "field_not_contains": _check_field_not_contains,
     "executed_nodes_contains": _check_executed_nodes_contains,
     "executed_nodes_not_contains": _check_executed_nodes_not_contains,
 }
