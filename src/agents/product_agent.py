@@ -28,6 +28,7 @@ from src.utils.priority_resolver import _mentions_same_target
 from src.utils.retry import classify_failure, retry_call
 from src.utils.product_identity import (
     ProductIdentity,
+    ComparisonResult,
     build_identity_from_request,
     brand_appears_in,
     compare_identities,
@@ -636,7 +637,75 @@ def _rank_with_metadata(
         }
 
 
+def validate_selected_product(
+    selected_product: dict[str, Any] | None, product_request: dict[str, Any] | None,
+) -> ComparisonResult:
+    """WON-22 Unit 9 — 응답/장바구니 진입 직전 마지막 안전판. Unit 4
+    (enforce_hard_constraints)가 이미 선택 이전에 같은 종류의 검사를 하지만,
+    이건 "실제로 반환되는 결과 자체"를 독립적으로 다시 재검증하는 별도
+    계층이다 — 검색/선택 경로가 여러 개(next/deny 재랭킹, exact_product
+    분기, 같은 identity 오퍼 분기 등)라 한쪽 경로에서 실수로 검증을
+    빠뜨려도 여기서 최종적으로 잡히게 한다(단일 지점 신뢰 금지, 완료 조건
+    "Product Agent가 잘못된 결과를 내도 사용자에게 노출되지 않음")."""
+    if product_request is None:
+        return ComparisonResult(matches=True, mismatches=[])
+    if selected_product is None:
+        return ComparisonResult(matches=False, mismatches=["no_selected_product: 선택된 상품이 없음"])
+
+    mismatches: list[str] = []
+    if selected_product.get("is_placeholder"):
+        mismatches.append("placeholder: 표시된 fixture 상품이 선택됨(WON-22 Unit 8 위반)")
+    if not selected_product.get("product_url"):
+        mismatches.append("missing_url: 주문 가능한 URL이 없음")
+
+    haystack = f"{selected_product.get('product_name') or ''} {selected_product.get('brand') or ''}"
+    for excluded in product_request.get("excluded_brands") or []:
+        if brand_appears_in(haystack, excluded):
+            mismatches.append(f"excluded_brand: 제외 요청한 브랜드 '{excluded}'가 선택됨")
+
+    identity = _gated_identity_for_mode(product_request)
+    mismatches.extend(compare_identities(identity, haystack).mismatches)
+
+    return ComparisonResult(matches=not mismatches, mismatches=mismatches)
+
+
+def _validate_before_return(
+    result: dict[str, Any], product_request: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """product_agent_node의 모든 반환 경로가 여기를 거친다(WON-22 Unit 9).
+    selected_product가 없거나 product_request가 없으면 그대로 통과 — 이건
+    "선택은 됐는데 조건을 어겼는지"만 잡는 게이트지, 정상적인 no_candidates/
+    clarification 응답까지 건드리지 않는다."""
+    selected = result.get("selected_product")
+    if not selected or not product_request:
+        return result
+    validation = validate_selected_product(selected, product_request)
+    if validation.matches:
+        return result
+    agent_logger.log(
+        f"[product_agent] Unit 9 최종 검증 실패(selection_validation_failed): "
+        f"{selected.get('product_name')!r} - {validation.mismatches}"
+    )
+    label = product_request.get("brand") or product_request.get("category") or "그 상품"
+    return {
+        "search_query": result.get("search_query"),
+        "stage": "idle",
+        "error": "selection_validation_failed",
+        "last_agent": "product_agent",
+        "selected_product": None,
+        "pending_action": {
+            "type": "clarification",
+            "message": f"{label} 정보를 다시 확인하는 중이에요. 잠시 후 다시 말씀해 주시겠어요?",
+        },
+    }
+
+
 def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
+    result = _product_agent_node_impl(state)
+    return _validate_before_return(result, state.get("product_request"))
+
+
+def _product_agent_node_impl(state: ProductAgentInput) -> ProductAgentUpdate:
     intent = state.get("intent")
     keywords = state.get("keywords") or []
     exclude_keywords = state.get("exclude_keywords") or []
