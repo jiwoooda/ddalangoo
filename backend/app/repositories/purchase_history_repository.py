@@ -137,6 +137,30 @@ async def get_history_by_id_db(db: AsyncSession, history_id: int) -> Optional[di
     return _history_to_dict(history)
 
 
+async def update_satisfaction_db(
+    db: AsyncSession,
+    history_id: int,
+    user_id: int,
+    satisfaction_score: int | None,
+    memo: str | None = None,
+) -> bool:
+    """만족도 체크인(satisfaction_checkin.py) 결과를 구매 이력 하나에 기록한다.
+    mock_update_purchase_satisfaction과 동일한 시맨틱 — satisfaction_score는
+    None이어도 그대로 덮어쓰고, memo는 None이면(응답에 별도 코멘트가 없었으면)
+    기존 값을 유지한다. mock이 user_id별 딕셔너리에서만 찾는 것과 동일하게
+    history.user_id도 함께 검증한다 — 다른 사용자의 구매 이력을 잘못된
+    purchase_history_id로 덮어쓰지 않기 위함. 대상을 못 찾으면(또는 소유자가
+    다르면) False."""
+    history = await db.get(PurchaseHistory, history_id)
+    if not history or history.user_id != user_id:
+        return False
+    history.satisfaction = satisfaction_score
+    if memo is not None:
+        history.memo = memo
+    await db.commit()
+    return True
+
+
 async def get_history_by_keyword_db(
     db: AsyncSession,
     user_id: int,

@@ -142,13 +142,24 @@ def update_purchase_satisfaction(
     memo: str | None = None,
     mode: DbMode | None = None,
 ) -> bool:
-    """만족도 체크인(src/agents/satisfaction_checkin.py) 결과 기록용. real 모드는
-    이 write 경로에 대응하는 app.repositories 함수가 아직 없어서 조용히 무시하지
-    않고 False를 반환한다(기록 안 됐는데 기록된 것처럼 보이면 안 됨)."""
+    """만족도 체크인(src/agents/satisfaction_checkin.py) 결과 기록용."""
     if (mode or _default_db_mode()) == "mock":
         return mock_update_purchase_satisfaction(user_id, purchase_history_id, satisfaction_score, memo)
-    logger.warning(f"[db_client] update_purchase_satisfaction: real 모드 미구현 (user_id={user_id})")
-    return False
+
+    async def _from_db(session):
+        from app.repositories.purchase_history_repository import update_satisfaction_db
+        return await update_satisfaction_db(
+            session, int(purchase_history_id), int(user_id), satisfaction_score, memo,
+        )
+    try:
+        return bool(_run_async_with_fresh_engine(_from_db))
+    except Exception:
+        logger.warning(
+            f"[db_client] update_purchase_satisfaction: real 모드 기록 실패 "
+            f"(user_id={user_id}, purchase_history_id={purchase_history_id})",
+            exc_info=True,
+        )
+        return False
 
 
 def validate_product_url(url: str, mode: DbMode | None = None) -> bool:
