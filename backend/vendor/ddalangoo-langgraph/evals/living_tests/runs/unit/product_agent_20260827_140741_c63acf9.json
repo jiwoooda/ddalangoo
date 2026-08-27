@@ -1,0 +1,171 @@
+{
+  "run_id": "run-20260827-140741-c63acf9",
+  "scope": "unit",
+  "target": "product_agent",
+  "git_sha": "c63acf9",
+  "model": "default",
+  "case_count": 7,
+  "cases": [
+    {
+      "case_id": "product_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "search_query",
+          "expected": "사과",
+          "actual": "사과",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "quantity",
+          "expected": 3,
+          "actual": 3,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "recommended_products[0].product_name",
+          "expected": "서울우유 1L",
+          "actual": "서울우유 1L",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "recommended_products[1]",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-27-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "error",
+          "expected": "no_candidates",
+          "actual": "no_candidates",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "selected_product",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-27-003",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "selected_product.product_name",
+          "expected": "서울우유 1L",
+          "actual": "서울우유 1L",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "error",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "selected_product._match_evidence.match_mode",
+          "expected": "exact_product",
+          "actual": "exact_product",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "selected_product._match_evidence.requested_brand",
+          "expected": "서울우유",
+          "actual": "서울우유",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-27-004",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "search_results[3].product_name",
+          "expected": "남양 맛있는우유 GT 1L",
+          "actual": "남양 맛있는우유 GT 1L",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-27-005",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "search_results[3].product_name",
+          "expected": "남양 맛있는우유 GT 1L",
+          "actual": "남양 맛있는우유 GT 1L",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
