@@ -118,6 +118,44 @@ def _should_force_recommendation_fallback(user_input: str, intent: str, stage: s
     return any(p in text for p in _DISMISSIVE_PHRASES)
 
 
+# product_confirm/cart_review만 우선 포함한다 — 이 둘은 intent="ask"가 되면
+# response_agent(_generate_qa_answer)로 안전하게 빠지는 기존 경로가 있다.
+# address_confirm/payment_method_confirm/payment_password는 stage="payment_processing"
+# 이라 route()가 intent와 무관하게 무조건 payment_agent로 보내고, payment_agent
+# Step 2/3/4는 intent를 아예 안 본다 — needs_clarification=True가 지금까지
+# 우연히 방패 역할을 하고 있었을 뿐, 이 셋에 이 교정을 적용하면 "질문을 결제
+# 동의로 오인해서 다음 단계로 진행"하는 실제 회귀가 생긴다(실측 확인,
+# WON-19). payment_agent 쪽에 intent 분기+질문 응답 로직이 생기기 전까지는
+# 이 셋을 빼서 기존의(불편하지만 안전한) 되묻기 동작을 유지한다.
+_PAYMENT_PENDING_TYPES = frozenset({"product_confirm", "cart_review"})
+
+
+def _should_trust_ask_over_clarification(
+    intent: str, needs_clarification: bool, clarification_reason: Optional[str],
+    confidence: float, pending_type: str,
+) -> bool:
+    """결제 흐름 대기 중(product_confirm/cart_review/address_confirm/
+    payment_method_confirm/payment_password) 사용자가 결제수단/배송/환불 같은
+    질문을 하면, intent=ask는 정확히 분류하면서도 "나는 답을 모른다"는 이유로
+    clarification_reason 없이 needs_clarification=true를 방어적으로 켜는
+    경우가 실측 확인됐다(WON-19, fl-2026-08-27-001) — response_agent가 이미
+    이런 질문에 답할 능력(_generate_qa_answer/_is_address_question)을 갖추고
+    있는데, router.py::route()의 이른 needs_clarification 게이트가 stage-router
+    (ask→response_agent 디스패치)보다 먼저 걸려 그 경로 자체를 못 타게 막는다.
+
+    clarification_reason이 실제로 채워진 경우(LLM이 구체적 근거를 댄 경우)는
+    건드리지 않는다 — 진짜 모호한 ask(예: "그거 얼마예요?"의 "그거"가 뭔지
+    불명확한 경우)까지 덮어쓰면 안 되므로, "이유 없이 방어적으로 켠 경우"만
+    좁게 교정한다."""
+    return (
+        intent == "ask"
+        and needs_clarification
+        and not clarification_reason
+        and confidence >= 0.5
+        and pending_type in _PAYMENT_PENDING_TYPES
+    )
+
+
 def _should_clear_existing_cart(intent: str, cart_operations: list[dict]) -> bool:
     """intent=buy 발화에 CLEAR_CART가 섞여 있으면("싹 다 비우고 계란만 담아")
     기존 장바구니를 비워야 한다는 신호다. cart_operations는 매 턴 intent_agent가
@@ -430,6 +468,11 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         needs_clarification = False
         clarification_reason = None
         confidence = max(confidence, 0.85)
+
+    # 결제 흐름 중 결제수단/배송/환불 질문을 "나는 답을 모른다"는 이유로
+    # 방어적으로 되묻지 않는다 — response_agent가 답할 수 있다(WON-19).
+    if _should_trust_ask_over_clarification(intent, needs_clarification, clarification_reason, confidence, pending_type):
+        needs_clarification = False
 
     if _is_ambiguous_reorder(user_input, keywords):
         intent = "reorder"

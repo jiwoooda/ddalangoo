@@ -1,0 +1,35 @@
+{
+  "run_id": "run-20260827-051521-a82552e",
+  "scope": "unit",
+  "target": "intent_agent",
+  "git_sha": "a82552e",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "intent_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "intent",
+          "expected": "ask",
+          "actual": "ask",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "needs_clarification",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
