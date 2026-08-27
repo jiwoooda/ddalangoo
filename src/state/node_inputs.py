@@ -272,12 +272,14 @@ class RecipeAgentUpdate(TypedDict, total=False):
 
 
 class PurchaseQueueAgentUpdate(TypedDict, total=False):
+    queue_items: list[dict[str, Any]]
     current_queue_index: int
     stage: Stage
     pending_action: Optional[PendingAction]
     intent: Optional[Intent]
     keywords: list[str]
     quantity: Optional[int]
+    product_request: Optional[dict[str, Any]]
     last_agent: str
     error: Optional[str]
 
