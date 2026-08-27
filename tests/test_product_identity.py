@@ -133,3 +133,18 @@ def test_compare_identities_ignores_size_when_not_requested():
     identity = build_identity_from_request({"brand": "서울우유"})
     result = compare_identities(identity, "서울우유 1L")
     assert result.matches is True
+
+
+def test_compare_identities_flags_missing_variant():
+    # WON-22 Unit 4에서 발견: brand/size가 둘 다 맞아도 variant(예: "나100%")가
+    # 후보명에 없으면 일치로 치면 안 된다 — 처음 구현엔 이 검사가 빠져 있었음.
+    identity = build_identity_from_request({"brand": "서울우유", "variant": "나100%", "size": "1L"})
+    result = compare_identities(identity, "서울우유 1L")
+    assert result.matches is False
+    assert any("variant_mismatch" in m for m in result.mismatches)
+
+
+def test_compare_identities_passes_when_variant_present():
+    identity = build_identity_from_request({"brand": "서울우유", "variant": "나100%", "size": "1000ml"})
+    result = compare_identities(identity, "서울우유 나100% 1L")
+    assert result.matches is True
