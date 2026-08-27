@@ -821,6 +821,7 @@ def _product_agent_node_impl(state: ProductAgentInput) -> ProductAgentUpdate:
         f"[product_agent] 검색 | query={query}  sort={sort}"
         f"  preferred_platform={preferred_platform}"
         f"  (condition={condition!r} → effective={effective_condition!r})"
+        f"  match_mode={(product_request or {}).get('match_mode')!r}"
     )
     raw_results = search_products(
         query=query,
