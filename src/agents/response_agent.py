@@ -352,11 +352,25 @@ def response_agent_node(state: ResponseAgentInput) -> ResponseAgentUpdate:
 
         answer, ok, reason, haiku_fallback, degraded = _generate_qa_answer(target, user_question)
         agent_logger.log(f"[response_agent] QA 답변: {answer}")
+        # respond_node의 분기 우선순위(pending_action.message가 explanation보다
+        # 먼저 확인됨, nodes.py 참고)상 pending_action을 안 건드리면 이 답변이
+        # 화면에 아예 안 뜨고 예전 확인 문구만 반복된다(WON-19 Unit 4 확장 —
+        # 결제 질문만이 아니라 product_confirm 중 모든 상품 질문에서 실측 확인).
+        # _answer_address_question과 동일하게, 답변을 원래 확인 문구 앞에
+        # 붙여서 pending_action을 직접 갱신한다 — 원래 대기 상태(type)는 그대로
+        # 유지해 "질문에 답하고 다시 확인 대기로 복귀"를 보장한다.
+        original_pending = state.get("pending_action") or {}
+        original_message = original_pending.get("message", "")
+        combined_message = f"{answer}\n{original_message}" if original_message else answer
         return {
             "explanation": answer,
             "reflection_passed": ok,
             "haiku_fallback": haiku_fallback,
             "reflection_reason": reason,
+            "pending_action": {
+                "type": original_pending.get("type") or "product_confirm",
+                "message": combined_message,
+            },
             "stage": "product_confirming",
             "last_agent": "response_agent",
             "error": None,

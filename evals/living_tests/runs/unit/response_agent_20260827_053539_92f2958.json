@@ -1,0 +1,35 @@
+{
+  "run_id": "run-20260827-053539-92f2958",
+  "scope": "unit",
+  "target": "response_agent",
+  "git_sha": "92f2958",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "response_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "response_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "pending_action.type",
+          "expected": "product_confirm",
+          "actual": null,
+          "passed": false
+        },
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "주문할까요",
+          "actual": null,
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}
