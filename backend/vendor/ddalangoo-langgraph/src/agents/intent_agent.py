@@ -237,6 +237,32 @@ def _should_clear_size_preference(user_input: str) -> bool:
     return any(phrase in user_input for phrase in _MEDIUM_SIZE_PHRASES)
 
 
+_SIZE_RELAX_KEYWORDS = ("용량", "사이즈", "크기", "옵션")
+_BRAND_RELAX_KEYWORDS = ("브랜드", "회사", "제조사")
+
+
+def _parse_substitution_consent(user_input: str, offered_fields: list[str]) -> list[str]:
+    """대체품 동의 답변("다른 용량은 괜찮아"/"다른 브랜드도 괜찮아")에서 실제로
+    완화해도 되는 조건을 결정론적으로 판정한다(WON-22 Unit 7). 구체적으로
+    언급된 항목만 좁혀서 인정하고, 언급 없이 그냥 동의만 하면("네"/"좋아요")
+    제안받은 항목 전체에 동의한 것으로 본다.
+
+    LLM 대신 키워드로 판정하는 이유: 완료 조건이 "동의 범위 외 조건은 계속
+    유지"라 여기서 잘못 넓히면(예: 브랜드는 동의 안 했는데 브랜드까지 풀어버림)
+    이 Unit의 안전 목적 자체가 깨진다 — 애매함이 허용되지 않는 결정이라
+    규칙으로 고정한다(이 세션에서 반복 확인된 패턴: 결과가 틀리면 안 되는
+    지점은 프롬프트 대신 코드가 담당)."""
+    text = user_input.strip()
+    mentioned = []
+    if any(kw in text for kw in _SIZE_RELAX_KEYWORDS):
+        mentioned.append("specifics")
+    if any(kw in text for kw in _BRAND_RELAX_KEYWORDS):
+        mentioned.append("brand")
+    if mentioned:
+        return [f for f in offered_fields if f in mentioned]
+    return list(offered_fields)
+
+
 def _build_product_request(
     parsed_pr: Optional["ProductRequestOutput"], intent: str, quantity: Optional[int],
     condition: Optional[str], user_input: str,
@@ -266,6 +292,7 @@ def _build_product_request(
     data["quantity"] = quantity
     data["condition"] = condition
     data["allow_substitution"] = False
+    data["substitution_scope"] = []  # 매 buy 턴 새로 시작 — 이전 턴 동의가 새 요청에 안 새어들게
     if _should_clear_size_preference(user_input):
         data["size_preference"] = None
     if not data.get("brand") and data.get("match_mode") in ("brand", "exact_product"):
@@ -601,6 +628,35 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     recipe_people = parsed.recipe_people if intent == "buy" else (parsed.recipe_people or state.get("recipe_people"))
 
     product_request = _build_product_request(parsed.product_request, intent, quantity, parsed.condition, user_input)
+
+    # ── 대체품 동의 처리(WON-22 Unit 7) ── product_agent가 exact_product/brand
+    # 요청에 일치 후보가 없을 때 pending_action.type="substitution_confirm"
+    # 으로 물어본 뒤의 응답을 여기서 해석한다. 동의하면 원래 product_request
+    # (payload에 저장돼 있던 것)에 동의 범위만큼만 substitution_scope를 채워
+    # 되살리고, 재검색을 위해 intent를 buy로 되돌린다(그러면 route()의 기존
+    # "buy"→context_agent 기본 매핑을 그대로 타서 router.py를 안 건드려도 됨).
+    # keywords/quantity는 이미 위에서(intent가 아직 confirm이던 시점) state
+    # 값을 그대로 보존해뒀으므로 여기서 다시 안 건드린다.
+    if pending_type == "substitution_confirm":
+        payload = (pending_action or {}).get("payload") or {}
+        original_pr = payload.get("product_request") or {}
+        offered_fields = payload.get("offered_fields") or []
+        if intent == "confirm":
+            granted = _parse_substitution_consent(user_input, offered_fields)
+            updated_pr = dict(original_pr)
+            updated_pr["substitution_scope"] = list(dict.fromkeys(
+                (original_pr.get("substitution_scope") or []) + granted
+            ))
+            updated_pr["allow_substitution"] = bool(updated_pr["substitution_scope"])
+            product_request = updated_pr
+            intent = "buy"
+            needs_clarification = False
+            confidence = max(confidence, 0.85)
+        elif intent == "deny":
+            # 대체품 제안을 거절 — 포기. product_request를 비워서 이번 턴엔
+            # 아무것도 재검색하지 않는다(기본 deny 라우팅 → respond).
+            product_request = None
+
     cart_operations = [op.model_dump() for op in parsed.cart_operations]
     # buy 발화에 서로 다른 상품이 2개 이상 있으면("계란이랑 참기름 사줘") 첫
     # 품목만 이번 턴 keywords/quantity로 좁히고 나머지는 queue_items로 넘긴다.

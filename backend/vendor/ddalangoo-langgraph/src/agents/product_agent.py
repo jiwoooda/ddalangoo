@@ -343,20 +343,50 @@ def _matches_requested_keywords(product: dict[str, Any], requested_keywords: lis
 
 def _gated_identity_for_mode(product_request: dict[str, Any]) -> ProductIdentity:
     """match_mode별로 어떤 조건까지 하드 체크 대상인지 결정한다(WON-22 Unit 4
-    정책):
+    정책, Unit 7에서 substitution_scope 반영):
       category      — category 일치만(브랜드/사이즈는 검사 대상 아님)
       brand         — brand까지 일치해야 함(사이즈는 검사 안 함)
       exact_product — brand + variant/size까지 전부 일치해야 함
-    compare_identities는 identity에 실제로 채워진 필드만 검사하므로, 여기서
-    match_mode에 안 맞는 필드를 아예 비워서 넘기면 그 필드는 검사에서
-    자동으로 빠진다(별도 if 분기 없이 하나의 compare_identities 호출로 통일)."""
+    substitution_scope에 "brand"가 있으면(대체품 동의로 브랜드까지 완화)
+    브랜드 검사를 건너뛴다. "specifics"가 있으면(용량/옵션만 완화 동의)
+    exact_product를 brand 수준으로 낮춘다(variant/size 검사 제외, 브랜드는
+    유지) — "동의 범위 외 조건은 계속 유지"라는 완료 조건이 여기서
+    보장된다. compare_identities는 identity에 실제로 채워진 필드만 검사
+    하므로, 여기서 검사 대상이 아닌 필드를 아예 비워서 넘기면 자동으로
+    빠진다(별도 if 분기 없이 하나의 compare_identities 호출로 통일)."""
     match_mode = product_request.get("match_mode", "category")
-    brand = product_request.get("brand")
+    scope = set(product_request.get("substitution_scope") or [])
+    brand = None if "brand" in scope else product_request.get("brand")
     if match_mode == "category" or not brand:
         return ProductIdentity(normalized_brand="", normalized_product_name="")
-    if match_mode == "brand":
+    if match_mode == "brand" or "specifics" in scope:
         return ProductIdentity(normalized_brand=normalize_brand(brand), normalized_product_name="")
-    return build_identity_from_request(product_request)  # exact_product
+    return build_identity_from_request(product_request)  # exact_product, 완화 동의 없음
+
+
+_SUBSTITUTION_FIELD_LABELS = {"specifics": "다른 용량", "brand": "다른 브랜드"}
+
+
+def _offerable_substitution_fields(product_request: dict[str, Any]) -> list[str]:
+    """지금 이 요청에서 추가로 제안할 수 있는 완화 항목(WON-22 Unit 7). 이미
+    동의한(substitution_scope) 항목은 다시 제안하지 않는다 — 전부 동의했는데도
+    후보가 없으면(완전한 NOT_FOUND) 빈 리스트를 반환해, 더 이상 대체품을
+    제안하지 않고 최종 no_candidates로 끝나게 한다."""
+    match_mode = product_request.get("match_mode")
+    already = set(product_request.get("substitution_scope") or [])
+    offerable = []
+    if match_mode == "exact_product" and "specifics" not in already:
+        offerable.append("specifics")
+    if match_mode in ("brand", "exact_product") and "brand" not in already:
+        offerable.append("brand")
+    return offerable
+
+
+def _substitution_offer_message(product_request: dict[str, Any], offerable: list[str]) -> str:
+    parts = [p for p in (product_request.get("brand"), product_request.get("variant"), product_request.get("size")) if p]
+    label = " ".join(parts) or (product_request.get("category") or "그 상품")
+    options = "이나 ".join(_SUBSTITUTION_FIELD_LABELS[f] for f in offerable)
+    return f"{label}는 찾지 못했어요. {options}도 찾아볼까요?"
 
 
 def enforce_hard_constraints(
@@ -736,6 +766,23 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
         )
 
     if not candidates:
+        # WON-22 Unit 7 — brand/exact_product 요청인데 하드 조건을 만족하는
+        # 후보가 하나도 없으면, 조용히 포기(clarification)하기 전에 조건을
+        # 완화해도 될지 먼저 물어본다(자동 대체 금지가 완료 조건 — 물어보지
+        # 않고 스스로 다른 브랜드/사이즈를 골라주면 안 됨).
+        offerable = _offerable_substitution_fields(product_request) if product_request else []
+        if offerable:
+            return {
+                "search_query": query,
+                "stage": "idle",
+                "error": "no_candidates",
+                "last_agent": "product_agent",
+                "pending_action": {
+                    "type": "substitution_confirm",
+                    "message": _substitution_offer_message(product_request, offerable),
+                    "payload": {"product_request": product_request, "offered_fields": offerable},
+                },
+            }
         return {
             "search_query": query,
             "stage": "idle",

@@ -58,6 +58,7 @@ PendingActionType = Literal[
     "payment_method_confirm",
     "payment_password",
     "payment_retry_confirm",
+    "substitution_confirm",
 ]
 
 class PendingAction(TypedDict, total=False):
