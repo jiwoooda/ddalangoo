@@ -1,5 +1,5 @@
 """ProductRequest — 사용자가 요청한 "특정 상품"을 카테고리/브랜드/제품명/옵션
-단위로 구조화한 계약(WON-20 Unit 1).
+단위로 구조화한 계약(WON-22 Unit 1).
 
 지금까지 상품 검색 요청은 `keywords: list[str]` 하나로만 표현됐다 — "카테고리
 검색"("우유 사줘")과 "정확한 제품 지정"("서울우유 나100% 1L 사줘")을 구분할 수
@@ -29,6 +29,15 @@ class ProductRequest(BaseModel):
     product_name: Optional[str] = None
     variant: Optional[str] = None
     size: Optional[str] = None
+    # size_preference: "1L"/"500g"처럼 절대 수치를 말한 게 아니라 "큰 거"/
+    # "작은 거"/"대용량"/"낱개"처럼 상대적으로 말했을 때만 채운다(size와
+    # 배타적이지 않음 — 어느 쪽도 없을 수 있고, 이론상 같이 있을 수도 있음).
+    # "smallest"/"largest" 극단값만 지원한다 — "중간 크기로"/"적당한 걸로"
+    # 같은 표현은 이 필드로 표현하지 않는다(임의로 추측해서 채우지 않고
+    # null로 둔 채 필요하면 needs_clarification으로 넘긴다). 이 값 자체를
+    # "일치 여부" 판정에 쓰지 않는다 — 후보들 중 크기 순으로 하나를 고르는
+    # 랭킹 신호(Unit 6)라 Hard Constraint(Unit 4)의 대상이 아니다.
+    size_preference: Optional[Literal["smallest", "largest"]] = None
     quantity: Optional[int] = None
     platform: Optional[str] = None
     excluded_brands: list[str] = Field(default_factory=list)

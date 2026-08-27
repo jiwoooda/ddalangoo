@@ -133,30 +133,50 @@ _PAYMENT_PENDING_TYPES = frozenset({
 })
 
 
+# src/payment/node.py의 _PAYMENT_METHOD_QUESTION_KEYWORDS/_DELIVERY_QUESTION_
+# KEYWORDS와 같은 목록(의도적 중복 — 파일 간 강결합 피함, 바뀌면 양쪽 다
+# 손볼 것). intent_agent는 이 키워드가 있으면 "결제/배송 관련 질문임이
+# 명백하다"는 판단에만 쓰고, 실제 답변 생성은 여전히 payment_agent 몫이다.
+_PAYMENT_QUESTION_KEYWORDS = (
+    "카드", "결제수단", "결제 수단", "결제방법", "결제 방법", "무통장", "계좌이체", "페이",
+    "배송", "도착", "택배",
+)
+
+
 def _should_trust_ask_over_clarification(
     intent: str, needs_clarification: bool, clarification_reason: Optional[str],
-    confidence: float, pending_type: str,
+    confidence: float, pending_type: str, user_input: str = "",
 ) -> bool:
     """결제 흐름 대기 중(product_confirm/cart_review/address_confirm/
     payment_method_confirm/payment_password) 사용자가 결제수단/배송/환불 같은
     질문을 하면, intent=ask는 정확히 분류하면서도 "나는 답을 모른다"는 이유로
-    clarification_reason 없이 needs_clarification=true를 방어적으로 켜는
-    경우가 실측 확인됐다(WON-19, fl-2026-08-27-001) — response_agent가 이미
-    이런 질문에 답할 능력(_generate_qa_answer/_is_address_question)을 갖추고
-    있는데, router.py::route()의 이른 needs_clarification 게이트가 stage-router
-    (ask→response_agent 디스패치)보다 먼저 걸려 그 경로 자체를 못 타게 막는다.
+    needs_clarification=true를 방어적으로 켜는 경우가 실측 확인됐다(WON-19,
+    fl-2026-08-27-001) — response_agent/payment_agent가 이미 이런 질문에
+    답할 능력을 갖추고 있는데, router.py::route()의 이른 needs_clarification
+    게이트가 그 경로 자체를 못 타게 막는다.
 
-    clarification_reason이 실제로 채워진 경우(LLM이 구체적 근거를 댄 경우)는
-    건드리지 않는다 — 진짜 모호한 ask(예: "그거 얼마예요?"의 "그거"가 뭔지
-    불명확한 경우)까지 덮어쓰면 안 되므로, "이유 없이 방어적으로 켠 경우"만
-    좁게 교정한다."""
-    return (
-        intent == "ask"
-        and needs_clarification
-        and not clarification_reason
-        and confidence >= 0.5
-        and pending_type in _PAYMENT_PENDING_TYPES
-    )
+    clarification_reason이 비어 있으면(방어적으로 켠 전형적 패턴) 항상 교정한다.
+    채워져 있으면(LLM이 나름의 근거를 댄 경우) 원칙적으로 안 건드리는 게 맞지만
+    (진짜 모호한 ask, 예: "그거 얼마예요?"의 "그거"가 뭔지 불명확한 경우까지
+    덮어쓰면 안 되므로), user_input에 결제/배송 키워드가 명백히 있으면 예외로
+    교정한다 — WON-22 Unit 2/2.5에서 프롬프트에 무관한 내용(ProductRequest
+    추출 규칙)을 추가할 때마다 이 케이스("카드는 뭘로 되나요?")가 그럴듯하지만
+    틀린 clarification_reason("발화에서 언급한 품목이 없고...")을 달고 반복
+    재발하는 게 실측(각 3회 이상)으로 확인됐다 — payment_agent가 이미 결정론적
+    으로 답할 수 있는 질문(_PAYMENT_QUESTION_KEYWORDS)이라는 게 명백한 이상,
+    LLM의 clarification_reason 내용과 무관하게 신뢰하지 않는다.
+
+    confidence >= 0.5 조건은 "이유 없이 방어적으로 켠" 첫 번째 분기에만
+    적용한다 — 키워드 매칭 분기는 confidence 자체에 기대지 않는다. 실측
+    확인: 프롬프트에 무관한 섹션이 늘어나면 이 케이스의 confidence도 함께
+    낮아지는 경우가 있었다(0.9 → 0.3, "카드는 뭘로 되나요?" 사례) — 즉
+    confidence 수치 자체가 같은 간섭에 오염될 수 있어, 리터럴 키워드
+    매칭(더 강한 독립 신호)에는 이 수치를 신뢰 조건으로 쓰지 않는다."""
+    if not (intent == "ask" and needs_clarification and pending_type in _PAYMENT_PENDING_TYPES):
+        return False
+    if not clarification_reason:
+        return confidence >= 0.5
+    return any(kw in user_input for kw in _PAYMENT_QUESTION_KEYWORDS)
 
 
 def _should_clear_existing_cart(intent: str, cart_operations: list[dict]) -> bool:
@@ -204,11 +224,25 @@ def _split_multi_buy_queue(intent: str, cart_operations: list[dict]) -> Optional
     }
 
 
+_MEDIUM_SIZE_PHRASES = ("중간", "적당한", "적당히")
+
+
+def _should_clear_size_preference(user_input: str) -> bool:
+    """size_preference는 smallest/largest만 지원하는데("중간 크기로" 같은
+    표현은 스코프 밖 — product_request.py 참고), 실측(5회 반복)에서 LLM이
+    "중간"류 표현에도 largest/smallest 중 하나를 억지로 채우는 걸 확인했다
+    (프롬프트에 명시적 반례를 넣어도 5/5 그대로 재현 — 순수 프롬프트 지시로는
+    안 잡히는 경우). smalltalk_agent의 B-5(질문 개수 제한)와 같은 원리로,
+    코드가 결정적으로 걸러낸다."""
+    return any(phrase in user_input for phrase in _MEDIUM_SIZE_PHRASES)
+
+
 def _build_product_request(
-    parsed_pr: Optional["ProductRequestOutput"], intent: str, quantity: Optional[int], condition: Optional[str],
+    parsed_pr: Optional["ProductRequestOutput"], intent: str, quantity: Optional[int],
+    condition: Optional[str], user_input: str,
 ) -> Optional[dict]:
     """LLM이 뽑은 ProductRequestOutput(부분집합)을 최종 ProductRequest dict로
-    완성한다(WON-20 Unit 2). quantity/condition은 intent_agent_node가 이미
+    완성한다(WON-22 Unit 2). quantity/condition은 intent_agent_node가 이미
     확정한 top-level 값을 그대로 backfill한다 — LLM에게 같은 정보를 두 번
     뽑게 하면 서로 다른 값이 나와 어긋날 수 있어서(이중 추출 금지) 여기선
     구조만 채운다. allow_substitution은 아직 대체품 동의 플로우(Unit 7)가
@@ -217,13 +251,25 @@ def _build_product_request(
     cart_operations 등 다른 buy 전용 후처리와 동일하게 intent="buy"일 때만
     채운다 — "이미 진행 중인 검색을 다듬는" refine/quantity_change 등은 새
     상품 identity를 지목하는 게 아니라 기존 맥락을 참조하므로 범위 밖(과잉
-    확장 방지, 필요해지면 Unit 2 범위를 넘어 별도로 검토)."""
+    확장 방지, 필요해지면 Unit 2 범위를 넘어 별도로 검토).
+
+    후처리 안전장치 둘:
+    - "중간 크기로"류 스코프 밖 표현에 LLM이 size_preference를 억지로
+      채우는 경우 코드가 null로 되돌린다(_should_clear_size_preference).
+    - brand가 비어 있는데 match_mode가 "brand"/"exact_product"로 나오는
+      내적 모순도 실측으로 확인돼(brand=null인데 match_mode="brand") —
+      brand 없이는 match_mode가 "category"를 넘을 수 없다는 계약 자체를
+      코드로 강제한다."""
     if parsed_pr is None or intent != "buy":
         return None
     data = parsed_pr.model_dump()
     data["quantity"] = quantity
     data["condition"] = condition
     data["allow_substitution"] = False
+    if _should_clear_size_preference(user_input):
+        data["size_preference"] = None
+    if not data.get("brand") and data.get("match_mode") in ("brand", "exact_product"):
+        data["match_mode"] = "category"
     return data
 
 
@@ -264,7 +310,7 @@ class CartOperation(BaseModel):
 
 
 class ProductRequestOutput(BaseModel):
-    """LLM이 채우는 부분만(WON-20 Unit 2) — quantity/condition/allow_substitution은
+    """LLM이 채우는 부분만(WON-22 Unit 2) — quantity/condition/allow_substitution은
     intent_agent_node가 이미 확정한 top-level 값을 그대로 backfill한다(이중 추출
     금지, 두 곳이 서로 다른 값을 뽑아 어긋나는 걸 방지). state에 최종 저장되는
     ProductRequest(src/state/product_request.py)의 부분집합이다."""
@@ -276,6 +322,11 @@ class ProductRequestOutput(BaseModel):
     )
     variant: Optional[str] = Field(default=None, description="같은 브랜드/카테고리 안 특정 버전 수식어(예: 나100%, 저지방)")
     size: Optional[str] = Field(default=None, description="언급된 용량/규격(예: 1L, 500g, 15구)")
+    size_preference: Optional[Literal["smallest", "largest"]] = Field(
+        default=None,
+        description="절대 수치가 아니라 '큰 거'/'작은 거'/'대용량'/'낱개'처럼 상대적으로 크기를 "
+        "말했을 때만 채운다. '중간 크기로' 같은 표현은 채우지 않음(smallest/largest만 지원).",
+    )
     platform: Optional[str] = Field(
         default=None,
         description="명시된 특정 쇼핑몰(쿠팡/네이버/컬리 등)만. '마트'/'슈퍼' 같은 일반 매장 표현은 null.",
@@ -317,7 +368,7 @@ class IntentOutput(BaseModel):
     )
     product_request: Optional[ProductRequestOutput] = Field(
         default=None,
-        description="상품 요청을 카테고리/브랜드/제품명/옵션 단위로 구조화(WON-20 Unit 2 프롬프트 "
+        description="상품 요청을 카테고리/브랜드/제품명/옵션 단위로 구조화(WON-22 Unit 2 프롬프트 "
         "규칙 참고). buy처럼 상품을 지목하는 intent일 때 채운다.",
     )
 
@@ -527,7 +578,7 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
 
     # 결제 흐름 중 결제수단/배송/환불 질문을 "나는 답을 모른다"는 이유로
     # 방어적으로 되묻지 않는다 — response_agent가 답할 수 있다(WON-19).
-    if _should_trust_ask_over_clarification(intent, needs_clarification, clarification_reason, confidence, pending_type):
+    if _should_trust_ask_over_clarification(intent, needs_clarification, clarification_reason, confidence, pending_type, user_input):
         needs_clarification = False
 
     if _is_ambiguous_reorder(user_input, keywords):
@@ -549,7 +600,7 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     recipe_dish = parsed.recipe_dish if intent == "buy" else (parsed.recipe_dish or state.get("recipe_dish"))
     recipe_people = parsed.recipe_people if intent == "buy" else (parsed.recipe_people or state.get("recipe_people"))
 
-    product_request = _build_product_request(parsed.product_request, intent, quantity, parsed.condition)
+    product_request = _build_product_request(parsed.product_request, intent, quantity, parsed.condition, user_input)
     cart_operations = [op.model_dump() for op in parsed.cart_operations]
     # buy 발화에 서로 다른 상품이 2개 이상 있으면("계란이랑 참기름 사줘") 첫
     # 품목만 이번 턴 keywords/quantity로 좁히고 나머지는 queue_items로 넘긴다.
