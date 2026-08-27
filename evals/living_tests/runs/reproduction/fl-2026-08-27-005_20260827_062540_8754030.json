@@ -1,0 +1,438 @@
+{
+  "run_id": "repro-20260827-062540-8754030",
+  "failure_id": "fl-2026-08-27-005",
+  "git_sha": "8754030",
+  "model": "default",
+  "trace_ref": null,
+  "observed": {
+    "output": {
+      "messages": [
+        "content='안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?' additional_kwargs={} response_metadata={} id='c4a12b0b-a811-4265-83b8-398975e4cb16' tool_calls=[] invalid_tool_calls=[]",
+        "content='마트표 계란 사줘' additional_kwargs={} response_metadata={} id='3787fb4a-dc07-46ad-a4e1-4385a410e8de'",
+        "content=\"'마트표'는 없어서 동물복지 계란 15구를 대신 보여드려요. 리뷰가 좋아요\\n주문할까요?\" additional_kwargs={} response_metadata={} id='74ab2a4a-6ec0-4134-9499-a70cab72401e' tool_calls=[] invalid_tool_calls=[]"
+      ],
+      "stage": "product_confirming",
+      "intent": "buy",
+      "last_agent": "response_agent",
+      "error": null,
+      "degraded_mode": false,
+      "degradation_reason": null,
+      "failure_stage": null,
+      "ranking_mode": "llm",
+      "source_used": null,
+      "confidence": 0.9,
+      "immediate_response": "마트표 계란을 구매할게요.",
+      "needs_clarification": false,
+      "clarification_reason": null,
+      "recommend_from_profile": false,
+      "cart_operations": [
+        {
+          "op": "ADD_ITEM",
+          "item": "마트표 계란",
+          "quantity": 1,
+          "delta": null
+        }
+      ],
+      "fallback_stuck_turns": 0,
+      "keywords": [
+        "마트표",
+        "계란"
+      ],
+      "search_query": "마트표 계란",
+      "exclude_keywords": [],
+      "negative_constraints": [],
+      "quantity": 1,
+      "condition": null,
+      "override_platform": null,
+      "target_platforms": [],
+      "tried_platforms": [],
+      "selected_platform": null,
+      "search_results": [
+        {
+          "product_name": "동물복지 계란 15구",
+          "price": 7200,
+          "rating": 4.8,
+          "review_count": 1900,
+          "delivery": "새벽배송",
+          "delivery_fee": 0,
+          "platform": "kurly",
+          "image_url": "https://mock.kurly.com/egg.jpg",
+          "product_url": "https://mock.kurly.com/products/egg-15",
+          "is_sold_out": false,
+          "raw": {},
+          "brand": "동물복지",
+          "nutrition_info": {
+            "allergens": [
+              "계란"
+            ],
+            "diet_tags": [],
+            "calories_kcal": 155
+          }
+        },
+        {
+          "product_name": "무항생제 계란 30구",
+          "price": 9500,
+          "rating": 4.7,
+          "review_count": 2450,
+          "delivery": "내일 도착",
+          "delivery_fee": 0,
+          "platform": "naver",
+          "image_url": "https://mock.naver.com/egg-30.jpg",
+          "product_url": "https://mock.naver.com/products/egg-30",
+          "is_sold_out": false,
+          "raw": {},
+          "brand": "무항생제",
+          "nutrition_info": {
+            "allergens": [
+              "계란"
+            ],
+            "diet_tags": [],
+            "calories_kcal": 155
+          }
+        }
+      ],
+      "scored_products": [],
+      "recommended_products": [
+        {
+          "product_name": "동물복지 계란 15구",
+          "price": 7200,
+          "rating": 4.8,
+          "review_count": 1900,
+          "delivery": "새벽배송",
+          "delivery_fee": 0,
+          "platform": "kurly",
+          "image_url": "https://mock.kurly.com/egg.jpg",
+          "product_url": "https://mock.kurly.com/products/egg-15",
+          "is_sold_out": false,
+          "raw": {},
+          "brand": "동물복지",
+          "nutrition_info": {
+            "allergens": [
+              "계란"
+            ],
+            "diet_tags": [],
+            "calories_kcal": 155
+          },
+          "_candidate_id": "A",
+          "final_score": 0.9163,
+          "axis_contributions": {
+            "price": 0.4,
+            "review": 0.35,
+            "preference": 0.1663
+          },
+          "preference_item_breakdown": [
+            {
+              "preference_item": "마트표",
+              "match_level": "중립",
+              "reasoning": "마트표에 대한 명시적 선호가 없으므로 중립으로 평가합니다."
+            },
+            {
+              "preference_item": "계란",
+              "match_level": "강한부합",
+              "reasoning": "계란이라는 키워드가 명시되어 있으며, 제품이 계란이므로 강한 부합으로 평가합니다."
+            }
+          ]
+        },
+        {
+          "product_name": "무항생제 계란 30구",
+          "price": 9500,
+          "rating": 4.7,
+          "review_count": 2450,
+          "delivery": "내일 도착",
+          "delivery_fee": 0,
+          "platform": "naver",
+          "image_url": "https://mock.naver.com/egg-30.jpg",
+          "product_url": "https://mock.naver.com/products/egg-30",
+          "is_sold_out": false,
+          "raw": {},
+          "brand": "무항생제",
+          "nutrition_info": {
+            "allergens": [
+              "계란"
+            ],
+            "diet_tags": [],
+            "calories_kcal": 155
+          },
+          "_candidate_id": "B",
+          "final_score": 0.1663,
+          "axis_contributions": {
+            "price": 0.0,
+            "review": 0.0,
+            "preference": 0.1663
+          },
+          "preference_item_breakdown": [
+            {
+              "preference_item": "마트표",
+              "match_level": "중립",
+              "reasoning": "마트표에 대한 명시적 선호가 없으므로 중립으로 평가합니다."
+            },
+            {
+              "preference_item": "계란",
+              "match_level": "강한부합",
+              "reasoning": "계란이라는 키워드가 명시되어 있으며, 제품이 계란이므로 강한 부합으로 평가합니다."
+            }
+          ]
+        }
+      ],
+      "current_product_index": 0,
+      "selected_product": {
+        "product_name": "동물복지 계란 15구",
+        "price": 7200,
+        "rating": 4.8,
+        "review_count": 1900,
+        "delivery": "새벽배송",
+        "delivery_fee": 0,
+        "platform": "kurly",
+        "image_url": "https://mock.kurly.com/egg.jpg",
+        "product_url": "https://mock.kurly.com/products/egg-15",
+        "is_sold_out": false,
+        "raw": {},
+        "brand": "동물복지",
+        "nutrition_info": {
+          "allergens": [
+            "계란"
+          ],
+          "diet_tags": [],
+          "calories_kcal": 155
+        },
+        "_candidate_id": "A",
+        "final_score": 0.9163,
+        "axis_contributions": {
+          "price": 0.4,
+          "review": 0.35,
+          "preference": 0.1663
+        },
+        "preference_item_breakdown": [
+          {
+            "preference_item": "마트표",
+            "match_level": "중립",
+            "reasoning": "마트표에 대한 명시적 선호가 없으므로 중립으로 평가합니다."
+          },
+          {
+            "preference_item": "계란",
+            "match_level": "강한부합",
+            "reasoning": "계란이라는 키워드가 명시되어 있으며, 제품이 계란이므로 강한 부합으로 평가합니다."
+          }
+        ]
+      },
+      "product_url": "https://mock.kurly.com/products/egg-15",
+      "explanation": "'마트표'는 없어서 동물복지 계란 15구를 대신 보여드려요. 리뷰가 좋아요. 주문할까요?",
+      "highlight_specs": [],
+      "pending_action": {
+        "type": "product_confirm",
+        "message": "'마트표'는 없어서 동물복지 계란 15구를 대신 보여드려요. 리뷰가 좋아요\n주문할까요?"
+      },
+      "cart": null,
+      "order": null,
+      "payment": null,
+      "checkout_session": null,
+      "payment_idempotency_key": null,
+      "session_id": "living-test-fl-2026-08-27-005",
+      "conversation_id": null,
+      "user_id": "living_test_fl-2026-08-27-005",
+      "storage_state_path": null,
+      "cart_items": [],
+      "recipe_dish": null,
+      "recipe_people": null,
+      "queue_items": [],
+      "current_queue_index": 0,
+      "queue_source": null,
+      "queue_clear_existing": false,
+      "recommendation_context": {
+        "user_profile": {
+          "user_id": "living_test_fl-2026-08-27-005",
+          "name": null,
+          "age_group": null,
+          "default_address": null
+        },
+        "preference_memory": {},
+        "purchase_count": 0,
+        "retrieval_mode": "keyword_collective",
+        "keyword_results": [],
+        "personal_vector_results": [],
+        "collective_vector_results": [
+          {
+            "product_name": "설향 딸기 500g",
+            "price": 12900,
+            "rating": 4.8,
+            "review_count": 1523,
+            "delivery": "새벽배송",
+            "delivery_fee": 0,
+            "platform": "kurly",
+            "image_url": "https://mock.kurly.com/strawberry.jpg",
+            "product_url": "https://mock.kurly.com/products/strawberry-500g",
+            "is_sold_out": false,
+            "raw": {}
+          },
+          {
+            "product_name": "컬리 딸기 1kg 산지직송",
+            "price": 19800,
+            "rating": 4.7,
+            "review_count": 643,
+            "delivery": "새벽배송",
+            "delivery_fee": 0,
+            "platform": "kurly",
+            "image_url": "https://mock.kurly.com/strawberry-1kg.jpg",
+            "product_url": "https://mock.kurly.com/products/strawberry-1kg",
+            "is_sold_out": false,
+            "raw": {}
+          },
+          {
+            "product_name": "죽향 딸기 1kg",
+            "price": 22000,
+            "rating": 4.6,
+            "review_count": 892,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/strawberry.jpg",
+            "product_url": "https://mock.coupang.com/products/strawberry-1kg",
+            "is_sold_out": false,
+            "raw": {}
+          },
+          {
+            "product_name": "논산 딸기 500g 특품",
+            "price": 11500,
+            "rating": 4.5,
+            "review_count": 2104,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/strawberry-sp.jpg",
+            "product_url": "https://mock.coupang.com/products/strawberry-sp-500g",
+            "is_sold_out": false,
+            "raw": {}
+          },
+          {
+            "product_name": "딸기 500g 당일수확",
+            "price": 10900,
+            "rating": 4.4,
+            "review_count": 780,
+            "delivery": "내일 도착",
+            "delivery_fee": 3000,
+            "platform": "naver",
+            "image_url": "https://mock.naver.com/strawberry.jpg",
+            "product_url": "https://mock.naver.com/products/strawberry-500g",
+            "is_sold_out": false,
+            "raw": {}
+          }
+        ],
+        "merged_context": [
+          {
+            "product_name": "설향 딸기 500g",
+            "price": 12900,
+            "rating": 4.8,
+            "review_count": 1523,
+            "delivery": "새벽배송",
+            "delivery_fee": 0,
+            "platform": "kurly",
+            "image_url": "https://mock.kurly.com/strawberry.jpg",
+            "product_url": "https://mock.kurly.com/products/strawberry-500g",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          },
+          {
+            "product_name": "컬리 딸기 1kg 산지직송",
+            "price": 19800,
+            "rating": 4.7,
+            "review_count": 643,
+            "delivery": "새벽배송",
+            "delivery_fee": 0,
+            "platform": "kurly",
+            "image_url": "https://mock.kurly.com/strawberry-1kg.jpg",
+            "product_url": "https://mock.kurly.com/products/strawberry-1kg",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          },
+          {
+            "product_name": "죽향 딸기 1kg",
+            "price": 22000,
+            "rating": 4.6,
+            "review_count": 892,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/strawberry.jpg",
+            "product_url": "https://mock.coupang.com/products/strawberry-1kg",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          },
+          {
+            "product_name": "논산 딸기 500g 특품",
+            "price": 11500,
+            "rating": 4.5,
+            "review_count": 2104,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/strawberry-sp.jpg",
+            "product_url": "https://mock.coupang.com/products/strawberry-sp-500g",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          },
+          {
+            "product_name": "딸기 500g 당일수확",
+            "price": 10900,
+            "rating": 4.4,
+            "review_count": 780,
+            "delivery": "내일 도착",
+            "delivery_fee": 3000,
+            "platform": "naver",
+            "image_url": "https://mock.naver.com/strawberry.jpg",
+            "product_url": "https://mock.naver.com/products/strawberry-500g",
+            "is_sold_out": false,
+            "raw": {},
+            "_memory_source": "collective_vector"
+          }
+        ],
+        "preference_context": {
+          "keyword_history": [],
+          "keyword_summary": "",
+          "_cache_hit": false,
+          "keyword_additions": [],
+          "exclude_additions": [],
+          "soft_preferences": [],
+          "safety_constraints": [],
+          "overridden_exclusions": []
+        }
+      },
+      "reorder_resolution": null,
+      "current_option_value": null,
+      "address_text": null,
+      "tool_calls": null,
+      "tool_results": null,
+      "conversation_summary": null,
+      "order_id": null,
+      "onboarding_started_at": "2026-08-27T06:25:29.359222+00:00",
+      "recent_patterns_used": [],
+      "recent_episodes_used": [],
+      "name_greeting_pending": false,
+      "consecutive_question_turns": 0,
+      "already_asked_topics": [],
+      "turns_without_required_progress": 1,
+      "health_followup_turns_remaining": 0,
+      "recent_replies": [
+        "안녕하세요, 저는 어르신 쇼핑을 도와드릴 딸랑구예요. 근데 필요한 거 여쭤보기 전에 어르신에 대해 좀 더 알고 싶어서요 — 성함이 어떻게 되세요?"
+      ]
+    },
+    "executed_nodes": [
+      "session_start",
+      "smalltalk_agent",
+      "respond",
+      "__interrupt__",
+      "wait_for_input",
+      "reset_turn_observability",
+      "intent_agent",
+      "context_agent",
+      "product_agent",
+      "response_agent",
+      "respond",
+      "__interrupt__"
+    ],
+    "tool_calls_summary": []
+  }
+}

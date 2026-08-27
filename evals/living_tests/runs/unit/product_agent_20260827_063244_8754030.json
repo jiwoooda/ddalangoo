@@ -1,0 +1,55 @@
+{
+  "run_id": "run-20260827-063244-8754030",
+  "scope": "unit",
+  "target": "product_agent",
+  "git_sha": "8754030",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "product_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "search_results[0].product_name",
+          "expected": "서울우유 1L",
+          "actual": "서울우유 1L",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "search_results[1]",
+          "expected": null,
+          "actual": {
+            "product_name": "매일 ESL 흰우유 900ml",
+            "price": 3200,
+            "rating": 4.6,
+            "review_count": 2800,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/milk-maeil.jpg",
+            "product_url": "https://mock.coupang.com/products/maeil-milk-900ml",
+            "is_sold_out": false,
+            "raw": {},
+            "brand": "매일",
+            "nutrition_info": {
+              "allergens": [
+                "우유"
+              ],
+              "diet_tags": [],
+              "calories_kcal": 61
+            }
+          },
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}

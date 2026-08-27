@@ -1,0 +1,155 @@
+{
+  "run_id": "run-20260827-063403-8754030",
+  "scope": "unit",
+  "target": "product_agent",
+  "git_sha": "8754030",
+  "model": "default",
+  "case_count": 4,
+  "cases": [
+    {
+      "case_id": "product_agent-2026-08-18-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "search_query",
+          "expected": "사과",
+          "actual": "사과",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "quantity",
+          "expected": 3,
+          "actual": 3,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "product_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "search_results[0].product_name",
+          "expected": "서울우유 1L",
+          "actual": "서울우유 1L",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "search_results[1]",
+          "expected": null,
+          "actual": {
+            "product_name": "매일 ESL 흰우유 900ml",
+            "price": 3200,
+            "rating": 4.6,
+            "review_count": 2800,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/milk-maeil.jpg",
+            "product_url": "https://mock.coupang.com/products/maeil-milk-900ml",
+            "is_sold_out": false,
+            "raw": {},
+            "brand": "매일",
+            "nutrition_info": {
+              "allergens": [
+                "우유"
+              ],
+              "diet_tags": [],
+              "calories_kcal": 61
+            }
+          },
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    },
+    {
+      "case_id": "product_agent-2026-08-27-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "product_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "error",
+          "expected": "no_candidates",
+          "actual": null,
+          "passed": false
+        },
+        {
+          "type": "field_equals",
+          "path": "selected_product",
+          "expected": null,
+          "actual": {
+            "product_name": "서울우유 1L",
+            "price": 2800,
+            "rating": 4.5,
+            "review_count": 5100,
+            "delivery": "로켓배송",
+            "delivery_fee": 0,
+            "platform": "coupang",
+            "image_url": "https://mock.coupang.com/milk.jpg",
+            "product_url": "https://mock.coupang.com/products/milk-1l",
+            "is_sold_out": false,
+            "raw": {},
+            "brand": "서울우유",
+            "nutrition_info": {
+              "allergens": [
+                "우유"
+              ],
+              "diet_tags": [],
+              "calories_kcal": 61
+            },
+            "_candidate_id": "A",
+            "final_score": 0.5165,
+            "axis_contributions": {
+              "price": 0.2,
+              "review": 0.25,
+              "preference": 0.0665
+            },
+            "preference_item_breakdown": [
+              {
+                "preference_item": "서울우유",
+                "match_level": "강한부합",
+                "reasoning": "The product is explicitly labeled as '서울우유', directly matching the query keyword."
+              },
+              {
+                "preference_item": "나100%",
+                "match_level": "중립",
+                "reasoning": "The product description does not specify '나100%', so it neither confirms nor denies this preference."
+              }
+            ]
+          },
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "run_id": "run-20260827-063304-8754030",
+  "scope": "unit",
+  "target": "intent_agent",
+  "git_sha": "8754030",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "intent_agent-2026-08-27-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "intent_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_not_contains",
+          "path": "keywords[0]",
+          "expected": "마트",
+          "actual": "마트표",
+          "passed": false
+        }
+      ],
+      "verdict": "fail"
+    }
+  ]
+}
