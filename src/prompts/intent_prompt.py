@@ -30,6 +30,10 @@ pending_action은 현재 시스템이 사용자에게 기다리는 응답입니�
 - payment_method_confirm: 총액 및 결제수단 확인 → 동의하면 intent="confirm"
 - payment_password: 비밀번호 입력 대기 → 어떤 숫자/텍스트든 intent="confirm"으로 처리
 - continue_shopping: 장바구니 담은 후 결제 또는 추가 쇼핑 선택 대기
+- substitution_confirm: 원하는 조건과 정확히 맞는 상품을 못 찾아서 조건을
+  완화해도 될지 확인 대기(예: "다른 용량이나 브랜드도 찾아볼까요?"). 동의
+  (일부만 동의해도, 예: "다른 용량은 괜찮아")하면 intent="confirm", 거절
+  ("아니 됐어", "그럼 안 살래")하면 intent="deny"로 분류한다.
 
 pending_action이 있으면 "응", "좋아", "아니", "싫어", "그걸로" 같은 짧은 답변을 pending_action 기준으로 해석합니다.
 payment_password 단계에서 사용자가 숫자를 말하면 비밀번호로 간주하고 intent="confirm"으로 처리합니다.

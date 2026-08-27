@@ -53,3 +53,10 @@ class ProductRequest(BaseModel):
     # 기본은 False — 사용자가 명시적으로 동의한 뒤에만(Unit 7 대체품 동의
     # 플로우) True로 바뀐다. 자동으로 켜지면 안 된다.
     allow_substitution: bool = False
+    # substitution_scope: allow_substitution=True일 때 실제로 어떤 조건을
+    # 완화해도 되는지(전부가 아니라 사용자가 동의한 것만). "specifics"=
+    # variant/size(제품 라인/용량), "brand"=브랜드. "다른 용량은 괜찮아"는
+    # ["specifics"]만, "다른 브랜드도 괜찮아"는 ["brand"]까지 포함 —
+    # 동의 범위 밖 조건(예: brand를 동의 안 했으면 브랜드)은 계속 하드
+    # 조건으로 유지된다(완료 조건: "동의 범위 외 조건은 계속 유지").
+    substitution_scope: list[Literal["specifics", "brand"]] = Field(default_factory=list)

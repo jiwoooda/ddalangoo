@@ -48,6 +48,16 @@ def respond_node(state: RespondNodeInput) -> RespondNodeUpdate:
     pending_action = state.get("pending_action") or {}
     stuck_turns = state.get("fallback_stuck_turns") or 0
 
+    # WON-22 Unit 7 — 대체품 제안(substitution_confirm)을 거절하면 pending_
+    # action을 클리어하고 단답으로 마무리한다. intent_agent가 이미 이 경우
+    # product_request를 None으로 비워뒀지만(재검색 안 함), pending_action
+    # 자체는 여기서 클리어해야 이전 턴의 대체품 질문이 그대로 반복되지 않는다
+    # (address_confirm deny와 동일한 패턴).
+    if pending_action.get("type") == "substitution_confirm" and intent == "deny":
+        msg = immediate or "네, 알겠어요! 다른 상품을 찾아드릴까요?"
+        agent_logger.log_respond(msg, stage, pending_action)
+        return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None, "fallback_stuck_turns": 0}
+
     # idle에서 배송지 confirm/deny — pending_action 클리어 후 단답 응답
     # (응답 agent가 방금 address_confirm을 세팅한 경우(intent=ask)는 통과시켜 그냥 표시)
     if pending_action.get("type") == "address_confirm" and stage != "payment_processing":
