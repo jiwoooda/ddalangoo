@@ -33,7 +33,7 @@ from src.utils.product_identity import (
     compare_identities,
     normalize_brand,
 )
-from src.agents.product_resolver import ProductResolver
+from src.agents.product_resolver import ProductResolver, build_match_evidence
 
 ALL_PLATFORMS = ["naver", "coupang", "kurly"]
 
@@ -435,6 +435,50 @@ def _filter_results(
     return filtered
 
 
+# WON-22 Unit 6 — rank_products(_rank_with_metadata, 아래) vs rank_offers(이
+# 함수)는 랭킹 "대상의 의미"가 다르다: rank_products는 category/brand 요청의
+# 서로 다른 제품을 비교하는 것(취향/가중치 판단이 필요해 LLM 스코어링을 씀).
+# rank_offers는 ProductResolver가 이미 "같은 제품"이라고 확정한 후보들 사이의
+# 판매처만 비교하는 것 — 브랜드/제품명 같은 취향 판단이 필요 없고, 가격/배송/
+# 리뷰 같은 객관적 기준만 남는다. 그래서 LLM을 아예 안 쓰고 결정론적으로만
+# 정렬한다(지연시간/비용 절감 + 같은 입력엔 항상 같은 순서 보장).
+_OFFER_SORT_PRIORITY: dict[str, str] = {
+    "최저가": "price", "가성비": "price",
+    "무료배송": "free_shipping",
+    "빠른배송": "delivery",
+    "인기순": "reviews", "리뷰좋은": "reviews",
+}
+_FAST_DELIVERY_LABELS = ("로켓배송", "새벽배송", "당일배송", "익일배송")
+
+
+def _offer_sort_key(condition: str | None):
+    priority = _OFFER_SORT_PRIORITY.get(condition or "", "price")
+
+    def key(p: dict[str, Any]) -> tuple:
+        price = p.get("price") if p.get("price") is not None else float("inf")
+        delivery_fee = p.get("delivery_fee") if p.get("delivery_fee") is not None else float("inf")
+        is_slow = 0 if any(label in str(p.get("delivery") or "") for label in _FAST_DELIVERY_LABELS) else 1
+        neg_reviews = -(p.get("review_count") or 0)
+        if priority == "free_shipping":
+            return (delivery_fee, price, is_slow, neg_reviews)
+        if priority == "delivery":
+            return (is_slow, price, delivery_fee, neg_reviews)
+        if priority == "reviews":
+            return (neg_reviews, price, delivery_fee, is_slow)
+        return (price, delivery_fee, is_slow, neg_reviews)  # 기본값: 최저가/가성비
+
+    return key
+
+
+def rank_offers(candidates: list[dict[str, Any]], condition: str | None = None) -> list[dict[str, Any]]:
+    """동일 identity(같은 제품)의 서로 다른 판매처(오퍼)를 가격/배송/리뷰
+    기준으로 결정론적으로 정렬한다. 명시 조건(condition)이 있으면 그 기준을
+    최우선으로, 없으면 최저가를 기본값으로 쓴다 — 완전히 같은 제품이면
+    가격이 가장 직접적인 차별화 요소라는 게 기본 가정(과설계 방지, 필요해
+    지면 조건 늘리기)."""
+    return sorted(candidates, key=_offer_sort_key(condition))
+
+
 def _baseline_rank(
     candidates: list[dict[str, Any]],
     keywords: list[str],
@@ -748,10 +792,29 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
             }
 
         # status == "same_identity_multiple" — 같은 제품을 여러 판매처가
-        # 파는 경우다. Unit 6(rank_offers)이 정식으로 분리되기 전까지는
-        # candidates를 이 좁혀진 후보군(전부 같은 제품)으로 두고 아래
-        # 기존 랭킹 파이프라인을 그대로 재사용해 판매처만 비교하게 한다.
-        candidates = resolve_result.candidates
+        # 파는 경우. rank_products(취향 기반 LLM 랭킹)를 타지 않고 rank_offers
+        # (가격/배송/리뷰 결정론적 정렬, Unit 6)로 판매처만 비교한다.
+        ranked_offers = rank_offers(resolve_result.candidates, condition)
+        top_offer = ranked_offers[0]
+        top_offer = dict(top_offer)
+        top_offer["_match_evidence"] = build_match_evidence(product_request, top_offer)
+        agent_logger.log_product_agent(
+            {"intent": intent, "resolver_status": "same_identity_multiple", "offers": len(ranked_offers)},
+            {"selected_product": top_offer},
+        )
+        return {
+            "search_results": resolve_result.candidates,
+            "search_query": query,
+            "selected_product": top_offer,
+            "product_url": top_offer.get("product_url"),
+            "recommended_products": ranked_offers,
+            "current_product_index": 0,
+            "stage": "searching",
+            "quantity": state.get("quantity"),
+            "last_agent": "product_agent",
+            "error": None,
+            "ranking_mode": "offer_deterministic",
+        }
 
     agent_logger.log(f"[product_agent] 랭킹 | 후보 {len(candidates)}개")
     rank_meta = _rank_with_metadata(candidates, keywords, condition, preference_context, exclude_keywords)
