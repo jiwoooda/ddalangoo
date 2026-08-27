@@ -1,0 +1,342 @@
+{
+  "run_id": "run-20260827-135707-96485bb",
+  "scope": "integration",
+  "target": "state_transition",
+  "git_sha": "96485bb",
+  "model": "default",
+  "case_count": 6,
+  "cases": [
+    {
+      "case_id": "state_transition-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "session_start",
+        "smalltalk_agent",
+        "respond",
+        "__interrupt__",
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "context_agent",
+        "product_agent",
+        "response_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "quantity",
+          "expected": 3,
+          "actual": 3,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "state_transition-2026-08-21-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "session_start",
+        "entry_engagement",
+        "respond",
+        "__interrupt__",
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "context_agent",
+        "product_agent",
+        "response_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "keywords",
+          "expected": [
+            "딸기"
+          ],
+          "actual": [
+            "딸기"
+          ],
+          "passed": true
+        },
+        {
+          "type": "executed_nodes_contains",
+          "value": "product_agent",
+          "executed_nodes": [
+            "session_start",
+            "entry_engagement",
+            "respond",
+            "__interrupt__",
+            "wait_for_input",
+            "reset_turn_observability",
+            "intent_agent",
+            "context_agent",
+            "product_agent",
+            "response_agent",
+            "respond",
+            "__interrupt__"
+          ],
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "state_transition-2026-08-25-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "session_start",
+        "smalltalk_agent",
+        "respond",
+        "__interrupt__",
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "payment_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "cart_items[0].product_name",
+          "expected": "서울우유 1L",
+          "actual": "서울우유 1L",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "cart_items[0].quantity",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "cart_items[1].product_name",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "state_transition-2026-08-26-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "session_start",
+        "smalltalk_agent",
+        "respond",
+        "__interrupt__",
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "payment_agent",
+        "purchase_queue_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "executed_nodes_contains",
+          "value": "purchase_queue_agent",
+          "executed_nodes": [
+            "session_start",
+            "smalltalk_agent",
+            "respond",
+            "__interrupt__",
+            "wait_for_input",
+            "reset_turn_observability",
+            "intent_agent",
+            "payment_agent",
+            "purchase_queue_agent",
+            "respond",
+            "__interrupt__"
+          ],
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "pending_action.type",
+          "expected": "ingredient_confirm",
+          "actual": "ingredient_confirm",
+          "passed": true
+        },
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "계란",
+          "actual": "계란 담았어요! 다음은 참기름 1개이에요. 찾아볼까요?",
+          "passed": true
+        },
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "참기름",
+          "actual": "계란 담았어요! 다음은 참기름 1개이에요. 찾아볼까요?",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "current_queue_index",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "cart_items[0].product_name",
+          "expected": "동물복지 유정란",
+          "actual": "동물복지 유정란",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "state_transition-2026-08-26-002",
+      "trace_ref": null,
+      "executed_nodes": [
+        "session_start",
+        "smalltalk_agent",
+        "respond",
+        "__interrupt__",
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "payment_agent",
+        "purchase_queue_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "cart_items[0].product_name",
+          "expected": "동물복지 유정란",
+          "actual": "동물복지 유정란",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "cart_items[1].product_name",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "queue_clear_existing",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "type": "executed_nodes_contains",
+          "value": "purchase_queue_agent",
+          "executed_nodes": [
+            "session_start",
+            "smalltalk_agent",
+            "respond",
+            "__interrupt__",
+            "wait_for_input",
+            "reset_turn_observability",
+            "intent_agent",
+            "payment_agent",
+            "purchase_queue_agent",
+            "respond",
+            "__interrupt__"
+          ],
+          "passed": true
+        },
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "참기름",
+          "actual": "계란 담았어요! 다음은 참기름 1개이에요. 찾아볼까요?",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "state_transition-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "session_start",
+        "entry_engagement",
+        "respond",
+        "__interrupt__",
+        "wait_for_input",
+        "reset_turn_observability",
+        "intent_agent",
+        "context_agent",
+        "product_agent",
+        "response_agent",
+        "respond",
+        "__interrupt__"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "executed_nodes_contains",
+          "value": "product_agent",
+          "executed_nodes": [
+            "session_start",
+            "entry_engagement",
+            "respond",
+            "__interrupt__",
+            "wait_for_input",
+            "reset_turn_observability",
+            "intent_agent",
+            "context_agent",
+            "product_agent",
+            "response_agent",
+            "respond",
+            "__interrupt__"
+          ],
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.category",
+          "expected": "계란",
+          "actual": "계란",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.match_mode",
+          "expected": "category",
+          "actual": "category",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "product_request.allow_substitution",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "type": "field_contains",
+          "path": "selected_product.product_name",
+          "expected": "계란",
+          "actual": "동물복지 계란 15구",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
