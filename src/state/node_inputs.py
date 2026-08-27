@@ -196,6 +196,7 @@ class IntentAgentUpdate(TypedDict, total=False):
     degradation_reason: Optional[str]
     recommend_from_profile: bool
     cart_operations: list[dict[str, Any]]
+    product_request: Optional[dict[str, Any]]
     queue_items: list[dict[str, Any]]
     current_queue_index: int
     queue_source: Optional[Literal["recipe", "multi_buy"]]

@@ -15,6 +15,7 @@ from langgraph.types import Command
 from configs.llm_config import get_llm
 from src.state.schema import ShoppingState
 from src.state.node_inputs import IntentAgentInput, IntentAgentUpdate
+from src.state.product_request import MatchMode
 from src.prompts.intent_prompt import INTENT_AGENT_PROMPT
 from src.utils.agent_logger import agent_logger
 from src.utils.retry import FailureClass, classify_failure
@@ -203,6 +204,29 @@ def _split_multi_buy_queue(intent: str, cart_operations: list[dict]) -> Optional
     }
 
 
+def _build_product_request(
+    parsed_pr: Optional["ProductRequestOutput"], intent: str, quantity: Optional[int], condition: Optional[str],
+) -> Optional[dict]:
+    """LLM이 뽑은 ProductRequestOutput(부분집합)을 최종 ProductRequest dict로
+    완성한다(WON-20 Unit 2). quantity/condition은 intent_agent_node가 이미
+    확정한 top-level 값을 그대로 backfill한다 — LLM에게 같은 정보를 두 번
+    뽑게 하면 서로 다른 값이 나와 어긋날 수 있어서(이중 추출 금지) 여기선
+    구조만 채운다. allow_substitution은 아직 대체품 동의 플로우(Unit 7)가
+    없어 항상 False로 시작 — 자동으로 켜지면 안 된다.
+
+    cart_operations 등 다른 buy 전용 후처리와 동일하게 intent="buy"일 때만
+    채운다 — "이미 진행 중인 검색을 다듬는" refine/quantity_change 등은 새
+    상품 identity를 지목하는 게 아니라 기존 맥락을 참조하므로 범위 밖(과잉
+    확장 방지, 필요해지면 Unit 2 범위를 넘어 별도로 검토)."""
+    if parsed_pr is None or intent != "buy":
+        return None
+    data = parsed_pr.model_dump()
+    data["quantity"] = quantity
+    data["condition"] = condition
+    data["allow_substitution"] = False
+    return data
+
+
 def _parse_quantity(v) -> Optional[int]:
     if v is None:
         return None
@@ -239,6 +263,30 @@ class CartOperation(BaseModel):
     delta: Optional[int] = Field(default=None, description="CHANGE_QUANTITY의 증감량. 늘리면 양수, 줄이면 음수.")
 
 
+class ProductRequestOutput(BaseModel):
+    """LLM이 채우는 부분만(WON-20 Unit 2) — quantity/condition/allow_substitution은
+    intent_agent_node가 이미 확정한 top-level 값을 그대로 backfill한다(이중 추출
+    금지, 두 곳이 서로 다른 값을 뽑아 어긋나는 걸 방지). state에 최종 저장되는
+    ProductRequest(src/state/product_request.py)의 부분집합이다."""
+    category: Optional[str] = Field(default=None, description="일반 카테고리 명사(예: 우유, 계란)")
+    brand: Optional[str] = Field(default=None, description="명시된 브랜드명. 없으면 null — 자동으로 지우지 않음")
+    product_name: Optional[str] = Field(
+        default=None,
+        description="브랜드+카테고리로 못 담는 구체적 제품 라인/모델명(예: 레고 테크닉의 '테크닉'). 대부분 null.",
+    )
+    variant: Optional[str] = Field(default=None, description="같은 브랜드/카테고리 안 특정 버전 수식어(예: 나100%, 저지방)")
+    size: Optional[str] = Field(default=None, description="언급된 용량/규격(예: 1L, 500g, 15구)")
+    platform: Optional[str] = Field(
+        default=None,
+        description="명시된 특정 쇼핑몰(쿠팡/네이버/컬리 등)만. '마트'/'슈퍼' 같은 일반 매장 표현은 null.",
+    )
+    excluded_brands: list[str] = Field(default_factory=list, description="'X 말고'처럼 명시적으로 배제한 브랜드 목록")
+    match_mode: MatchMode = Field(
+        default="category",
+        description="category(카테고리만)/brand(브랜드까지)/exact_product(브랜드+구체 옵션까지 특정)",
+    )
+
+
 class IntentOutput(BaseModel):
     intent: IntentType = Field(description="사용자 의도")
     keywords: list[str] = Field(default_factory=list, description="검색할 상품명/카테고리/브랜드")
@@ -266,6 +314,11 @@ class IntentOutput(BaseModel):
         "통째로/부분적으로 비우거나, 최종 수량이 아니라 증감량을 말하는 등 단순 수량 확정 "
         "하나로 표현 안 될 때만 채운다. 단일 품목의 단순 수량 확정 하나뿐이면 비워두고 "
         "기존 keywords/quantity를 그대로 쓴다.",
+    )
+    product_request: Optional[ProductRequestOutput] = Field(
+        default=None,
+        description="상품 요청을 카테고리/브랜드/제품명/옵션 단위로 구조화(WON-20 Unit 2 프롬프트 "
+        "규칙 참고). buy처럼 상품을 지목하는 intent일 때 채운다.",
     )
 
 
@@ -334,6 +387,7 @@ def _degraded_intent_result(state: IntentAgentInput, failure_class: FailureClass
         "tool_results": None,
         "recommend_from_profile": False,
         "cart_operations": [],
+        "product_request": None,
         "degraded_mode": True,
         "failure_stage": "intent_llm",
         "degradation_reason": f"{failure_class.value}:{type(exc).__name__}",
@@ -495,6 +549,7 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     recipe_dish = parsed.recipe_dish if intent == "buy" else (parsed.recipe_dish or state.get("recipe_dish"))
     recipe_people = parsed.recipe_people if intent == "buy" else (parsed.recipe_people or state.get("recipe_people"))
 
+    product_request = _build_product_request(parsed.product_request, intent, quantity, parsed.condition)
     cart_operations = [op.model_dump() for op in parsed.cart_operations]
     # buy 발화에 서로 다른 상품이 2개 이상 있으면("계란이랑 참기름 사줘") 첫
     # 품목만 이번 턴 keywords/quantity로 좁히고 나머지는 queue_items로 넘긴다.
@@ -525,6 +580,7 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         "tool_results": None,
         "recommend_from_profile": recommend_from_profile,
         "cart_operations": cart_operations,
+        "product_request": product_request,
     }
     if multi_buy_split:
         result["queue_items"] = multi_buy_split["queue_items"]
