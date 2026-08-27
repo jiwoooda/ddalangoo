@@ -156,8 +156,10 @@ intent=buy일 때, keywords와 별개로 요청을 구조화한 product_request�
 
 product_request 필드:
 - category: 일반 카테고리 명사(예: 우유, 계란). 브랜드/제품명이 없어도 항상 채운다.
-- brand: 사용자가 명시한 브랜드명. 명시 안 됐으면 null. **명시된 브랜드는 절대
-  비우거나 지우지 않는다** — 확신이 없어도 사용자가 말한 브랜드 단어 그대로 넣는다.
+- brand: 사용자가 명시한 **특정 고유 브랜드명**(예: 서울우유, 오뚜기, 레고)만.
+  명시 안 됐으면 null. 명시된 고유 브랜드명은 절대 비우지 않는다. "마트표"/
+  "매장표"/"자체브랜드"/"PB상품"(특정 브랜드가 아니라 "매장 자체 상품"이라는
+  뜻)은 브랜드명이 아니므로 null.
 - product_name: 브랜드+카테고리로는 못 담는, 사용자가 말한 구체적인 제품 라인/
   모델명(예: "레고 테크닉" → brand=레고, product_name=테크닉). 대부분의 요청엔
   해당 없음(null).
@@ -190,6 +192,9 @@ product_request 필드:
   excluded_brands에만 넣는다)
 - "마트에서 파는 계란" → category="계란", platform=null, match_mode="category"
   ("마트"는 매장 일반 표현이지 특정 플랫폼이 아니므로 어디에도 안 넣음)
+- "마트표 계란 사줘" → category="계란", brand=null, match_mode="category"
+  ("마트표"는 특정 브랜드명이 아니라 "매장 자체상품"이라는 일반 서술어이므로
+  brand에 넣지 않음 — keywords에도 "계란"만, "마트표"는 안 넣음)
 - "서울우유 큰거 사줘" → brand="서울우유", category="우유", size=null,
   size_preference="largest", match_mode="brand" (특정 SKU 하나를 지목한 게
   아니라 그 브랜드 안에서 큰 걸 원하는 것이므로 exact_product가 아니라 brand)
