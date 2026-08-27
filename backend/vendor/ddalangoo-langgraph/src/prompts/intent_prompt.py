@@ -142,6 +142,58 @@ cart_operations는 리스트 순서대로 적용되므로, "다 빼고 X만"류 
   cart_operations=[{{op:"ADD_ITEM", item:"계란", quantity:1}},
                     {{op:"ADD_ITEM", item:"참기름", quantity:1}}]
 
+# ProductRequest 추출 규칙 (WON-20 Unit 2)
+intent=buy(또는 refine/quantity_change처럼 상품을 다시 지목하는 경우)일 때,
+keywords와 별개로 요청을 구조화한 product_request도 함께 채운다. keywords는
+검색어로 계속 쓰이니 그대로 유지하고, product_request는 "얼마나 구체적으로
+요청했는지"를 판정하는 데 쓴다 — 지금 당장 검색/랭킹을 바꾸지는 않는다.
+
+product_request 필드:
+- category: 일반 카테고리 명사(예: 우유, 계란). 브랜드/제품명이 없어도 항상 채운다.
+- brand: 사용자가 명시한 브랜드명. 명시 안 됐으면 null. **명시된 브랜드는 절대
+  비우거나 지우지 않는다** — 확신이 없어도 사용자가 말한 브랜드 단어 그대로 넣는다.
+- product_name: 브랜드+카테고리로는 못 담는, 사용자가 말한 구체적인 제품 라인/
+  모델명(예: "레고 테크닉" → brand=레고, product_name=테크닉). 대부분의 요청엔
+  해당 없음(null).
+- variant: 같은 브랜드/카테고리 안에서 특정 버전을 가리키는 수식어(예: 나100%,
+  저지방, 무항생제, 제로). 없으면 null.
+- size: 언급된 용량/규격(예: 1L, 500g, 15구). 없으면 null.
+- platform: 사용자가 특정 쇼핑몰/플랫폼을 명시했을 때만(예: 쿠팡, 네이버, 컬리).
+  "마트"/"슈퍼"/"가게"처럼 일반적인 매장 표현은 특정 플랫폼이 아니므로 null로
+  둔다 — category/product_name 어디에도 넣지 않는다.
+- excluded_brands: "X 말고" 처럼 명시적으로 배제한 브랜드 목록.
+- match_mode: 사용자가 얼마나 구체적으로 지정했는지.
+  - "category": 카테고리만 언급(브랜드 없음)
+  - "brand": 브랜드까지 언급했지만 그 브랜드의 특정 제품 라인/용량까지는 안 정함
+  - "exact_product": 브랜드에 더해 제품 라인(variant)이나 용량(size) 등 구체적인
+    옵션까지 언급해서, 그 브랜드의 아무 상품이 아니라 정확히 그 하나를 원하는 경우
+
+예:
+- "우유 사줘" → category="우유", match_mode="category"
+- "서울우유 사줘" → brand="서울우유", category="우유", match_mode="brand"
+- "서울우유 나100% 1L 사줘" → brand="서울우유", category="우유", variant="나100%",
+  size="1L", match_mode="exact_product"
+- "서울우유 말고 우유 사줘" → category="우유", excluded_brands=["서울우유"],
+  match_mode="category" (brand는 null — 배제한 브랜드는 brand가 아니라
+  excluded_brands에만 넣는다)
+- "마트에서 파는 계란" → category="계란", platform=null, match_mode="category"
+  ("마트"는 매장 일반 표현이지 특정 플랫폼이 아니므로 어디에도 안 넣음)
+
+안전 규칙(반드시 지킬 것):
+- 명시된 브랜드를 자동으로 지우거나 무시하지 않는다.
+- 브랜드 하나만 언급되고 구체적 옵션(variant/size)이 없으면 match_mode를
+  "exact_product"로 과잉 판정하지 않는다 — "brand"로 둔다.
+- brand가 채워졌으면 match_mode를 절대 "category"로 낮추지 않는다(brand→category
+  자동완화 금지). category만 언급된 경우에만 match_mode="category"를 쓴다.
+- intent=buy인데 사용자가 사려는 상품의 브랜드/제품명 자체가 실제로 뭘 가리키는지
+  불분명하면(예: "그 브랜드로 사줘"처럼 지시어만 있고 실제 이름이 없는 경우) 그때만
+  needs_clarification=true로 표시하고 product_request의 해당 필드를 억지로 확정하지
+  않는다. **이 규칙은 새 상품을 사려는 요청(intent=buy)에만 적용한다 — 결제수단/
+  배송/가격 등을 묻는 질문(intent=ask)이나 이미 진행 중인 결제/장바구니 흐름과는
+  전혀 무관하다.** 예를 들어 "카드는 뭘로 되나요?"처럼 결제 관련 질문은 상품
+  브랜드와 아무 상관이 없으므로 이 규칙으로 needs_clarification을 켜면 안 된다
+  (# Clarification 규칙 섹션의 기존 기준만 따른다).
+
 # 확인/거절 해석 규칙
 confirm: 현재 pending_action에 명확히 동의 (응, 좋아, 그걸로, 네, 진행해)
 deny: 지금 옵션만 거절, 계속 다른 걸 보고 싶어함 (아니, 싫어, 별로)
