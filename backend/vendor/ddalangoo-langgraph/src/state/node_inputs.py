@@ -71,6 +71,7 @@ class ResponseAgentInput(TypedDict):
     stage: Stage
     quantity: Optional[int]
     user_id: str
+    pending_action: Optional[PendingAction]
 
 
 class ReorderAgentInput(TypedDict):
@@ -123,6 +124,7 @@ class PaymentAgentInput(TypedDict):
     payment_idempotency_key: Optional[str]
     cart_operations: list[dict[str, Any]]
     queue_clear_existing: bool
+    messages: list
 
 
 class RespondNodeInput(TypedDict):

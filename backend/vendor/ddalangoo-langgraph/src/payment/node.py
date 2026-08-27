@@ -191,6 +191,66 @@ def _apply_cart_operations(
     return unresolved
 
 
+def _extract_last_user_text(messages: Optional[list]) -> str:
+    for msg in reversed(messages or []):
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            role = msg.get("role") or msg.get("type")
+            if content and role in (None, "user", "human"):
+                return str(content)
+        else:
+            content = getattr(msg, "content", None)
+            msg_type = getattr(msg, "type", None) or getattr(msg, "role", None)
+            if content and msg_type in (None, "human", "user"):
+                return str(content)
+    return ""
+
+
+# WON-19 Unit 4: 결제 흐름 대기 중(address_confirm/payment_method_confirm/
+# payment_password) 결제수단/배송 질문에 결정론적으로 답한다. Unit 3에서
+# intent="ask"가 이 세 pending_type에서도 needs_clarification에 안 막히도록
+# 넓혀뒀으니(그때는 여기 답변 로직이 없어 일부러 좁혀뒀었다), 이제 실제로
+# payment_agent에 도달한다 — 대신 여기서 반드시 "질문에 답하고 원래
+# pending_action을 그대로 유지"해야 한다(ADR-005, 결제는 human-in-the-loop).
+_PAYMENT_METHOD_QUESTION_KEYWORDS = ("카드", "결제수단", "결제 수단", "결제방법", "결제 방법", "무통장", "계좌이체", "페이")
+_DELIVERY_QUESTION_KEYWORDS = ("배송", "도착", "택배")
+_PAYMENT_FLOW_ASK_PENDING_TYPES = frozenset({"address_confirm", "payment_method_confirm", "payment_password"})
+
+
+def _describe_delivery(delivery_info: str, delivery_fee: Optional[int]) -> str:
+    """배송 질문에 답할 완결된 문장 — 주문 완료 메시지에 덧붙이는 접미사 조각인
+    _delivery_msg와 달리 독립된 문장으로 구성한다. selected_product에 이미
+    있는 실제 mock 데이터만 쓰고, 없는 정보를 지어내지 않는다."""
+    fee_note = "무료배송이에요." if not delivery_fee else f"배송비 {delivery_fee:,}원이 붙어요."
+    if not delivery_info:
+        return f"이 상품의 정확한 배송 정보는 아직 확인 못 했어요. {fee_note}"
+    if "새벽" in delivery_info or "샛별" in delivery_info:
+        timing = "내일 아침 7시 전에 도착해요."
+    elif "로켓" in delivery_info:
+        timing = "내일 도착해요."
+    elif "당일" in delivery_info:
+        timing = "오늘 도착해요."
+    elif "2일" in delivery_info:
+        timing = "2일 후 도착해요."
+    else:
+        timing = f"{delivery_info}(으)로 배송돼요."
+    return f"{timing} {fee_note}"
+
+
+def _answer_payment_flow_question(state: PaymentAgentInput) -> Optional[str]:
+    """결제수단/배송 질문 중 이미 가진 mock 데이터로 답할 수 있는 것만 다룬다
+    (배송=selected_product.delivery, 결제수단=이 시스템이 naver_pay 하나만
+    지원). 근거 없는 질문(환불 정책 등)은 지어내지 않고 None을 반환해
+    호출부가 정직하게 "모른다"고 답하게 한다."""
+    user_text = _extract_last_user_text(state.get("messages"))
+    if any(kw in user_text for kw in _DELIVERY_QUESTION_KEYWORDS):
+        product = state.get("selected_product") or {}
+        return _describe_delivery(product.get("delivery", ""), product.get("delivery_fee"))
+    if any(kw in user_text for kw in _PAYMENT_METHOD_QUESTION_KEYWORDS):
+        return "네이버페이로만 결제할 수 있어요."
+    return None
+
+
 def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
     stage = state.get("stage")
     pending_type = (state.get("pending_action") or {}).get("type")
@@ -207,6 +267,25 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
 
     intent = state.get("intent")
     _log_in = {"intent": intent, "pending_type": pending_type, "quantity": quantity, "stage": stage}
+
+    # ── 결제 흐름 중 질문(결제수단/배송 등) — 진행시키지 않고 답한 뒤 원래
+    # 대기 상태로 그대로 복귀한다(ADR-005, WON-19 Unit 4). Step 0~4 어느
+    # 단계로도 진행하지 않도록 다른 모든 분기보다 먼저 처리한다.
+    if intent == "ask" and pending_type in _PAYMENT_FLOW_ASK_PENDING_TYPES:
+        answer = _answer_payment_flow_question(state)
+        original_message = (state.get("pending_action") or {}).get("message", "")
+        combined_message = (
+            f"{answer} {original_message}" if answer
+            else f"그 부분은 정확히 안내해드리기 어려워요. {original_message}"
+        )
+        output = {
+            "pending_action": {"type": pending_type, "message": combined_message},
+            "error": None,
+            "last_agent": "payment_agent",
+        }
+        agent_logger.log_payment_agent(_log_in, output)
+        agent_logger.log(f"[payment_agent] 결제 흐름 질문 응답 | pending_type={pending_type} answered={bool(answer)}")
+        return output
 
     # ── Step 0: 상품 확인 → 장바구니 담기 ──
     if (

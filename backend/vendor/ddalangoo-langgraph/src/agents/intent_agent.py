@@ -118,16 +118,18 @@ def _should_force_recommendation_fallback(user_input: str, intent: str, stage: s
     return any(p in text for p in _DISMISSIVE_PHRASES)
 
 
-# product_confirm/cart_review만 우선 포함한다 — 이 둘은 intent="ask"가 되면
-# response_agent(_generate_qa_answer)로 안전하게 빠지는 기존 경로가 있다.
-# address_confirm/payment_method_confirm/payment_password는 stage="payment_processing"
-# 이라 route()가 intent와 무관하게 무조건 payment_agent로 보내고, payment_agent
-# Step 2/3/4는 intent를 아예 안 본다 — needs_clarification=True가 지금까지
-# 우연히 방패 역할을 하고 있었을 뿐, 이 셋에 이 교정을 적용하면 "질문을 결제
-# 동의로 오인해서 다음 단계로 진행"하는 실제 회귀가 생긴다(실측 확인,
-# WON-19). payment_agent 쪽에 intent 분기+질문 응답 로직이 생기기 전까지는
-# 이 셋을 빼서 기존의(불편하지만 안전한) 되묻기 동작을 유지한다.
-_PAYMENT_PENDING_TYPES = frozenset({"product_confirm", "cart_review"})
+# product_confirm/cart_review는 intent="ask"가 되면 response_agent
+# (_generate_qa_answer)로 안전하게 빠지는 기존 경로가 있다. address_confirm/
+# payment_method_confirm/payment_password는 stage="payment_processing"이라
+# route()가 intent와 무관하게 무조건 payment_agent로 보내는데, payment_agent가
+# 이 셋에 대해서는 이제 intent="ask"를 직접 확인해 결제수단/배송 질문에
+# 답하고 원래 pending_action을 그대로 유지한다(WON-19 Unit 4,
+# src/payment/node.py::_answer_payment_flow_question) — 그 안전장치가 생기기
+# 전까지는(Unit 3 당시) 이 셋을 일부러 뺐었다.
+_PAYMENT_PENDING_TYPES = frozenset({
+    "product_confirm", "cart_review",
+    "address_confirm", "payment_method_confirm", "payment_password",
+})
 
 
 def _should_trust_ask_over_clarification(
