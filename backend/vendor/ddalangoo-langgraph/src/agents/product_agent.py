@@ -33,6 +33,7 @@ from src.utils.product_identity import (
     compare_identities,
     normalize_brand,
 )
+from src.agents.product_resolver import ProductResolver
 
 ALL_PLATFORMS = ["naver", "coupang", "kurly"]
 
@@ -86,6 +87,11 @@ def _no_results_message(keywords: list[str]) -> str:
 
 def _missing_product_message(keywords: list[str]) -> str:
     return _no_results_message(keywords)
+
+
+def _ambiguous_candidates_message(keywords: list[str]) -> str:
+    label = keywords[0] if keywords else "그 상품"
+    return f"{label}에 해당하는 상품이 여러 개 있는데, 정확히 어떤 건지 확실하지 않아요. 조금 더 구체적으로 말씀해 주시겠어요?"
 
 
 def _no_more_products_message(keywords: list[str]) -> str:
@@ -693,6 +699,59 @@ def product_agent_node(state: ProductAgentInput) -> ProductAgentUpdate:
             "last_agent": "product_agent",
             "pending_action": {"type": "clarification", "message": _missing_product_message(keywords)},
         }
+
+    # WON-22 Unit 5 — exact_product 요청은 일반 rank_products(취향/점수 기반
+    # 랭킹)를 타지 않고 ProductResolver로 분리 처리한다. "여러 후보 중 그럴듯한
+    # 걸 점수로 고르는" 로직에 exact_product를 섞으면, 조건이 안 맞는 후보를
+    # 그럴듯한 이유로 조용히 골라버리는 문제(이 티켓의 발단)가 재발할 수 있다.
+    if product_request and product_request.get("match_mode") == "exact_product":
+        resolve_result = ProductResolver.resolve(product_request, candidates)
+
+        if resolve_result.status == "not_found":
+            return {
+                "search_query": query,
+                "stage": "idle",
+                "error": "no_candidates",
+                "last_agent": "product_agent",
+                "pending_action": {"type": "clarification", "message": _missing_product_message(keywords)},
+            }
+
+        if resolve_result.status == "ambiguous":
+            # 하드 조건은 통과했지만 서로 다른 identity가 섞여 있음 — 어느 걸
+            # 원하는지 확실치 않으므로 자동으로 아무거나 고르지 않는다.
+            return {
+                "search_query": query,
+                "stage": "idle",
+                "error": "ambiguous_candidates",
+                "last_agent": "product_agent",
+                "pending_action": {"type": "clarification", "message": _ambiguous_candidates_message(keywords)},
+            }
+
+        if resolve_result.status == "selected":
+            top_product = dict(resolve_result.selected)
+            top_product["_match_evidence"] = resolve_result.match_evidence
+            agent_logger.log_product_agent(
+                {"intent": intent, "resolver_status": "selected"},
+                {"selected_product": top_product},
+            )
+            return {
+                "search_results": candidates,
+                "search_query": query,
+                "selected_product": top_product,
+                "product_url": top_product.get("product_url"),
+                "recommended_products": [top_product],
+                "current_product_index": 0,
+                "stage": "searching",
+                "quantity": state.get("quantity"),
+                "last_agent": "product_agent",
+                "error": None,
+            }
+
+        # status == "same_identity_multiple" — 같은 제품을 여러 판매처가
+        # 파는 경우다. Unit 6(rank_offers)이 정식으로 분리되기 전까지는
+        # candidates를 이 좁혀진 후보군(전부 같은 제품)으로 두고 아래
+        # 기존 랭킹 파이프라인을 그대로 재사용해 판매처만 비교하게 한다.
+        candidates = resolve_result.candidates
 
     agent_logger.log(f"[product_agent] 랭킹 | 후보 {len(candidates)}개")
     rank_meta = _rank_with_metadata(candidates, keywords, condition, preference_context, exclude_keywords)
