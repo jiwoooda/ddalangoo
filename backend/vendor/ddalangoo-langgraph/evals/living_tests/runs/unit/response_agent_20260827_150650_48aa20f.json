@@ -1,0 +1,53 @@
+{
+  "run_id": "run-20260827-150650-48aa20f",
+  "scope": "unit",
+  "target": "response_agent",
+  "git_sha": "48aa20f",
+  "model": "default",
+  "case_count": 2,
+  "cases": [
+    {
+      "case_id": "response_agent-2026-08-19-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "response_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_contains",
+          "path": "explanation",
+          "expected": "애플",
+          "actual": "부산우유 사과동네, 8,430원이에요. '애플'은 없어서 가격이 가장 저렴한 부산우유를 대신 보여드려요. 주문할까요?",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "case_id": "response_agent-2026-08-27-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "response_agent"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "pending_action.type",
+          "expected": "product_confirm",
+          "actual": "product_confirm",
+          "passed": true
+        },
+        {
+          "type": "field_contains",
+          "path": "pending_action.message",
+          "expected": "주문할까요",
+          "actual": "확인되는 정보가 부족합니다.\n서울우유 1L, 3,000원이에요. 주문할까요?",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
