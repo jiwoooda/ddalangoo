@@ -327,6 +327,21 @@ def response_agent_node(state: ResponseAgentInput) -> ResponseAgentUpdate:
     recommended_products = state.get("recommended_products") or []
     current_idx = state.get("current_product_index") or 0
 
+    # ── 상품 결정 전 조언(WON-23 Unit 2) ── 라우팅만 확인하는 placeholder다.
+    # 카탈로그 검색 없이 텍스트만 응답한다는 설계를 지키기 위해 recommended_
+    # products/product_agent를 전혀 참조하지 않는다 — 실제 조언 생성(LLM
+    # 호출)은 Unit 3에서 이 분기를 교체한다.
+    if intent == "product_decision_advice":
+        msg = "곧 답변을 드릴게요! (준비 중인 기능이에요)"
+        agent_logger.log(f"[response_agent] product_decision_advice placeholder: {msg}")
+        return {
+            "pending_action": {"type": "clarification", "message": msg, "payload": {}},
+            "needs_clarification": False,
+            "stage": "idle",
+            "last_agent": "response_agent",
+            "error": None,
+        }
+
     # ── QA ──
     if intent == "ask":
         target = state.get("selected_product") or (
