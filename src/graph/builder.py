@@ -45,6 +45,7 @@ from src.agents.nodes import (
     wait_for_input_node,
     reset_turn_observability_node,
     respond_node,
+    cancel_confirmation_node,
     cancel_node,
     ask_what_to_buy_node,
 )
@@ -70,6 +71,7 @@ _ROUTE_DESTINATIONS = {
     "smalltalk_agent": "smalltalk_agent",
     "ask_what_to_buy": "ask_what_to_buy",
     "respond": "respond",
+    "cancel_confirmation": "cancel_confirmation",
     "cancel": "cancel",
     "fallback_orchestrator": "fallback_orchestrator",
     "end": END,
@@ -112,6 +114,7 @@ def build_graph(checkpointer=None):
     builder.add_node("payment_agent", payment_agent_node)
     builder.add_node("respond", respond_node)
     builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
+    builder.add_node("cancel_confirmation", cancel_confirmation_node)
     builder.add_node("cancel", cancel_node)
     # fallback_orchestrator: route()가 needs_clarification/confidence/unclear로
     # 막힌 게 반복되면(fallback_stuck_turns>=1) 여기로 보낸다. 정상 흐름에서는
@@ -164,6 +167,7 @@ def build_graph(checkpointer=None):
     )
 
     builder.add_edge("ask_what_to_buy", "respond")
+    builder.add_edge("cancel_confirmation", "respond")
 
     builder.add_conditional_edges(
         "product_agent",

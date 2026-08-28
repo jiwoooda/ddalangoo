@@ -49,6 +49,8 @@ Condition = Literal[
 ]
 
 PendingActionType = Literal[
+    "cancel_confirm",
+    "cancel_declined",
     "product_confirm",
     "product_select",
     "clarification",

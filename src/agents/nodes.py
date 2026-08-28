@@ -1,6 +1,7 @@
 """공통 Graph 노드: wait_for_input, respond, cancel 등."""
 from src.state.schema import ShoppingState
 from src.state.node_inputs import RespondNodeInput, RespondNodeUpdate, CancelNodeInput
+from src.tools.mock_tools import mock_clear_cart
 from src.utils.agent_logger import agent_logger
 
 
@@ -47,6 +48,15 @@ def respond_node(state: RespondNodeInput) -> RespondNodeUpdate:
     explanation = state.get("explanation")
     pending_action = state.get("pending_action") or {}
     stuck_turns = state.get("fallback_stuck_turns") or 0
+
+    if pending_action.get("type") == "cancel_declined":
+        msg = pending_action["message"]
+        agent_logger.log_respond(msg, stage, pending_action)
+        return {
+            "messages": [{"role": "assistant", "content": msg}],
+            "pending_action": None,
+            "fallback_stuck_turns": 0,
+        }
 
     # WON-22 Unit 7 — 대체품 제안(substitution_confirm)을 거절하면 pending_
     # action을 클리어하고 단답으로 마무리한다. intent_agent가 이미 이 경우
@@ -172,11 +182,10 @@ def ask_what_to_buy_node(state: ShoppingState) -> dict:
 
 def cancel_node(state: CancelNodeInput) -> dict:
     """모든 stage에서의 cancel 처리. state 완전 리셋."""
-    cart_items = state.get("cart_items") or []
-    if cart_items:
-        msg = "알겠어요~ 처음으로 돌아갈게요! 장바구니에 담아둔 건 그대로 있을 거에요 :)"
-    else:
-        msg = "알겠어요~ 필요하면 언제든 말씀해주세요!"
+    user_id = state.get("user_id")
+    if user_id:
+        mock_clear_cart(user_id)
+    msg = "알겠어요. 구매를 그만하고 장바구니를 모두 비웠어요. 필요하면 언제든 다시 말씀해주세요!"
 
     return {
         "stage": "idle",
@@ -195,6 +204,25 @@ def cancel_node(state: CancelNodeInput) -> dict:
         "current_product_index": 0,
         "quantity": None,
         "reorder_resolution": None,
+        "cart_items": [],
         # 취소 시 진행 중이던 결제 플로우도 무효화 — 다음 결제엔 새 키 발급.
         "payment_idempotency_key": None,
+    }
+
+
+def cancel_confirmation_node(state: ShoppingState) -> dict:
+    """전체 쇼핑 취소를 확인한다. 이 노드에서는 장바구니를 변경하지 않는다."""
+    if state.get("intent") == "deny":
+        msg = "알겠어요. 쇼핑을 계속할게요."
+        return {
+            "intent": None,
+            "pending_action": {"type": "cancel_declined", "message": msg},
+            "last_agent": "cancel_confirmation",
+        }
+
+    msg = "쇼핑을 정말 중단하시겠어요? 중단하면 장바구니에 담긴 상품도 모두 비워져요."
+    return {
+        "intent": None,
+        "pending_action": {"type": "cancel_confirm", "message": msg},
+        "last_agent": "cancel_confirmation",
     }

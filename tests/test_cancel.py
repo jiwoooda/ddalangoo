@@ -11,8 +11,9 @@ LLM·Playwright 없이 순수 로직만 검증.
 import threading
 import pytest
 from src.state.schema import get_default_shopping_state
-from src.agents.nodes import cancel_node
+from src.agents.nodes import cancel_confirmation_node, cancel_node, respond_node
 from src.graph.router import route
+from src.tools.mock_tools import mock_add_to_cart, mock_clear_cart, mock_get_cart
 
 
 # ──────────────────────────────────────────────
@@ -39,19 +40,24 @@ MOCK_PRODUCT = {
 
 class TestCancelNode:
     def test_no_cart_message(self):
-        """장바구니 없으면 단순 취소 멘트."""
+        """빈 장바구니에서도 구매 포기 정책을 일관되게 안내한다."""
         state = make_state(stage="product_confirming", cart_items=[])
         result = cancel_node(state)
-        assert result["pending_action"]["message"] == "알겠어요~ 필요하면 언제든 말씀해주세요!"
+        assert "장바구니를 모두 비웠어요" in result["pending_action"]["message"]
+        assert result["cart_items"] == []
 
-    def test_with_cart_message(self):
-        """장바구니 있으면 담아둔 것 유지 안내."""
+    def test_with_cart_clears_state_and_storage(self):
+        """구매 포기 시 graph state와 장바구니 저장소를 함께 비운다."""
+        mock_clear_cart("user_test")
+        mock_add_to_cart("user_test", MOCK_PRODUCT, 1)
         state = make_state(
             stage="payment_processing",
             cart_items=[{"product_name": "딸기", "price": 12900, "quantity": 1, "total": 12900}],
         )
         result = cancel_node(state)
-        assert "장바구니에 담아둔 건 그대로 있을 거에요" in result["pending_action"]["message"]
+        assert result["cart_items"] == []
+        assert mock_get_cart("user_test") == []
+        assert "장바구니를 모두 비웠어요" in result["pending_action"]["message"]
 
     def test_stage_reset_to_idle(self):
         """stage가 idle로 리셋되어야 한다."""
@@ -106,9 +112,27 @@ class TestRouterCancel:
     STAGES = ["idle", "searching", "product_confirming", "cart_shopping", "payment_processing"]
 
     @pytest.mark.parametrize("stage", STAGES)
-    def test_cancel_always_routes_to_cancel_node(self, stage):
+    def test_cancel_always_routes_to_confirmation(self, stage):
         state = make_state(intent="cancel", stage=stage, confidence=0.9, needs_clarification=False)
-        assert route(state) == "cancel", f"stage={stage}에서 cancel이 cancel_node로 가야 함"
+        assert route(state) == "cancel_confirmation", f"stage={stage}에서 cancel 확인을 먼저 해야 함"
+
+    def test_confirmed_cancel_routes_to_destructive_node(self):
+        state = make_state(
+            intent="confirm",
+            pending_action={"type": "cancel_confirm", "message": "확인"},
+            confidence=0.9,
+            needs_clarification=False,
+        )
+        assert route(state) == "cancel"
+
+    def test_declined_cancel_routes_without_deleting(self):
+        state = make_state(
+            intent="deny",
+            pending_action={"type": "cancel_confirm", "message": "확인"},
+            confidence=0.9,
+            needs_clarification=False,
+        )
+        assert route(state) == "cancel_confirmation"
 
     def test_cancel_not_end(self):
         """예전 동작(end) 회귀 방지."""
@@ -119,6 +143,28 @@ class TestRouterCancel:
         """예전 동작(interrupt_payment) 회귀 방지."""
         state = make_state(intent="cancel", stage="payment_processing", confidence=0.9, needs_clarification=False)
         assert route(state) != "interrupt_payment"
+
+
+class TestCancelConfirmation:
+    def test_request_confirmation_does_not_clear_cart(self):
+        mock_clear_cart("user_test")
+        mock_add_to_cart("user_test", MOCK_PRODUCT, 1)
+        state = make_state(intent="cancel", cart_items=[{"product_name": "딸기"}])
+        result = cancel_confirmation_node(state)
+        assert result["pending_action"]["type"] == "cancel_confirm"
+        assert "정말 중단하시겠어요" in result["pending_action"]["message"]
+        assert len(mock_get_cart("user_test")) == 1
+
+    def test_decline_keeps_cart_and_clears_confirmation(self):
+        mock_clear_cart("user_test")
+        mock_add_to_cart("user_test", MOCK_PRODUCT, 1)
+        state = make_state(intent="deny", cart_items=[{"product_name": "딸기"}])
+        update = cancel_confirmation_node(state)
+        merged = {**state, **update}
+        response = respond_node(merged)
+        assert response["pending_action"] is None
+        assert "계속할게요" in response["messages"][0]["content"]
+        assert len(mock_get_cart("user_test")) == 1
 
 
 # ══════════════════════════════════════════════
