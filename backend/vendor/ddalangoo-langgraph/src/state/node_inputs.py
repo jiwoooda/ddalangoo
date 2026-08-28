@@ -139,6 +139,11 @@ class RespondNodeInput(TypedDict):
     clarification_reason: Optional[str]
     error: Optional[str]
     fallback_stuck_turns: int
+    # WON-30 — 이 필드가 빠져 있어서 respond_node(WON-24)의 "누가 마지막으로
+    # needs_clarification을 확정했는지" 판단 로직이 그래프 실행 시 조용히
+    # 무력화됐다(last_agent가 항상 None으로 들어와 last_agent=="intent_agent"
+    # 분기가 절대 안 탐 → pending_action.message가 항상 우선됨).
+    last_agent: Optional[str]
 
 
 class CancelNodeInput(TypedDict):
