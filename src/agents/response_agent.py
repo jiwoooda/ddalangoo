@@ -392,12 +392,22 @@ def response_agent_node(state: ResponseAgentInput) -> ResponseAgentUpdate:
         user_input = _extract_user_question(state) or ""
         answer, ok, reason, replaced, degraded = _generate_advice_answer(user_input)
         agent_logger.log(f"[response_agent] 조언 답변: {answer}")
+        # pending_action.type="clarification"을 재사용하지 않는다(WON-23 Unit 4
+        # 실측으로 발견) — intent_prompt.py가 "clarification=모호한 발화에 대한
+        # 추가 설명 요청"으로 해석하게 돼 있어서, 조언에 이미 답했는데도 다음
+        # 턴(예: "그럼 사과 살게")을 intent_agent가 "아직 뭘 찾는지 불명확함"
+        # 으로 오판(needs_clarification=True, confidence 급락)하는 회귀가
+        # 실측 확인됐다. 조언 답변 뒤엔 진짜로 "대기 중인 것"이 없으므로
+        # pending_action은 그냥 비우고, respond_node의 최종 fallback 분기가
+        # immediate_response를 그대로 보여주게 한다(WON-24 로직과도 충돌 없음
+        # — needs_clarification=False라 그 분기 자체를 안 탐).
         return {
             "explanation": answer,
             "reflection_passed": ok,
             "reflection_reason": reason,
             "haiku_fallback": replaced,
-            "pending_action": {"type": "clarification", "message": answer, "payload": {}},
+            "immediate_response": answer,
+            "pending_action": None,
             "needs_clarification": False,
             "stage": "idle",
             "last_agent": "response_agent",
