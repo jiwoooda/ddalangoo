@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import uuid
@@ -30,6 +31,75 @@ STATE_KEYS = (
     "last_asked_topic_field", "current_agent", "next_agent", "intent",
     "degraded_mode", "failure_stage", "degradation_reason",
 )
+
+# ── "이어서 실험"(memory_track) 트랙 영속 저장 ────────────────────────────
+# 페르소나 단위로 회차를 이어 돌릴 때(trial_spec.memory_track == true) 구매이력/
+# 프로필이 프로세스 재시작 후에도 남도록, mock_db.json 안의 전용 네임스페이스
+# "memory_track": {"purchase_history": {persona_*: [...]}, "profiles": {persona_*: {...}}}
+# 에 저장한다. 정식 fixture 키(users/addresses/purchase_history/preference_memory)는
+# 절대 건드리지 않는다 — 그건 mock_tools._load_external_mock_db()의 기존
+# 와이어링이 그대로 담당한다.
+_MEMORY_DB_PATH = REPO / "evals" / "data" / "mock_db.json"
+
+
+def _restore_memory_track() -> None:
+    """프로세스 시작 시 mock_db.json의 memory_track 서브키를 인메모리 저장소에
+    복원한다. 파일 읽기는 기존 _load_external_mock_db()를 그대로 재사용한다."""
+    from src.tools import db_client, mock_tools
+
+    ext = mock_tools._load_external_mock_db() or {}
+    track = ext.get("memory_track") or {}
+    histories = track.get("purchase_history")
+    if isinstance(histories, dict):
+        for key, rows in histories.items():
+            if key.startswith("persona_"):
+                mock_tools.MOCK_PURCHASE_HISTORY[key] = rows
+    profiles = track.get("profiles")
+    if isinstance(profiles, dict):
+        for key, prof in profiles.items():
+            if key.startswith("persona_"):
+                db_client._mock_profile_store[key] = prof
+
+
+def _persist_memory_track(user_id: str) -> None:
+    """세션 응답 후 이 persona의 구매이력/프로필을 mock_db.json의 memory_track
+    네임스페이스에 원자적으로(temp write + rename) 반영한다. persona_* 키가
+    아니면(무기억 트랙) 아무것도 하지 않는다. 나머지 최상위 키는 읽은 그대로
+    다시 쓴다."""
+    if not user_id.startswith("persona_"):
+        return
+    from src.tools import db_client, mock_tools
+
+    try:
+        data = json.loads(_MEMORY_DB_PATH.read_text(encoding="utf-8")) if _MEMORY_DB_PATH.exists() else {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    track = data.get("memory_track")
+    track = dict(track) if isinstance(track, dict) else {}
+    histories = dict(track.get("purchase_history") or {})
+    profiles = dict(track.get("profiles") or {})
+
+    rows = mock_tools.MOCK_PURCHASE_HISTORY.get(user_id)
+    if rows is not None:
+        histories[user_id] = rows
+    prof = db_client._mock_profile_store.get(user_id)
+    if prof is not None:
+        profiles[user_id] = prof
+
+    track["purchase_history"] = histories
+    track["profiles"] = profiles
+    data["memory_track"] = track
+
+    _MEMORY_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _MEMORY_DB_PATH.with_name(_MEMORY_DB_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, _MEMORY_DB_PATH)
+
+
+_restore_memory_track()
 
 
 class MessageRequest(BaseModel):
@@ -86,20 +156,72 @@ def _state(values: dict[str, Any]) -> dict[str, Any]:
     return {key: deepcopy(values.get(key)) for key in keys if key in values}
 
 
+# trial 스펙 탐색 디렉터리. "이어서 실험"(memory_track) 전용 세트를 먼저 보고,
+# 없으면 정식 3조건 pilot 세트를 본다. 두 세트는 파일 자체가 다른 디렉터리에
+# 있어 섞이지 않는다.
+_TRIAL_DATASET_DIRS = (
+    "ddalangoo-memory-track",
+    "ddalangoo-personalized-shopping-pilot",
+)
+
+
 def _load_shopping_trial(trial_id: str | None) -> dict[str, Any] | None:
     if not trial_id:
         return None
-    path = REPO.parents[2] / "MatrAIx-Persona-8B" / "persona" / "datasets" / "ddalangoo-personalized-shopping-pilot" / f"trial_{trial_id}.json"
-    if not path.is_file():
-        return None
-    import json
-    return json.loads(path.read_text(encoding="utf-8"))
+    base = REPO.parents[2] / "MatrAIx-Persona-8B" / "persona" / "datasets"
+    for dataset in _TRIAL_DATASET_DIRS:
+        path = base / dataset / f"trial_{trial_id}.json"
+        if path.is_file():
+            return json.loads(path.read_text(encoding="utf-8"))
+    return None
+
+
+# PersistedSmalltalkProfile(src/state/smalltalk_schema.py)의 리스트형 필드.
+# 병합 시 합집합으로 다뤄서 이전 회차에 쌓인 값을 절대 줄이지 않는다.
+_PROFILE_LIST_FIELDS = (
+    "food_dislikes", "household_notes", "favorite_foods",
+    "health_notes", "inconveniences", "allergens", "diet_restrictions",
+)
+
+
+def _merge_preloaded_profile(stored: dict[str, Any], spec_profile: dict[str, Any]) -> dict[str, Any]:
+    """이어서 실험(스코프-B) 트랙에서 2회차 이후 _bootstrap이 1회차에 쌓인
+    프로필을 지우지 않도록 병합한다.
+
+      - 리스트 필드(allergens/diet_restrictions/health_notes 등): 합집합.
+        세션 중 감지돼 저장된 알레르기/식이 정보를 spec의 빈 값이 덮어쓰지
+        못하게 한다.
+      - additional_signals: (label, value) 기준 중복 제거하며 이어붙임.
+      - 스칼라 필드: 기존에 값이 있으면 유지(기존 우선), 없을 때만 spec으로 채움.
+
+    1회차(기존 프로필 없음)에는 이 함수를 타지 않고 spec을 그대로 저장한다.
+    """
+    from src.tools import db_client
+    merged = dict(stored)
+    for key, spec_val in spec_profile.items():
+        if key == "computed_at":
+            continue  # save_profile이 재스탬프한다
+        if key in _PROFILE_LIST_FIELDS:
+            merged[key] = db_client.merge_list_field(merged.get(key), spec_val or [])
+        elif key == "additional_signals":
+            seen = {(s.get("label"), s.get("value")) for s in (merged.get(key) or [])}
+            extra = [s for s in (spec_val or []) if (s.get("label"), s.get("value")) not in seen]
+            merged[key] = (merged.get(key) or []) + extra
+        elif not merged.get(key):
+            merged[key] = spec_val
+    merged.pop("computed_at", None)
+    return merged
 
 
 def _bootstrap_shopping_trial(user_id: str, spec: dict[str, Any]) -> None:
     from src.tools import db_client, mock_tools
     profile = dict(spec.get("preloaded_profile") or {})
     profile.setdefault("onboarded_at", "evaluation_preloaded")
+    # 이미 이 페르소나로 쌓인 프로필이 있으면 spec으로 덮어쓰지 않고 병합한다
+    # (이어서 실험 트랙 — Unit 2). 기존 프로필이 없으면(1회차) spec을 그대로 저장.
+    stored = db_client.get_profile(user_id)
+    if stored:
+        profile = _merge_preloaded_profile(stored, profile)
     db_client.save_profile(user_id, profile)
     category = str((spec.get("purchase_goal") or {}).get("target_category") or "")
     if category and spec.get("candidate_products"):
@@ -129,10 +251,22 @@ def send_message(request: MessageRequest) -> dict[str, Any]:
         if session is None:
             from src.state.schema import get_default_shopping_state
             from src.tools import db_client
-            user_id = f"matraix_{session_id}"
+            # thread_id는 세션마다 고유하게 유지한다 — LangGraph 체크포인트는
+            # 대화(=trial) 단위로 분리돼야 한다.
             thread_id = f"matraix_thread_{session_id}"
             config = {"configurable": {"thread_id": thread_id}}
             trial_spec = _load_shopping_trial(request.trialId)
+            # user_id: "이어서 실험" 트랙(trial_spec.memory_track == true)에서만
+            # persona_id 기반 고정값으로 잡아 회차 간 상태(구매이력/프로필)를 같은
+            # 키로 누적한다(스코프-B: baseline/gold/extracted 구분 없음). 정식
+            # 3조건 평가 trial은 memory_track 필드가 없으므로 기존처럼 세션별
+            # 임시 id로 폴백한다 — 무기억 동작 그대로, 정식 평가 격리 유지.
+            memory_track = bool((trial_spec or {}).get("memory_track"))
+            persona_id = str((trial_spec or {}).get("persona_id") or "").strip()
+            if memory_track and persona_id:
+                user_id = f"persona_{persona_id}"
+            else:
+                user_id = f"matraix_{session_id}"
             if trial_spec:
                 _bootstrap_shopping_trial(user_id, trial_spec)
             else:
@@ -194,6 +328,9 @@ def send_message(request: MessageRequest) -> dict[str, Any]:
             "evaluation": eval_state,
         }
         session["turns"].append(turn)
+        # 이어서 실험 트랙이면(user_id == persona_*) 이번 응답까지 반영된
+        # 구매이력/프로필을 파일에 flush한다. 무기억 트랙은 no-op.
+        _persist_memory_track(session["user_id"])
         return {
             "sessionId": session_id,
             "reply": reply,
