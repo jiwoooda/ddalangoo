@@ -630,6 +630,17 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     if _should_trust_ask_over_clarification(intent, needs_clarification, clarification_reason, confidence, pending_type, user_input):
         needs_clarification = False
 
+    # WON-23 Unit 3 후속 — product_decision_advice는 상품명이 없거나(예: "이
+    # 계절엔 뭐가 맛있어?") 여러 개를 비교(예: "사과랑 딸기 중 뭐가 나아?")
+    # 하는 게 정상 입력이다. buy/ask용 "idle 상태에서 상품명 없으면
+    # clarification" 규칙(Unit 1이 이 intent를 추가할 때 예외로 못 넣은
+    # 누락)이 그대로 적용돼 매번 재질문으로 새는 게 실측 확인됐다 — 이
+    # intent에 한해 강제로 끈다.
+    if intent == "product_decision_advice":
+        needs_clarification = False
+        clarification_reason = None
+        confidence = max(confidence, 0.8)
+
     if _is_ambiguous_reorder(user_input, keywords):
         intent = "reorder"
         needs_clarification = True
