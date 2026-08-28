@@ -239,6 +239,9 @@ class ResponseAgentUpdate(TypedDict, total=False):
     degraded_mode: bool
     failure_stage: Optional[str]
     needs_clarification: bool
+    # WON-23 Unit 3/4 — product_decision_advice 응답 텍스트를 respond_node의
+    # 최종 fallback 분기(immediate_response)로 그대로 넘길 때만 채운다.
+    immediate_response: str
     # ShoppingState에 선언되지 않은 애드혹 필드 — response_agent가 자체적으로
     # 붙이는 디버그/평가용 값 (reflection 통과 여부 등):
     # reflection_passed: bool, haiku_fallback: bool, reflection_reason: str
