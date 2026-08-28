@@ -24,7 +24,7 @@ from src.utils.search_keywords import normalize_search_keywords
 IntentType = Literal[
     "buy", "reorder", "confirm", "deny", "next", "refine",
     "compare_platforms", "quantity_change", "address_change",
-    "option_select", "ask", "cancel", "unclear",
+    "option_select", "ask", "product_decision_advice", "cancel", "unclear",
 ]
 
 ConditionType = Literal["최저가", "가성비", "빠른배송", "인기순", "무료배송", "리뷰좋은"]
