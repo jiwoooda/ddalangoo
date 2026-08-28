@@ -142,6 +142,11 @@ _DEFAULT_ROUTING_MAP: dict[str, RouteName] = {
     "compare_platforms": "product_agent",
     "refine": "product_agent",
     "ask": "response_agent",
+    # WON-23 Unit 2 — 상품을 정하기 전 조언 요청은 카탈로그 검색을 안 거친다
+    # (product_agent 미호출). response_agent가 이미 "카탈로그 없이 텍스트만
+    # 생성"하는 유일한 노드라 새 경량 노드를 안 만들고 여기 재사용한다(응답
+    # 생성 로직 자체는 Unit 3, 지금은 placeholder).
+    "product_decision_advice": "response_agent",
     "next": "product_agent",
     "confirm": "respond",
     "deny": "respond",
