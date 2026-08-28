@@ -86,7 +86,24 @@ def respond_node(state: RespondNodeInput) -> RespondNodeUpdate:
         msg = pending_action["message"]
 
     elif state.get("needs_clarification"):
-        msg = immediate or state.get("clarification_reason") or "죄송해요, 잘 못 들었어요. 다시 한번 말씀해 주시겠어요?"
+        # WON-24 — immediate_response는 intent_agent가 그 턴에 만든 확인 문구다.
+        # intent_agent 스스로 needs_clarification=True를 판단한 턴엔 이게 정확히
+        # 그 상황에 맞게 다듬어진 문구라 최우선으로 쓰는 게 맞다(기존 동작 유지).
+        # 하지만 intent_agent는 False로 판단했는데(그래서 immediate_response는
+        # "이해했어요" 류 낡은 확인 문구로 남아있음) 이후 다른 노드(response_agent
+        # 등)가 사후적으로 needs_clarification을 True로 뒤집은 경우엔, 그 낡은
+        # immediate_response 대신 실제로 뒤집은 노드가 만든 문구를 먼저 써야 한다
+        # (fl-… WON-23 Unit0 case4: "우유랑 두유 중 뭐가 건강해?"에 답 대신
+        # intent_agent의 낡은 확인 문구가 그대로 노출되던 문제).
+        if state.get("last_agent") == "intent_agent":
+            msg = immediate or state.get("clarification_reason") or "죄송해요, 잘 못 들었어요. 다시 한번 말씀해 주시겠어요?"
+        else:
+            msg = (
+                pending_action.get("message")
+                or immediate
+                or state.get("clarification_reason")
+                or "죄송해요, 잘 못 들었어요. 다시 한번 말씀해 주시겠어요?"
+            )
         stuck = True
 
     elif stage == "product_confirming" and intent == "confirm" and not state.get("quantity"):
