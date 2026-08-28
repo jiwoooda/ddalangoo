@@ -21,6 +21,7 @@ RouteName = Literal[
     "smalltalk_agent",
     "ask_what_to_buy",
     "respond",
+    "cancel_confirmation",
     "cancel",
     "fallback_orchestrator",
     "end",
@@ -338,6 +339,15 @@ def route(state: ShoppingState) -> RouteName:
         if _payload.get("satisfaction_check") or _payload.get("profile_topup"):
             return _decide("fallback_orchestrator")
 
+    # 전체 삭제는 파괴적 동작이므로 취소 확인 응답을 일반 confidence/fallback
+    # 판정보다 먼저 처리한다. 모호한 답은 실행하지 않고 확인 문구를 반복한다.
+    if pending_type == "cancel_confirm":
+        if intent in ("confirm", "cancel") and not needs_clarification:
+            return _decide("cancel")
+        if intent == "deny" and not needs_clarification:
+            return _decide("cancel_confirmation")
+        return _decide("respond")
+
     # reorder는 예외 — needs_clarification=true라도 respond로 바로 보내지 않고
     # reorder_agent(아래 stage-router/기본 매핑에서 도달)로 보낸다. reorder_agent가
     # 정확히 "상품명 없는 모호한 재구매"를 처리하도록 설계돼 있어서(구매이력 조회 →
@@ -365,7 +375,7 @@ def route(state: ShoppingState) -> RouteName:
         return _decide("respond")
 
     if intent == "cancel":
-        return _decide("cancel")
+        return _decide("cancel_confirmation")
 
     if stage == "payment_processing":
         return _decide("payment_agent")
