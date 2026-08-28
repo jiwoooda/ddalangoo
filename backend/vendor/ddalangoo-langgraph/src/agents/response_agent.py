@@ -5,13 +5,14 @@ Response Agent Node.
 (기존 product_agent Phase 2 분리)
 """
 import json
+import re
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
 from configs.llm_config import get_llm
 from src.state.schema import ShoppingState
 from src.state.node_inputs import ResponseAgentInput, ResponseAgentUpdate
-from src.prompts.response_prompt import RESPONSE_EXPLAIN_PROMPT, RESPONSE_QA_PROMPT
+from src.prompts.response_prompt import RESPONSE_EXPLAIN_PROMPT, RESPONSE_QA_PROMPT, RESPONSE_ADVICE_PROMPT
 from src.utils.agent_logger import agent_logger
 from src.utils.priority_resolver import _mentions_same_target
 from src.utils.retry import classify_failure, retry_call
@@ -22,6 +23,14 @@ _llm: BaseChatModel | None = None
 # 어르신 친화 검증 — 이 단어가 나오면 Reflection 실패로 재생성
 _ELDERLY_FORBIDDEN = ["플랫폼", "최저가", "가성비", "혜택", "할인율", "할인가", "프로모션"]
 _MAX_SENTENCE_LEN = 35
+
+# WON-23 Unit 3 — product_decision_advice는 카탈로그를 전혀 안 준 채 LLM에
+# 묻는다. 그런데도 답변에 "12,900원이에요"처럼 가격으로 보이는 구체적 숫자가
+# 나오면 100% 환각(우리가 준 적 없는 정보)이므로, 프롬프트 지시만 믿지 않고
+# 코드로 한 번 더 걸러낸다(이 세션에서 반복된 패턴 — LLM 판단이 불안정한
+# 곳은 결정론적 후처리로 최종 확인).
+_PRICE_LIKE_PATTERN = re.compile(r"\d[\d,]*\s*원")
+_ADVICE_FALLBACK_ANSWER = "지금은 정확히 답을 드리기 어려워요. 그래도 둘 다 좋은 선택이에요!"
 
 # 상품 설명 끝에 LLM이 붙이는 CTA 문구 — pending_msg와 중복되므로 제거 대상
 _CTA_ENDINGS = ("주문할까요?", "어떠세요?", "구매할까요?", "사드릴까요?", "주문해드릴까요?")
@@ -50,6 +59,55 @@ def _reflect_elderly(text: str) -> tuple[bool, str]:
     if found:
         return False, f"어려운 단어 포함: {', '.join(found)}"
     return True, ""
+
+
+def _reflect_no_catalog_claims(text: str) -> tuple[bool, str]:
+    """WON-23 Unit 3 가드: 카탈로그를 안 준 조언 답변에 가격으로 보이는
+    숫자가 나오면 환각으로 간주한다. (True, "") = 통과."""
+    match = _PRICE_LIKE_PATTERN.search(text)
+    if match:
+        return False, f"가격으로 보이는 값 포함: {match.group()!r}"
+    return True, ""
+
+
+def _generate_advice_answer(user_input: str) -> tuple[str, bool, str, bool, bool]:
+    """상품 결정 전 조언(WON-23 Unit 3) — 카탈로그 없이 일반 지식 기반
+    답변만 생성한다. (answer, reflection_passed, reason, replaced, degraded)."""
+    try:
+        answer = retry_call(
+            _get_llm().invoke, [HumanMessage(content=RESPONSE_ADVICE_PROMPT.format(user_input=user_input))]
+        ).content.strip()
+    except Exception as e:
+        agent_logger.log(f"[response_agent] 조언 답변 생성 오류({classify_failure(e).value}): {e} → fallback")
+        answer = ""
+
+    if not answer:
+        agent_logger.log_graceful_degradation(node="response_agent", reason="advice_llm_failed", stage="response_llm")
+        return _ADVICE_FALLBACK_ANSWER, True, "", False, True
+
+    ok, reason = _reflect_elderly(answer)
+    replaced = False
+    if not ok:
+        agent_logger.log(f"[response_agent] Reflection 실패: {reason} → Haiku 재생성")
+        agent_logger.log_quality_regeneration(node="response_agent", reason=reason)
+        answer = _simplify_with_haiku(answer, reason)
+        replaced = True
+
+    # 카탈로그 미인용 가드는 Haiku 재생성 이후 결과에도 다시 확인한다 —
+    # 단순화 과정에서 숫자가 살아남을 수 있음. 여기서 걸리면 Haiku로
+    # 다시 손보지 않고 바로 안전한 고정 문구로 바꾼다: 이 가드는 "환각된
+    # 사실"을 잡는 것이라, 문장만 다듬는 Haiku 재생성으로는 그 사실 자체가
+    # 제거된다는 보장이 없다(길이/어휘 문제와 다른 성격).
+    catalog_ok, catalog_reason = _reflect_no_catalog_claims(answer)
+    if not catalog_ok:
+        agent_logger.log(f"[response_agent] 카탈로그 미인용 가드 실패: {catalog_reason} → 안전 문구로 교체")
+        agent_logger.log_quality_regeneration(node="response_agent", reason=catalog_reason)
+        answer = _ADVICE_FALLBACK_ANSWER
+        replaced = True
+        ok = False
+        reason = catalog_reason
+
+    return answer, ok, reason, replaced, False
 
 
 def _simplify_with_haiku(explanation: str, reason: str) -> str:
@@ -327,19 +385,25 @@ def response_agent_node(state: ResponseAgentInput) -> ResponseAgentUpdate:
     recommended_products = state.get("recommended_products") or []
     current_idx = state.get("current_product_index") or 0
 
-    # ── 상품 결정 전 조언(WON-23 Unit 2) ── 라우팅만 확인하는 placeholder다.
-    # 카탈로그 검색 없이 텍스트만 응답한다는 설계를 지키기 위해 recommended_
-    # products/product_agent를 전혀 참조하지 않는다 — 실제 조언 생성(LLM
-    # 호출)은 Unit 3에서 이 분기를 교체한다.
+    # ── 상품 결정 전 조언(WON-23 Unit 3) ── 카탈로그 검색 없이 텍스트만
+    # 응답한다는 설계를 지키기 위해 recommended_products/product_agent를
+    # 전혀 참조하지 않는다 — user_input만 LLM에 넘긴다.
     if intent == "product_decision_advice":
-        msg = "곧 답변을 드릴게요! (준비 중인 기능이에요)"
-        agent_logger.log(f"[response_agent] product_decision_advice placeholder: {msg}")
+        user_input = _extract_user_question(state) or ""
+        answer, ok, reason, replaced, degraded = _generate_advice_answer(user_input)
+        agent_logger.log(f"[response_agent] 조언 답변: {answer}")
         return {
-            "pending_action": {"type": "clarification", "message": msg, "payload": {}},
+            "explanation": answer,
+            "reflection_passed": ok,
+            "reflection_reason": reason,
+            "haiku_fallback": replaced,
+            "pending_action": {"type": "clarification", "message": answer, "payload": {}},
             "needs_clarification": False,
             "stage": "idle",
             "last_agent": "response_agent",
             "error": None,
+            "degraded_mode": degraded,
+            "failure_stage": "response_llm" if degraded else None,
         }
 
     # ── QA ──
