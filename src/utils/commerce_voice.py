@@ -200,8 +200,8 @@ def _fb_order_complete(facts: dict) -> str:
     de = facts.get("delivery_estimate")
     suffix = f" {_DELIVERY_PHRASE[de['timing']]}" if de and de.get("timing") in _DELIVERY_PHRASE else ""
     if suffix:
-        return f"주문이 끝났어요!{suffix}"
-    return "주문이 끝났어요! 잘 접수됐어요."
+        return f"주문이 완료됐어요!{suffix}"
+    return "주문이 완료됐어요! 잘 접수됐어요."
 
 
 def _fb_selection_recheck(facts: dict) -> str:

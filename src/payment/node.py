@@ -26,6 +26,8 @@ from src.state.node_inputs import PaymentAgentInput, PaymentAgentUpdate
 from src.utils.agent_logger import agent_logger, _ptype
 from src.agents.product_agent import validate_selected_product
 from src.tools import db_client
+from src.utils import commerce_facts as cf
+from src.utils import commerce_voice
 from src.tools.mock_tools import (
     mock_add_to_cart,
     mock_get_cart,
@@ -637,7 +639,11 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 "last_agent": "payment_agent",
                 "pending_action": {
                     "type": "payment_retry_confirm",
-                    "message": "결제 처리 중에 문제가 있었어요. 죄송해요, 다시 시도해 볼까요?",
+                    # WON-33 Unit 2 — P19/P20 결제오류 문구를 commerce_voice로 생성.
+                    "message": commerce_voice.render_voice(cf.build_bundle(
+                        cf.derive_awaiting("payment_agent", "payment_processing", "payment_retry_confirm"),
+                        cf.payment_error_from_exc(e),
+                    )),
                 },
                 "payment_idempotency_key": None,
                 "degraded_mode": True,
@@ -654,7 +660,11 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 "last_agent": "payment_agent",
                 "pending_action": {
                     "type": "payment_retry_confirm",
-                    "message": "결제 처리 중에 문제가 있었어요. 죄송해요, 다시 시도해 볼까요?",
+                    # WON-33 Unit 2 — P19/P20 결제오류 문구를 commerce_voice로 생성.
+                    "message": commerce_voice.render_voice(cf.build_bundle(
+                        cf.derive_awaiting("payment_agent", "payment_processing", "payment_retry_confirm"),
+                        cf.payment_error_from_exc(e),
+                    )),
                 },
                 "degraded_mode": True,
                 "failure_stage": "payment_execute",
@@ -663,8 +673,13 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
             agent_logger.log_payment_agent(_log_in, output)
             return output
 
-        arrival = _delivery_msg(delivery_info)
-        completion_msg = f"완료!{arrival}" if arrival else "완료! 주문이 접수됐어요."
+        # WON-33 Unit 2 — P21 완료 문구를 commerce_voice로 생성(fact 번들 → 페르소나
+        # 톤 문구, LLM 실패/비활성 시 결정론적 폴백).
+        completion_msg = commerce_voice.render_voice(cf.build_bundle(
+            cf.derive_awaiting("payment_agent", "completed", "payment_confirm"),
+            cf.order_placed(order["order_id"]),
+            cf.delivery_estimate(delivery_info),
+        ))
         output = {
             "stage": "completed",
             "order_id": order["order_id"],
