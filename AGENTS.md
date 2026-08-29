@@ -21,6 +21,7 @@ Immediately before every commit, you MUST run `git status`.
 You MUST distinguish your changes from pre-existing or unrelated changes.
 You MUST stage only files that belong to the approved task.
 You MUST NEVER include unrelated working-tree changes in a commit.
+You MUST run `git add` and `git commit` atomically, with no gap between them. Never stage files and then wait — if another session runs a pathless commit in that gap, your staged files get swept into it.
 
 ## Hotspot push gate
 
