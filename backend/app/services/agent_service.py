@@ -2115,6 +2115,15 @@ async def _prepare_checkout_automation_from_active_cart(
         db,
         user_id,
     )
+    if not default_address or not _address_text(default_address):
+        # WON-29 — 무주소 상태로 create_order_from_cart_db(address=None)가 실행되면
+        # 빈 배송지로 주문이 생성된다. ACTIVE_CART_NOT_FOUND / CART_EMPTY 가드와
+        # 같은 패턴으로 결제 시작 자체를 막는다.
+        raise HTTPException(status_code=409, detail={
+            "category": "ADDRESS_ERROR",
+            "code": "DELIVERY_ADDRESS_REQUIRED",
+            "message": "배송지를 먼저 등록해 주세요.",
+        })
     order_bundle = await order_repository.create_order_from_cart_db(
         db,
         cart_id=cart["id"],

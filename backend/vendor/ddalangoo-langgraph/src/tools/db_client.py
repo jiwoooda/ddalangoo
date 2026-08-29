@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 from src.tools.mock_tools import (
     mock_get_user,
     mock_get_default_address,
+    mock_set_default_address,
     mock_get_purchase_history,
     mock_keyword_search_history,
     mock_update_purchase_satisfaction,
@@ -101,6 +102,44 @@ def get_default_address(user_id: str, mode: DbMode | None = None) -> dict[str, A
     try:
         return _run_async_with_fresh_engine(_from_db)
     except Exception:
+        return None
+
+
+def save_default_address(
+    user_id: str, address: dict[str, Any], mode: DbMode | None = None
+) -> dict[str, Any] | None:
+    """대화 발화로 받은 새 기본 배송지를 저장한다 — get_default_address의 대칭(WON-29).
+
+    address는 payment/node.py의 _build_delivery_address(state) 결과 형태
+    ({"address_line1": ..., "recipient_name": ..., "recipient_phone": ..., ...})를
+    그대로 받는다. 무주소 사용자가 결제 흐름/idle에서 새 주소를 말했을 때
+    호출된다(RC-1: "저장해 드릴게요"라고 약속만 하던 문제, RC-2: 저장 함수 부재).
+    """
+    if (mode or _default_db_mode()) == "mock":
+        return mock_set_default_address(user_id, address)
+
+    async def _to_db(session):
+        from app.repositories import address_repository
+        uid = int(user_id)
+        user = get_user(user_id, mode="real") or {}
+        # UserAddress.recipient_name/phone은 NOT NULL — 발화로는 못 받으니
+        # 이름은 계정 이름으로, 전화번호는 빈 문자열로 채운다.
+        payload = {
+            "user_id": uid,
+            "recipient_name": address.get("recipient_name") or user.get("name") or "고객",
+            "recipient_phone": address.get("recipient_phone") or "",
+            "zip_code": address.get("zip_code") or "",
+            "address_line1": address.get("address_line1") or "",
+            "address_line2": address.get("address_line2") or "",
+            "address_label": address.get("address_label") or "대화 입력 배송지",
+            "is_default": True,  # create_address_db가 기존 기본값을 알아서 해제한다
+        }
+        return await address_repository.create_address_db(session, payload)
+
+    try:
+        return _run_async_with_fresh_engine(_to_db)
+    except Exception as exc:
+        logger.exception("save_default_address failed user_id=%s: %s", user_id, exc)
         return None
 
 
