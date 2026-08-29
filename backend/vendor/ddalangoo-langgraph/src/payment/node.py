@@ -115,16 +115,6 @@ def _save_address_from_utterance(state: ShoppingState) -> Optional[str]:
     return _short_address(_format_address(address))
 
 
-def _delivery_msg(delivery_info: str) -> str:
-    if "샛별" in delivery_info:
-        return " 내일 아침 7시 전 도착이에요."
-    if "로켓" in delivery_info:
-        return " 내일 도착이에요."
-    if "당일" in delivery_info:
-        return " 오늘 도착이에요."
-    return ""
-
-
 def _item_matches_keyword(item: dict, keyword: str) -> bool:
     """product_name은 검색 결과 그대로라 사용자가 부른 말과 다를 수 있다(예: "계란" vs
     "유정란") — 담을 때 같이 저장해둔 item 자체의 keywords(사용자가 실제로 뭐라고
@@ -251,37 +241,16 @@ _DELIVERY_QUESTION_KEYWORDS = ("배송", "도착", "택배")
 _PAYMENT_FLOW_ASK_PENDING_TYPES = frozenset({"address_confirm", "payment_method_confirm", "payment_password"})
 
 
-def _describe_delivery(delivery_info: str, delivery_fee: Optional[int]) -> str:
-    """배송 질문에 답할 완결된 문장 — 주문 완료 메시지에 덧붙이는 접미사 조각인
-    _delivery_msg와 달리 독립된 문장으로 구성한다. selected_product에 이미
-    있는 실제 mock 데이터만 쓰고, 없는 정보를 지어내지 않는다."""
-    fee_note = "무료배송이에요." if not delivery_fee else f"배송비 {delivery_fee:,}원이 붙어요."
-    if not delivery_info:
-        return f"이 상품의 정확한 배송 정보는 아직 확인 못 했어요. {fee_note}"
-    if "새벽" in delivery_info or "샛별" in delivery_info:
-        timing = "내일 아침 7시 전에 도착해요."
-    elif "로켓" in delivery_info:
-        timing = "내일 도착해요."
-    elif "당일" in delivery_info:
-        timing = "오늘 도착해요."
-    elif "2일" in delivery_info:
-        timing = "2일 후 도착해요."
-    else:
-        timing = f"{delivery_info}(으)로 배송돼요."
-    return f"{timing} {fee_note}"
-
-
-def _answer_payment_flow_question(state: PaymentAgentInput) -> Optional[str]:
-    """결제수단/배송 질문 중 이미 가진 mock 데이터로 답할 수 있는 것만 다룬다
-    (배송=selected_product.delivery, 결제수단=이 시스템이 naver_pay 하나만
-    지원). 근거 없는 질문(환불 정책 등)은 지어내지 않고 None을 반환해
-    호출부가 정직하게 "모른다"고 답하게 한다."""
+def _payment_flow_question_fact(state: PaymentAgentInput) -> Optional[dict]:
+    """결제 흐름 중 질문을, 이미 가진 mock 데이터로 답할 수 있으면 그 사실을
+    fact 로 반환한다(배송=selected_product.delivery, 결제수단=naver_pay 하나).
+    근거 없는 질문은 None → 호출부가 unanswerable fact 로 정직하게 처리."""
     user_text = _extract_last_user_text(state.get("messages"))
     if any(kw in user_text for kw in _DELIVERY_QUESTION_KEYWORDS):
         product = state.get("selected_product") or {}
-        return _describe_delivery(product.get("delivery", ""), product.get("delivery_fee"))
+        return cf.delivery_estimate(product.get("delivery", ""), product.get("delivery_fee"))
     if any(kw in user_text for kw in _PAYMENT_METHOD_QUESTION_KEYWORDS):
-        return "네이버페이로만 결제할 수 있어요."
+        return cf.payment_method()
     return None
 
 
@@ -306,19 +275,21 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
     # 대기 상태로 그대로 복귀한다(ADR-005, WON-19 Unit 4). Step 0~4 어느
     # 단계로도 진행하지 않도록 다른 모든 분기보다 먼저 처리한다.
     if intent == "ask" and pending_type in _PAYMENT_FLOW_ASK_PENDING_TYPES:
-        answer = _answer_payment_flow_question(state)
-        original_message = (state.get("pending_action") or {}).get("message", "")
-        combined_message = (
-            f"{answer} {original_message}" if answer
-            else f"그 부분은 정확히 안내해드리기 어려워요. {original_message}"
-        )
+        # WON-33 Unit 3 — P2/P3/P4. 답할 수 있으면 그 사실을, 아니면 unanswerable
+        # 을 fact 로 실어 render_voice 가 "답하고 원래 대기로 복귀"하는 문구를
+        # 만든다(원래 pending 메시지를 접두어로 붙이지 않는다, WON-26 §5-3).
+        q_fact = _payment_flow_question_fact(state) or cf.unanswerable(None)
+        message = commerce_voice.render_voice(cf.build_bundle(
+            cf.derive_awaiting("payment_agent", "payment_processing", pending_type),
+            q_fact,
+        ))
         output = {
-            "pending_action": {"type": pending_type, "message": combined_message},
+            "pending_action": {"type": pending_type, "message": message},
             "error": None,
             "last_agent": "payment_agent",
         }
         agent_logger.log_payment_agent(_log_in, output)
-        agent_logger.log(f"[payment_agent] 결제 흐름 질문 응답 | pending_type={pending_type} answered={bool(answer)}")
+        agent_logger.log(f"[payment_agent] 결제 흐름 질문 응답 | pending_type={pending_type} fact={q_fact['fact_type']}")
         return output
 
     # ── Step 0: 상품 확인 → 장바구니 담기 ──
@@ -346,7 +317,11 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 "selected_product": None,
                 "pending_action": {
                     "type": "clarification",
-                    "message": "상품 정보를 다시 확인하는 중이에요. 잠시 후 다시 말씀해 주시겠어요?",
+                    # WON-33 Unit 3 — P6.
+                    "message": commerce_voice.render_voice(cf.build_bundle(
+                        cf.derive_awaiting("payment_agent", "idle", "clarification"),
+                        cf.selection_rechecking(),
+                    )),
                 },
             }
         if state.get("queue_clear_existing"):
@@ -365,10 +340,15 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
         else:
             mock_add_to_cart(user_id, selected_product, quantity, keywords)
         cart = mock_get_cart(user_id)
-        if len(cart) > 1:
-            cart_msg = f"{short_name}도 담았어요! 총 {len(cart)}가지예요. 결제할까요, 더 담을까요?"
-        else:
-            cart_msg = f"{short_name} {quantity}개 담았어요! 결제할까요, 다른 것도 보실래요?"
+        # WON-33 Unit 3 — P7(다품목)/P8(단품). 방금 담은 품목 + 현재 장바구니를
+        # fact 로 실어 "담았어요, 결제할까요/더 담을까요" 문구를 만든다.
+        cart_msg = commerce_voice.render_voice(cf.build_bundle(
+            cf.derive_awaiting("payment_agent", "cart_shopping", "continue_shopping"),
+            cf.item_just_added(keywords, selected_product.get("product_name"), quantity),
+            cf.cart_contents(cart) if len(cart) > 1 else cf.single_item(
+                keywords, selected_product.get("product_name"), quantity, selected_product.get("price"),
+            ),
+        ))
         output = {
             "stage": "cart_shopping",
             "selected_product": selected_product,
@@ -395,21 +375,26 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 "stage": "cart_shopping",
                 "error": "payment_precheck_missing_product",
                 "last_agent": "payment_agent",
-                "pending_action": {"type": "what_to_buy", "message": "상품을 아직 찾지 못했어요. 무엇을 구매하실까요?"},
+                "pending_action": {
+                    "type": "what_to_buy",
+                    # WON-33 Unit 3 — P9.
+                    "message": commerce_voice.render_voice(cf.build_bundle(
+                        cf.derive_awaiting("payment_agent", "cart_shopping", "what_to_buy"),
+                        cf.no_product_to_pay(),
+                    )),
+                },
             }
             agent_logger.log_payment_agent(_log_in, output)
             return output
 
         cart = cart or []
-        if cart:
-            cart_total = sum(item["total"] for item in cart)
-            items_summary = ", ".join(
-                f"{(item.get('keywords') or [item.get('product_name', '상품')])[0]} {item.get('quantity', 1)}개"
-                for item in cart
-            )
-            review_msg = f"총 {cart_total:,}원이에요. 수량을 바꾸거나 빼고 싶은 게 있으면 편하게 말씀해 주세요."
-        else:
-            review_msg = f"{short_name} {quantity or 1}개, {total:,}원이에요. 수량을 바꾸거나 빼고 싶은 게 있으면 편하게 말씀해 주세요."
+        # WON-33 Unit 3 — P10(장바구니 있음)/P11(단품). 총액·품목을 fact 로.
+        review_msg = commerce_voice.render_voice(cf.build_bundle(
+            cf.derive_awaiting("payment_agent", "cart_shopping", "cart_review"),
+            cf.cart_contents(cart) if cart else cf.single_item(
+                keywords, selected_product.get("product_name"), quantity, selected_product.get("price"),
+            ),
+        ))
 
         output = {
             "stage": "cart_shopping",
@@ -460,17 +445,18 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                     agent_logger.log_payment_agent(_log_in, output)
                     return output
                 cart = mock_get_cart(user_id)
-                cart_total = sum(item["total"] for item in cart) if cart else 0
-                review_msg = (
-                    f"총 {cart_total:,}원이에요. 수량을 바꾸거나 빼고 싶은 게 있으면 편하게 말씀해 주세요."
-                    if cart else "장바구니가 비었어요. 더 담으실래요?"
-                )
+                # WON-33 Unit 3 — P12 (cart_operations 경로).
+                review_pending = "cart_review" if cart else "what_to_buy"
+                review_msg = commerce_voice.render_voice(cf.build_bundle(
+                    cf.derive_awaiting("payment_agent", "cart_shopping", review_pending),
+                    cf.cart_contents(cart) if cart else cf.cart_empty(),
+                ))
                 output = {
                     "stage": "cart_shopping",
                     "cart_items": cart,
                     "error": None,
                     "last_agent": "payment_agent",
-                    "pending_action": {"type": "cart_review" if cart else "what_to_buy", "message": review_msg},
+                    "pending_action": {"type": review_pending, "message": review_msg},
                     "payment_idempotency_key": str(uuid.uuid4()),
                 }
                 agent_logger.log_payment_agent(_log_in, output)
@@ -517,22 +503,19 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
                 if not matched and not is_removal and selected_product:
                     mock_add_to_cart(user_id, selected_product, new_qty, keywords)
             cart = mock_get_cart(user_id)
-            cart_total = sum(item["total"] for item in cart) if cart else total
-            items_summary = ", ".join(
-                f"{(item.get('keywords') or [item.get('product_name', '상품')])[0]} {item.get('quantity', 1)}개"
-                for item in cart
-            ) if cart else (f"{short_name} {new_qty}개" if new_qty else "")
-            review_msg = (
-                f"총 {cart_total:,}원이에요. 수량을 바꾸거나 빼고 싶은 게 있으면 편하게 말씀해 주세요."
-                if cart else "장바구니가 비었어요. 더 담으실래요?"
-            )
+            # WON-33 Unit 3 — P12 (단일 품목 수량변경/제거 경로).
+            review_pending = "cart_review" if cart else "what_to_buy"
+            review_msg = commerce_voice.render_voice(cf.build_bundle(
+                cf.derive_awaiting("payment_agent", "cart_shopping", review_pending),
+                cf.cart_contents(cart) if cart else cf.cart_empty(),
+            ))
             output = {
                 "stage": "cart_shopping",
                 "quantity": new_qty,
                 "cart_items": cart,
                 "error": None,
                 "last_agent": "payment_agent",
-                "pending_action": {"type": "cart_review" if cart else "what_to_buy", "message": review_msg},
+                "pending_action": {"type": review_pending, "message": review_msg},
                 # 장바구니가 바뀌었으므로 새 결제 멱등성 키 발급.
                 "payment_idempotency_key": str(uuid.uuid4()),
             }
@@ -573,15 +556,14 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
             agent_logger.log_payment_agent(_log_in, guard)
             return guard
         cart = mock_get_cart(user_id)
-        if cart:
-            cart_total = sum(item["total"] for item in cart)
-            items_summary = ", ".join(
-                f"{(item.get('keywords') or [item.get('product_name', '상품')])[0]} {item.get('quantity', 1)}개"
-                for item in cart
-            )
-            payment_msg = f"{items_summary}, 총 {cart_total:,}원이에요. 네이버로 결제할까요?"
-        else:
-            payment_msg = f"{short_name} {quantity or 1}개, {total:,}원이에요. 네이버로 결제할까요?"
+        # WON-33 Unit 3 — P16(장바구니 있음)/P17(단품). 품목·총액 + 결제수단 fact.
+        payment_msg = commerce_voice.render_voice(cf.build_bundle(
+            cf.derive_awaiting("payment_agent", "payment_processing", "payment_method_confirm"),
+            cf.cart_contents(cart) if cart else cf.single_item(
+                keywords, selected_product.get("product_name"), quantity, selected_product.get("price"),
+            ),
+            cf.payment_method(),
+        ))
         output = {
             "stage": "payment_processing",
             "error": None,
@@ -602,7 +584,13 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
             "stage": "payment_processing",
             "error": None,
             "last_agent": "payment_agent",
-            "pending_action": {"type": "payment_password", "message": "결제 비밀번호를 입력해 주시겠어요?"},
+            "pending_action": {
+                "type": "payment_password",
+                # WON-33 Unit 3 — P18.
+                "message": commerce_voice.render_voice(cf.build_bundle(
+                    cf.derive_awaiting("payment_agent", "payment_processing", "payment_password"),
+                )),
+            },
         }
         agent_logger.log_payment_agent(_log_in, output)
         agent_logger.log("[payment_agent] Step 3 완료 | 비밀번호 요청")
