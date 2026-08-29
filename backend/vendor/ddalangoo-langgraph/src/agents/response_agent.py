@@ -13,6 +13,7 @@ from configs.llm_config import get_llm
 from src.state.schema import ShoppingState
 from src.state.node_inputs import ResponseAgentInput, ResponseAgentUpdate
 from src.prompts.response_prompt import RESPONSE_EXPLAIN_PROMPT, RESPONSE_QA_PROMPT, RESPONSE_ADVICE_PROMPT
+from src.prompts.smalltalk_prompt import SMALLTALK_CHARACTER
 from src.utils.agent_logger import agent_logger
 from src.utils.priority_resolver import _mentions_same_target
 from src.utils.retry import classify_failure, retry_call
@@ -275,6 +276,7 @@ def _generate_qa_answer(product: dict, question: str) -> tuple[str, bool, str, b
     try:
         answer = retry_call(
             _get_llm().invoke, [HumanMessage(content=RESPONSE_QA_PROMPT.format(
+                persona=SMALLTALK_CHARACTER,
                 product_json=json.dumps(product, ensure_ascii=False),
                 question=question,
             ))]
@@ -307,6 +309,7 @@ def _generate_explanation(
     try:
         explanation = retry_call(
             _get_llm().invoke, [HumanMessage(content=RESPONSE_EXPLAIN_PROMPT.format(
+                persona=SMALLTALK_CHARACTER,
                 product_json=json.dumps(product, ensure_ascii=False),
                 keywords=json.dumps(keywords, ensure_ascii=False),
                 condition=condition or "없음",
