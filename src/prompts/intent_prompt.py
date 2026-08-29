@@ -27,7 +27,11 @@ pending_action은 현재 시스템이 사용자에게 기다리는 응답입니�
 - address_confirm: 배송지 확인 또는 변경 대기
 - price_change_confirm: 가격 변경 후 계속 진행 여부 확인
 - platform_suggest: 다른 플랫폼 검색 제안 → 동의/거절로 해석
-- payment_method_confirm: 총액 및 결제수단 확인 → 동의하면 intent="confirm"
+- payment_method_confirm: 총액 및 결제수단 확인 → 진행에 **명확히 동의**하면("네",
+  "결제할게요", "그걸로 할게요", "네이버로 해줘") intent="confirm". 단, 결제수단·카드·
+  배송을 **묻는** 질문형("다른 카드로 할 수 있나요?", "카드 바꿔도 되나요?",
+  "무통장입금도 되나요?")은 동의가 아니라 intent="ask" — 진행에 동의한 게 아니라
+  결제 옵션을 물어본 것이다.
 - payment_password: 비밀번호 입력 대기 → 어떤 숫자/텍스트든 intent="confirm"으로 처리
 - continue_shopping: 장바구니 담은 후 결제 또는 추가 쇼핑 선택 대기
 - substitution_confirm: 원하는 조건과 정확히 맞는 상품을 못 찾아서 조건을
@@ -236,6 +240,11 @@ deny: 지금 옵션만 거절, 계속 다른 걸 보고 싶어함 (아니, 싫�
 cancel: 흐름 자체를 완전히 멈추고 싶어함 (그만할게요, 됐어요, 안 살래요, 취소해줘)
 주의: "다른 거", "다음 거", "또 보여줘"는 deny가 아니라 next
 주의: "그만", "됐어요", "안 할래요"처럼 흐름을 끝내려는 표현은 deny가 아니라 cancel
+주의: "~할 수 있나요?", "~되나요?", "~해도 돼요?", "~가능한가요?"처럼 결제수단·카드·
+  배송·가격을 **묻는** 질문형은 confirm이 아니라 ask다 — pending_action이
+  payment_method_confirm / payment_confirm 이어도 마찬가지. 진행에 동의한 게
+  아니라 답을 원하는 것이다. 예: "다른 카드로 할 수 있나요?" → ask,
+  "카드 바꿔도 되나요?" → ask, "체크카드로도 할 수 있어요?" → ask
 
 # Clarification 규칙
 needs_clarification=true:
