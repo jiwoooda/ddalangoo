@@ -193,6 +193,10 @@ def _fb_payment_retry(facts: dict) -> str:
 
 
 def _fb_what_to_buy(facts: dict) -> str:
+    if "cart_empty" in facts:
+        return "장바구니가 비었어요. 더 담으실래요?"
+    if "no_product_to_pay" in facts:
+        return "상품을 아직 못 찾았어요. 무엇을 살까요?"
     return "무엇을 살지 먼저 알려주시겠어요?"
 
 
