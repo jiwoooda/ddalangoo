@@ -211,7 +211,8 @@ def test_llm_exception_falls_back(monkeypatch):
     ),
     cf.build_bundle("order_complete", cf.order_placed("ORDER-1"), cf.delivery_estimate("로켓배송", 0)),
 ])
-def test_llm_smoke_returns_valid_elderly_string(bundle):
+def test_llm_smoke_returns_valid_elderly_string(bundle, monkeypatch):
+    monkeypatch.undo()  # autouse 폴백 픽스처(_force_fallback, conftest) 해제 → 실 LLM 경로
     msg = cv.render_voice(bundle)
     assert isinstance(msg, str) and msg.strip()
     ok, reason = cv._reflect_elderly(msg)
