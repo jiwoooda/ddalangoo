@@ -890,6 +890,18 @@ def mock_get_default_address(user_id: str) -> Optional[dict[str, Any]]:
     return MOCK_ADDRESSES.get(str(user_id))
 
 
+def mock_set_default_address(user_id: str, address: dict[str, Any]) -> dict[str, Any]:
+    """대화 발화로 받은 새 기본 배송지를 저장한다 — mock_get_default_address의 대칭.
+
+    WON-29: 무주소 사용자가 결제 흐름/idle에서 새 주소를 말하면 여기에 저장돼
+    이후 턴의 mock_get_default_address가 그 주소를 돌려준다.
+    """
+    stored = dict(address)
+    stored.setdefault("is_default", True)
+    MOCK_ADDRESSES[str(user_id)] = stored
+    return stored
+
+
 def mock_get_purchase_history(user_id: str) -> list[dict[str, Any]]:
     """
     최신순 정렬 — 실제 DB 경로(get_histories_by_user_id_db)가

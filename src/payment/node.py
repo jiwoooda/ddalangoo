@@ -25,6 +25,7 @@ from src.state.schema import ShoppingState
 from src.state.node_inputs import PaymentAgentInput, PaymentAgentUpdate
 from src.utils.agent_logger import agent_logger, _ptype
 from src.agents.product_agent import validate_selected_product
+from src.tools import db_client
 from src.tools.mock_tools import (
     mock_add_to_cart,
     mock_get_cart,
@@ -80,6 +81,36 @@ def _format_address(address: dict) -> str:
 def _short_address(addr: str) -> str:
     parts = addr.split()
     return " ".join(parts[:3]) + "..." if len(parts) > 3 else addr
+
+
+def _require_address(state: ShoppingState) -> Optional[PaymentAgentUpdate]:
+    """무주소면 결제를 진행시키지 않고 cart_shopping으로 되돌리는 업데이트를 반환한다
+    (주소가 있으면 None). WON-29 RC-3 — 배송지 가드가 Step 1-5에만 있어서
+    address_confirm / payment_method_confirm / payment_password 단계에선 무주소로도
+    결제 후반부까지 진행되고 빈 주소로 주문이 나가던 문제. 각 단계 공통 방어선."""
+    if _format_address(_build_delivery_address(state)):
+        return None
+    return {
+        "stage": "cart_shopping",
+        "error": "address_required",
+        "last_agent": "payment_agent",
+        "pending_action": {
+            "type": "address_required",
+            "message": "아직 등록된 배송지가 없으시네요. 배송지를 먼저 알려주시겠어요?",
+            "payload": {"subType": "address_required"},
+        },
+    }
+
+
+def _save_address_from_utterance(state: ShoppingState) -> Optional[str]:
+    """이번 턴에 새 주소를 말했으면(intent=address_change + address_text) 저장하고
+    표시용 짧은 주소를 반환한다. 저장할 게 없으면 None. WON-29 RC-2 — 사용자가
+    새 주소를 말해도 어디에도 저장하지 않던 문제(db_client에 저장 함수 자체가 없었음)."""
+    if state.get("intent") != "address_change" or not state.get("address_text"):
+        return None
+    address = _build_delivery_address(state)
+    db_client.save_default_address(state.get("user_id", ""), address)
+    return _short_address(_format_address(address))
 
 
 def _delivery_msg(delivery_info: str) -> str:
@@ -506,17 +537,11 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
             agent_logger.log_payment_agent(_log_in, output)
             return output
 
-        address = _build_delivery_address(state)
-        addr_display = _format_address(address)
-        if not addr_display:
-            output = {
-                "stage": "cart_shopping",
-                "error": "address_required",
-                "last_agent": "payment_agent",
-                "pending_action": {"type": "address_required", "message": "아직 등록된 배송지가 없으시네요. 배송지를 먼저 알려주시겠어요?", "payload": {"subType": "address_required"}},
-            }
-            agent_logger.log_payment_agent(_log_in, output)
-            return output
+        guard = _require_address(state)
+        if guard:
+            agent_logger.log_payment_agent(_log_in, guard)
+            return guard
+        addr_display = _format_address(_build_delivery_address(state))
         output = {
             "stage": "payment_processing",
             "error": None,
@@ -529,6 +554,22 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
 
     # ── Step 2: 배송지 확인 → 결제수단 선택 ──
     if pending_type == "address_confirm":
+        # 확인 대기 중 새 주소를 말하면(WON-29 RC-2) 저장하고 그 주소로 재확인한다.
+        saved_short = _save_address_from_utterance(state)
+        if saved_short is not None:
+            output = {
+                "stage": "payment_processing",
+                "error": None,
+                "last_agent": "payment_agent",
+                "pending_action": {"type": "address_confirm", "message": f"{saved_short}로 보낼게요. 맞으시죠?"},
+            }
+            agent_logger.log_payment_agent(_log_in, output)
+            agent_logger.log("[payment_agent] Step 2 | 새 배송지 저장 후 재확인")
+            return output
+        guard = _require_address(state)
+        if guard:
+            agent_logger.log_payment_agent(_log_in, guard)
+            return guard
         cart = mock_get_cart(user_id)
         if cart:
             cart_total = sum(item["total"] for item in cart)
@@ -551,6 +592,10 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
 
     # ── Step 3: 결제수단 확인 → 비밀번호 요청 ──
     if pending_type == "payment_method_confirm":
+        guard = _require_address(state)
+        if guard:
+            agent_logger.log_payment_agent(_log_in, guard)
+            return guard
         output = {
             "stage": "payment_processing",
             "error": None,
@@ -563,6 +608,11 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
 
     # ── Step 4: 비밀번호 → mock 결제 실행 ──
     if pending_type == "payment_password":
+        # 마지막 방어선 — 무주소 상태로 mock_place_order가 빈 주소로 실행되면 안 된다.
+        guard = _require_address(state)
+        if guard:
+            agent_logger.log_payment_agent(_log_in, guard)
+            return guard
         delivery_address = _build_delivery_address(state)
         # 정상 플로우라면 Step 0/1-5에서 이미 발급됐어야 하지만, 방어적으로
         # 없으면 여기서라도 생성한다 — 결제 실행 노드에 자동 Retry를 붙이지
@@ -634,6 +684,10 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
         return output
 
     # fallback
+    guard = _require_address(state)
+    if guard:
+        agent_logger.log_payment_agent(_log_in, guard)
+        return guard
     output = {
         "stage": "payment_processing",
         "error": None,

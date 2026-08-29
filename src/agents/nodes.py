@@ -76,7 +76,24 @@ def respond_node(state: RespondNodeInput) -> RespondNodeUpdate:
             agent_logger.log_respond(msg, stage, pending_action)
             return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None, "fallback_stuck_turns": 0}
         elif intent in ("deny", "address_change"):
-            msg = immediate or "네, 알겠어요! 새 배송지를 말씀해 주시겠어요?"
+            new_address_text = state.get("address_text") if intent == "address_change" else None
+            if new_address_text:
+                # WON-29 RC-1/RC-2 — idle에서 "배송지가 없어요, 알려주시면 저장해
+                # 드릴게요"에 이어 사용자가 실제로 주소를 말한 턴. 약속만 하고
+                # 저장 안 하던 걸 여기서 실제로 저장한다.
+                from src.tools import db_client
+                db_client.save_default_address(
+                    state.get("user_id", ""),
+                    {
+                        "address_line1": new_address_text, "address_line2": "",
+                        "recipient_name": "고객", "recipient_phone": "", "zip_code": "",
+                    },
+                )
+                _parts = new_address_text.split()
+                _short = " ".join(_parts[:3]) + "..." if len(_parts) > 3 else new_address_text
+                msg = f"{_short}로 저장했어요."
+            else:
+                msg = immediate or "네, 알겠어요! 새 배송지를 말씀해 주시겠어요?"
             agent_logger.log_respond(msg, stage, pending_action)
             return {"messages": [{"role": "assistant", "content": msg}], "pending_action": None, "fallback_stuck_turns": 0}
 
