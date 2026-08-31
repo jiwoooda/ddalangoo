@@ -134,6 +134,20 @@ def test_fallback_delivery_question_answer():
     assert "내일" in msg
 
 
+def test_fallback_cancel_available_gives_substantive_answer():
+    # WON-35 Unit 3 — 확정 전 취소 질문: 실질 안내가 나가고 unanswerable 로 안 빠진다.
+    bundle = cf.build_bundle(
+        "payment_method_choice",
+        cf.single_item(["서울우유"], "서울우유 1L", 1, 2800),
+        cf.cancel_available(),
+    )
+    msg = cv.render_voice(bundle)
+    assert "취소" in msg
+    assert "어렵" not in msg  # unanswerable 폴백 문구가 아니어야 한다
+    # 확정 후/환불 범위로 넘어가지 않는다(WON-36)
+    assert "환불" not in msg
+
+
 def test_fallback_unknown_awaiting_is_safe_string():
     bundle = cf.build_bundle(cf.AWAITING_UNKNOWN)
     msg = cv.render_voice(bundle)

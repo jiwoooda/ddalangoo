@@ -238,6 +238,10 @@ def _extract_last_user_text(messages: Optional[list]) -> str:
 # pending_action을 그대로 유지"해야 한다(ADR-005, 결제는 human-in-the-loop).
 _PAYMENT_METHOD_QUESTION_KEYWORDS = ("카드", "결제수단", "결제 수단", "결제방법", "결제 방법", "무통장", "계좌이체", "페이")
 _DELIVERY_QUESTION_KEYWORDS = ("배송", "도착", "택배")
+# WON-35 Unit 3 — 결제 확정 전 "취소돼요?"/"취소 가능해요?" 류. "취소" 하나로
+# 충분하다(여기 도달 시점엔 이미 intent=="ask"라 "취소해줘" 같은 명령은 안 들어옴).
+# "환불"은 일부러 뺀다 — 확정 후 취소·환불은 WON-36 스코프.
+_CANCEL_QUESTION_KEYWORDS = ("취소",)
 _PAYMENT_FLOW_ASK_PENDING_TYPES = frozenset({"address_confirm", "payment_method_confirm", "payment_password"})
 
 
@@ -246,6 +250,10 @@ def _payment_flow_question_fact(state: PaymentAgentInput) -> Optional[dict]:
     fact 로 반환한다(배송=selected_product.delivery, 결제수단=naver_pay 하나).
     근거 없는 질문은 None → 호출부가 unanswerable fact 로 정직하게 처리."""
     user_text = _extract_last_user_text(state.get("messages"))
+    # 취소 질문을 delivery/payment_method 보다 먼저 본다 — "취소하면 배송은
+    # 어떻게 돼요?" 처럼 겹치는 발화에서도 확정 전 취소 안내가 우선한다(WON-35 Unit 3).
+    if any(kw in user_text for kw in _CANCEL_QUESTION_KEYWORDS):
+        return cf.cancel_available()
     if any(kw in user_text for kw in _DELIVERY_QUESTION_KEYWORDS):
         product = state.get("selected_product") or {}
         return cf.delivery_estimate(product.get("delivery", ""), product.get("delivery_fee"))
