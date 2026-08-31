@@ -1,5 +1,10 @@
 """공통 Graph 노드: wait_for_input, respond, cancel 등."""
-from src.state.schema import ShoppingState
+from src.state.schema import (
+    ShoppingState,
+    product_context_reset,
+    purchase_flow_reset,
+    cart_clear,
+)
 from src.state.node_inputs import RespondNodeInput, RespondNodeUpdate, CancelNodeInput
 from src.tools.mock_tools import mock_clear_cart
 from src.utils.agent_logger import agent_logger
@@ -198,32 +203,33 @@ def ask_what_to_buy_node(state: ShoppingState) -> dict:
 
 
 def cancel_node(state: CancelNodeInput) -> dict:
-    """모든 stage에서의 cancel 처리. state 완전 리셋."""
+    """모든 stage에서의 cancel 처리 — 상품 탐색/구매 플로우 문맥과 실제
+    장바구니를 전부 초기화한다.
+
+    WON-37: 필드를 손으로 나열하던 것을 schema.py 카테고리 함수 조합으로 대체.
+    - product_context_reset(): 검색어·조건·후보·선택상품·플랫폼 흔적
+    - purchase_flow_reset():   대기액션·결제 멱등키(다음 결제엔 새 키)·품목 큐·
+                               레시피·추천/재구매 해소 컨텍스트·cart_operations
+    - cart_clear() + mock_clear_cart(): state.cart_items + 프로세스 mock 장바구니
+      (cart_clear()는 state 필드만 담당 — CART_CLEAR_REQUIRES_MOCK_CLEAR_CART
+       계약대로 mock_clear_cart 를 함께 호출한다)
+    그 위에 얹는 cancel 고유값: stage=idle, intent/error 클리어, cancel 안내 문구.
+    """
     user_id = state.get("user_id")
     if user_id:
         mock_clear_cart(user_id)
     msg = "알겠어요. 구매를 그만하고 장바구니를 모두 비웠어요. 필요하면 언제든 다시 말씀해주세요!"
 
     return {
+        **product_context_reset(),
+        **purchase_flow_reset(),
+        **cart_clear(),
+        # ── cancel 고유값 (카테고리 기본값 위에 덮어씀) ──
         "stage": "idle",
         "intent": None,
         "error": None,
         "pending_action": {"type": "payment_confirm", "message": msg},
         "last_agent": "cancel",
-        "keywords": [],
-        "search_results": [],
-        "scored_products": [],
-        "recommended_products": [],
-        "selected_product": None,
-        "product_url": None,
-        "explanation": None,
-        "highlight_specs": [],
-        "current_product_index": 0,
-        "quantity": None,
-        "reorder_resolution": None,
-        "cart_items": [],
-        # 취소 시 진행 중이던 결제 플로우도 무효화 — 다음 결제엔 새 키 발급.
-        "payment_idempotency_key": None,
     }
 
 
