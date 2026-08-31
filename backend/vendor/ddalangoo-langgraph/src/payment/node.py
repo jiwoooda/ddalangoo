@@ -21,7 +21,12 @@ bridge_shopping_to_payment/bridge_payment_to_shopping)가 있었지만 실제
 import re
 import uuid
 from typing import Any, Optional
-from src.state.schema import ShoppingState
+from src.state.schema import (
+    ShoppingState,
+    product_context_reset,
+    purchase_flow_reset,
+    cart_clear,
+)
 from src.state.node_inputs import PaymentAgentInput, PaymentAgentUpdate
 from src.utils.agent_logger import agent_logger, _ptype
 from src.agents.product_agent import validate_selected_product
@@ -676,16 +681,23 @@ def payment_agent_node(state: PaymentAgentInput) -> PaymentAgentUpdate:
             cf.order_placed(order["order_id"]),
             cf.delivery_estimate(delivery_info),
         ))
+        # WON-37 — 주문이 접수됐으면 상품 탐색/구매 플로우 문맥은 전부 낡았다.
+        # cancel_node 와 같은 카테고리 함수 조합으로 초기화한다.
+        # - product_context_reset() / purchase_flow_reset(): 검색·큐·레시피·결제
+        #   멱등키(다음 결제엔 새 키) 등 공통 부분
+        # - cart_clear(): state.cart_items. mock 장바구니는 mock_place_order 가
+        #   내부에서 이미 mock_clear_cart 했으므로 여기서 별도 호출하지 않는다.
+        # 그 위에 얹는 완료 고유값: stage=completed, order_id, storage_state_path.
         output = {
+            **product_context_reset(),
+            **purchase_flow_reset(),
+            **cart_clear(),
             "stage": "completed",
             "order_id": order["order_id"],
-            "cart_items": [],
             "error": None,
             "last_agent": "payment_agent",
             "pending_action": {"type": "payment_confirm", "message": completion_msg},
             "storage_state_path": None,
-            # 주문 완료 → 다음 결제 플로우엔 새 키가 발급돼야 하므로 비운다.
-            "payment_idempotency_key": None,
         }
         agent_logger.log_payment_agent(_log_in, output)
         agent_logger.log(
