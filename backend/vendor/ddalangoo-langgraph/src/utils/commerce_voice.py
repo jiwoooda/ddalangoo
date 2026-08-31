@@ -142,6 +142,10 @@ def _describe_delivery(de: dict) -> str:
 def _answer_line(facts: dict) -> str:
     """P2/P3/P4 — 결제 흐름 중 질문에 답하는 조각(대기 안내 앞에 붙는다).
     원래 pending 메시지를 접두어로 쓰지 않는다(WON-26 §5-3)."""
+    if "cancel_available" in facts:
+        # WON-35 Unit 3 — 확정 전이라 지금 말하면 바로 멈출 수 있다는 것까지만.
+        # 환불·확정 후 취소는 여기서 다루지 않는다(WON-36).
+        return "지금 말씀하시면 취소해 드릴 수 있어요."
     if "unanswerable" in facts:
         return "그 부분은 정확히 안내해 드리기 어려워요."
     de = facts.get("delivery_estimate")

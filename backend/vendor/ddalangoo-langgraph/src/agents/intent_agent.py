@@ -151,14 +151,21 @@ _CANCEL_COMMAND_MARKERS = (
 
 def _should_force_ask_over_cancel(user_input: str, intent: str, pending_type: str) -> bool:
     """결제 대기 중 "취소되나요?"/"취소 가능한가요?"/"취소하면 환불돼요?"처럼 취소
-    가능 여부·조건을 '묻는' 질문형이 LLM에서 intent="cancel"로 오분류되는 경우를
-    ask로 교정한다(WON-19 Unit 3). 원인은 "취소"라는 단어에만 반응하고 질문형/
-    명령형 어미를 구분하지 못하는 것. intent_prompt.py에 질문형 예외 규칙을 더하는
-    방식은 실측에서 무관한 product_request 추출 케이스(WON-22 Unit 2, "서울우유
-    말고 우유 사줘"의 excluded_brands)를 8/8 → 0/n으로 무너뜨려서(프롬프트 분량
-    증가가 경계 추출을 교란), _should_clear_size_preference와 같은 원칙으로
-    코드가 결정론적으로 고정한다."""
-    if intent != "cancel" or pending_type not in _PAYMENT_FLOW_PENDING_TYPES:
+    가능 여부·조건을 '묻는' 질문형을 확실히 ask 로 고정한다.
+
+    - LLM이 intent="cancel"로 오분류한 경우 → ask 로 교정(WON-19 Unit 3). cancel
+      이면 router가 cancel_confirmation으로 보내 결제 흐름을 통째로 멈춘다.
+    - LLM이 이미 intent="ask"로 맞게 분류했지만 "답을 모른다"며 방어적으로
+      needs_clarification을 켠 경우 → 호출부에서 그걸 끈다(WON-35 Unit 3). 이제
+      payment_agent가 "확정 전이니 지금 취소 가능"이라고 답할 수 있으므로
+      router의 이른 clarification 게이트에 막히면 안 된다.
+
+    intent_prompt.py에 질문형 예외 규칙을 더하는 방식은 실측에서 무관한
+    product_request 추출 케이스(WON-22 Unit 2, "서울우유 말고 우유 사줘"의
+    excluded_brands)를 8/8 → 0/n으로 무너뜨려서(프롬프트 분량 증가가 경계
+    추출을 교란), _should_clear_size_preference와 같은 원칙으로 코드가
+    결정론적으로 고정한다."""
+    if intent not in ("cancel", "ask") or pending_type not in _PAYMENT_FLOW_PENDING_TYPES:
         return False
     text = user_input.strip()
     if any(m in text for m in _CANCEL_COMMAND_MARKERS):
@@ -607,11 +614,13 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     if _should_force_buy_from_freeform(user_input, intent, stage):
         intent = "buy"
 
-    # ── ask 강제 교정(WON-19 Unit 3): 결제 대기 중 "취소되나요?"류 질문형이
-    # cancel로 오분류된 경우. cancel이면 router가 cancel_confirmation으로 보내
-    # 결제 흐름을 통째로 멈추게 되므로, 질문형은 ask로 되돌려 payment_agent가
-    # 답하고 원래 대기를 유지하게 한다. ──
-    if _should_force_ask_over_cancel(user_input, intent, pending_type):
+    # ── 결제 대기 중 취소 질문형 고정(WON-19 Unit 3 + WON-35 Unit 3):
+    # cancel로 오분류됐으면 ask로 되돌리고(cancel이면 router가
+    # cancel_confirmation으로 보내 결제 흐름을 통째로 멈춘다), 아래에서
+    # needs_clarification/confidence 도 함께 정리해 payment_agent 까지
+    # 도달하게 한다. ──
+    forced_ask_over_cancel = _should_force_ask_over_cancel(user_input, intent, pending_type)
+    if forced_ask_over_cancel:
         intent = "ask"
 
     quantity = _parse_quantity(parsed.quantity)
@@ -657,6 +666,17 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
 
     # 강제 교정된 reorder: 상품명 있으므로 clarification 불필요, confidence 보정
     if intent == "reorder" and keywords and needs_clarification:
+        needs_clarification = False
+        clarification_reason = None
+        confidence = max(confidence, 0.8)
+
+    # WON-35 Unit 3 — 결제 대기 중 취소 질문을 ask로 교정한 경우(위 forced_ask_
+    # over_cancel), payment_agent 가 이제 "확정 전이니 지금 취소 가능"이라고
+    # 답할 수 있다(_payment_flow_question_fact → cf.cancel_available). LLM이
+    # 방어적으로 켠 needs_clarification/낮은 confidence 때문에 router 의 이른
+    # clarification 게이트에 막혀 payment_agent 에 도달 못 하는 걸 푼다
+    # (reorder 강제 교정과 같은 패턴).
+    if forced_ask_over_cancel:
         needs_clarification = False
         clarification_reason = None
         confidence = max(confidence, 0.8)

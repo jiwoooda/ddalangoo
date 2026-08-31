@@ -25,7 +25,8 @@ __all__ = [
     "payment_method", "delivery_estimate", "order_placed",
     "payment_error", "payment_error_from_exc",
     "selection_rechecking", "no_product_to_pay",
-    "cart_cleared", "cancel_empties_cart", "unanswerable",
+    "cart_cleared", "cancel_empties_cart", "cancel_available",
+    "order_action_out_of_scope", "unanswerable",
     # 조립 / 파생
     "build_bundle", "derive_awaiting",
     "AWAITING_VALUES", "AWAITING_UNKNOWN",
@@ -239,6 +240,22 @@ def cart_cleared(reason: str = "cancel") -> dict:
 
 def cancel_empties_cart() -> dict:
     return {"fact_type": "cancel_empties_cart"}
+
+
+def cancel_available() -> dict:
+    """WON-35 Unit 3 — 결제 확정 전(pending) "취소돼요?" 류 질문에 답할 근거.
+    아직 주문이 나가지 않아 지금 말하면 바로 멈출 수 있다는 사실만 담는다.
+    확정 후 취소·환불(WON-36)은 이 fact 의 범위가 아니다 — when 은 항상
+    "before_confirm" 하나뿐이고, 확정 후 상태는 이 fact 를 만들지 않는다."""
+    return {"fact_type": "cancel_available", "when": "before_confirm"}
+
+
+def order_action_out_of_scope(platform: Optional[str] = None) -> dict:
+    """WON-36 — 주문 확정 후/idle 에서 취소·환불 요청. DDALANGOO 는 third-party
+    (쿠팡 등) 주문의 취소·환불을 조회·실행할 수단이 없다. unanswerable("근거 없음")
+    과 구분되는 "권한/수단 없음" — 톤이 달라야 한다(사과+안내지, 되묻기 아님).
+    LLM 자유생성 금지 대상이라 Voice 가 아니라 고정 템플릿으로만 문구화한다."""
+    return {"fact_type": "order_action_out_of_scope", "platform": platform or None}
 
 
 _UNANSWERABLE_TOPICS = ("payment_method", "delivery")

@@ -56,6 +56,19 @@ def test_P4_unanswerable_is_standalone_fact_no_prefix():
     assert bundle == b("payment_password", {"fact_type": "unanswerable", "topic_hint": None})
 
 
+def test_cancel_available_fact_before_confirm():
+    # WON-35 Unit 3 — 결제 확정 전 "취소돼요?" 류 질문에 답할 근거.
+    # 확정 후/환불은 이 fact 범위 밖(WON-36).
+    bundle = cf.build_bundle(
+        cf.derive_awaiting("payment_agent", "payment_processing", "payment_method_confirm"),
+        cf.cancel_available(),
+    )
+    assert bundle == b(
+        "payment_method_choice",
+        {"fact_type": "cancel_available", "when": "before_confirm"},
+    )
+
+
 def test_P6_selection_validation_failed():
     bundle = cf.build_bundle(
         cf.derive_awaiting("payment_agent", "idle", "clarification"),
