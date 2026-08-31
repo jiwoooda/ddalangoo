@@ -362,3 +362,137 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "health_followup_turns_remaining": 0,
         "recent_replies": [],
     }
+
+
+# ══════════════════════════════════════════════
+# 5. Reset field-sets (WON-37 Unit 1)
+# ══════════════════════════════════════════════
+# cancel_node / ask_what_to_buy_node / fallback_orchestrator._recover_result /
+# reset_turn_observability_node 가 각자 다른 필드 목록으로 "상태 초기화"를
+# 손코딩해, 한 곳만 고쳐도 다른 지점은 불완전하게 남던 문제(WON-37)의 공통
+# 기반. 이 유닛은 목록만 정의한다 — 아직 어떤 노드도 이 함수를 호출하지 않는다
+# (Unit 2~4 에서 배선).
+#
+# 원칙:
+# - 초기화 값은 전부 get_default_shopping_state() 의 기본값과 일치한다.
+# - 헬퍼는 매 호출마다 새 list/dict 를 만들어 반환한다(공유 기본값 오염 방지).
+# - stage / intent / error / last_agent / confidence / needs_clarification /
+#   fallback_stuck_turns / 세션 식별자 등 "매 호출마다 상황별 값을 노드가 직접
+#   지정하는" 플로우 제어 필드는 어느 셋에도 넣지 않는다 — 그건 초기화가
+#   아니라 그 노드의 결정이다.
+# - 네 카테고리는 서로 겹치지 않는다(각 필드는 정확히 한 셋에만).
+
+# ── 상품 탐색 문맥 ── 검색어/조건/후보/선택상품/플랫폼 흔적.
+PRODUCT_CONTEXT_RESET_FIELDS: tuple[str, ...] = (
+    "keywords",
+    "search_query",
+    "exclude_keywords",
+    "negative_constraints",
+    "quantity",
+    "condition",
+    "product_request",
+    "override_platform",
+    "target_platforms",
+    "tried_platforms",
+    "selected_platform",
+    "search_results",
+    "scored_products",
+    "recommended_products",
+    "current_product_index",
+    "selected_product",
+    "product_url",
+    "explanation",
+    "highlight_specs",
+)
+
+# ── 구매/결제 플로우 ── 대기 액션 / 결제 멱등키 / 품목 큐 / 레시피 / 추천·재구매
+# 해소 컨텍스트 / 장바구니 조작 파싱 결과.
+PURCHASE_FLOW_RESET_FIELDS: tuple[str, ...] = (
+    "pending_action",
+    "payment_idempotency_key",
+    "queue_items",
+    "current_queue_index",
+    "queue_source",
+    "queue_clear_existing",
+    "cart_operations",
+    "recipe_dish",
+    "recipe_people",
+    "recommendation_context",
+    "reorder_resolution",
+)
+
+# ── 실제 장바구니 삭제 ── state 필드는 cart_items 하나뿐이지만, mock 장바구니는
+# state 밖(mock_tools 의 프로세스 저장소)에 있어서 이 셋만으로는 안 비워진다.
+# schema 는 tools 계층을 import 하지 않으므로, "호출부가 mock_clear_cart(user_id)
+# 도 함께 불러야 한다"는 계약을 아래 플래그로 표시한다.
+CART_CLEAR_FIELDS: tuple[str, ...] = ("cart_items",)
+CART_CLEAR_REQUIRES_MOCK_CLEAR_CART: bool = True
+
+# ── 턴 관측값 ── reset_turn_observability_node(nodes.py)가 매 턴 초기화하는 5개.
+TURN_OBSERVABILITY_RESET_FIELDS: tuple[str, ...] = (
+    "degraded_mode",
+    "degradation_reason",
+    "failure_stage",
+    "ranking_mode",
+    "source_used",
+)
+
+
+def product_context_reset() -> dict[str, Any]:
+    """상품 탐색 문맥 초기화 — {필드명: 초기화값} 을 새로 만들어 반환."""
+    return {
+        "keywords": [],
+        "search_query": None,
+        "exclude_keywords": [],
+        "negative_constraints": [],
+        "quantity": None,
+        "condition": None,
+        "product_request": None,
+        "override_platform": None,
+        "target_platforms": [],
+        "tried_platforms": [],
+        "selected_platform": None,
+        "search_results": [],
+        "scored_products": [],
+        "recommended_products": [],
+        "current_product_index": 0,
+        "selected_product": None,
+        "product_url": None,
+        "explanation": None,
+        "highlight_specs": [],
+    }
+
+
+def purchase_flow_reset() -> dict[str, Any]:
+    """구매/결제 플로우 초기화 — {필드명: 초기화값} 을 새로 만들어 반환."""
+    return {
+        "pending_action": None,
+        "payment_idempotency_key": None,
+        "queue_items": [],
+        "current_queue_index": 0,
+        "queue_source": None,
+        "queue_clear_existing": False,
+        "cart_operations": [],
+        "recipe_dish": None,
+        "recipe_people": None,
+        "recommendation_context": None,
+        "reorder_resolution": None,
+    }
+
+
+def cart_clear() -> dict[str, Any]:
+    """장바구니 삭제의 state 부분 — {"cart_items": []}. 호출부는
+    CART_CLEAR_REQUIRES_MOCK_CLEAR_CART 계약대로 mock_clear_cart(user_id) 도
+    함께 호출해야 한다."""
+    return {"cart_items": []}
+
+
+def turn_observability_reset() -> dict[str, Any]:
+    """턴 관측값 초기화 — {필드명: 초기화값} 을 새로 만들어 반환."""
+    return {
+        "degraded_mode": False,
+        "degradation_reason": None,
+        "failure_stage": None,
+        "ranking_mode": None,
+        "source_used": None,
+    }
