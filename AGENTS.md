@@ -23,6 +23,22 @@ You MUST stage only files that belong to the approved task.
 You MUST NEVER include unrelated working-tree changes in a commit.
 You MUST run `git add` and `git commit` atomically, with no gap between them. Never stage files and then wait — if another session runs a pathless commit in that gap, your staged files get swept into it.
 
+### No blanket staging
+
+You MUST NEVER use `git commit -a` / `git commit --all`, `git add -A` / `git add --all`, `git add .`, or `git add -u`.
+You MUST NEVER pass a pathspec to `git commit` (e.g. `git commit -m "..." -- file`) — the pathspec form re-stages the *entire current working-tree state* of that path, ignoring what you carefully staged.
+You MUST stage by listing exact file paths: `git add <path1> <path2> ...`, then `git commit -m "..."` with no pathspec.
+
+### Verify the staged diff, not just the file list
+
+Before every commit you MUST run `git diff --cached` (the full hunk diff, not `--stat`) and confirm that **every hunk** is one you wrote for this task.
+A filename check (`git diff --cached --stat` / `--name-only`) is NOT sufficient: when another session has unstaged edits in a file you also edited, `git add <that file>` stages their hunks too, and they do not appear as a new filename — only as extra `+`/`-` lines inside a file that is legitimately yours.
+If any staged hunk is not yours, you MUST stop, unstage (`git restore --staged <file>`), and report to the human — do not try to surgically separate the hunks yourself (interactive `git add -p` is unavailable in this environment). Wait for the other session to commit its own hunks first, then rebase/re-apply yours.
+
+### Incident record — why these rules exist
+
+Commit `0a35b6a` (`feat(WON-35 Unit 3)`) silently included another session's WON-36 work: `commerce_facts.py::order_action_out_of_scope()` plus its `__all__` entry. Both sessions were editing `commerce_facts.py` concurrently; the WON-35 session ran `git add src/utils/commerce_facts.py` while the WON-36 hunks sat unstaged in the working tree, so `git add <file>` swept them in. The pre-commit check that ran was `git diff --cached --stat`, which showed `commerce_facts.py | 19 ++` — the reviewer read that as "my ~13-line change" and committed without reading the hunks. Result: WON-36 code landed under a WON-35 commit, attribution wrong, history entangled (WON-36's follow-up commit `8ce01b0` then had to work around it). This is a recurrence of the same class of sweep that motivated the atomic-add rule above; a filename-level check does not catch it.
+
 ## Hotspot push gate
 
 Before pushing a commit that changes any hotspot file, you MUST report the hotspot diff and obtain explicit approval.
