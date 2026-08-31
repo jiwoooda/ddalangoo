@@ -48,6 +48,7 @@ from src.agents.nodes import (
     cancel_confirmation_node,
     cancel_node,
     ask_what_to_buy_node,
+    order_action_boundary_node,
 )
 from src.agents.recipe_agent import recipe_agent_node
 from src.agents.purchase_queue_agent import purchase_queue_agent_node
@@ -73,6 +74,7 @@ _ROUTE_DESTINATIONS = {
     "respond": "respond",
     "cancel_confirmation": "cancel_confirmation",
     "cancel": "cancel",
+    "order_action_boundary": "order_action_boundary",
     "fallback_orchestrator": "fallback_orchestrator",
     "end": END,
 }
@@ -116,6 +118,8 @@ def build_graph(checkpointer=None):
     builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
     builder.add_node("cancel_confirmation", cancel_confirmation_node)
     builder.add_node("cancel", cancel_node)
+    # WON-36 — 확정 후/idle 취소·환불 발화를 route()가 여기로 가로챈다(고정 안내).
+    builder.add_node("order_action_boundary", order_action_boundary_node)
     # fallback_orchestrator: route()가 needs_clarification/confidence/unclear로
     # 막힌 게 반복되면(fallback_stuck_turns>=1) 여기로 보낸다. 정상 흐름에서는
     # 절대 안 거쳐가는 노드 — LLM 호출 자체가 try/except로 감싸져 있어(내부에서
@@ -197,6 +201,7 @@ def build_graph(checkpointer=None):
         {"context_agent": "context_agent", "purchase_queue_agent": "purchase_queue_agent", "respond": "respond"},
     )
     builder.add_edge("cancel", "respond")
+    builder.add_edge("order_action_boundary", "respond")
     builder.add_edge("smalltalk_agent", "respond")
 
     builder.add_conditional_edges(
