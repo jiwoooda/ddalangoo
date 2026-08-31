@@ -25,13 +25,15 @@ VIVID(mphora.ai) 가상유저 검증 연동용 최소 HTTP 브릿지.
 "Authorization: Bearer <token>" 헤더를 요구한다. 안 설정하면 인증 없이 오픈.
 """
 import os
+import time
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from src.graph.builder import build_graph
@@ -57,6 +59,51 @@ class ChatResponse(BaseModel):
     stage: str
 
 
+class OpenAIChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class OpenAIChatCompletionRequest(BaseModel):
+    model: str
+    messages: list[OpenAIChatMessage]
+    session_id: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    stream: bool = False
+
+
+class OpenAIResponseMessage(BaseModel):
+    role: Literal["assistant"] = "assistant"
+    content: str
+
+
+class OpenAIChoice(BaseModel):
+    index: int = 0
+    message: OpenAIResponseMessage
+    finish_reason: Literal["stop"] = "stop"
+
+
+class OpenAIChatCompletionResponse(BaseModel):
+    id: str
+    object: Literal["chat.completion"] = "chat.completion"
+    created: int
+    model: Literal["ddalangoo"] = "ddalangoo"
+    choices: list[OpenAIChoice]
+    session_id: str
+
+
+class OpenAIModel(BaseModel):
+    id: str
+    object: Literal["model"] = "model"
+    owned_by: str
+
+
+class OpenAIModelList(BaseModel):
+    object: Literal["list"] = "list"
+    data: list[OpenAIModel]
+
+
 def _check_auth(authorization: Optional[str]) -> None:
     if not _BRIDGE_TOKEN:
         return
@@ -77,6 +124,87 @@ def _extract_reply(config: dict) -> tuple[str, str]:
     return reply, vals.get("stage", "idle")
 
 
+def _initialize_session(session_id: str, user_id: Optional[str]) -> tuple[dict, str, str]:
+    """필요할 때만 LangGraph thread를 만들고 선제 인사 결과를 돌려준다."""
+    config = {"configurable": {"thread_id": session_id}}
+    if session_id in _known_sessions:
+        return config, "", "idle"
+
+    initial_state = get_default_shopping_state(user_id or session_id, session_id)
+    _graph.invoke(initial_state, config)
+    _known_sessions.add(session_id)
+    proactive_reply, proactive_stage = _extract_reply(config)
+    return config, proactive_reply, proactive_stage
+
+
+def _run_agent_turn(
+    message: str,
+    *,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    first_turn_policy: Literal["return_greeting", "process_user"] = "return_greeting",
+) -> ChatResponse:
+    """한 user turn을 기존 LangGraph에 전달한다.
+
+    ``return_greeting``은 기존 /chat의 신규 세션 동작을 보존한다. OpenAI
+    adapter는 ``process_user``를 써서 초기 선제 인사가 있더라도 같은 HTTP
+    요청 안에서 user message까지 반드시 처리한다.
+    """
+    resolved_session_id = session_id or f"vivid-{uuid.uuid4().hex[:12]}"
+    config, proactive_reply, proactive_stage = _initialize_session(resolved_session_id, user_id)
+
+    if proactive_reply and first_turn_policy == "return_greeting":
+        return ChatResponse(
+            session_id=resolved_session_id,
+            reply=proactive_reply,
+            stage=proactive_stage,
+        )
+
+    _graph.update_state(config, {"messages": [{"role": "user", "content": message}]})
+    try:
+        _graph.invoke(None, config)
+    except Exception as exc:
+        # 기존 /chat의 오류 계약을 유지한다. OpenAI endpoint는 이 예외의 내부
+        # detail을 외부에 노출하지 않고 일반화된 error envelope로 바꾼다.
+        raise HTTPException(
+            status_code=500,
+            detail=f"agent error: {type(exc).__name__}: {exc}",
+        ) from exc
+
+    reply, stage = _extract_reply(config)
+    return ChatResponse(session_id=resolved_session_id, reply=reply, stage=stage)
+
+
+def _openai_error(
+    status_code: int,
+    message: str,
+    code: str,
+    *,
+    param: Optional[str] = None,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "message": message,
+                "type": "invalid_request_error" if status_code < 500 else "server_error",
+                "param": param,
+                "code": code,
+            }
+        },
+    )
+
+
+def _last_user_message(messages: list[OpenAIChatMessage]) -> Optional[str]:
+    # 이번 adapter는 stateless history reconstruction을 하지 않는다. session_id가
+    # 없더라도 과거 system/assistant/user history는 재주입하지 않고 마지막 user
+    # message 하나만 새 LangGraph session에 전달한다.
+    for message in reversed(messages):
+        if message.role == "user":
+            return message.content
+    return None
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -91,30 +219,68 @@ def chat(req: ChatRequest, authorization: Optional[str] = Header(default=None)):
     session_id를 다음 요청에 그대로 실어 보내는 걸 전제).
     """
     _check_auth(authorization)
+    return _run_agent_turn(
+        req.message,
+        session_id=req.session_id,
+        user_id=req.user_id,
+        first_turn_policy="return_greeting",
+    )
 
-    session_id = req.session_id or f"vivid-{uuid.uuid4().hex[:12]}"
-    config = {"configurable": {"thread_id": session_id}}
 
-    if session_id not in _known_sessions:
-        initial_state = get_default_shopping_state(req.user_id or session_id, session_id)
-        _graph.invoke(initial_state, config)
-        _known_sessions.add(session_id)
-
-        proactive_reply, proactive_stage = _extract_reply(config)
-        if proactive_reply:
-            # session_start가 신규·미온보딩 유저로 판단해 딸랑구가 먼저 말을
-            # 걸었다(선제 인사). 이번 요청의 message를 바로 밀어넣고 또
-            # invoke하면 이 인사가 조용히 버려지고, 방금 보낸 message가
-            # 엉뚱하게 "그 인사에 대한 답"으로 처리돼버린다 — 그래서 이번
-            # 요청엔 선제 인사만 그대로 돌려주고, message는 다음 요청에서
-            # 자연스럽게 그 인사에 대한 답으로 처리되게 둔다.
-            return ChatResponse(session_id=session_id, reply=proactive_reply, stage=proactive_stage)
-
-    _graph.update_state(config, {"messages": [{"role": "user", "content": req.message}]})
+@app.post("/v1/chat/completions")
+def openai_chat_completions(
+    req: OpenAIChatCompletionRequest,
+    authorization: Optional[str] = Header(default=None),
+):
     try:
-        _graph.invoke(None, config)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"agent error: {type(e).__name__}: {e}")
+        _check_auth(authorization)
+    except HTTPException:
+        return _openai_error(401, "Invalid authentication credentials.", "invalid_api_key")
 
-    reply, stage = _extract_reply(config)
-    return ChatResponse(session_id=session_id, reply=reply, stage=stage)
+    if req.model != "ddalangoo":
+        return _openai_error(
+            404, f"The model {req.model!r} does not exist.", "model_not_found", param="model"
+        )
+    if req.stream:
+        return _openai_error(
+            400, "Streaming is not supported.", "unsupported_parameter", param="stream"
+        )
+    if not req.messages:
+        return _openai_error(400, "messages must not be empty.", "invalid_messages", param="messages")
+
+    user_message = _last_user_message(req.messages)
+    if user_message is None or not user_message.strip():
+        return _openai_error(
+            400, "A non-empty user message is required.", "missing_user_message", param="messages"
+        )
+
+    try:
+        result = _run_agent_turn(
+            user_message,
+            session_id=req.session_id,
+            first_turn_policy="process_user",
+        )
+    except Exception:
+        # LLM/provider 이름, 예외 타입, stack trace 등 내부 실행 정보를 숨긴다.
+        return _openai_error(500, "The agent could not complete the request.", "agent_error")
+
+    response = OpenAIChatCompletionResponse(
+        id=f"chatcmpl-{uuid.uuid4().hex}",
+        created=int(time.time()),
+        choices=[
+            OpenAIChoice(message=OpenAIResponseMessage(content=result.reply)),
+        ],
+        session_id=result.session_id,
+    )
+    return response
+
+
+@app.get("/v1/models")
+def openai_models(authorization: Optional[str] = Header(default=None)):
+    try:
+        _check_auth(authorization)
+    except HTTPException:
+        return _openai_error(401, "Invalid authentication credentials.", "invalid_api_key")
+    return OpenAIModelList(
+        data=[OpenAIModel(id="ddalangoo", owned_by="ddalangoo")],
+    )
