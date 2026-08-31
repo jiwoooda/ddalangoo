@@ -227,6 +227,38 @@ def cancel_node(state: CancelNodeInput) -> dict:
     }
 
 
+_PLATFORM_APP_NAMES = {
+    "coupang": "쿠팡", "kurly": "컬리", "naver": "네이버",
+    "oliveyoung": "올리브영", "musinsa": "무신사",
+}
+
+
+def order_action_boundary_node(state: ShoppingState) -> dict:
+    """WON-36 — 주문 확정 후/idle 에서 취소·환불 요청/질문을 받았을 때.
+
+    DDALANGOO 는 third-party(쿠팡 등) 주문의 취소·환불을 조회·실행할 수단이
+    없다. LLM 자유생성(fallback_orchestrator)이 "환불 가능하다니 좋은 정보네요"
+    같은 근거 없는 확답을 만들지 못하도록, route()가 이 노드로 미리 가로챈다.
+    여기서는 LLM 없이 고정 안내로 마감한다(cancel_confirmation 과 달리 쇼핑
+    세션 중단이 아니라 "직접 처리 불가 + 앱에서 확인" 경계 안내)."""
+    platform = str((state.get("selected_product") or {}).get("platform") or "").lower()
+    app = _PLATFORM_APP_NAMES.get(platform)
+    where = f"{app} 앱" if app else "주문하신 쇼핑몰 앱"
+    msg = (
+        f"주문 취소나 환불은 제가 직접 처리해 드리기 어려워요. "
+        f"{where}의 주문내역에서 확인해 주세요."
+    )
+    agent_logger.log(f"[order_action_boundary] 취소/환불 경계 안내 | where={where}")
+    return {
+        "intent": None,
+        "needs_clarification": False,
+        "clarification_reason": None,
+        "error": None,
+        "last_agent": "order_action_boundary",
+        "pending_action": {"type": "order_action_boundary", "message": msg},
+    }
+
+
 def cancel_confirmation_node(state: ShoppingState) -> dict:
     """전체 쇼핑 취소를 확인한다. 이 노드에서는 장바구니를 변경하지 않는다."""
     if state.get("intent") == "deny":

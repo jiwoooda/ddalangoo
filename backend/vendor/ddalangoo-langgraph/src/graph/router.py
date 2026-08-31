@@ -23,6 +23,7 @@ RouteName = Literal[
     "respond",
     "cancel_confirmation",
     "cancel",
+    "order_action_boundary",
     "fallback_orchestrator",
     "end",
 ]
@@ -167,6 +168,16 @@ def _extract_last_user_text(state: ShoppingState) -> str:
             if role == "human":
                 return getattr(msg, "content", "")
     return ""
+
+
+# WON-36 — 확정 후/idle 취소·환불 발화. DDALANGOO 는 third-party 주문 취소/환불
+# 수단이 없어 확답 불가 영역 → fallback_orchestrator 자유생성 전에 가로챈다.
+# "무르다/물러줘"(반품 구어) 는 오탐 위험("사과 물러요")이 있어 "반품"으로만 커버.
+_ORDER_CANCEL_REFUND_TERMS = ("취소", "환불", "반품")
+
+
+def _mentions_order_cancel_refund(text: str) -> bool:
+    return bool(text) and any(t in text for t in _ORDER_CANCEL_REFUND_TERMS)
 
 
 def _looks_like_order_request_fallback(text: str) -> bool:
@@ -327,6 +338,20 @@ def route(state: ShoppingState) -> RouteName:
     def _decide(dest: RouteName) -> RouteName:
         agent_logger.log_router("intent_agent", dest, intent or "-", stage, pending_type)
         return dest
+
+    # WON-36 — idle(주문 확정 후 다음 턴 포함)에서 취소·환불 발화는 다른 어떤
+    # 분기보다 먼저 deterministic 하게 가로챈다. DDALANGOO 는 third-party 주문의
+    # 취소·환불을 조회·실행할 수단이 없어, fallback_orchestrator 자유생성이나
+    # 쇼핑 세션 중단(cancel_confirmation) 문구로 새면 근거 없는 확답/오정보가
+    # 나간다(고령층 결제 발화라 리스크 큼). completed/failed 는 after_respond()가
+    # END 로 끝내 route()에 도달하지 않으므로 idle 만 본다.
+    # 예외: cancel_confirm 대기 중의 답변("취소"/"네")은 쇼핑 중단 확정이므로 제외.
+    if (
+        stage == "idle"
+        and pending_type != "cancel_confirm"
+        and _mentions_order_cancel_refund(_extract_last_user_text(state))
+    ):
+        return _decide("order_action_boundary")
 
     # 만족도 체크인/프로필 이어 묻기 진행 중(pending_action.payload.
     # satisfaction_check 또는 profile_topup)이면 needs_clarification/confidence/
