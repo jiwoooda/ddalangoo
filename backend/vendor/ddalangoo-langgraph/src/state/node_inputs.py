@@ -73,6 +73,7 @@ class ResponseAgentInput(TypedDict):
     quantity: Optional[int]
     user_id: str
     pending_action: Optional[PendingAction]
+    question_classification: Optional[dict[str, Any]]  # WON-38 Unit 2 — Unit 4에서 소비
 
 
 class ReorderAgentInput(TypedDict):
@@ -127,6 +128,7 @@ class PaymentAgentInput(TypedDict):
     queue_clear_existing: bool
     messages: list
     product_request: Optional[dict[str, Any]]
+    question_classification: Optional[dict[str, Any]]  # WON-38 Unit 2 — Unit 3에서 소비
 
 
 class RespondNodeInput(TypedDict):
@@ -193,6 +195,7 @@ class IntentAgentUpdate(TypedDict, total=False):
     address_text: Optional[str]
     needs_clarification: bool
     clarification_reason: Optional[str]
+    question_classification: Optional[dict[str, Any]]  # WON-38 Unit 2
     confidence: float
     immediate_response: str
     last_agent: str
