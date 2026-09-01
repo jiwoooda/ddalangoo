@@ -192,10 +192,59 @@ def _extract_last_user_text(messages: Optional[list]) -> str:
     return ""
 
 
-def _recover_result(decision: FallbackDecision) -> FallbackOrchestratorUpdate:
+def _should_reset_product_context(
+    state: FallbackOrchestratorInput, decision: FallbackDecision
+) -> bool:
+    """'사용자 목적이 바뀌었는가' — 이전 상품 탐색/구매 플로우 문맥을 초기화할지의
+    단일 판단 지점(WON-20 Unit 3).
+
+    - state["goal_shift"]가 True 면(Unit 2 intent_agent가 이 발화를 이미
+      high-confidence out_of_scope 로 판정) 재확인 없이 신뢰해 리셋한다 — "분류와
+      행동 분리": '무엇이 바뀌었나'는 Unit 2가, '무엇을 할까'(action)는 이 노드가.
+    - goal_shift 가 False/None 이면(Unit 2가 out_of_scope 로는 안 본 애매한 영역)
+      기존처럼 LLM 의 자유 판단(decision.reset_product_context)을 그대로 쓴다.
+
+    배선 버그 수정: 이 판단은 이제 action(recover/clarify/chat)과 무관하게
+    적용된다 — 예전엔 _recover_result() 안에서만 읽혀 action=chat/clarify 면
+    LLM 이 옳게 reset=true 를 내도 버려졌다(WON-39 실측)."""
+    if state.get("goal_shift"):
+        return True
+    return bool(decision.reset_product_context)
+
+
+def _with_context_reset(
+    update: FallbackOrchestratorUpdate, do_reset: bool
+) -> FallbackOrchestratorUpdate:
+    """do_reset 이면 WON-37 카테고리 함수로 이전 상품 탐색/구매 플로우 문맥을
+    초기화한 뒤 그 위에 원래 update 를 얹는다 — pending_action/needs_clarification
+    등 action 별 결정값이 항상 우선한다. 새 리셋 로직은 만들지 않고
+    product_context_reset()+purchase_flow_reset() 을 그대로 재사용한다. 단
+    **장바구니(cart_items)는 유지한다** — 목적이 바뀌었어도 담아둔 건 그대로다
+    (WON-37 결정, cart_clear() 안 씀).
+
+    action=chat/clarify 갈래에 쓴다 — 배선 버그 수정의 핵심(예전엔 이 갈래에서
+    리셋이 아예 안 됐다). recover 갈래는 _recover_result(decision, do_reset) 가
+    같은 두 헬퍼로 자체 처리한다(WON-37 배선 테스트가 그 소스를 검사)."""
+    if not do_reset:
+        return update
+    merged: FallbackOrchestratorUpdate = {}
+    merged.update(product_context_reset())
+    merged.update(purchase_flow_reset())
+    merged.update(update)
+    return merged
+
+
+def _recover_result(
+    decision: FallbackDecision, do_reset: Optional[bool] = None
+) -> FallbackOrchestratorUpdate:
     updates: FallbackOrchestratorUpdate = {}
 
-    if decision.reset_product_context:
+    # do_reset 은 호출부(fallback_orchestrator_node)가 _should_reset_product_context()
+    # 로 판단한 값 — goal_shift(Unit 2) 우선, 없으면 LLM 판단(WON-20 Unit 3). 그래프
+    # 밖에서 decision 만으로 직접 호출하는 경우(테스트 등)엔 None 이 들어오므로 예전처럼
+    # decision.reset_product_context 로 폴백한다.
+    reset = decision.reset_product_context if do_reset is None else do_reset
+    if reset:
         # WON-37 — 사용자 목적 자체가 바뀌었으면 이전 상품 탐색/구매 플로우 문맥은
         # 새 목적과 섞이면 안 된다. schema 카테고리 함수 조합으로 초기화한다
         # (cancel_node / 결제완료와 같은 헬퍼). 단 **장바구니(cart_items)는
@@ -295,6 +344,10 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
 
     agent_logger.log(f"[fallback_orchestrator] action={decision.action} reasoning={decision.reasoning}")
 
+    # WON-20 Unit 3 — 목적 전환 시 문맥 초기화 여부는 action 종류와 무관하게 한
+    # 곳에서 판단하고, 아래 세 갈래(recover/chat/clarify) 모두에 동일하게 적용한다.
+    do_reset = _should_reset_product_context(state, decision)
+
     if decision.action == "recover":
         # recover인데 intent를 안 고쳤고(corrected_intent 없음) 이번 턴 intent가
         # 여전히 unclear면, route()의 게이트가 intent=="unclear" 조건으로 다시
@@ -304,8 +357,10 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
         # 안전하게 처리한다.
         if not decision.corrected_intent and state.get("intent") in (None, "unclear"):
             agent_logger.log("[fallback_orchestrator] recover인데 intent 교정이 없어 clarify로 강등")
-            return _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
-        return _recover_result(decision)
+            return _with_context_reset(
+                _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK), do_reset
+            )
+        return _recover_result(decision, do_reset)
     if decision.action == "chat":
         # 잡담으로 끝내기보다 목적 있는 대화로 채운다 — casual_engagement.py의
         # 공용 우선순위(만족도 체크인 → 프로필 이어 묻기)를 그대로 재사용한다.
@@ -313,12 +368,16 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
         # 인라인으로 두 벌 유지하지 않는다. 둘 다 없으면 기존처럼 일반 chat 응답.
         pending_action = pick_and_start_engagement(state.get("user_id", ""))
         if pending_action:
-            return {
+            return _with_context_reset({
                 "pending_action": pending_action,
                 "needs_clarification": False,
                 "clarification_reason": None,
                 "last_agent": "fallback_orchestrator",
-            }
-        return _clarify_result(decision.chat_reply or _DEFAULT_CLARIFY_FALLBACK)
+            }, do_reset)
+        return _with_context_reset(
+            _clarify_result(decision.chat_reply or _DEFAULT_CLARIFY_FALLBACK), do_reset
+        )
     # action == "clarify" 또는 예상 밖의 값 — 안전하게 clarify로 처리
-    return _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
+    return _with_context_reset(
+        _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK), do_reset
+    )
