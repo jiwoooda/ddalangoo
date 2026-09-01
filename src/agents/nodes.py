@@ -180,25 +180,25 @@ def respond_node(state: RespondNodeInput) -> RespondNodeUpdate:
 
 
 def ask_what_to_buy_node(state: ShoppingState) -> dict:
-    """장바구니 후 추가 쇼핑 의사 표현 시 새 상품 입력 대기."""
+    """장바구니 후 추가 쇼핑 의사 표현 시 새 상품 입력 대기.
+
+    WON-37: 이전 상품 탐색/구매 플로우 문맥은 카테고리 함수로 초기화하되,
+    **장바구니(cart_items)는 건드리지 않는다** — "담아둔 채로 다른 상품 찾기"가
+    이 노드의 목적이라 cart_clear() 를 의도적으로 쓰지 않는다.
+    - product_context_reset(): 검색어·조건·후보·선택상품·플랫폼 흔적
+    - purchase_flow_reset():   품목 큐·레시피·추천/재구매 해소·cart_operations 등
+    그 위에 얹는 노드 고유값: stage=cart_shopping, 새 품목 입력 대기 문구.
+    """
     return {
+        **product_context_reset(),
+        **purchase_flow_reset(),
+        # ── 노드 고유값 (카테고리 기본값 위에 덮어씀) ──
+        "stage": "cart_shopping",
+        "error": None,
         "pending_action": {
             "type": "what_to_buy",
             "message": "무엇을 구매하실까요?",
         },
-        "stage": "cart_shopping",
-        "keywords": [],
-        "search_results": [],
-        "selected_product": None,
-        "reorder_resolution": None,
-        "error": None,
-        "quantity": None,
-        "product_url": None,
-        "current_product_index": 0,
-        "explanation": None,
-        "highlight_specs": [],
-        "scored_products": [],
-        "recommended_products": [],
     }
 
 

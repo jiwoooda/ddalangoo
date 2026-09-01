@@ -21,6 +21,7 @@ from langchain_core.messages import HumanMessage
 
 from configs.llm_config import get_llm
 from src.state.node_inputs import FallbackOrchestratorInput, FallbackOrchestratorUpdate
+from src.state.schema import product_context_reset, purchase_flow_reset
 from src.prompts.fallback_prompt import (
     FALLBACK_ORCHESTRATOR_PROMPT,
     SYSTEM_MAP_TEXT,
@@ -195,18 +196,14 @@ def _recover_result(decision: FallbackDecision) -> FallbackOrchestratorUpdate:
     updates: FallbackOrchestratorUpdate = {}
 
     if decision.reset_product_context:
-        # cancel_node(src/agents/nodes.py)가 리셋하는 필드 목록과 동일한 발상 —
-        # 사용자 목적 자체가 바뀌었으면 이전 상품/검색 흔적이 새 목적과 섞이면 안 된다.
-        updates.update({
-            "search_results": [],
-            "selected_product": None,
-            "product_url": None,
-            "explanation": None,
-            "highlight_specs": [],
-            "current_product_index": 0,
-            "pending_action": None,
-            "quantity": None,
-        })
+        # WON-37 — 사용자 목적 자체가 바뀌었으면 이전 상품 탐색/구매 플로우 문맥은
+        # 새 목적과 섞이면 안 된다. schema 카테고리 함수 조합으로 초기화한다
+        # (cancel_node / 결제완료와 같은 헬퍼). 단 **장바구니(cart_items)는
+        # 유지한다** — 목적이 바뀌었어도 담아둔 건 그대로다(cart_clear() 안 씀).
+        # 아래 corrected_* 교정값이 이 기본값 위에 덮어쓴다(intent/keywords/quantity/
+        # condition/exclude_keywords).
+        updates.update(product_context_reset())
+        updates.update(purchase_flow_reset())
 
     if decision.corrected_intent in _SAFE_INTENTS:
         updates["intent"] = decision.corrected_intent
