@@ -20,6 +20,7 @@ from src.prompts.intent_prompt import INTENT_AGENT_PROMPT
 from src.utils.agent_logger import agent_logger
 from src.utils.retry import FailureClass, classify_failure
 from src.utils.search_keywords import normalize_search_keywords
+from src.utils.question_classifier import classify_payment_question
 
 IntentType = Literal[
     "buy", "reorder", "confirm", "deny", "next", "refine",
@@ -175,16 +176,6 @@ def _should_force_ask_over_cancel(user_input: str, intent: str, pending_type: st
     return text.endswith("?") or any(m in text for m in _CANCEL_QUESTION_MARKERS)
 
 
-# src/payment/node.py의 _PAYMENT_METHOD_QUESTION_KEYWORDS/_DELIVERY_QUESTION_
-# KEYWORDS와 같은 목록(의도적 중복 — 파일 간 강결합 피함, 바뀌면 양쪽 다
-# 손볼 것). intent_agent는 이 키워드가 있으면 "결제/배송 관련 질문임이
-# 명백하다"는 판단에만 쓰고, 실제 답변 생성은 여전히 payment_agent 몫이다.
-_PAYMENT_QUESTION_KEYWORDS = (
-    "카드", "결제수단", "결제 수단", "결제방법", "결제 방법", "무통장", "계좌이체", "페이",
-    "배송", "도착", "택배",
-)
-
-
 def _should_trust_ask_over_clarification(
     intent: str, needs_clarification: bool, clarification_reason: Optional[str],
     confidence: float, pending_type: str, user_input: str = "",
@@ -205,8 +196,11 @@ def _should_trust_ask_over_clarification(
     추출 규칙)을 추가할 때마다 이 케이스("카드는 뭘로 되나요?")가 그럴듯하지만
     틀린 clarification_reason("발화에서 언급한 품목이 없고...")을 달고 반복
     재발하는 게 실측(각 3회 이상)으로 확인됐다 — payment_agent가 이미 결정론적
-    으로 답할 수 있는 질문(_PAYMENT_QUESTION_KEYWORDS)이라는 게 명백한 이상,
-    LLM의 clarification_reason 내용과 무관하게 신뢰하지 않는다.
+    으로 답할 수 있는 질문(classify_payment_question().topic is not None)이라는 게
+    명백한 이상,
+    LLM의 clarification_reason 내용과 무관하게 신뢰하지 않는다(WON-38 Unit 2 —
+    "결제/배송 질문임이 명백"한지는 payment/node.py 키워드를 복제하지 않고
+    src/utils/question_classifier.classify_payment_question 으로 판단한다).
 
     confidence >= 0.5 조건은 "이유 없이 방어적으로 켠" 첫 번째 분기에만
     적용한다 — 키워드 매칭 분기는 confidence 자체에 기대지 않는다. 실측
@@ -218,7 +212,7 @@ def _should_trust_ask_over_clarification(
         return False
     if not clarification_reason:
         return confidence >= 0.5
-    return any(kw in user_input for kw in _PAYMENT_QUESTION_KEYWORDS)
+    return classify_payment_question(user_input)["topic"] is not None
 
 
 def _should_clear_existing_cart(intent: str, cart_operations: list[dict]) -> bool:
@@ -522,6 +516,7 @@ def _degraded_intent_result(state: IntentAgentInput, failure_class: FailureClass
         "address_text": None,
         "needs_clarification": True,
         "clarification_reason": "응답 파싱 오류",
+        "question_classification": classify_payment_question(_extract_user_input(state)),
         "confidence": 0.0,
         "immediate_response": "다시 한번 말씀해 주세요.",
         "last_agent": "intent_agent",
@@ -775,6 +770,10 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         "address_text": parsed.address_text,
         "needs_clarification": needs_clarification,
         "clarification_reason": clarification_reason,
+        # WON-38 Unit 2 — 결제 흐름 질문의 (topic, type)를 매 턴 state에 실어
+        # 보낸다(payment_agent/response_agent가 intent=="ask" 게이트 안에서 소비).
+        # 라우팅 목적지 결정에는 개입하지 않는다.
+        "question_classification": classify_payment_question(user_input),
         "confidence": confidence if confidence > 0 else 0.9,
         "immediate_response": immediate_response,
         "last_agent": "intent_agent",

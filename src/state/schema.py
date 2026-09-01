@@ -104,6 +104,11 @@ class ShoppingState(TypedDict):
     immediate_response: Optional[str]
     needs_clarification: bool
     clarification_reason: Optional[str]
+    # WON-38 Unit 2 — 결제 흐름 질문의 (topic, type). intent_agent가 매 턴
+    # classify_payment_question()으로 다시 쓴다(quantity/needs_clarification과 동일
+    # 패턴). payment_agent/response_agent가 intent=="ask" 게이트 안에서만 소비하고,
+    # 라우팅 목적지 결정에는 개입하지 않는다.
+    question_classification: Optional[dict[str, Any]]
     # "아무거나 사주세요"처럼 상품명 없이 dismissive하게 답할 때, 되묻는 대신
     # 프로필의 favorite_foods로 대신 채우라는 intent_agent → context_agent 신호.
     # intent_agent가 매 턴 명시적으로 True/False를 다시 쓴다(과거 턴 값이 이번
@@ -305,6 +310,7 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "immediate_response": None,
         "needs_clarification": False,
         "clarification_reason": None,
+        "question_classification": None,
         "recommend_from_profile": False,
         "cart_operations": [],
         "fallback_stuck_turns": 0,
