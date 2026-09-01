@@ -17,6 +17,7 @@ from src.prompts.smalltalk_prompt import SMALLTALK_CHARACTER
 from src.utils.agent_logger import agent_logger
 from src.utils.priority_resolver import _mentions_same_target
 from src.utils.retry import classify_failure, retry_call
+from src.utils.question_classifier import classify_payment_question
 from src.agents.product_agent import _safety_fallback_keywords
 
 _llm: BaseChatModel | None = None
@@ -35,8 +36,6 @@ _ADVICE_FALLBACK_ANSWER = "지금은 정확히 답을 드리기 어려워요. �
 
 # 상품 설명 끝에 LLM이 붙이는 CTA 문구 — pending_msg와 중복되므로 제거 대상
 _CTA_ENDINGS = ("주문할까요?", "어떠세요?", "구매할까요?", "사드릴까요?", "주문해드릴까요?")
-
-_ADDRESS_KEYWORDS = ("배송지", "주소", "배달지", "받는 곳", "배달 주소")
 
 
 def _get_llm() -> BaseChatModel:
@@ -352,11 +351,11 @@ def _build_confirm_pending_action(explanation: str, quantity) -> dict:
     return {"type": "product_confirm", "message": f"{explanation_clean}\n{pending_msg}"}
 
 
-# ── 배송지 조회 — 상품 설명과 무관한 별도 책임, QA 분기 안에서 지름길로만 탐 ──
-
-def _is_address_question(question: str) -> bool:
-    return any(k in question for k in _ADDRESS_KEYWORDS)
-
+# ── 배송지 질문 — 상품 설명과 무관한 별도 책임, QA 분기 안에서 지름길로만 탐.
+# WON-38 Unit 4: 자체 주소 키워드 목록을 없애고 (topic=address, type) 조합표로
+# 분기한다 — topic 판단은 Unit 1 classify_payment_question 이 유일한 소스.
+#   (address, what)      → _answer_address_question   (등록된 주소 조회)
+#   (address, procedure) → _answer_address_procedure  (새 주소 저장 안내)
 
 def _answer_address_question(state: ShoppingState) -> dict:
     """배송지 조회 질문 — 상품 없어도 바로 답변."""
@@ -370,6 +369,24 @@ def _answer_address_question(state: ShoppingState) -> dict:
         msg = f"등록된 배송지는 {addr_text}이에요."
     else:
         msg = "등록된 배송지가 없어요. 배송지를 알려주시면 저장해 드릴게요."
+    return {
+        "explanation": msg,
+        "pending_action": {"type": "address_confirm", "message": msg},
+        "stage": state.get("stage", "idle"),
+        "last_agent": "response_agent",
+        "error": None,
+    }
+
+
+def _answer_address_procedure(state: ShoppingState) -> dict:
+    """"주소는 어디서 바꿔요?/어디다 적어요?" 류 (topic=address, type=procedure).
+    별도 '주소 입력 화면'이 없다 — 새 주소를 말씀하시면 기본 배송지로 저장한다.
+    저장 자체는 다음 턴에 기존 경로가 처리한다(WON-29: nodes.py respond_node /
+    payment/node.py Step 2 가 intent=address_change + address_text 발화를
+    db_client.save_default_address 로 잇는다). 여기선 그 안내만 하고, 조회 응답과
+    동일하게 pending_action.type="address_confirm" 을 세팅해 그 경로가 자연스럽게
+    이어지게 한다 — 새 저장 함수/노드를 만들지 않는다."""
+    msg = "새로 받으실 곳 주소를 말씀해 주시면 기본 배송지로 저장해 드릴게요."
     return {
         "explanation": msg,
         "pending_action": {"type": "address_confirm", "message": msg},
@@ -426,7 +443,16 @@ def response_agent_node(state: ResponseAgentInput) -> ResponseAgentUpdate:
         )
         user_question = _extract_user_question(state)
 
-        if user_question and _is_address_question(user_question):
+        # WON-38 Unit 4 — (topic, type) 조합표. topic 판단은 Unit 1
+        # classify_payment_question 이 유일한 소스(자체 키워드 목록 없음).
+        # question_classification 필드가 없거나(narrow-contract 드롭 / 그래프 밖
+        # 직접 호출) None 이면 공용 함수로 재계산한다(키워드 재체크 아님).
+        _qc = state.get("question_classification")
+        if not _qc:
+            _qc = classify_payment_question(user_question or "")
+        if _qc.get("topic") == "address":
+            if _qc.get("type") == "procedure":
+                return _answer_address_procedure(state)
             return _answer_address_question(state)
 
         if not target or not user_question:
