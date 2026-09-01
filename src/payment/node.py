@@ -33,6 +33,7 @@ from src.agents.product_agent import validate_selected_product
 from src.tools import db_client
 from src.utils import commerce_facts as cf
 from src.utils import commerce_voice
+from src.utils.question_classifier import classify_payment_question
 from src.tools.mock_tools import (
     mock_add_to_cart,
     mock_get_cart,
@@ -236,34 +237,43 @@ def _extract_last_user_text(messages: Optional[list]) -> str:
 
 
 # WON-19 Unit 4: 결제 흐름 대기 중(address_confirm/payment_method_confirm/
-# payment_password) 결제수단/배송 질문에 결정론적으로 답한다. Unit 3에서
-# intent="ask"가 이 세 pending_type에서도 needs_clarification에 안 막히도록
-# 넓혀뒀으니(그때는 여기 답변 로직이 없어 일부러 좁혀뒀었다), 이제 실제로
-# payment_agent에 도달한다 — 대신 여기서 반드시 "질문에 답하고 원래
-# pending_action을 그대로 유지"해야 한다(ADR-005, 결제는 human-in-the-loop).
-_PAYMENT_METHOD_QUESTION_KEYWORDS = ("카드", "결제수단", "결제 수단", "결제방법", "결제 방법", "무통장", "계좌이체", "페이")
-_DELIVERY_QUESTION_KEYWORDS = ("배송", "도착", "택배")
-# WON-35 Unit 3 — 결제 확정 전 "취소돼요?"/"취소 가능해요?" 류. "취소" 하나로
-# 충분하다(여기 도달 시점엔 이미 intent=="ask"라 "취소해줘" 같은 명령은 안 들어옴).
-# "환불"은 일부러 뺀다 — 확정 후 취소·환불은 WON-36 스코프.
-_CANCEL_QUESTION_KEYWORDS = ("취소",)
+# payment_password) 결제수단/배송 질문에 결정론적으로 답한다.
 _PAYMENT_FLOW_ASK_PENDING_TYPES = frozenset({"address_confirm", "payment_method_confirm", "payment_password"})
 
 
 def _payment_flow_question_fact(state: PaymentAgentInput) -> Optional[dict]:
-    """결제 흐름 중 질문을, 이미 가진 mock 데이터로 답할 수 있으면 그 사실을
-    fact 로 반환한다(배송=selected_product.delivery, 결제수단=naver_pay 하나).
-    근거 없는 질문은 None → 호출부가 unanswerable fact 로 정직하게 처리."""
-    user_text = _extract_last_user_text(state.get("messages"))
-    # 취소 질문을 delivery/payment_method 보다 먼저 본다 — "취소하면 배송은
-    # 어떻게 돼요?" 처럼 겹치는 발화에서도 확정 전 취소 안내가 우선한다(WON-35 Unit 3).
-    if any(kw in user_text for kw in _CANCEL_QUESTION_KEYWORDS):
-        return cf.cancel_available()
-    if any(kw in user_text for kw in _DELIVERY_QUESTION_KEYWORDS):
+    """결제 흐름 중 질문 → 답할 fact. 자체 키워드 재체크 없이(WON-38 Unit 3)
+    state["question_classification"](Unit 2 가 intent_agent 에서 채운 (topic, type))
+    을 조합표로 읽는다. 필드가 없거나(narrow-contract 드롭 / 그래프 밖 직접 호출)
+    None 이면 Unit 1 공용 함수로 재계산한다(키워드 재체크 아님 —
+    classify_payment_question 재사용). 매칭 없으면 None → 호출부가 unanswerable.
+
+    조합표:
+      (payment_method, what)      → cf.payment_method()                  "네이버페이만"
+      (payment_method, procedure) → cf.payment_method_fixed_no_registration()
+                                    "네이버페이 고정, 카드 등록/변경 미지원"
+      (delivery,       what)      → cf.delivery_estimate(selected_product)
+      (delivery,       procedure) → None (배송 절차 전용 답 없음 → unanswerable)
+      (cancel,         *)         → cf.cancel_available()  (WON-35 흡수, cancel 은 항상 what)
+      (address,        *)         → None (주소 입력/변경 안내는 Unit 4 response_agent 몫)
+      그 외 / topic None          → None
+    """
+    qc = state.get("question_classification")
+    if not qc:
+        qc = classify_payment_question(_extract_last_user_text(state.get("messages")))
+    topic, qtype = qc.get("topic"), qc.get("type")
+
+    if topic == "payment_method":
+        if qtype == "procedure":
+            return cf.payment_method_fixed_no_registration()
+        return cf.payment_method()
+    if topic == "delivery":
+        if qtype == "procedure":
+            return None
         product = state.get("selected_product") or {}
         return cf.delivery_estimate(product.get("delivery", ""), product.get("delivery_fee"))
-    if any(kw in user_text for kw in _PAYMENT_METHOD_QUESTION_KEYWORDS):
-        return cf.payment_method()
+    if topic == "cancel":
+        return cf.cancel_available()
     return None
 
 

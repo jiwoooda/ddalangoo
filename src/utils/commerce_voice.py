@@ -146,6 +146,10 @@ def _answer_line(facts: dict) -> str:
         # WON-35 Unit 3 — 확정 전이라 지금 말하면 바로 멈출 수 있다는 것까지만.
         # 환불·확정 후 취소는 여기서 다루지 않는다(WON-36).
         return "지금 말씀하시면 취소해 드릴 수 있어요."
+    if "payment_method_fixed_no_registration" in facts:
+        # WON-38 — (payment_method, procedure). 네이버페이 고정 + 카드 등록/변경
+        # 기능이 시스템에 없음. 정직하게 안내한다.
+        return "딸랑구는 네이버페이로 결제돼요. 카드 등록이나 변경은 저희가 직접 도와드리기 어려워요."
     if "unanswerable" in facts:
         return "그 부분은 정확히 안내해 드리기 어려워요."
     de = facts.get("delivery_estimate")
