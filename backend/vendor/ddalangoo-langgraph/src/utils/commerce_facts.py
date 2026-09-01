@@ -22,7 +22,8 @@ __all__ = [
     # state fact 빌더
     "cart_contents", "single_item", "cart_empty", "item_just_added",
     "address_on_file", "address_selected", "no_address_on_file",
-    "payment_method", "delivery_estimate", "order_placed",
+    "payment_method", "payment_method_fixed_no_registration",
+    "delivery_estimate", "order_placed",
     "payment_error", "payment_error_from_exc",
     "selection_rechecking", "no_product_to_pay",
     "cart_cleared", "cancel_empties_cart", "cancel_available",
@@ -191,6 +192,19 @@ def payment_method() -> dict:
     """이 시스템이 지원하는 결제수단은 네이버페이 하나 — 표기 통일은 fact
     레벨에서 이미 해결(WON-26 §5-4). 문구 표기 변주는 Voice 모듈 책임."""
     return {"fact_type": "payment_method", "method": "네이버페이"}
+
+
+def payment_method_fixed_no_registration() -> dict:
+    """WON-38 — "카드는 어떻게 등록해요?" 류 (topic=payment_method, type=procedure).
+    mock 결제는 네이버페이 고정이고 카드 등록·변경 기능이 시스템 설계상 아예 없다
+    (mock_place_order/MockPaymentRecord 근거) — "구현 안 함"이 아니라 그런 구조다.
+    payment_method()("수단이 뭐냐")와 구분되는 fact: "네이버페이로만 되고, 등록/변경은
+    저희가 못 도와드린다"를 정직하게 안내한다."""
+    return {
+        "fact_type": "payment_method_fixed_no_registration",
+        "method": "네이버페이",
+        "registration_supported": False,
+    }
 
 
 def delivery_estimate(delivery_info: Optional[str], delivery_fee: Any = None) -> dict:
