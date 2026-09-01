@@ -161,6 +161,7 @@ class FallbackOrchestratorInput(TypedDict):
     confidence: Optional[float]
     needs_clarification: bool
     clarification_reason: Optional[str]
+    goal_shift: bool  # WON-20 Unit 3 — Unit 2(intent_agent)가 out_of_scope로 본 경우 True
     keywords: list[str]
     quantity: Optional[int]
     condition: Optional[Condition]
