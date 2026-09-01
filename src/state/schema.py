@@ -109,6 +109,13 @@ class ShoppingState(TypedDict):
     # 패턴). payment_agent/response_agent가 intent=="ask" 게이트 안에서만 소비하고,
     # 라우팅 목적지 결정에는 개입하지 않는다.
     question_classification: Optional[dict[str, Any]]
+    # WON-20 Unit 2 — 발화 scope 판단(src/utils/scope_classifier.classify_scope).
+    # intent_agent가 매 턴 다시 쓴다(question_classification과 동일 패턴). scope가
+    # "out_of_scope"(고신뢰: 가전 제어·전화·법률/금융 상담 등)면 intent_agent가
+    # 1턴째부터 "어떤 상품을 찾으세요?" 되물음 대신 정중한 범위 안내로 바꾼다 —
+    # 라우팅 목적지 자체는 안 바꾼다. goal_shift는 Unit 3(fallback_orchestrator)가 소비.
+    scope: Optional[str]  # "in_scope" | "bridgeable" | "out_of_scope" | None
+    goal_shift: bool
     # "아무거나 사주세요"처럼 상품명 없이 dismissive하게 답할 때, 되묻는 대신
     # 프로필의 favorite_foods로 대신 채우라는 intent_agent → context_agent 신호.
     # intent_agent가 매 턴 명시적으로 True/False를 다시 쓴다(과거 턴 값이 이번
@@ -311,6 +318,8 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "needs_clarification": False,
         "clarification_reason": None,
         "question_classification": None,
+        "scope": None,
+        "goal_shift": False,
         "recommend_from_profile": False,
         "cart_operations": [],
         "fallback_stuck_turns": 0,
