@@ -4,6 +4,7 @@ from src.state.schema import (
     product_context_reset,
     purchase_flow_reset,
     cart_clear,
+    turn_observability_reset,
 )
 from src.state.node_inputs import RespondNodeInput, RespondNodeUpdate, CancelNodeInput
 from src.tools.mock_tools import mock_clear_cart
@@ -29,14 +30,12 @@ def reset_turn_observability_node(state: ShoppingState) -> dict:
     intent_agent_node 진입부에 끼워 넣지 않고 전용 노드로 분리한 이유: intent_agent는
     "의도 분류"라는 단일 책임을 유지하고, 나중에 intent_agent를 거치지 않는 새 진입
     경로가 생기더라도 리셋 누락 위험이 없게 하기 위함(wait_for_input → 이 노드 →
-    intent_agent 순서로 배선, docs/resilience_plan.md Phase 2 참고)."""
-    return {
-        "degraded_mode": False,
-        "degradation_reason": None,
-        "failure_stage": None,
-        "ranking_mode": None,
-        "source_used": None,
-    }
+    intent_agent 순서로 배선, docs/resilience_plan.md Phase 2 참고).
+
+    WON-37: 초기화 필드 목록은 schema.py 의 turn_observability_reset() 하나로
+    통일됐다(cancel_node / 결제완료 / _recover_result / ask_what_to_buy_node 과
+    같은 카테고리 함수 체계). 이 지점은 다른 카테고리와 겹치지 않는다."""
+    return turn_observability_reset()
 
 
 def respond_node(state: RespondNodeInput) -> RespondNodeUpdate:
