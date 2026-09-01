@@ -21,6 +21,7 @@ from src.utils.agent_logger import agent_logger
 from src.utils.retry import FailureClass, classify_failure
 from src.utils.search_keywords import normalize_search_keywords
 from src.utils.question_classifier import classify_payment_question
+from src.utils.scope_classifier import classify_scope
 
 IntentType = Literal[
     "buy", "reorder", "confirm", "deny", "next", "refine",
@@ -501,6 +502,8 @@ def _is_ambiguous_reorder(user_input: str, keywords: list[str]) -> bool:
 def _degraded_intent_result(state: IntentAgentInput, failure_class: FailureClass, exc: BaseException) -> dict:
     """구조화 출력 실패(품질/영구 기술 오류) 시 즉시 반환하는 축소 응답.
     TRANSIENT_TECHNICAL은 여기로 오지 않는다 — 호출부에서 re-raise해 NODE_RETRY_POLICY가 재시도한다."""
+    user_text = _extract_user_input(state)
+    scope_result = classify_scope(user_text)
     return {
         "intent": "unclear",
         "keywords": state.get("keywords") or [],
@@ -516,7 +519,9 @@ def _degraded_intent_result(state: IntentAgentInput, failure_class: FailureClass
         "address_text": None,
         "needs_clarification": True,
         "clarification_reason": "응답 파싱 오류",
-        "question_classification": classify_payment_question(_extract_user_input(state)),
+        "question_classification": classify_payment_question(user_text),
+        "scope": scope_result["scope"],
+        "goal_shift": scope_result["goal_shift"],
         "confidence": 0.0,
         "immediate_response": "다시 한번 말씀해 주세요.",
         "last_agent": "intent_agent",
@@ -546,6 +551,12 @@ def _format_cart_context(cart_items: Optional[list[dict]]) -> str:
     return "현재 장바구니: " + ", ".join(parts)
 
 
+# WON-20 Unit 2 — high-confidence out_of_scope 발화(가전 제어·전화·법률/금융
+# 상담 등 쇼핑과 명백히 무관)에 대한 정중한 범위 안내. 새 노드/서브플로우 없이
+# 기존 respond 경로로 마감한다(intent_agent_node 의 out_of_scope 분기 참고).
+_OUT_OF_SCOPE_RESPONSE = "그건 제가 도와드리기 어려운 부분이에요. 찾으시는 상품이 있으면 말씀해 주세요."
+
+
 def intent_error_handler(state: ShoppingState, error: NodeError) -> Command:
     """NODE_RETRY_POLICY 소진(TRANSIENT_TECHNICAL) 또는 재시도 대상이 아닌 예외
     (PERMANENT_TECHNICAL) 모두 여기로 온다. classify_failure로 다시 나눠 로그만
@@ -565,6 +576,9 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
     # runtime은 그래프 실행 시 LangGraph가 자동 주입한다. evals/run_experiment.py
     # 등이 이 노드를 그래프 밖에서 직접 호출할 때는 None이 들어오므로 기본값을 둔다.
     user_input = _extract_user_input(state)
+    scope_result = classify_scope(user_input)
+    scope = scope_result["scope"]
+    goal_shift = scope_result["goal_shift"]
     stage = state.get("stage", "idle")
     pending_action = state.get("pending_action")
     pending_type = pending_action.get("type") if isinstance(pending_action, dict) else "null"
@@ -704,6 +718,22 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         clarification_reason = "어떤 상품을 다시 주문할지 알려주세요."
         immediate_response = "어떤 상품을 다시 주문할까요?"
 
+    # ── WON-20 Unit 2 — 1턴째 out-of-scope 처리 ──────────────────────────
+    # classify_scope 가 high-confidence out_of_scope(가전 제어·전화·법률/금융
+    # 상담 등 쇼핑과 명백히 무관)로 본 발화는 "어떤 상품을 찾으세요?" 되물음
+    # 대신 정중한 범위 안내로 마감한다. 새 노드/라우트를 만들지 않고 기존
+    # respond 경로를 탄다: intent=unclear 로 route() 의 clarification 게이트를
+    # 태워 respond 로 보내고, needs_clarification=False + immediate_response 로
+    # respond_node 의 기본(else) 분기가 이 문구를 그대로 출력하게 한다
+    # (fallback_stuck_turns 증가 없음 — 반복돼도 fallback_orchestrator 로 안 샌다).
+    # bridgeable/애매한 발화는 건드리지 않는다(Phase 1 보수적, 과확장 금지) —
+    # 기존 ask/unclear 분류(WON-19/22/23)는 그대로 두고 그 위에 얹는 레이어다.
+    if scope == "out_of_scope":
+        intent = "unclear"
+        needs_clarification = False
+        clarification_reason = None
+        immediate_response = _OUT_OF_SCOPE_RESPONSE
+
     # "아무거나/상관없어요" 등 dismissive 답변: 되묻는 대신 프로필 기반 추천으로
     # 대체한다 (실제 keywords 채우기는 context_agent가 profile.favorite_foods로).
     recommend_from_profile = _should_force_recommendation_fallback(user_input, intent, stage, keywords)
@@ -774,6 +804,11 @@ def intent_agent_node(state: IntentAgentInput, runtime: Runtime | None = None) -
         # 보낸다(payment_agent/response_agent가 intent=="ask" 게이트 안에서 소비).
         # 라우팅 목적지 결정에는 개입하지 않는다.
         "question_classification": classify_payment_question(user_input),
+        # WON-20 Unit 2 — 발화 scope/goal_shift 를 매 턴 state 에 실어 보낸다
+        # (question_classification 과 동일 패턴). scope=="out_of_scope" 는 위에서
+        # 이미 정중한 안내로 전환했고, goal_shift 는 Unit 3 이 소비한다.
+        "scope": scope,
+        "goal_shift": goal_shift,
         "confidence": confidence if confidence > 0 else 0.9,
         "immediate_response": immediate_response,
         "last_agent": "intent_agent",

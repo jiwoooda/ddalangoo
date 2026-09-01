@@ -196,6 +196,8 @@ class IntentAgentUpdate(TypedDict, total=False):
     needs_clarification: bool
     clarification_reason: Optional[str]
     question_classification: Optional[dict[str, Any]]  # WON-38 Unit 2
+    scope: Optional[str]  # WON-20 Unit 2 — "in_scope"|"bridgeable"|"out_of_scope"
+    goal_shift: bool  # WON-20 Unit 2 — Unit 3(fallback_orchestrator)에서 소비
     confidence: float
     immediate_response: str
     last_agent: str
