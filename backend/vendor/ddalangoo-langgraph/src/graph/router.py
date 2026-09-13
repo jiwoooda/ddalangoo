@@ -24,6 +24,7 @@ RouteName = Literal[
     "cancel_confirmation",
     "cancel",
     "order_action_boundary",
+    "transition_failure",
     "fallback_orchestrator",
     "end",
 ]
@@ -404,6 +405,21 @@ def route(state: ShoppingState) -> RouteName:
 
     if stage == "payment_processing":
         return _decide("payment_agent")
+
+    if (
+        stage == "recipe_planning"
+        and pending_type == "ingredient_confirm"
+        and intent == "quantity_change"
+    ):
+        return _decide("transition_failure")
+
+    if (
+        stage == "cart_shopping"
+        and pending_type == "address_required"
+        and intent == "address_change"
+        and state.get("address_text")
+    ):
+        return _decide("transition_failure")
 
     if stage_router := _STAGE_ROUTERS.get(stage):
         return stage_router(state, intent, pending_type, _decide)

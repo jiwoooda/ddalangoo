@@ -54,6 +54,7 @@ from src.agents.recipe_agent import recipe_agent_node
 from src.agents.purchase_queue_agent import purchase_queue_agent_node
 from src.agents.smalltalk_agent import smalltalk_agent_node, smalltalk_error_handler
 from src.agents.fallback_orchestrator import fallback_orchestrator_node
+from src.recovery.nodes import transition_failure_node
 from src.agents.casual_engagement import entry_engagement_node
 from src.payment.node import payment_agent_node
 from src.utils.retry import NODE_RETRY_POLICY
@@ -75,6 +76,7 @@ _ROUTE_DESTINATIONS = {
     "cancel_confirmation": "cancel_confirmation",
     "cancel": "cancel",
     "order_action_boundary": "order_action_boundary",
+    "transition_failure": "transition_failure",
     "fallback_orchestrator": "fallback_orchestrator",
     "end": END,
 }
@@ -120,6 +122,7 @@ def build_graph(checkpointer=None):
     builder.add_node("cancel", cancel_node)
     # WON-36 — 확정 후/idle 취소·환불 발화를 route()가 여기로 가로챈다(고정 안내).
     builder.add_node("order_action_boundary", order_action_boundary_node)
+    builder.add_node("transition_failure", transition_failure_node)
     # fallback_orchestrator: route()가 needs_clarification/confidence/unclear로
     # 막힌 게 반복되면(fallback_stuck_turns>=1) 여기로 보낸다. 정상 흐름에서는
     # 절대 안 거쳐가는 노드 — LLM 호출 자체가 try/except로 감싸져 있어(내부에서
@@ -157,6 +160,7 @@ def build_graph(checkpointer=None):
     # "recover"면 route()를 그대로 재호출한 결과이므로 route()가 갈 수 있는 곳은
     # 어디든 갈 수 있다 — 그래서 intent_agent와 같은 목적지 집합을 공유한다.
     builder.add_conditional_edges("fallback_orchestrator", after_fallback_orchestrator, _ROUTE_DESTINATIONS)
+    builder.add_edge("transition_failure", "fallback_orchestrator")
 
     builder.add_conditional_edges(
         "context_agent",
