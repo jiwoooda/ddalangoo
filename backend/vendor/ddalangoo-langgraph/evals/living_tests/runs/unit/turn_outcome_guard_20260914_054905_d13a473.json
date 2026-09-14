@@ -1,0 +1,35 @@
+{
+  "run_id": "run-20260914-054905-d13a473",
+  "scope": "unit",
+  "target": "turn_outcome_guard",
+  "git_sha": "d13a473",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "turn_outcome_guard-2026-09-14-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "turn_outcome_guard"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "active_failure.kind",
+          "expected": "NO_PROGRESS",
+          "actual": "NO_PROGRESS",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "active_failure.code",
+          "expected": "workflow.turn.no_progress",
+          "actual": "workflow.turn.no_progress",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

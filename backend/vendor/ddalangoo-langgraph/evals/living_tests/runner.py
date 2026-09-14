@@ -57,6 +57,7 @@ _UNIT_NODE = {
     "payment_agent": ("src.payment.node", "payment_agent_node"),
     "respond": ("src.agents.nodes", "respond_node"),
     "fallback_orchestrator": ("src.agents.fallback_orchestrator", "fallback_orchestrator_node"),
+    "turn_outcome_guard": ("src.recovery.detectors", "turn_outcome_guard_node"),
 }
 
 

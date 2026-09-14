@@ -91,6 +91,19 @@ def test_new_question_and_payment_boundary_continue_to_respond():
     assert after_turn_outcome_guard(payment | update) == "respond"
 
 
+def test_fallback_clarification_reaches_respond_without_guard_reentry():
+    before = _state()
+    before.update(reset_turn_observability_node(before))
+    clarified = before | {
+        "pending_action": {"type": "clarification", "message": "새로 확인할 정보가 있어요."},
+        "needs_clarification": False,
+    }
+
+    guard_update = turn_outcome_guard_node(clarified)
+
+    assert after_turn_outcome_guard(clarified | guard_update) == "respond"
+
+
 def test_every_respond_entrance_flows_through_the_guard():
     graph = build_graph().get_graph()
     incoming = [edge.source for edge in graph.edges if edge.target == "respond"]
