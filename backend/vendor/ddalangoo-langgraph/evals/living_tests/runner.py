@@ -59,7 +59,14 @@ _UNIT_NODE = {
     "fallback_orchestrator": ("src.agents.fallback_orchestrator", "fallback_orchestrator_node"),
     "turn_outcome_guard": ("src.recovery.detectors", "turn_outcome_guard_node"),
     "transition_failure": ("src.recovery.nodes", "transition_failure_node"),
+    "route": ("evals.living_tests.runner", "route_node"),
 }
+
+
+def route_node(state: dict[str, Any]) -> dict[str, str]:
+    """Minimal deterministic adapter for router Living Tests."""
+    from src.graph.router import route
+    return {"route": route(state)}
 
 
 def _git_sha() -> str:

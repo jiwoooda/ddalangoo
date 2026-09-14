@@ -1,0 +1,28 @@
+{
+  "run_id": "run-20260914-063153-93fc7a0",
+  "scope": "unit",
+  "target": "route",
+  "git_sha": "93fc7a0",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "route-2026-09-14-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "route"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "route",
+          "expected": "transition_failure",
+          "actual": "transition_failure",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}
