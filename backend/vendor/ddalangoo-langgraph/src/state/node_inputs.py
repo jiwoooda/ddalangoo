@@ -205,6 +205,14 @@ class TurnOutcomeGuardInput(TypedDict):
     turn_start_signature: Optional[ProgressSignature]
     last_turn_signature: Optional[ProgressSignature]
     repeated_signature_turns: int
+    immediate_response: Optional[str]
+    explanation: Optional[str]
+    needs_clarification: bool
+    last_agent: Optional[str]
+    clarification_reason: Optional[str]
+    quantity: Optional[int]
+    address_text: Optional[str]
+    error: Optional[str]
 
 
 class TurnOutcomeGuardUpdate(TypedDict, total=False):
