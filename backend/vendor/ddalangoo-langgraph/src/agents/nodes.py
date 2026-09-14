@@ -4,8 +4,10 @@ from src.state.schema import (
     product_context_reset,
     purchase_flow_reset,
     cart_clear,
+    recovery_turn_reset,
     turn_observability_reset,
 )
+from src.recovery.detectors import turn_progress_signature
 from src.state.node_inputs import RespondNodeInput, RespondNodeUpdate, CancelNodeInput
 from src.tools.mock_tools import mock_clear_cart
 from src.utils.agent_logger import agent_logger
@@ -35,7 +37,8 @@ def reset_turn_observability_node(state: ShoppingState) -> dict:
     WON-37: 초기화 필드 목록은 schema.py 의 turn_observability_reset() 하나로
     통일됐다(cancel_node / 결제완료 / _recover_result / ask_what_to_buy_node 과
     같은 카테고리 함수 체계). 이 지점은 다른 카테고리와 겹치지 않는다."""
-    return turn_observability_reset()
+    reset = turn_observability_reset() | recovery_turn_reset()
+    return reset | {"turn_start_signature": turn_progress_signature(state | reset)}
 
 
 def respond_node(state: RespondNodeInput) -> RespondNodeUpdate:

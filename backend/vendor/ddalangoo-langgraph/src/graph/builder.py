@@ -55,6 +55,7 @@ from src.agents.purchase_queue_agent import purchase_queue_agent_node
 from src.agents.smalltalk_agent import smalltalk_agent_node, smalltalk_error_handler
 from src.agents.fallback_orchestrator import fallback_orchestrator_node
 from src.recovery.nodes import transition_failure_node
+from src.recovery.detectors import turn_outcome_guard_node, after_turn_outcome_guard
 from src.agents.casual_engagement import entry_engagement_node
 from src.payment.node import payment_agent_node
 from src.utils.retry import NODE_RETRY_POLICY
@@ -72,7 +73,7 @@ _ROUTE_DESTINATIONS = {
     "payment_agent": "payment_agent",
     "smalltalk_agent": "smalltalk_agent",
     "ask_what_to_buy": "ask_what_to_buy",
-    "respond": "respond",
+    "respond": "turn_outcome_guard",
     "cancel_confirmation": "cancel_confirmation",
     "cancel": "cancel",
     "order_action_boundary": "order_action_boundary",
@@ -117,6 +118,7 @@ def build_graph(checkpointer=None):
     # Retry를 붙이지 않는다(docs/resilience_plan.md Phase 1-6/4 참고).
     builder.add_node("payment_agent", payment_agent_node)
     builder.add_node("respond", respond_node)
+    builder.add_node("turn_outcome_guard", turn_outcome_guard_node)
     builder.add_node("ask_what_to_buy", ask_what_to_buy_node)
     builder.add_node("cancel_confirmation", cancel_confirmation_node)
     builder.add_node("cancel", cancel_node)
@@ -143,7 +145,7 @@ def build_graph(checkpointer=None):
         route_session_start,
         {"smalltalk_agent": "smalltalk_agent", "entry_engagement": "entry_engagement", "wait_for_input": "wait_for_input"},
     )
-    builder.add_edge("entry_engagement", "respond")
+    builder.add_edge("entry_engagement", "turn_outcome_guard")
     builder.add_edge("wait_for_input", "reset_turn_observability")
     # 온보딩 미완료 신규유저는 intent_agent를 거치지 않고 바로 smalltalk_agent로
     # (route_entry, src/graph/router.py 참고) — smalltalk는 LLM이 매턴 판단하는
@@ -165,48 +167,54 @@ def build_graph(checkpointer=None):
     builder.add_conditional_edges(
         "context_agent",
         after_context_agent,
-        {"product_agent": "product_agent", "respond": "respond"},
+        {"product_agent": "product_agent", "respond": "turn_outcome_guard"},
     )
 
     builder.add_conditional_edges(
         "reorder_agent",
         after_reorder_agent,
-        {"respond": "respond", "product_agent": "product_agent"},
+        {"respond": "turn_outcome_guard", "product_agent": "product_agent"},
     )
 
-    builder.add_edge("ask_what_to_buy", "respond")
-    builder.add_edge("cancel_confirmation", "respond")
+    builder.add_edge("ask_what_to_buy", "turn_outcome_guard")
+    builder.add_edge("cancel_confirmation", "turn_outcome_guard")
 
     builder.add_conditional_edges(
         "product_agent",
         after_product_agent,
-        {"response_agent": "response_agent", "respond": "respond"},
+        {"response_agent": "response_agent", "respond": "turn_outcome_guard"},
     )
     builder.add_conditional_edges(
         "response_agent",
         after_response_agent,
-        {"respond": "respond"},
+        {"respond": "turn_outcome_guard"},
     )
 
     builder.add_conditional_edges(
         "recipe_agent",
         after_recipe_agent,
-        {"context_agent": "context_agent", "respond": "respond"},
+        {"context_agent": "context_agent", "respond": "turn_outcome_guard"},
     )
     builder.add_conditional_edges(
         "purchase_queue_agent",
         after_purchase_queue_agent,
-        {"context_agent": "context_agent", "respond": "respond"},
+        {"context_agent": "context_agent", "respond": "turn_outcome_guard"},
     )
 
     builder.add_conditional_edges(
         "payment_agent",
         after_payment_agent,
-        {"context_agent": "context_agent", "purchase_queue_agent": "purchase_queue_agent", "respond": "respond"},
+        {"context_agent": "context_agent", "purchase_queue_agent": "purchase_queue_agent", "respond": "turn_outcome_guard"},
     )
-    builder.add_edge("cancel", "respond")
-    builder.add_edge("order_action_boundary", "respond")
-    builder.add_edge("smalltalk_agent", "respond")
+    builder.add_edge("cancel", "turn_outcome_guard")
+    builder.add_edge("order_action_boundary", "turn_outcome_guard")
+    builder.add_edge("smalltalk_agent", "turn_outcome_guard")
+
+    builder.add_conditional_edges(
+        "turn_outcome_guard",
+        after_turn_outcome_guard,
+        {"respond": "respond", "fallback_orchestrator": "fallback_orchestrator"},
+    )
 
     builder.add_conditional_edges(
         "respond",
