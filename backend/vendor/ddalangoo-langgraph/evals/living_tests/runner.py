@@ -58,6 +58,7 @@ _UNIT_NODE = {
     "respond": ("src.agents.nodes", "respond_node"),
     "fallback_orchestrator": ("src.agents.fallback_orchestrator", "fallback_orchestrator_node"),
     "turn_outcome_guard": ("src.recovery.detectors", "turn_outcome_guard_node"),
+    "transition_failure": ("src.recovery.nodes", "transition_failure_node"),
 }
 
 
