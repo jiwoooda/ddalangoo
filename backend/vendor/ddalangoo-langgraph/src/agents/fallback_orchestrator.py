@@ -349,6 +349,16 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
     do_reset = _should_reset_product_context(state, decision)
 
     if decision.action == "recover":
+        if (
+            state.get("active_failure") is not None
+            and decision.corrected_intent not in _SAFE_INTENTS
+        ):
+            agent_logger.log(
+                "[fallback_orchestrator] active_failure recover에 안전한 intent 보정이 없어 clarify로 강등"
+            )
+            return _with_context_reset(
+                _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK), do_reset
+            )
         # recover인데 intent를 안 고쳤고(corrected_intent 없음) 이번 턴 intent가
         # 여전히 unclear면, route()의 게이트가 intent=="unclear" 조건으로 다시
         # respond가 아니라 fallback_orchestrator를 무한 반복 호출할 위험이 있다

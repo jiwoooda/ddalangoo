@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import pytest
 
+import src.agents.fallback_orchestrator as fallback_module
+from src.agents.fallback_orchestrator import FallbackDecision, fallback_orchestrator_node
 from src.graph.builder import build_graph
-from src.graph.router import after_product_agent, route
+from src.graph.router import after_fallback_orchestrator, after_product_agent, route
 from src.recovery.nodes import transition_failure_node
 from src.state.schema import get_default_shopping_state
 
@@ -103,3 +105,74 @@ def test_transition_failure_is_wired_to_the_existing_recovery_entrypoint():
 
     assert "transition_failure" in graph.nodes
     assert any(edge.source == "transition_failure" and edge.target == "fallback_orchestrator" for edge in graph.edges)
+
+
+class _FakeLLM:
+    def __init__(self, decision):
+        self._decision = decision
+
+    def invoke(self, _messages):
+        return self._decision
+
+
+def _failure_state(**updates):
+    state = _state(**updates)
+    state["active_failure"] = transition_failure_node(state)["active_failure"]
+    return state
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {
+            "stage": "recipe_planning",
+            "intent": "quantity_change",
+            "pending_action": {"type": "ingredient_confirm"},
+        },
+        {
+            "stage": "cart_shopping",
+            "intent": "address_change",
+            "address_text": "value is intentionally not recorded",
+            "pending_action": {"type": "address_required"},
+        },
+    ],
+)
+@pytest.mark.parametrize("corrected_intent", [None, "address_change"])
+def test_active_failure_recover_without_safe_intent_ends_at_respond(
+    monkeypatch, updates, corrected_intent
+):
+    decision = FallbackDecision(
+        action="recover",
+        corrected_intent=corrected_intent,
+        clarify_message="안전하게 다시 확인할게요.",
+    )
+    monkeypatch.setattr(fallback_module, "_get_llm", lambda: _FakeLLM(decision))
+    state = _failure_state(**updates)
+
+    update = fallback_orchestrator_node(state)
+    routed_state = state | update
+
+    assert update["pending_action"]["type"] == "clarification"
+    assert after_fallback_orchestrator(routed_state) == "respond"
+    assert route(routed_state) == "respond"
+
+
+def test_active_failure_recover_with_safe_intent_keeps_existing_recovery(monkeypatch):
+    decision = FallbackDecision(action="recover", corrected_intent="refine")
+    monkeypatch.setattr(fallback_module, "_get_llm", lambda: _FakeLLM(decision))
+    state = _failure_state(
+        stage="recipe_planning",
+        intent="quantity_change",
+        pending_action={"type": "ingredient_confirm"},
+    )
+
+    update = fallback_orchestrator_node(state)
+
+    assert update["intent"] == "refine"
+    assert after_fallback_orchestrator(state | update) == "recipe_agent"
+
+
+def test_fallback_contract_includes_active_failure():
+    from src.state.node_inputs import FallbackOrchestratorInput
+
+    assert "active_failure" in FallbackOrchestratorInput.__annotations__

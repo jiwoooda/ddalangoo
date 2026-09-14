@@ -171,6 +171,7 @@ class FallbackOrchestratorInput(TypedDict):
     messages: list
     fallback_stuck_turns: int
     error: Optional[str]
+    active_failure: Optional[FailureEvent]
 
 
 class FailureDetectorInput(TypedDict):
