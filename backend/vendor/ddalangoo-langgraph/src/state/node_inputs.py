@@ -155,6 +155,7 @@ class CancelNodeInput(TypedDict):
 
 
 class FallbackOrchestratorInput(TypedDict):
+    session_id: str
     stage: Stage
     intent: Optional[Intent]
     user_id: str
@@ -175,6 +176,8 @@ class FallbackOrchestratorInput(TypedDict):
     recovery_fingerprint: Optional[str]
     recovery_attempts: int
     recovery_status: RecoveryStatus
+    cart_items: list[dict[str, Any]]
+    selected_product: Optional[dict[str, Any]]
 
 
 class FailureDetectorInput(TypedDict):
