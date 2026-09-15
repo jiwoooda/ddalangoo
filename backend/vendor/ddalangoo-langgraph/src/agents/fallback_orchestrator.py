@@ -68,6 +68,17 @@ def _safe_stop_result(fingerprint: str, attempts: int) -> FallbackOrchestratorUp
     }
 
 
+def _waiting_user_result(
+    update: FallbackOrchestratorUpdate,
+    failure: Optional[dict],
+    recovery: dict[str, Any],
+) -> FallbackOrchestratorUpdate:
+    """Persist a consumed recovery attempt before returning control to the user."""
+    if failure is None:
+        return update
+    return update | recovery | {"recovery_status": "waiting_user"}
+
+
 class FallbackDecision(BaseModel):
     action: str = Field(
         description='"recover"(기존 정보로 확실히 복구 가능) | "clarify"(정보 부족/모호함) | '
@@ -403,8 +414,11 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
                 "[fallback_orchestrator] active_failure recover에 안전한 intent 보정이 없어 clarify로 강등"
             )
             return _with_context_reset(
-                _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
-                | ({"recovery_status": "waiting_user"} if failure else {}),
+                _waiting_user_result(
+                    _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK),
+                    failure,
+                    recovery,
+                ),
                 do_reset,
             )
         # recover인데 intent를 안 고쳤고(corrected_intent 없음) 이번 턴 intent가
@@ -416,8 +430,11 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
         if not decision.corrected_intent and state.get("intent") in (None, "unclear"):
             agent_logger.log("[fallback_orchestrator] recover인데 intent 교정이 없어 clarify로 강등")
             return _with_context_reset(
-                _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
-                | ({"recovery_status": "waiting_user"} if failure else {}),
+                _waiting_user_result(
+                    _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK),
+                    failure,
+                    recovery,
+                ),
                 do_reset,
             )
         return _recover_result(decision, do_reset) | recovery
@@ -428,20 +445,33 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
         # 인라인으로 두 벌 유지하지 않는다. 둘 다 없으면 기존처럼 일반 chat 응답.
         pending_action = pick_and_start_engagement(state.get("user_id", ""))
         if pending_action:
-            return _with_context_reset({
-                "pending_action": pending_action,
-                "needs_clarification": False,
-                "clarification_reason": None,
-                "last_agent": "fallback_orchestrator",
-            } | ({"recovery_status": "waiting_user"} if failure else {}), do_reset)
+            return _with_context_reset(
+                _waiting_user_result(
+                    {
+                        "pending_action": pending_action,
+                        "needs_clarification": False,
+                        "clarification_reason": None,
+                        "last_agent": "fallback_orchestrator",
+                    },
+                    failure,
+                    recovery,
+                ),
+                do_reset,
+            )
         return _with_context_reset(
-            _clarify_result(decision.chat_reply or _DEFAULT_CLARIFY_FALLBACK)
-            | ({"recovery_status": "waiting_user"} if failure else {}),
+            _waiting_user_result(
+                _clarify_result(decision.chat_reply or _DEFAULT_CLARIFY_FALLBACK),
+                failure,
+                recovery,
+            ),
             do_reset,
         )
     # action == "clarify" 또는 예상 밖의 값 — 안전하게 clarify로 처리
     return _with_context_reset(
-        _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
-        | ({"recovery_status": "waiting_user"} if failure else {}),
+        _waiting_user_result(
+            _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK),
+            failure,
+            recovery,
+        ),
         do_reset,
     )

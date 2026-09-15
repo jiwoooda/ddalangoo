@@ -128,18 +128,41 @@ def test_write_risk_allows_safe_refine_but_denies_unsafe_correction(monkeypatch)
     update = fallback_orchestrator_node(_state())
     assert update["pending_action"]["type"] == "clarification"
     assert update["recovery_status"] == "waiting_user"
+    assert update["recovery_fingerprint"] == _failure_fingerprint(_failure())
+    assert update["recovery_attempts"] == 1
+    assert fallback_orchestrator_node(_state() | update)["recovery_status"] == "safe_stopped"
+    assert unsafe.calls == 1
 
 
 def test_clarify_and_provider_error_wait_for_user(monkeypatch):
     clarify = _FakeLLM(FallbackDecision(action="clarify", clarify_message="Need detail"))
     monkeypatch.setattr(fallback_module, "_get_llm", lambda: clarify)
-    assert fallback_orchestrator_node(_state())["recovery_status"] == "waiting_user"
+    clarified = fallback_orchestrator_node(_state())
+    assert clarified["recovery_status"] == "waiting_user"
+    assert clarified["recovery_fingerprint"] == _failure_fingerprint(_failure())
+    assert clarified["recovery_attempts"] == 1
+    assert fallback_orchestrator_node(_state() | clarified)["recovery_status"] == "safe_stopped"
+    assert clarify.calls == 1
 
     broken = _FakeLLM(RuntimeError("provider unavailable"))
     monkeypatch.setattr(fallback_module, "_get_llm", lambda: broken)
     update = fallback_orchestrator_node(_state())
     assert update["recovery_status"] == "waiting_user"
     assert update["recovery_attempts"] == 1
+
+
+def test_chat_persists_its_attempt_before_waiting_for_user(monkeypatch):
+    chat = _FakeLLM(FallbackDecision(action="chat", chat_reply="Can I help?"))
+    monkeypatch.setattr(fallback_module, "_get_llm", lambda: chat)
+    monkeypatch.setattr(fallback_module, "pick_and_start_engagement", lambda _user_id: None)
+
+    chatted = fallback_orchestrator_node(_state())
+
+    assert chatted["recovery_status"] == "waiting_user"
+    assert chatted["recovery_fingerprint"] == _failure_fingerprint(_failure())
+    assert chatted["recovery_attempts"] == 1
+    assert fallback_orchestrator_node(_state() | chatted)["recovery_status"] == "safe_stopped"
+    assert chat.calls == 1
 
 
 def test_goal_shift_clears_goal_local_recovery_state(monkeypatch):
