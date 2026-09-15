@@ -80,6 +80,10 @@ def test_identical_failure_safe_stops_without_mutating_shopping_state(monkeypatc
     assert llm.calls == 0
     assert update["recovery_status"] == "safe_stopped"
     assert update["recovery_attempts"] == 1
+    message = update["pending_action"]["message"]
+    assert "자동으로 더 진행하지 않았어요" in message
+    assert "장바구니와 선택한 내용은 그대로 보존했어요" in message
+    assert "내용을 바꿔 다시 요청하거나 직접 확인" in message
     assert set(update).isdisjoint({"cart_items", "queue_items", "current_queue_index", "selected_product", "order_id", "payment"})
 
 

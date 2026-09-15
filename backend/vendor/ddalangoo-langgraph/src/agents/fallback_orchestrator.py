@@ -47,7 +47,10 @@ _SAFE_INTENTS = frozenset({"buy", "reorder", "refine", "compare_platforms", "ask
 _STATE_PATCH_FIELDS = ("intent", "keywords", "quantity", "condition", "exclude_keywords")
 
 _DEFAULT_CLARIFY_FALLBACK = "죄송해요, 잘 이해하지 못했어요. 어떤 상품을 찾으시는지 조금 더 자세히 말씀해 주시겠어요?"
-_SAFE_STOP_MESSAGE = "현재 요청은 안전하게 다시 확인이 필요해요."
+_SAFE_STOP_MESSAGE = (
+    "자동으로 더 진행하지 않았어요. 장바구니와 선택한 내용은 그대로 보존했어요. "
+    "내용을 바꿔 다시 요청하거나 직접 확인해 주세요."
+)
 
 
 def _failure_fingerprint(failure: dict) -> str:
