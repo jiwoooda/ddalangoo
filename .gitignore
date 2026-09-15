@@ -29,3 +29,7 @@ logs/
 # IDE
 .vscode/
 .idea/
+
+# 대용량 평가 데이터 (샘플은 evals/data/*_sample.jsonl 참고, 전체 데이터셋은 별도 보관)
+*.jsonl
+data/
