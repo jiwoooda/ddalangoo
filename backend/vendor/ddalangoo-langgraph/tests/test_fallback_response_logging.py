@@ -76,7 +76,9 @@ def test_active_failure_exits_log_once(monkeypatch, tmp_path):
     path = tmp_path / "events.jsonl"
     monkeypatch.setenv("FALLBACK_EVENT_LOG_PATH", str(path))
     monkeypatch.setattr(
-        fallback_module, "_get_llm", lambda: _FakeLLM(FallbackDecision(action="clarify"))
+        fallback_module,
+        "_get_llm",
+        lambda: _FakeLLM(FallbackDecision(action="clarify", clarify_message="specific question")),
     )
 
     fallback_orchestrator_node(_state(recovery_attempts=0, recovery_fingerprint=None))
@@ -84,6 +86,35 @@ def test_active_failure_exits_log_once(monkeypatch, tmp_path):
     event = json.loads(path.read_text(encoding="utf-8"))
     assert event["final_fallback_action"] == "clarify"
     assert event["response_generation_type"] == "generated"
+
+
+def test_empty_clarify_message_logs_template_generation(monkeypatch, tmp_path):
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("FALLBACK_EVENT_LOG_PATH", str(path))
+    monkeypatch.setattr(
+        fallback_module, "_get_llm", lambda: _FakeLLM(FallbackDecision(action="clarify"))
+    )
+
+    update = fallback_orchestrator_node(_state(recovery_attempts=0, recovery_fingerprint=None))
+
+    event = json.loads(path.read_text(encoding="utf-8"))
+    assert update["pending_action"]["message"] == fallback_module._DEFAULT_CLARIFY_FALLBACK
+    assert event["response_generation_type"] == "template"
+
+
+def test_empty_chat_reply_logs_template_generation(monkeypatch, tmp_path):
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("FALLBACK_EVENT_LOG_PATH", str(path))
+    monkeypatch.setattr(
+        fallback_module, "_get_llm", lambda: _FakeLLM(FallbackDecision(action="chat"))
+    )
+    monkeypatch.setattr(fallback_module, "pick_and_start_engagement", lambda _: None)
+
+    update = fallback_orchestrator_node(_state(recovery_attempts=0, recovery_fingerprint=None))
+
+    event = json.loads(path.read_text(encoding="utf-8"))
+    assert update["pending_action"]["message"] == fallback_module._DEFAULT_CLARIFY_FALLBACK
+    assert event["response_generation_type"] == "template"
 
 
 def test_recovered_failure_logs_once(monkeypatch, tmp_path):

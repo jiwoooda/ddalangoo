@@ -507,7 +507,7 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
                 recovery,
             ),
             do_reset,
-        ), "chat", "generated")
+        ), "chat", "generated" if decision.chat_reply else "template")
     # action == "clarify" 또는 예상 밖의 값 — 안전하게 clarify로 처리
     return _finalize_failure(state, _with_context_reset(
         _waiting_user_result(
@@ -516,4 +516,4 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
             recovery,
         ),
         do_reset,
-    ), "clarify", "generated")
+    ), "clarify", "generated" if decision.clarify_message else "template")
