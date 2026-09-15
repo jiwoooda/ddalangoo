@@ -53,15 +53,22 @@ def test_safe_stop_response_uses_verified_context_without_internal_terms():
 def test_fallback_event_is_persistent_and_excludes_raw_values(monkeypatch, tmp_path):
     path = tmp_path / "fallback.jsonl"
     monkeypatch.setenv("FALLBACK_EVENT_LOG_PATH", str(path))
-    update = fallback_orchestrator_node(_safe_stop_state())
+    update = fallback_orchestrator_node(_safe_stop_state(
+        address_text="address-secret",
+        payment={"number": "payment-secret", "password": "password-secret"},
+        messages=[{"role": "user", "content": "private message"}],
+    ))
 
     event = json.loads(path.read_text(encoding="utf-8"))
     assert update["recovery_status"] == "safe_stopped"
     assert event["final_fallback_action"] == "safe_stop"
     assert event["response_generation_type"] == "template"
-    assert event["session_ref"] != "session-secret"
+    assert event["trace_id"] != "session-secret"
     text = path.read_text(encoding="utf-8")
-    for secret in ("private message", "private cart", "private product", "session-secret"):
+    for secret in (
+        "private message", "private cart", "private product", "session-secret",
+        "address-secret", "payment-secret", "password-secret",
+    ):
         assert secret not in text
 
 
@@ -99,3 +106,40 @@ def test_logger_write_error_never_changes_fallback_update(monkeypatch, tmp_path)
     update = fallback_orchestrator_node(_safe_stop_state())
 
     assert update["recovery_status"] == "safe_stopped"
+
+
+def test_safe_stop_without_verified_values_makes_no_preservation_claim():
+    state = _state(cart_items=[], selected_product=None)
+    message = render_safe_stop(build_safe_stop_plan(state["active_failure"], state))
+
+    assert "장바구니는 그대로" not in message
+    assert "선택한 상품은 그대로" not in message
+
+
+def test_safe_stop_template_is_used_for_plan_or_renderer_error(monkeypatch):
+    template = "지금 이 요청을 처리하지 못했어요. 다시 말씀해 주세요."
+    monkeypatch.setattr(fallback_module, "build_safe_stop_plan", lambda *_: (_ for _ in ()).throw(RuntimeError()))
+    assert fallback_orchestrator_node(_safe_stop_state())["pending_action"]["message"] == template
+
+    class BrokenPlan:
+        @property
+        def failed_action(self):
+            raise RuntimeError()
+
+    assert render_safe_stop(BrokenPlan()) == template
+
+
+def test_kind_specific_safe_stop_strategies_do_not_collapse_to_general_copy():
+    no_progress = _state(active_failure={**_state()["active_failure"], "kind": "NO_PROGRESS", "code": "no_progress"})
+    loop = _state(active_failure={**_state()["active_failure"], "kind": "LOOP_DETECTED", "code": "loop"})
+    missing = _state(active_failure={**_state()["active_failure"], "kind": "MISSING_CONTEXT", "code": "missing"})
+    risk = _state(active_failure={**_state()["active_failure"], "kind": "RISK_BLOCKED", "code": "risk"})
+    execution = _state(active_failure={**_state()["active_failure"], "kind": "EXECUTION_FAILED", "code": "execution"})
+
+    for state in (no_progress, loop):
+        message = render_safe_stop(build_safe_stop_plan(state["active_failure"], state))
+        assert "같은 요청을 계속 처리하는 일" in message
+        assert "원하는 결과를 다르게 말씀해 주세요" in message
+    assert "필요한 정보를 알려 주세요" in render_safe_stop(build_safe_stop_plan(missing["active_failure"], missing))
+    assert "직접 확인하거나 필요한 확인을 진행해 주세요" in render_safe_stop(build_safe_stop_plan(risk["active_failure"], risk))
+    assert "처리하지 못했어요" in render_safe_stop(build_safe_stop_plan(execution["active_failure"], execution))

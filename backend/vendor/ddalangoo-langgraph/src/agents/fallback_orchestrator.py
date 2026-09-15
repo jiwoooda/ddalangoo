@@ -65,9 +65,9 @@ def _finalize_failure(
     failure = state.get("active_failure")
     if failure is None:
         return update
-    session_ref = hashlib.sha256(str(state.get("session_id", "")).encode()).hexdigest()
+    trace_id = hashlib.sha256(str(state.get("session_id", "")).encode()).hexdigest()
     agent_logger.log_fallback_event({
-        "session_ref": session_ref,
+        "trace_id": trace_id,
         "stage": state.get("stage"),
         "pending_type": (state.get("pending_action") or {}).get("type"),
         "intent": state.get("intent"),

@@ -261,7 +261,7 @@ class AgentLogger:
     def log_fallback_event(self, event: dict[str, Any]) -> None:
         """Best-effort persistent fallback telemetry with an allowlisted schema."""
         allowed = (
-            "session_ref", "stage", "pending_type", "intent", "failure_kind",
+            "trace_id", "stage", "pending_type", "intent", "failure_kind",
             "failure_code", "failure_source", "retryability", "side_effect_risk",
             "recovery_attempts", "recovery_status", "recovery_fingerprint",
             "final_fallback_action", "response_generation_type",
