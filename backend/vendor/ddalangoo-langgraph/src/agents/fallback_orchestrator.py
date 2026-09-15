@@ -14,6 +14,8 @@ False로 내려두면 pending_action.message 분기가 stage와 무관하게 항
 
 설계 문서: C:\\Users\\82108\\.claude\\plans\\radiant-questing-map.md
 """
+import hashlib
+import json
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -21,7 +23,8 @@ from langchain_core.messages import HumanMessage
 
 from configs.llm_config import get_llm
 from src.state.node_inputs import FallbackOrchestratorInput, FallbackOrchestratorUpdate
-from src.state.schema import product_context_reset, purchase_flow_reset
+from src.state.schema import product_context_reset, purchase_flow_reset, recovery_goal_reset
+from src.recovery.types import FREE_FORM_RECOVERY_EXCLUDED_STAGES, MAX_AUTOMATIC_RECOVERY_ATTEMPTS_PER_FINGERPRINT
 from src.prompts.fallback_prompt import (
     FALLBACK_ORCHESTRATOR_PROMPT,
     SYSTEM_MAP_TEXT,
@@ -44,6 +47,25 @@ _SAFE_INTENTS = frozenset({"buy", "reorder", "refine", "compare_platforms", "ask
 _STATE_PATCH_FIELDS = ("intent", "keywords", "quantity", "condition", "exclude_keywords")
 
 _DEFAULT_CLARIFY_FALLBACK = "죄송해요, 잘 이해하지 못했어요. 어떤 상품을 찾으시는지 조금 더 자세히 말씀해 주시겠어요?"
+_SAFE_STOP_MESSAGE = "현재 요청은 안전하게 다시 확인이 필요해요."
+
+
+def _failure_fingerprint(failure: dict) -> str:
+    identity = tuple(failure.get(key) for key in ("source", "code", "stage", "pending_type"))
+    return hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
+
+
+def _safe_stop_result(fingerprint: str, attempts: int) -> FallbackOrchestratorUpdate:
+    """Stop without resetting shopping or payment state."""
+    return {
+        "pending_action": {"type": "clarification", "message": _SAFE_STOP_MESSAGE},
+        "needs_clarification": False,
+        "clarification_reason": None,
+        "last_agent": "fallback_orchestrator",
+        "recovery_fingerprint": fingerprint,
+        "recovery_attempts": attempts,
+        "recovery_status": "safe_stopped",
+    }
 
 
 class FallbackDecision(BaseModel):
@@ -230,6 +252,7 @@ def _with_context_reset(
     merged: FallbackOrchestratorUpdate = {}
     merged.update(product_context_reset())
     merged.update(purchase_flow_reset())
+    merged.update(recovery_goal_reset())
     merged.update(update)
     return merged
 
@@ -253,6 +276,7 @@ def _recover_result(
         # condition/exclude_keywords).
         updates.update(product_context_reset())
         updates.update(purchase_flow_reset())
+        updates.update(recovery_goal_reset())
 
     if decision.corrected_intent in _SAFE_INTENTS:
         updates["intent"] = decision.corrected_intent
@@ -332,6 +356,26 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
         result["fallback_stuck_turns"] = 0
         return result
 
+    failure = state.get("active_failure")
+    recovery: dict[str, Any] = {}
+    if failure:
+        fingerprint = _failure_fingerprint(failure)
+        same_failure = state.get("recovery_fingerprint") == fingerprint
+        attempts = (state.get("recovery_attempts") or 0) if same_failure else 0
+        blocked = (
+            state.get("stage") in FREE_FORM_RECOVERY_EXCLUDED_STAGES
+            or failure.get("kind") == "RISK_BLOCKED"
+            or failure.get("retryability") in {"none", "human_confirm"}
+            or failure.get("side_effect_risk") == "high"
+        )
+        if blocked or attempts >= MAX_AUTOMATIC_RECOVERY_ATTEMPTS_PER_FINGERPRINT:
+            return _safe_stop_result(fingerprint, attempts)
+        # Count immediately before the call: a provider failure also consumes the one attempt.
+        recovery = {
+            "recovery_fingerprint": fingerprint,
+            "recovery_attempts": attempts + 1,
+            "recovery_status": "recovering",
+        }
     prompt = _build_prompt(state)
     try:
         llm = _get_llm()
@@ -340,13 +384,15 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
             raise ValueError("structured output 파싱 실패")
     except Exception as e:
         agent_logger.log(f"[fallback_orchestrator] LLM 호출 실패, 안전한 clarify로 대체: {e}")
-        return _clarify_result(_DEFAULT_CLARIFY_FALLBACK)
+        return _clarify_result(_DEFAULT_CLARIFY_FALLBACK) | recovery | ({"recovery_status": "waiting_user"} if failure else {})
 
     agent_logger.log(f"[fallback_orchestrator] action={decision.action} reasoning={decision.reasoning}")
 
     # WON-20 Unit 3 — 목적 전환 시 문맥 초기화 여부는 action 종류와 무관하게 한
     # 곳에서 판단하고, 아래 세 갈래(recover/chat/clarify) 모두에 동일하게 적용한다.
     do_reset = _should_reset_product_context(state, decision)
+    if do_reset:
+        recovery = {}
 
     if decision.action == "recover":
         if (
@@ -357,7 +403,9 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
                 "[fallback_orchestrator] active_failure recover에 안전한 intent 보정이 없어 clarify로 강등"
             )
             return _with_context_reset(
-                _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK), do_reset
+                _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
+                | ({"recovery_status": "waiting_user"} if failure else {}),
+                do_reset,
             )
         # recover인데 intent를 안 고쳤고(corrected_intent 없음) 이번 턴 intent가
         # 여전히 unclear면, route()의 게이트가 intent=="unclear" 조건으로 다시
@@ -368,9 +416,11 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
         if not decision.corrected_intent and state.get("intent") in (None, "unclear"):
             agent_logger.log("[fallback_orchestrator] recover인데 intent 교정이 없어 clarify로 강등")
             return _with_context_reset(
-                _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK), do_reset
+                _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
+                | ({"recovery_status": "waiting_user"} if failure else {}),
+                do_reset,
             )
-        return _recover_result(decision, do_reset)
+        return _recover_result(decision, do_reset) | recovery
     if decision.action == "chat":
         # 잡담으로 끝내기보다 목적 있는 대화로 채운다 — casual_engagement.py의
         # 공용 우선순위(만족도 체크인 → 프로필 이어 묻기)를 그대로 재사용한다.
@@ -383,11 +433,15 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
                 "needs_clarification": False,
                 "clarification_reason": None,
                 "last_agent": "fallback_orchestrator",
-            }, do_reset)
+            } | ({"recovery_status": "waiting_user"} if failure else {}), do_reset)
         return _with_context_reset(
-            _clarify_result(decision.chat_reply or _DEFAULT_CLARIFY_FALLBACK), do_reset
+            _clarify_result(decision.chat_reply or _DEFAULT_CLARIFY_FALLBACK)
+            | ({"recovery_status": "waiting_user"} if failure else {}),
+            do_reset,
         )
     # action == "clarify" 또는 예상 밖의 값 — 안전하게 clarify로 처리
     return _with_context_reset(
-        _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK), do_reset
+        _clarify_result(decision.clarify_message or _DEFAULT_CLARIFY_FALLBACK)
+        | ({"recovery_status": "waiting_user"} if failure else {}),
+        do_reset,
     )

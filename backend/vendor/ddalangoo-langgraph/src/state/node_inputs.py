@@ -172,6 +172,9 @@ class FallbackOrchestratorInput(TypedDict):
     fallback_stuck_turns: int
     error: Optional[str]
     active_failure: Optional[FailureEvent]
+    recovery_fingerprint: Optional[str]
+    recovery_attempts: int
+    recovery_status: RecoveryStatus
 
 
 class FailureDetectorInput(TypedDict):
@@ -413,6 +416,9 @@ class RespondNodeUpdate(TypedDict, total=False):
 
 
 class FallbackOrchestratorUpdate(TypedDict, total=False):
+    recovery_fingerprint: Optional[str]
+    recovery_attempts: int
+    recovery_status: RecoveryStatus
     intent: Optional[Intent]
     confidence: float
     keywords: list[str]
