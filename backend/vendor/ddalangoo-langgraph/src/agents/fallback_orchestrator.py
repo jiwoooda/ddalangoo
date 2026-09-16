@@ -462,7 +462,7 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
                     recovery,
                 ),
                 do_reset,
-            ), "clarify", "generated")
+            ), "clarify", "generated" if decision.clarify_message else "template")
         # recover인데 intent를 안 고쳤고(corrected_intent 없음) 이번 턴 intent가
         # 여전히 unclear면, route()의 게이트가 intent=="unclear" 조건으로 다시
         # respond가 아니라 fallback_orchestrator를 무한 반복 호출할 위험이 있다
@@ -478,7 +478,7 @@ def fallback_orchestrator_node(state: FallbackOrchestratorInput) -> FallbackOrch
                     recovery,
                 ),
                 do_reset,
-            ), "clarify", "generated")
+            ), "clarify", "generated" if decision.clarify_message else "template")
         return _finalize_failure(state, _recover_result(decision, do_reset) | recovery, "recovered", "none")
     if decision.action == "chat":
         # 잡담으로 끝내기보다 목적 있는 대화로 채운다 — casual_engagement.py의

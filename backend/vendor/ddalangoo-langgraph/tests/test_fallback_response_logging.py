@@ -117,6 +117,70 @@ def test_empty_chat_reply_logs_template_generation(monkeypatch, tmp_path):
     assert event["response_generation_type"] == "template"
 
 
+def test_unsafe_recover_downgrade_logs_template_for_empty_clarify_message(monkeypatch, tmp_path):
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("FALLBACK_EVENT_LOG_PATH", str(path))
+    monkeypatch.setattr(
+        fallback_module,
+        "_get_llm",
+        lambda: _FakeLLM(FallbackDecision(action="recover", corrected_intent="address_change")),
+    )
+
+    update = fallback_orchestrator_node(_state(recovery_attempts=0, recovery_fingerprint=None))
+
+    event = json.loads(path.read_text(encoding="utf-8"))
+    assert update["pending_action"]["message"] == fallback_module._DEFAULT_CLARIFY_FALLBACK
+    assert event["response_generation_type"] == "template"
+
+
+# active_failure가 있으면 corrected_intent 유무와 무관하게 위 test와 같은 분기(458행,
+# "active_failure recover에 안전한 intent 보정이 없어 clarify로 강등")로 귀결된다.
+# intent="unclear"를 줘도 472행 분기(교정 intent 없음 + intent unclear)에는 도달하지
+# 않는다 — active_failure가 먼저 458행 조건에 걸려 그 분기가 선점한다. 472행 분기는
+# active_failure가 없을 때만 도달 가능하며, 그 경우의 no-log semantics는 아래
+# test_recover_downgrade_without_active_failure_skips_event_log가 검증한다.
+def test_unsafe_recover_downgrade_without_corrected_intent_logs_template_for_empty_clarify_message(
+    monkeypatch, tmp_path
+):
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("FALLBACK_EVENT_LOG_PATH", str(path))
+    monkeypatch.setattr(
+        fallback_module, "_get_llm", lambda: _FakeLLM(FallbackDecision(action="recover"))
+    )
+
+    update = fallback_orchestrator_node(
+        _state(intent="unclear", recovery_attempts=0, recovery_fingerprint=None)
+    )
+
+    event = json.loads(path.read_text(encoding="utf-8"))
+    assert update["pending_action"]["message"] == fallback_module._DEFAULT_CLARIFY_FALLBACK
+    assert event["response_generation_type"] == "template"
+
+
+# 472행 분기(교정 intent 없음 + intent unclear)는 active_failure가 None일 때만
+# 도달한다. _finalize_failure는 active_failure가 없으면 이벤트를 기록하지 않으므로
+# (기존 semantics, 이 작업에서 변경하지 않음) 이 분기의 response_generation_type은
+# 로그로 관측되지 않는다 — 그 사실 자체를 명시적으로 고정한다.
+def test_recover_downgrade_without_active_failure_skips_event_log(monkeypatch, tmp_path):
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("FALLBACK_EVENT_LOG_PATH", str(path))
+    monkeypatch.setattr(
+        fallback_module, "_get_llm", lambda: _FakeLLM(FallbackDecision(action="recover"))
+    )
+
+    update = fallback_orchestrator_node(
+        _state(
+            active_failure=None,
+            intent="unclear",
+            recovery_attempts=0,
+            recovery_fingerprint=None,
+        )
+    )
+
+    assert update["pending_action"]["message"] == fallback_module._DEFAULT_CLARIFY_FALLBACK
+    assert not path.exists()
+
+
 def test_recovered_failure_logs_once(monkeypatch, tmp_path):
     path = tmp_path / "events.jsonl"
     monkeypatch.setenv("FALLBACK_EVENT_LOG_PATH", str(path))
