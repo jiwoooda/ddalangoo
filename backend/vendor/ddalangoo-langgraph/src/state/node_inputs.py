@@ -24,6 +24,7 @@ private 헬퍼 함수(`_extract_user_input` 등)는 기존처럼 `ShoppingState`
 from typing import Any, Literal, Optional, TypedDict
 
 from src.state.schema import Condition, Intent, PendingAction, Stage
+from src.recovery.types import FailureEvent, ProgressSignature, RecoveryStatus
 
 
 class IntentAgentInput(TypedDict):
@@ -154,6 +155,7 @@ class CancelNodeInput(TypedDict):
 
 
 class FallbackOrchestratorInput(TypedDict):
+    session_id: str
     stage: Stage
     intent: Optional[Intent]
     user_id: str
@@ -170,6 +172,76 @@ class FallbackOrchestratorInput(TypedDict):
     messages: list
     fallback_stuck_turns: int
     error: Optional[str]
+    active_failure: Optional[FailureEvent]
+    recovery_fingerprint: Optional[str]
+    recovery_attempts: int
+    recovery_status: RecoveryStatus
+    cart_items: list[dict[str, Any]]
+    selected_product: Optional[dict[str, Any]]
+
+
+class FailureDetectorInput(TypedDict):
+    """Minimum state needed to produce one deterministic FailureEvent."""
+
+    stage: Stage
+    intent: Optional[Intent]
+    pending_action: Optional[PendingAction]
+    error: Optional[str]
+    needs_clarification: bool
+    active_failure: Optional[FailureEvent]
+
+
+class FailureDetectorUpdate(TypedDict, total=False):
+    active_failure: Optional[FailureEvent]
+
+
+class TurnOutcomeGuardInput(TypedDict):
+    """Minimum stable state used to compare progress across user turns."""
+
+    stage: Stage
+    intent: Optional[Intent]
+    pending_action: Optional[PendingAction]
+    current_queue_index: int
+    queue_items: list[dict[str, Any]]
+    selected_product: Optional[dict[str, Any]]
+    cart_items: list[dict[str, Any]]
+    order_id: Optional[str]
+    payment: Optional[dict[str, Any]]
+    active_failure: Optional[FailureEvent]
+    turn_start_signature: Optional[ProgressSignature]
+    last_turn_signature: Optional[ProgressSignature]
+    repeated_signature_turns: int
+    immediate_response: Optional[str]
+    explanation: Optional[str]
+    needs_clarification: bool
+    last_agent: Optional[str]
+    clarification_reason: Optional[str]
+    quantity: Optional[int]
+    address_text: Optional[str]
+    error: Optional[str]
+
+
+class TurnOutcomeGuardUpdate(TypedDict, total=False):
+    active_failure: Optional[FailureEvent]
+    last_turn_signature: Optional[ProgressSignature]
+    repeated_signature_turns: int
+
+
+class RecoveryOrchestratorInput(TypedDict):
+    """Recovery policy receives only the event, budget, and safe state context."""
+
+    stage: Stage
+    pending_action: Optional[PendingAction]
+    active_failure: Optional[FailureEvent]
+    recovery_fingerprint: Optional[str]
+    recovery_attempts: int
+    recovery_status: RecoveryStatus
+
+
+class RecoveryOrchestratorUpdate(TypedDict, total=False):
+    recovery_fingerprint: Optional[str]
+    recovery_attempts: int
+    recovery_status: RecoveryStatus
 
 
 # ══════════════════════════════════════════════
@@ -347,6 +419,9 @@ class RespondNodeUpdate(TypedDict, total=False):
 
 
 class FallbackOrchestratorUpdate(TypedDict, total=False):
+    recovery_fingerprint: Optional[str]
+    recovery_attempts: int
+    recovery_status: RecoveryStatus
     intent: Optional[Intent]
     confidence: float
     keywords: list[str]

@@ -5,6 +5,7 @@ import inspect
 
 from src.state import schema
 from src.state.schema import (
+    recovery_turn_reset,
     turn_observability_reset,
     TURN_OBSERVABILITY_RESET_FIELDS,
     get_default_shopping_state,
@@ -14,10 +15,14 @@ from src.agents.nodes import reset_turn_observability_node
 
 def test_reset_turn_observability_node_uses_helper():
     result = reset_turn_observability_node({})
-    assert result == turn_observability_reset()
-    assert set(result) == set(TURN_OBSERVABILITY_RESET_FIELDS)
+    assert turn_observability_reset().items() <= result.items()
+    assert {k: v for k, v in recovery_turn_reset().items() if k != "turn_start_signature"}.items() <= result.items()
+    assert set(result) == set(TURN_OBSERVABILITY_RESET_FIELDS) | set(recovery_turn_reset())
+    assert result["turn_start_signature"]
     default = get_default_shopping_state("u", "s")
     for k, v in result.items():
+        if k == "turn_start_signature":
+            continue
         assert v == default[k], f"{k}: {v!r} != default {default[k]!r}"
 
 

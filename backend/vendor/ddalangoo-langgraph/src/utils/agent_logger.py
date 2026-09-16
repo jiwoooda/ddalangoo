@@ -8,7 +8,7 @@ logs/<session_id>_<timestamp>.jsonl: 분석용 구조화 데이터
 import json
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -257,6 +257,24 @@ class AgentLogger:
             return
         self._append_txt(text + "\n")
         self._log_jsonl({"event": "log", "turn": self._turn, "text": text})
+
+    def log_fallback_event(self, event: dict[str, Any]) -> None:
+        """Best-effort persistent fallback telemetry with an allowlisted schema."""
+        allowed = (
+            "trace_id", "stage", "pending_type", "intent", "failure_kind",
+            "failure_code", "failure_source", "retryability", "side_effect_risk",
+            "recovery_attempts", "recovery_status", "recovery_fingerprint",
+            "final_fallback_action", "response_generation_type",
+        )
+        try:
+            path = Path(os.getenv("FALLBACK_EVENT_LOG_PATH", "logs/fallback_events.jsonl"))
+            record = {key: event.get(key) for key in allowed}
+            record["timestamp"] = datetime.now(timezone.utc).isoformat()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with self._write_lock, path.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception:
+            return
 
     def log_context_agent(self, inputs: dict, outputs: dict) -> None:
         if not self._enabled:

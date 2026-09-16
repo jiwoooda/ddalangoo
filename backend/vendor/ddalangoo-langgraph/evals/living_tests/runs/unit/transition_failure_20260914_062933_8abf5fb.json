@@ -1,0 +1,35 @@
+{
+  "run_id": "run-20260914-062933-8abf5fb",
+  "scope": "unit",
+  "target": "transition_failure",
+  "git_sha": "8abf5fb",
+  "model": "default",
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "transition_failure-2026-09-14-001",
+      "trace_ref": null,
+      "executed_nodes": [
+        "transition_failure"
+      ],
+      "tool_calls_summary": [],
+      "assertion_results": [
+        {
+          "type": "field_equals",
+          "path": "active_failure.kind",
+          "expected": "UNHANDLED_TRANSITION",
+          "actual": "UNHANDLED_TRANSITION",
+          "passed": true
+        },
+        {
+          "type": "field_equals",
+          "path": "active_failure.code",
+          "expected": "recipe.ingredient_confirm.no_edge",
+          "actual": "recipe.ingredient_confirm.no_edge",
+          "passed": true
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

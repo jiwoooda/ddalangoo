@@ -1,43 +1,11 @@
 from typing import Annotated, Optional, TypedDict, Literal, Any
 from langgraph.graph.message import add_messages
+from src.recovery.types import FailureEvent, ProgressSignature, RecoveryStatus
+from src.state.common_types import Intent, Stage
 
 # ══════════════════════════════════════════════
 # 공통 타입
 # ══════════════════════════════════════════════
-
-Stage = Literal[
-    "idle",
-    "searching",
-    "product_confirming",
-    "cart_shopping",
-    "recipe_planning",
-    "payment_processing",
-    "payment_password_required",
-    "completed",
-    "failed",
-]
-
-Intent = Literal[
-    "buy",
-    "reorder",
-    "confirm",
-    "deny",
-    "next",
-    "refine",
-    "compare_platforms",
-    "quantity_change",
-    "address_change",
-    "option_select",
-    "ask",
-    # WON-23 Unit 1 — 아직 상품을 정하기 전, "어떤 게 나을지" 조언을 구하는
-    # 발화("사과랑 딸기 중 뭐가 나아?", "이 계절엔 뭐가 맛있어?"). ask(이미
-    # 고른 상품에 대한 질문)와는 대상이 다르고, next(다른 후보 요청, 진행
-    # 중인 검색이 있어야 함)와도 다르다 — 카탈로그 접근 없이 조언만 생성
-    # (분류·라우팅은 Unit 2/3, 이번 Unit은 분류값만 추가).
-    "product_decision_advice",
-    "cancel",
-    "unclear",
-]
 
 Condition = Literal[
     "최저가",
@@ -135,6 +103,20 @@ class ShoppingState(TypedDict):
     # 처럼 매 턴 강제 초기화하지 않음 — 연속성이 핵심). route()가 이 값을 보고
     # 이미 한 번 정해진 재질문을 했는데도 또 막혔으면 fallback_orchestrator로 보낸다.
     fallback_stuck_turns: int
+
+    # ── Workflow recovery contract ──
+    # active_failure is turn-local: the first root cause wins, while later
+    # NO_PROGRESS/LOOP_DETECTED observations remain diagnostic symptoms.
+    # Fingerprint attempts are goal-local so a repeated failure cannot spend a
+    # second automatic repair after the next user turn. A new session resets
+    # both turn- and goal-local recovery state.
+    active_failure: Optional[FailureEvent]
+    turn_start_signature: Optional[ProgressSignature]
+    last_turn_signature: Optional[ProgressSignature]
+    repeated_signature_turns: int
+    recovery_fingerprint: Optional[str]
+    recovery_attempts: int
+    recovery_status: RecoveryStatus
 
     # ── 검색 조건 ──
     keywords: list[str]
@@ -323,6 +305,13 @@ def get_default_shopping_state(user_id: str, session_id: str) -> dict:
         "recommend_from_profile": False,
         "cart_operations": [],
         "fallback_stuck_turns": 0,
+        "active_failure": None,
+        "turn_start_signature": None,
+        "last_turn_signature": None,
+        "repeated_signature_turns": 0,
+        "recovery_fingerprint": None,
+        "recovery_attempts": 0,
+        "recovery_status": "idle",
         "keywords": [],
         "search_query": None,
         "exclude_keywords": [],
@@ -452,6 +441,26 @@ TURN_OBSERVABILITY_RESET_FIELDS: tuple[str, ...] = (
     "source_used",
 )
 
+# ── Recovery lifecycle ──
+# A turn records only one root failure. Goal-scoped values survive a normal
+# user reply so the same fingerprint gets one automatic repair at most. A new
+# shopping session resets both scopes.
+RECOVERY_TURN_RESET_FIELDS: tuple[str, ...] = (
+    "active_failure",
+    "turn_start_signature",
+    "recovery_status",
+)
+RECOVERY_GOAL_RESET_FIELDS: tuple[str, ...] = (
+    "last_turn_signature",
+    "repeated_signature_turns",
+    "recovery_fingerprint",
+    "recovery_attempts",
+)
+RECOVERY_SESSION_RESET_FIELDS: tuple[str, ...] = (
+    *RECOVERY_TURN_RESET_FIELDS,
+    *RECOVERY_GOAL_RESET_FIELDS,
+)
+
 
 def product_context_reset() -> dict[str, Any]:
     """상품 탐색 문맥 초기화 — {필드명: 초기화값} 을 새로 만들어 반환."""
@@ -511,3 +520,27 @@ def turn_observability_reset() -> dict[str, Any]:
         "ranking_mode": None,
         "source_used": None,
     }
+
+
+def recovery_turn_reset() -> dict[str, Any]:
+    """Reset state created during one user turn; retain goal repair budget."""
+    return {
+        "active_failure": None,
+        "turn_start_signature": None,
+        "recovery_status": "idle",
+    }
+
+
+def recovery_goal_reset() -> dict[str, Any]:
+    """Reset goal progress and recovery budget; retain current turn state."""
+    return {
+        "last_turn_signature": None,
+        "repeated_signature_turns": 0,
+        "recovery_fingerprint": None,
+        "recovery_attempts": 0,
+    }
+
+
+def recovery_session_reset() -> dict[str, Any]:
+    """Reset all recovery state when a new shopping session starts."""
+    return recovery_turn_reset() | recovery_goal_reset()
